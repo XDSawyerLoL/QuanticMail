@@ -29,19 +29,10 @@ function deviceId(key) {
   return `d-${createHash("sha256").update(`P-256:${key.x}:${key.y}`).digest("hex").slice(0, 10)}`;
 }
 
-function relayId(key) {
-  const { createPublicKey } = requireNotUsed();
-  return createPublicKey;
-}
-
 function spkiRelayId(publicKeyObject) {
   return createHash("sha256")
     .update(publicKeyObject.export({ type: "spki", format: "der" }))
     .digest("hex");
-}
-
-function requireNotUsed() {
-  throw new Error("unreachable");
 }
 
 function signedIdentity() {
