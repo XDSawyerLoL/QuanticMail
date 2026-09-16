@@ -33,7 +33,8 @@ Cette tranche inclut :
 - compatibilité exacte avec les routes Quantic Relay Protocol V1 actuelles ;
 - stockage durable local sur disque ;
 - écriture atomique de l’état avant réponse de succès aux mutations ;
-- configuration par variables d’environnement et arguments simples ;
+- sérialisation des mutations concurrentes et rollback mémoire sur échec de persistance ;
+- configuration par variables d’environnement et options CLI ;
 - CORS compatible avec les clients QuanticMail distants ;
 - arrêt propre ;
 - tests unitaires de sérialisation et tests d’intégration restart/recovery ;
@@ -46,7 +47,8 @@ Cette tranche n’inclut pas :
 - découverte signée des endpoints d’une identité ;
 - transport direct appareil-à-appareil ;
 - chiffrement additionnel du fichier d’état côté serveur ;
-- interface d’administration web.
+- interface d’administration web ;
+- image Docker ou orchestration de conteneur.
 
 Ces fonctions restent des étapes ultérieures de Quantic Network V1.
 
@@ -70,10 +72,12 @@ Le serveur autonome ne réimplémente pas cette logique. Il appelle le même mot
 
 ### 2. Ajouter une frontière de persistance minimale
 
-Pour éviter un refactor prématuré de tout le moteur, `lib/quantic/relay.ts` exposera une représentation sérialisable contrôlée de son état ainsi que deux opérations :
+Pour éviter un refactor prématuré de tout le moteur, `lib/quantic/relay.ts` exposera une représentation sérialisable contrôlée de son état ainsi que des opérations explicites pour :
 
-- export de l’état persistant ;
-- restauration d’un état validé au démarrage.
+- exporter l’état persistant ;
+- restaurer un état validé ;
+- réinitialiser l’état dans les tests ;
+- purger les données expirées au chargement.
 
 La représentation persistée couvre :
 
@@ -83,7 +87,9 @@ La représentation persistée couvre :
 - `devices` ;
 - `queues` ;
 - `receipts` ;
-- `sendWindows` si encore pertinents lors de la restauration.
+- `sendWindows`.
+
+Les timestamps de `sendWindows` plus vieux qu’une minute, les challenges expirés et les messages/reçus hors TTL sont éliminés à la restauration.
 
 Les `Map` et `Set` internes ne sont jamais écrits directement par sérialisation implicite. Une structure JSON versionnée est produite explicitement afin de pouvoir faire évoluer le format.
 
@@ -104,31 +110,36 @@ Format initial :
 }
 ```
 
-Au chargement, les éléments expirés sont nettoyés selon les TTL déjà appliqués par le moteur.
-
 ### 3. Stockage JSON atomique
 
 Le module de stockage du relais autonome utilise un seul fichier d’état par défaut :
 
 `./data/relay-state.json`
 
-Une mutation suit cette séquence :
+Toutes les opérations qui modifient l’état durable passent par une file de mutations unique dans le processus. Une deuxième mutation attend la fin complète de la première avant de modifier le moteur.
 
-1. appliquer la mutation au moteur ;
-2. produire le snapshot versionné ;
-3. créer le répertoire de données si nécessaire ;
-4. écrire le snapshot dans un fichier temporaire situé dans le même répertoire ;
-5. synchroniser et fermer le fichier ;
-6. renommer atomiquement le fichier temporaire vers `relay-state.json` ;
-7. seulement ensuite envoyer la réponse HTTP de succès.
+Une mutation suit cette séquence transactionnelle :
+
+1. capturer un snapshot valide de l’état courant ;
+2. appliquer la mutation au moteur ;
+3. produire le nouveau snapshot versionné ;
+4. créer le répertoire de données si nécessaire ;
+5. écrire le nouveau snapshot dans un fichier temporaire du même répertoire ;
+6. synchroniser et fermer le fichier ;
+7. renommer atomiquement le fichier temporaire vers `relay-state.json` ;
+8. seulement ensuite envoyer la réponse HTTP de succès.
+
+Si les étapes de persistance échouent, le moteur restaure le snapshot capturé à l’étape 1 avant de répondre avec une erreur serveur. Ainsi, le processus ne continue jamais avec une mutation acceptée en mémoire mais absente du disque.
 
 Le fichier est créé avec des permissions restrictives quand la plateforme le permet.
+
+Les nettoyages opportunistes déclenchés par une lecture peuvent rester uniquement en mémoire jusqu’à la prochaine mutation ou l’arrêt propre ; ils ne doivent jamais ressusciter des données expirées au chargement suivant, car la restauration applique à nouveau les TTL.
 
 Ce choix privilégie la simplicité et la vérifiabilité pour V1. SQLite pourra remplacer ce backend plus tard derrière une abstraction de stockage si le volume ou la concurrence l’exigent.
 
 ### 4. Serveur HTTP autonome
 
-Un nouveau dossier `standalone-relay/` contient le point d’entrée serveur et l’adaptateur HTTP.
+Un nouveau dossier `standalone-relay/` contient le point d’entrée serveur, l’adaptateur HTTP, la file de mutations et le stockage disque.
 
 Le serveur utilise les API Node.js intégrées afin d’éviter d’ajouter une dépendance de framework serveur uniquement pour cette tranche.
 
@@ -148,6 +159,8 @@ Routes exposées :
 
 Les schémas JSON, paramètres, headers et statuts doivent rester compatibles avec les routes Next.js existantes.
 
+Les endpoints mutateurs sont au minimum `challenge`, `register`, `devices/register`, `send`, `ack` et `POST receipts`. Chacun passe par la file transactionnelle décrite plus haut.
+
 ### 5. Configuration
 
 Valeurs par défaut sûres :
@@ -161,6 +174,14 @@ Variables :
 - `QUANTIC_RELAY_HOST`
 - `QUANTIC_RELAY_PORT`
 - `QUANTIC_RELAY_DATA_DIR`
+
+Options CLI équivalentes :
+
+- `--host`
+- `--port`
+- `--data-dir`
+
+Ordre de priorité : CLI > variables d’environnement > valeurs par défaut.
 
 Le bind sur `0.0.0.0` est volontairement explicite pour l’usage LAN/VPS. Pour une exposition Internet, le protocole exige HTTPS ; le relais peut être placé derrière Caddy, Nginx, Traefik ou tout reverse proxy TLS standard.
 
@@ -183,14 +204,14 @@ Au démarrage :
 1. lire `relay-state.json` s’il existe ;
 2. vérifier le format et la version ;
 3. restaurer l’état ;
-4. purger les données expirées ;
+4. purger les données expirées pendant la restauration ;
 5. écouter sur host/port configurés.
 
 Si le fichier est absent, le relais démarre vide.
 
 Si le fichier est corrompu ou d’une version inconnue, le relais refuse de démarrer plutôt que d’écraser silencieusement les données existantes.
 
-Sur `SIGINT`/`SIGTERM`, le serveur cesse d’accepter de nouvelles connexions, persiste un dernier snapshot puis termine.
+Sur `SIGINT`/`SIGTERM`, le serveur cesse d’accepter de nouvelles connexions, attend la fin de la mutation en cours, persiste un dernier snapshot puis termine.
 
 ## Compatibilité avec QuanticMail
 
@@ -220,9 +241,11 @@ Le relais autonome doit répondre au health check avec :
 - conservation des `Map`/`Set` et objets JWK ;
 - rejet d’un format inconnu ;
 - rejet d’un JSON invalide ;
-- purge des challenges/messages/reçus expirés ;
+- purge des challenges/messages/reçus/rate windows expirés ;
 - écriture atomique sans fichier final partiel ;
-- conservation du dernier fichier valide si une écriture temporaire échoue.
+- conservation du dernier fichier valide si une écriture temporaire échoue ;
+- rollback de l’état mémoire si la persistance échoue ;
+- deux mutations concurrentes sont persistées dans leur ordre d’exécution sans perte de mise à jour.
 
 ### Tests HTTP
 
@@ -255,11 +278,11 @@ Le même programme doit pouvoir fonctionner sur :
 
 - PC Windows/Linux/macOS avec Node.js ;
 - mini-PC ou Raspberry Pi ;
-- NAS capable d’exécuter Node.js ou un conteneur ;
+- NAS capable d’exécuter Node.js ;
 - VPS ;
 - future installation Quantic OS.
 
-Un conteneur pourra être fourni dans cette tranche si cela reste léger et ne modifie pas le design du moteur ; l’exécutable Node direct reste la référence fonctionnelle.
+L’exécution Node directe est la référence fonctionnelle de cette tranche. La conteneurisation sera traitée séparément si elle devient utile au déploiement.
 
 ## Évolution après cette tranche
 
@@ -278,6 +301,8 @@ Une fois le relais autonome et durable validé :
 - Le premier backend durable est JSON atomique, pas SQLite.
 - Le serveur HTTP est basé sur Node.js natif, pas Express/Fastify.
 - Le relais écoute uniquement en loopback par défaut.
+- Les mutations durables sont sérialisées dans le processus.
 - Une mutation n’est considérée réussie qu’après persistance du nouvel état.
+- Une persistance échouée restaure l’état mémoire précédent.
 - Un fichier d’état corrompu ne doit jamais être remplacé automatiquement par un état vide.
 - L’identité canonique ne dépend jamais du relais utilisé.
