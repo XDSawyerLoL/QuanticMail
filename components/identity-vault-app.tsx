@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
 import { randomToken } from "@/lib/quantic/crypto";
 import { getLocalIdentity, saveLocalIdentity, type LocalIdentity } from "@/lib/quantic/local-db";
@@ -18,6 +20,7 @@ function downloadTextFile(filename: string, text: string) {
 }
 
 export function IdentityVaultApp() {
+  const router = useRouter();
   const [identity, setIdentity] = useState<LocalIdentity | null>(null);
   const [loading, setLoading] = useState(true);
   const [exportPassword, setExportPassword] = useState("");
@@ -84,7 +87,8 @@ export function IdentityVaultApp() {
       setIdentity(local);
       setNotice(`Identité restaurée : ${local.canonicalAddress}. Retour vers QuanticMail…`);
       window.setTimeout(() => {
-        window.location.href = "/";
+        router.push("/");
+        router.refresh();
       }, 700);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Restauration impossible.");
@@ -103,7 +107,7 @@ export function IdentityVaultApp() {
             <h1>Sauvegarde ton identité, pas ta boîte.</h1>
             <p className="qn-lead">Le coffre contient les clés privées nécessaires pour récupérer exactement la même identité Quantic sur un autre appareil. Il est chiffré localement avant d’être enregistré.</p>
           </div>
-          <a className="qn-back-link" href="/">← QuanticMail</a>
+          <Link className="qn-back-link" href="/">← QuanticMail</Link>
         </div>
 
         {loading ? (
