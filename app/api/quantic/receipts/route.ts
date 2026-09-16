@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { assertManifestDeviceActive, ManifestStateError } from "@/lib/quantic/manifest-state";
 import {
   acknowledgeReceipts,
   pullReceipts,
@@ -15,9 +16,10 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const handle = url.searchParams.get("handle") ?? "";
     const deviceId = url.searchParams.get("deviceId");
+    if (deviceId) assertManifestDeviceActive(handle, deviceId);
     return NextResponse.json({ receipts: pullReceipts(handle, bearer(request), deviceId) });
   } catch (error) {
-    if (error instanceof RelayError) {
+    if (error instanceof ManifestStateError || error instanceof RelayError) {
       return NextResponse.json({ error: error.message }, { status: error.status });
     }
     return NextResponse.json({ error: "Requête Quantic invalide." }, { status: 400 });
@@ -27,15 +29,18 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
+    const handle = String(body.handle ?? "");
+    const deviceId = typeof body.deviceId === "string" ? body.deviceId : undefined;
+    if (deviceId) assertManifestDeviceActive(handle, deviceId);
     const result = acknowledgeReceipts(
-      String(body.handle ?? ""),
+      handle,
       bearer(request),
-      typeof body.deviceId === "string" ? body.deviceId : undefined,
+      deviceId,
       Array.isArray(body.ids) ? body.ids : [],
     );
     return NextResponse.json(result);
   } catch (error) {
-    if (error instanceof RelayError) {
+    if (error instanceof ManifestStateError || error instanceof RelayError) {
       return NextResponse.json({ error: error.message }, { status: error.status });
     }
     return NextResponse.json({ error: "Requête Quantic invalide." }, { status: 400 });
