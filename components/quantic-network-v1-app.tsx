@@ -390,6 +390,7 @@ export function QuanticNetworkV1App() {
 
       await publishIdentity(active);
       active = await syncOwnManifest(active);
+      if (!active.canonicalAddress || !active.deviceId) throw new Error("Identité V1 incomplète après synchronisation.");
       await flushOutbox(active);
       const locator = active.canonicalAddress;
       const deviceParam = encodeURIComponent(active.deviceId);
