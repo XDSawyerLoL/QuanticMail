@@ -145,3 +145,37 @@ test("same sequence is idempotent only when manifest content is identical", () =
   assert.equal(mergeManifestState(current, identical), current);
   assert.throws(() => mergeManifestState(current, conflicting), /conflit.*séquence/i);
 });
+
+test("a later manifest cannot reactivate a previously revoked device", () => {
+  const current = manifest({
+    sequence: 6,
+    devices: [device(ROOT, "root")],
+    revocations: [
+      { deviceId: LINKED_B, revokedAt: "2026-09-16T15:10:00.000Z", reason: "compromised" },
+    ],
+  });
+  const reactivated = manifest({
+    sequence: 7,
+    devices: [device(ROOT, "root"), device(LINKED_B)],
+    revocations: [],
+  });
+
+  assert.throws(() => mergeManifestState(current, reactivated), /réactiv|révoqué/i);
+});
+
+test("a later manifest must preserve the complete revocation history", () => {
+  const current = manifest({
+    sequence: 8,
+    devices: [device(ROOT, "root"), device(LINKED_A)],
+    revocations: [
+      { deviceId: LINKED_B, revokedAt: "2026-09-16T15:10:00.000Z", reason: "lost" },
+    ],
+  });
+  const forgotRevocation = manifest({
+    sequence: 9,
+    devices: [device(ROOT, "root"), device(LINKED_A)],
+    revocations: [],
+  });
+
+  assert.throws(() => mergeManifestState(current, forgotRevocation), /révocation.*historique|historique.*révocation/i);
+});
