@@ -35,6 +35,19 @@ test("file store persists and reloads versioned state", async () => {
   }
 });
 
+test("relay state file is owner-only on POSIX", { skip: process.platform === "win32" }, async () => {
+  const dir = await tempDir();
+  try {
+    const store = createFileRelayStateStore(dir);
+    await store.save(createEmptyRelayState("2026-09-16T00:00:00.000Z"));
+
+    const stat = await fs.stat(join(dir, "relay-state.json"));
+    assert.equal(stat.mode & 0o777, 0o600);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("invalid JSON is rejected instead of treated as an empty relay", async () => {
   const dir = await tempDir();
   try {
