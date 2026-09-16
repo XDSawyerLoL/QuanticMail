@@ -4,6 +4,7 @@ import {
   buildRelayUrl,
   getActiveRelayId,
   getRelayEndpoints,
+  isRetryableRelayStatus,
   normalizeRelayBaseUrl,
   orderedRelays,
   relayFetch,
@@ -56,6 +57,14 @@ test("keeps the active relay first after failover until the client changes it", 
   assert.equal(getActiveRelayId(storage), "backup");
   saveActiveRelayId(null, storage);
   assert.equal(getActiveRelayId(storage), null);
+});
+
+test("classifies only transport failures and caller-approved statuses as retryable", () => {
+  assert.equal(isRetryableRelayStatus(503), true);
+  assert.equal(isRetryableRelayStatus(429), true);
+  assert.equal(isRetryableRelayStatus(401), false);
+  assert.equal(isRetryableRelayStatus(404), false);
+  assert.equal(isRetryableRelayStatus(404, [404]), true);
 });
 
 test("builds relative URLs for same-origin and absolute URLs for external relays", () => {
