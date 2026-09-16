@@ -18,6 +18,40 @@ jobs:
       - run: npm test
       - run: npm run build
       - run: npm run lint
+      - name: Smoke standalone Quantic Relay CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          export QUANTIC_RELAY_HOST=127.0.0.1
+          export QUANTIC_RELAY_PORT=8787
+          export QUANTIC_RELAY_DATA_DIR="$RUNNER_TEMP/quantic-relay-smoke"
+
+          npm run relay:start >"$RUNNER_TEMP/quantic-relay.log" 2>&1 &
+          relay_pid=$!
+          trap 'kill "$relay_pid" 2>/dev/null || true; wait "$relay_pid" 2>/dev/null || true' EXIT
+
+          healthy=0
+          for _ in {1..30}; do
+            if curl --fail --silent --show-error \
+              http://127.0.0.1:8787/api/quantic/health \
+              >"$RUNNER_TEMP/quantic-relay-health.json"; then
+              healthy=1
+              break
+            fi
+            sleep 0.25
+          done
+
+          if [[ "$healthy" -ne 1 ]]; then
+            cat "$RUNNER_TEMP/quantic-relay.log"
+            exit 1
+          fi
+
+          grep -q '"protocol":"quantic-relay/1"' "$RUNNER_TEMP/quantic-relay-health.json"
+          kill -TERM "$relay_pid"
+          wait "$relay_pid"
+          trap - EXIT
+
+          test -f "$QUANTIC_RELAY_DATA_DIR/relay-state.json"
       - name: Validate VPS bootstrap script
         run: bash -n scripts/bootstrap-mail-vps.sh
       - name: Validate production mail compose
