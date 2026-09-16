@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { assertManifestDeviceActive, ManifestStateError } from "@/lib/quantic/manifest-state";
 import { acknowledgeEnvelopes, RelayError } from "@/lib/quantic/relay";
 
 function bearer(request: Request) {
@@ -9,15 +10,18 @@ function bearer(request: Request) {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
+    const handle = String(body.handle ?? "");
+    const deviceId = typeof body.deviceId === "string" ? body.deviceId : undefined;
+    if (deviceId) assertManifestDeviceActive(handle, deviceId);
     const result = acknowledgeEnvelopes(
-      String(body.handle ?? ""),
+      handle,
       bearer(request),
-      typeof body.deviceId === "string" ? body.deviceId : undefined,
+      deviceId,
       Array.isArray(body.ids) ? body.ids : [],
     );
     return NextResponse.json(result);
   } catch (error) {
-    if (error instanceof RelayError) {
+    if (error instanceof ManifestStateError || error instanceof RelayError) {
       return NextResponse.json({ error: error.message }, { status: error.status });
     }
     return NextResponse.json({ error: "Requête Quantic invalide." }, { status: 400 });
