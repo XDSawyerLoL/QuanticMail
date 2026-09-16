@@ -490,9 +490,12 @@ export function QuanticNetworkV1App() {
 
   useEffect(() => {
     if (!identity) return;
-    void sync(identity, true);
+    const initialSync = window.setTimeout(() => void sync(identity, true), 0);
     const timer = window.setInterval(() => void sync(identity, true), 12_000);
-    return () => window.clearInterval(timer);
+    return () => {
+      window.clearTimeout(initialSync);
+      window.clearInterval(timer);
+    };
   }, [identity, sync]);
 
   async function createIdentity(event: FormEvent) {
