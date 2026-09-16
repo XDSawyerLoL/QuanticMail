@@ -23,6 +23,7 @@ export type MailItem = {
 
 export type MailSnapshot = {
   accountEmail: string;
+  activeMailboxId: string | null;
   mailboxes: MailboxItem[];
   messages: MailItem[];
 };
@@ -96,7 +97,10 @@ export async function validateMailbox(authorization: string) {
   return discovered;
 }
 
-export async function getMailSnapshot(auth: MailSession): Promise<MailSnapshot> {
+export async function getMailSnapshot(
+  auth: MailSession,
+  requestedMailboxId?: string,
+): Promise<MailSnapshot> {
   const discovered = await JmapClient.discover(sessionUrl(), auth.authorization);
   const id = accountId(discovered);
   const client = new JmapClient(discovered, auth.authorization);
@@ -106,10 +110,13 @@ export async function getMailSnapshot(auth: MailSession): Promise<MailSnapshot> 
     [JMAP_CORE, JMAP_MAIL],
   );
   const mailboxData = responseAt<MailboxGetResponse>(mailboxResponse.methodResponses, 0);
-  const inbox = mailboxData.list.find((item) => item.role === "inbox") ?? mailboxData.list[0];
+  const requested = requestedMailboxId
+    ? mailboxData.list.find((item) => item.id === requestedMailboxId)
+    : undefined;
+  const activeMailbox = requested ?? mailboxData.list.find((item) => item.role === "inbox") ?? mailboxData.list[0];
 
-  if (!inbox) {
-    return { accountEmail: auth.email, mailboxes: [], messages: [] };
+  if (!activeMailbox) {
+    return { accountEmail: auth.email, activeMailboxId: null, mailboxes: [], messages: [] };
   }
 
   const queryResponse = await client.call(
@@ -117,7 +124,7 @@ export async function getMailSnapshot(auth: MailSession): Promise<MailSnapshot> 
       "Email/query",
       {
         accountId: id,
-        filter: { inMailbox: inbox.id },
+        filter: { inMailbox: activeMailbox.id },
         sort: [{ property: "receivedAt", isAscending: false }],
         limit: 50,
       },
@@ -170,6 +177,7 @@ export async function getMailSnapshot(auth: MailSession): Promise<MailSnapshot> 
 
   return {
     accountEmail: auth.email,
+    activeMailboxId: activeMailbox.id,
     mailboxes: mailboxData.list.map((mailbox) => ({
       id: mailbox.id,
       name: mailbox.name,
