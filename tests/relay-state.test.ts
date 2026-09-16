@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
+import { generateKeyPairSync, sign } from "node:crypto";
 import test from "node:test";
 
+import { createIdentityChallenge, registerIdentity } from "../lib/quantic/relay.ts";
 import {
   createEmptyRelayState,
   exportRelayState,
@@ -35,6 +37,40 @@ test("relay aliases round-trip through JSON without Set loss", () => {
   restoreRelayState(JSON.parse(JSON.stringify(state)));
 
   assert.deepEqual(exportRelayState(emptySavedAt()).aliases, state.aliases);
+});
+
+test("persistent snapshots never contain raw device auth tokens", () => {
+  restoreRelayState(createEmptyRelayState(emptySavedAt()));
+  const encryption = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
+  const signing = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
+  const publicKey = encryption.publicKey.export({ format: "jwk" });
+  const signingPublicKey = signing.publicKey.export({ format: "jwk" });
+  const authToken = "test-auth-token-that-must-never-be-persisted-000001";
+  const challenge = createIdentityChallenge({
+    handle: "alice",
+    publicKey,
+    signingPublicKey,
+  });
+  const signature = sign(
+    "sha256",
+    Buffer.from(challenge.challenge, "utf8"),
+    { key: signing.privateKey, dsaEncoding: "ieee-p1363" },
+  ).toString("base64");
+
+  registerIdentity({
+    handle: "alice",
+    publicKey,
+    signingPublicKey,
+    authToken,
+    challenge: challenge.challenge,
+    signature,
+  });
+
+  const snapshot = exportRelayState(emptySavedAt());
+  const serialized = JSON.stringify(snapshot);
+  assert.equal(serialized.includes(authToken), false);
+  assert.equal(snapshot.identities.length, 1);
+  assert.match(snapshot.identities[0][1].authTokenHash, /^[0-9a-f]{64}$/);
 });
 
 test("unknown state format or version is rejected", () => {
