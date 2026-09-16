@@ -135,7 +135,7 @@ type RelayFetchOptions = {
   preferredRelayId?: string | null;
 };
 
-function shouldRetryStatus(status: number, extra: number[]) {
+export function isRetryableRelayStatus(status: number, extra: number[] = []) {
   return status === 408 || status === 425 || status === 429 || status >= 500 || extra.includes(status);
 }
 
@@ -156,7 +156,7 @@ export async function relayFetch(
   for (const relay of candidates) {
     try {
       const response = await fetchImpl(buildRelayUrl(relay, path), init);
-      if (!shouldRetryStatus(response.status, retryStatuses)) return { response, relay };
+      if (!isRetryableRelayStatus(response.status, retryStatuses)) return { response, relay };
       lastResponse = { response, relay };
       attempts.push({ relay, error: new Error(`HTTP ${response.status}`) });
     } catch (error) {
