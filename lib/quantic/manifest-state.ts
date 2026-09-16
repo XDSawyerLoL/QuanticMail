@@ -1,6 +1,11 @@
 import { activeDevices, mergeManifestState } from "@/lib/quantic/manifest-core.mjs";
+import { reconcileManifestAuthority } from "@/lib/quantic/manifest-authority-core.mjs";
 import { assertVerifiedManifest } from "@/lib/quantic/manifest-node.mjs";
-import { loadRegistryManifest, saveRegistryManifest } from "@/lib/quantic/registry-store";
+import {
+  loadRegistryManifest,
+  registryStatus,
+  saveRegistryManifest,
+} from "@/lib/quantic/registry-store";
 import type { QuanticIdentityManifest } from "@/lib/quantic/manifest-types";
 
 declare global {
@@ -20,12 +25,16 @@ export function getCachedManifest(canonicalAddress: string) {
   return manifests.get(canonicalAddress.trim().toLowerCase()) ?? null;
 }
 
-export function acceptManifestInMemory(manifest: QuanticIdentityManifest) {
+function assertVerified(manifest: QuanticIdentityManifest, message = "Manifeste Quantic invalide.") {
   try {
     assertVerifiedManifest(manifest);
   } catch (error) {
-    throw new ManifestStateError(error instanceof Error ? error.message : "Manifeste Quantic invalide.", 401);
+    throw new ManifestStateError(error instanceof Error ? error.message : message, 401);
   }
+}
+
+export function acceptManifestInMemory(manifest: QuanticIdentityManifest) {
+  assertVerified(manifest);
   const canonical = manifest.payload.canonicalAddress;
   const current = manifests.get(canonical) ?? null;
   try {
@@ -38,19 +47,49 @@ export function acceptManifestInMemory(manifest: QuanticIdentityManifest) {
 }
 
 export async function publishManifest(manifest: QuanticIdentityManifest) {
-  const accepted = acceptManifestInMemory(manifest);
+  assertVerified(manifest);
+  const canonical = manifest.payload.canonicalAddress;
+  const current = manifests.get(canonical) ?? null;
+  const status = registryStatus();
+  let durable: QuanticIdentityManifest | null = null;
+
+  if (status.configured) {
+    try {
+      durable = await loadRegistryManifest(canonical);
+      if (durable) assertVerified(durable, "Checkpoint Quantic durable invalide.");
+    } catch (error) {
+      if (error instanceof ManifestStateError) throw error;
+      throw new ManifestStateError(
+        error instanceof Error ? `Registre durable indisponible : ${error.message}` : "Registre durable indisponible.",
+        503,
+      );
+    }
+  }
+
+  let accepted: QuanticIdentityManifest;
   try {
-    const checkpoint = await saveRegistryManifest(accepted);
-    return { manifest: accepted, checkpoint };
+    accepted = reconcileManifestAuthority(current, durable, manifest);
   } catch (error) {
+    throw new ManifestStateError(error instanceof Error ? error.message : "Conflit de manifeste Quantic.", 409);
+  }
+
+  if (!status.configured) {
+    manifests.set(canonical, accepted);
     return {
       manifest: accepted,
-      checkpoint: {
-        persisted: false,
-        mode: "github" as const,
-        error: error instanceof Error ? error.message : "Checkpoint durable indisponible.",
-      },
+      checkpoint: { persisted: false, mode: "memory" as const },
     };
+  }
+
+  try {
+    const checkpoint = await saveRegistryManifest(accepted);
+    manifests.set(canonical, accepted);
+    return { manifest: accepted, checkpoint };
+  } catch (error) {
+    throw new ManifestStateError(
+      error instanceof Error ? `Checkpoint durable refusé : ${error.message}` : "Checkpoint durable refusé.",
+      503,
+    );
   }
 }
 

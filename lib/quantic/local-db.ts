@@ -55,6 +55,7 @@ export type LocalContactDevice = {
   deviceId: string;
   label: string;
   publicKey: JsonWebKey;
+  deviceSigningPublicKey?: JsonWebKey;
   kind?: "root" | "linked";
 };
 
@@ -79,6 +80,10 @@ export type LocalOutboxItem = {
   ciphertext: string;
   iv: string;
   ephemeralPublicKey: JsonWebKey;
+  keyMode?: "one-time-prekey" | "static-fallback";
+  preKeyId?: string;
+  logicalMessageId?: string;
+  syncCopy?: boolean;
   createdAt: string;
   lastAttemptAt?: string;
 };
@@ -95,8 +100,21 @@ export type LocalPendingDevice = {
   createdAt: string;
 };
 
+export type LocalPreKey = {
+  version: 1;
+  canonicalAddress: string;
+  deviceId: string;
+  preKeyId: string;
+  publicKey: JsonWebKey;
+  privateKey: JsonWebKey;
+  createdAt: string;
+  expiresAt: string;
+  signature: string;
+  state: "unused" | "claimed";
+};
+
 const DB_NAME = "quanticmail-local";
-const DB_VERSION = 5;
+const DB_VERSION = 6;
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -116,6 +134,10 @@ function openDb(): Promise<IDBDatabase> {
         store.createIndex("createdAt", "createdAt");
       }
       if (!db.objectStoreNames.contains("pairing")) db.createObjectStore("pairing");
+      if (!db.objectStoreNames.contains("prekeys")) {
+        const store = db.createObjectStore("prekeys", { keyPath: "preKeyId" });
+        store.createIndex("expiresAt", "expiresAt");
+      }
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
@@ -148,6 +170,32 @@ export async function saveLocalMessage(message: LocalMessage) {
     const tx = db.transaction("messages", "readwrite");
     tx.objectStore("messages").put(message);
     tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export async function importLocalMessages(messages: LocalMessage[]) {
+  const db = await openDb();
+  return new Promise<{ imported: number; existing: number }>((resolve, reject) => {
+    const tx = db.transaction("messages", "readwrite");
+    const store = tx.objectStore("messages");
+    const request = store.getAllKeys();
+    let imported = 0;
+    let existing = 0;
+    request.onsuccess = () => {
+      const known = new Set(request.result.map(String));
+      for (const message of messages) {
+        if (known.has(message.id)) {
+          existing += 1;
+          continue;
+        }
+        known.add(message.id);
+        store.put(message);
+        imported += 1;
+      }
+    };
+    request.onerror = () => reject(request.error);
+    tx.oncomplete = () => resolve({ imported, existing });
     tx.onerror = () => reject(tx.error);
   });
 }
@@ -243,6 +291,56 @@ export async function clearPendingDevice() {
   return new Promise<void>((resolve, reject) => {
     const tx = db.transaction("pairing", "readwrite");
     tx.objectStore("pairing").delete("pending-device");
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export async function saveLocalPreKeys(prekeys: LocalPreKey[]) {
+  if (!prekeys.length) return;
+  const db = await openDb();
+  return new Promise<void>((resolve, reject) => {
+    const tx = db.transaction("prekeys", "readwrite");
+    const store = tx.objectStore("prekeys");
+    for (const prekey of prekeys) store.put(prekey);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export async function getLocalPreKey(preKeyId: string): Promise<LocalPreKey | null> {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("prekeys", "readonly");
+    const request = tx.objectStore("prekeys").get(preKeyId);
+    request.onsuccess = () => resolve((request.result as LocalPreKey | undefined) ?? null);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+export async function listAvailableLocalPreKeys(now = Date.now()): Promise<LocalPreKey[]> {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("prekeys", "readonly");
+    const request = tx.objectStore("prekeys").getAll();
+    request.onsuccess = () => {
+      resolve((request.result as LocalPreKey[]).filter(
+        (item) => item.state === "unused" && Date.parse(item.expiresAt) > now,
+      ));
+    };
+    request.onerror = () => reject(request.error);
+  });
+}
+
+export async function countAvailableLocalPreKeys(now = Date.now()) {
+  return (await listAvailableLocalPreKeys(now)).length;
+}
+
+export async function deleteLocalPreKey(preKeyId: string) {
+  const db = await openDb();
+  return new Promise<void>((resolve, reject) => {
+    const tx = db.transaction("prekeys", "readwrite");
+    tx.objectStore("prekeys").delete(preKeyId);
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });

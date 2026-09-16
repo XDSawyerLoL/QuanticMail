@@ -1,10 +1,13 @@
 import Link from "next/link";
-import { QuanticNetworkV1App } from "@/components/quantic-network-v1-app";
+import { QuanticManifestGate } from "@/components/quantic-manifest-gate";
+import { QuanticNetworkV11App } from "@/components/quantic-network-v11-app";
 
 export default function Home() {
   return (
     <>
-      <QuanticNetworkV1App />
+      <QuanticManifestGate>
+        <QuanticNetworkV11App />
+      </QuanticManifestGate>
       <Link
         className="qn-vault-fab"
         href="/network"

@@ -1,5 +1,6 @@
 import {
   fingerprintPublicKey,
+  fingerprintPublicKeyStrong,
   generateIdentityKeys,
   randomToken,
   signChallenge,
@@ -106,7 +107,7 @@ export async function createPendingDevice(
   deviceLabel: string,
 ): Promise<{ pending: LocalPendingDevice; request: PublicDeviceRequest }> {
   const canonical = canonicalAddress.trim().toLowerCase();
-  if (!/^[a-z0-9][a-z0-9._-]{2,31}~[0-9a-f]{10}@quantic$/.test(canonical)) {
+  if (!/^[a-z0-9][a-z0-9._-]{2,31}~(?:[0-9a-f]{10}|[0-9a-f]{32})@quantic$/.test(canonical)) {
     throw new Error("Saisissez l’adresse canonique complète, par exemple nom~1a2b3c4d5e@quantic.");
   }
   const label = cleanLabel(deviceLabel);
@@ -230,7 +231,9 @@ export async function installDeviceCertificate(
   ) {
     throw new Error("Le certificat ne correspond pas à la demande créée sur cet appareil.");
   }
-  const fingerprint = await fingerprintPublicKey(payload.identitySigningPublicKey);
+  const fingerprint = payload.fingerprint.length === 32
+    ? await fingerprintPublicKeyStrong(payload.identitySigningPublicKey)
+    : await fingerprintPublicKey(payload.identitySigningPublicKey);
   const expectedCanonical = `${payload.handle}~${fingerprint}@quantic`;
   if (fingerprint !== payload.fingerprint || expectedCanonical !== payload.canonicalAddress) {
     throw new Error("L’identité maîtresse du certificat est incohérente.");
