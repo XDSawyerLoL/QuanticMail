@@ -1,5 +1,5 @@
-import { DevicesApp } from "@/components/devices-app";
+import { DevicesV1App } from "@/components/devices-v1-app";
 
 export default function DevicesPage() {
-  return <DevicesApp />;
+  return <DevicesV1App />;
 }
