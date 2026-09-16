@@ -8,6 +8,10 @@ import {
   exportRelayState,
   restoreRelayState,
 } from "../lib/quantic/relay-state.ts";
+import {
+  replaceRouteManifestEntries,
+  routeManifestEntries,
+} from "../lib/quantic/route-manifest-state.ts";
 
 function emptySavedAt() {
   return "2026-09-16T00:00:00.000Z";
@@ -28,6 +32,7 @@ test("empty relay state is explicit and versioned", () => {
   assert.deepEqual(snapshot.queues, []);
   assert.deepEqual(snapshot.receipts, []);
   assert.deepEqual(snapshot.sendWindows, []);
+  assert.deepEqual(snapshot.routeManifests, []);
 });
 
 test("relay aliases round-trip through JSON without Set loss", () => {
@@ -37,6 +42,42 @@ test("relay aliases round-trip through JSON without Set loss", () => {
   restoreRelayState(JSON.parse(JSON.stringify(state)));
 
   assert.deepEqual(exportRelayState(emptySavedAt()).aliases, state.aliases);
+});
+
+test("route manifest cache round-trips through relay durable state", () => {
+  const route = {
+    format: "quantic-route-manifest",
+    version: 1,
+    payload: {
+      version: 1,
+      sequence: 4,
+      canonicalAddress: "bob~abcdef0123@quantic",
+      identitySigningPublicKey: { kty: "EC", crv: "P-256", x: "ix", y: "iy" },
+      identityManifestSequence: 3,
+      cryptoProfileSequence: null,
+      cryptoProfileDigest: null,
+      relays: [],
+      issuedAt: "2026-09-16T00:00:00.000Z",
+      expiresAt: "2026-10-16T00:00:00.000Z",
+    },
+    signatures: { p256: "signature" },
+  };
+  replaceRouteManifestEntries([[route.payload.canonicalAddress, route]]);
+  const snapshot = exportRelayState(emptySavedAt());
+  assert.deepEqual(snapshot.routeManifests, [[route.payload.canonicalAddress, route]]);
+
+  replaceRouteManifestEntries([]);
+  restoreRelayState(JSON.parse(JSON.stringify(snapshot)));
+  assert.deepEqual(routeManifestEntries(), [[route.payload.canonicalAddress, route]]);
+});
+
+test("legacy version-1 relay snapshots without routeManifests still restore", () => {
+  const state = createEmptyRelayState(emptySavedAt());
+  const legacy = { ...state };
+  delete (legacy as Partial<typeof state>).routeManifests;
+
+  restoreRelayState(legacy);
+  assert.deepEqual(exportRelayState(emptySavedAt()).routeManifests, []);
 });
 
 test("persistent snapshots never contain raw device auth tokens", () => {
