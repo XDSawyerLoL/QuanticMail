@@ -22,6 +22,10 @@ function fingerprint(publicJwk) {
     .slice(0, 10);
 }
 
+function deviceId(publicJwk) {
+  return `d-${fingerprint(publicJwk)}`;
+}
+
 function makeSignedManifest() {
   const rootSigning = keyPair();
   const identityEncryption = keyPair();
@@ -45,7 +49,7 @@ function makeSignedManifest() {
     identitySigningPublicKey,
     devices: [
       {
-        deviceId: "d-1111111111",
+        deviceId: deviceId(rootPublicKey),
         label: "PC principal",
         publicKey: rootPublicKey,
         deviceSigningPublicKey: rootDeviceSigningPublicKey,
