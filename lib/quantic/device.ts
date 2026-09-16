@@ -35,6 +35,12 @@ function fromBase64(value: string) {
   return bytes;
 }
 
+function asArrayBuffer(bytes: Uint8Array) {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return copy.buffer;
+}
+
 function cleanLabel(value: string) {
   const label = value.trim().replace(/\s+/g, " ");
   if (label.length < 2 || label.length > 48) {
@@ -47,7 +53,7 @@ function publicPoint(key: JsonWebKey, label: string) {
   if (key.kty !== "EC" || key.crv !== "P-256" || !key.x || !key.y) {
     throw new Error(`${label} invalide.`);
   }
-  return `${key.x}:${key.y}`;
+  return `P-256:${key.x}:${key.y}`;
 }
 
 export async function deviceIdFromPublicKey(key: JsonWebKey) {
@@ -87,8 +93,8 @@ export async function verifyTextSignature(
     return crypto.subtle.verify(
       { name: "ECDSA", hash: "SHA-256" },
       key,
-      fromBase64(signature),
-      new TextEncoder().encode(text),
+      asArrayBuffer(fromBase64(signature)),
+      asArrayBuffer(new TextEncoder().encode(text)),
     );
   } catch {
     return false;
