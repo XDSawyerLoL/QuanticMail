@@ -17,7 +17,13 @@ import {
   publishStandaloneManifest,
   readStandaloneManifest,
 } from "../lib/quantic/standalone-manifest.ts";
+import {
+  claimStandalonePreKey,
+  publishStandalonePreKeys,
+  standalonePreKeyStatus,
+} from "../lib/quantic/standalone-prekeys.ts";
 import type { QuanticIdentityManifest } from "../lib/quantic/manifest-types.ts";
+import type { SignedPreKeyRecord } from "../lib/quantic/prekey-core.mjs";
 import { RelayRuntime } from "./runtime.ts";
 
 export const MAX_REQUEST_BYTES = 512 * 1024;
@@ -117,7 +123,7 @@ export function createRelayRequestHandler(runtime: RelayRuntime) {
           ok: true,
           protocol: "quantic-relay/1",
           service: "Quantic Network Relay",
-          capabilities: ["durable-state-v2", "signed-manifests"],
+          capabilities: ["durable-state-v2", "signed-manifests", "one-time-prekeys"],
           time: new Date().toISOString(),
         });
         return;
@@ -206,6 +212,56 @@ export function createRelayRequestHandler(runtime: RelayRuntime) {
           }),
         );
         json(response, 201, result);
+        return;
+      }
+
+      if (path === "/api/quantic/prekeys/publish") {
+        if (method !== "POST") return methodNotAllowed(response);
+        const body = await readJsonBody(request);
+        const result = await runtime.mutate(() =>
+          publishStandalonePreKeys({
+            locator: String(body.handle ?? ""),
+            authToken: bearer(request),
+            deviceId: String(body.deviceId ?? ""),
+            records: Array.isArray(body.records) ? body.records as SignedPreKeyRecord[] : [],
+          }),
+        );
+        json(response, 200, result);
+        return;
+      }
+
+      if (path === "/api/quantic/prekeys/claim") {
+        if (method !== "POST") return methodNotAllowed(response);
+        const body = await readJsonBody(request);
+        const record = await runtime.mutate(() =>
+          claimStandalonePreKey({
+            senderLocator: String(body.from ?? ""),
+            senderAuthToken: bearer(request),
+            senderDeviceId: String(body.fromDeviceId ?? ""),
+            recipientCanonicalAddress: String(body.to ?? ""),
+            recipientDeviceId: String(body.toDeviceId ?? ""),
+          }),
+        );
+        if (!record) {
+          json(response, 404, { prekey: null });
+          return;
+        }
+        json(response, 200, { prekey: record });
+        return;
+      }
+
+      if (path === "/api/quantic/prekeys/status") {
+        if (method !== "GET") return methodNotAllowed(response);
+        const handle = url.searchParams.get("handle") ?? "";
+        const deviceId = url.searchParams.get("deviceId") ?? "";
+        const result = await runtime.mutate(() =>
+          standalonePreKeyStatus({
+            locator: handle,
+            authToken: bearer(request),
+            deviceId,
+          }),
+        );
+        json(response, 200, result);
         return;
       }
 
