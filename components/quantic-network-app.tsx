@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { decryptEnvelope, encryptForRecipient, generateIdentityKeys, randomToken } from "@/lib/quantic/crypto";
 import {
   getLocalIdentity,
@@ -53,6 +53,7 @@ export function QuanticNetworkApp() {
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const syncingRef = useRef(false);
 
   const refreshLocal = useCallback(async () => {
     setMessages(await listLocalMessages());
@@ -72,7 +73,8 @@ export function QuanticNetworkApp() {
 
   const sync = useCallback(
     async (local = identity, quiet = false) => {
-      if (!local || syncing) return;
+      if (!local || syncingRef.current) return;
+      syncingRef.current = true;
       setSyncing(true);
       if (!quiet) setNotice("Synchronisation…");
       try {
@@ -88,8 +90,8 @@ export function QuanticNetworkApp() {
             await saveLocalMessage({
               id: payload.id || envelope.id,
               direction: "in",
-              from: payload.from,
-              to: payload.to,
+              from: envelope.from,
+              to: envelope.to,
               subject: payload.subject,
               body: payload.body,
               createdAt: payload.createdAt || envelope.createdAt,
@@ -114,10 +116,11 @@ export function QuanticNetworkApp() {
       } catch (err) {
         if (!quiet) setError(err instanceof Error ? err.message : "Synchronisation impossible.");
       } finally {
+        syncingRef.current = false;
         setSyncing(false);
       }
     },
-    [identity, publishIdentity, refreshLocal, syncing],
+    [identity, publishIdentity, refreshLocal],
   );
 
   useEffect(() => {
