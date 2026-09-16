@@ -5,8 +5,10 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import {
   DEFAULT_RELAY_ENDPOINTS,
   buildRelayUrl,
+  getActiveRelayId,
   getRelayEndpoints,
   normalizeRelayBaseUrl,
+  saveActiveRelayId,
   saveRelayEndpoints,
   type RelayEndpoint,
 } from "@/lib/quantic/relay-client";
@@ -15,6 +17,7 @@ type RelayStatus = { state: "idle" | "checking" | "ok" | "error"; message?: stri
 
 export function RelaySettings() {
   const [relays, setRelays] = useState<RelayEndpoint[]>([]);
+  const [activeRelayId, setActiveRelayId] = useState<string | null>(null);
   const [url, setUrl] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -22,6 +25,7 @@ export function RelaySettings() {
 
   useEffect(() => {
     setRelays(getRelayEndpoints());
+    setActiveRelayId(getActiveRelayId());
   }, []);
 
   const sortedRelays = useMemo(
@@ -31,6 +35,11 @@ export function RelaySettings() {
 
   function persist(next: RelayEndpoint[], message?: string) {
     saveRelayEndpoints(next);
+    const activeStillAvailable = activeRelayId && next.some((relay) => relay.id === activeRelayId && relay.enabled);
+    if (!activeStillAvailable && activeRelayId) {
+      saveActiveRelayId(null);
+      setActiveRelayId(null);
+    }
     setRelays(next);
     setError("");
     if (message) setNotice(message);
@@ -64,6 +73,18 @@ export function RelaySettings() {
     }
   }
 
+  function activateRelay(id: string) {
+    const relay = relays.find((item) => item.id === id);
+    if (!relay?.enabled) {
+      setError("Active ce relais avant de l’utiliser.");
+      return;
+    }
+    saveActiveRelayId(id);
+    setActiveRelayId(id);
+    setError("");
+    setNotice(`${relay.label} devient le relais actif de cet appareil.`);
+  }
+
   function toggleRelay(id: string) {
     const next = relays.map((relay) => relay.id === id ? { ...relay, enabled: !relay.enabled } : relay);
     if (!next.some((relay) => relay.enabled)) {
@@ -95,7 +116,7 @@ export function RelaySettings() {
     try {
       const response = await fetch(buildRelayUrl(relay, "/api/quantic/health"), {
         cache: "no-store",
-        headers: { "x-quantic-direct-relay": "1" },
+        headers: relay.baseUrl ? undefined : { "x-quantic-direct-relay": "1" },
       });
       const data = (await response.json().catch(() => ({}))) as { protocol?: string; service?: string; error?: string };
       if (!response.ok) throw new Error(data.error ?? `HTTP ${response.status}`);
@@ -113,6 +134,8 @@ export function RelaySettings() {
   }
 
   function resetRelays() {
+    saveActiveRelayId(null);
+    setActiveRelayId(null);
     persist(DEFAULT_RELAY_ENDPOINTS.map((relay) => ({ ...relay })), "Configuration remise sur le relais de cette instance.");
     setStatuses({});
   }
@@ -137,10 +160,11 @@ export function RelaySettings() {
             <div className="qn-device-list">
               {sortedRelays.map((relay, index) => {
                 const status = statuses[relay.id] ?? { state: "idle" as const };
+                const isActive = activeRelayId === relay.id;
                 return (
                   <div className="qn-device-row" key={relay.id}>
                     <div>
-                      <strong>{relay.label}</strong>
+                      <strong>{relay.label}{isActive ? " · RELAIS ACTIF" : ""}</strong>
                       <code>{relay.baseUrl || "Cette instance QuanticMail"}</code>
                       <small>
                         Priorité {index + 1} · {relay.enabled ? "actif" : "désactivé"}
@@ -153,6 +177,7 @@ export function RelaySettings() {
                       <button type="button" onClick={() => moveRelay(relay.id, -1)} disabled={index === 0}>↑</button>
                       <button type="button" onClick={() => moveRelay(relay.id, 1)} disabled={index === sortedRelays.length - 1}>↓</button>
                       <button type="button" onClick={() => void testRelay(relay)}>Tester</button>
+                      <button type="button" onClick={() => activateRelay(relay.id)} disabled={isActive || !relay.enabled}>Utiliser</button>
                       <button type="button" onClick={() => toggleRelay(relay.id)}>{relay.enabled ? "Désactiver" : "Activer"}</button>
                       <button type="button" onClick={() => removeRelay(relay.id)}>Supprimer</button>
                     </div>
@@ -179,7 +204,7 @@ export function RelaySettings() {
             {error && <p className="qn-error">{error}</p>}
             {notice && <p className="qn-notice">{notice}</p>}
             <p className="qn-footnote">
-              Cette liste est stockée uniquement dans ce navigateur. Un relais ne reçoit ni tes clés privées ni le contenu en clair. Les relais distants doivent exposer le protocole Quantic Relay V1 en HTTPS.
+              Cette liste est stockée uniquement dans ce navigateur. Après une bascule, QuanticMail reste sur le relais qui a répondu afin de garder messages, reçus et accusés cohérents. Tu peux changer de relais actif ici. Aucun relais ne reçoit tes clés privées ni le contenu en clair.
             </p>
           </section>
         </div>
