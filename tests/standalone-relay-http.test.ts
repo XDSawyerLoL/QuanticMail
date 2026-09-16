@@ -102,10 +102,13 @@ async function registerUser(baseUrl: string, handle: string) {
     }),
   });
   assert.equal(registerResponse.status, 201);
+  const registered = await json(registerResponse);
   return {
     keys,
     authToken,
-    ...(await json(registerResponse)),
+    canonicalAddress: String(registered.canonicalAddress),
+    fingerprint: String(registered.fingerprint),
+    rootDeviceId: String(registered.rootDeviceId),
   };
 }
 
@@ -152,7 +155,7 @@ test("standalone adapter preserves the complete current Relay V1 HTTP flow", asy
     const bob = await registerUser(baseUrl, "bob");
 
     const resolved = await fetch(
-      `${baseUrl}/api/quantic/resolve?handle=${encodeURIComponent(String(bob.canonicalAddress))}`,
+      `${baseUrl}/api/quantic/resolve?handle=${encodeURIComponent(bob.canonicalAddress)}`,
     );
     assert.equal(resolved.status, 200);
     const resolvedBob = await json(resolved);
@@ -199,7 +202,7 @@ test("standalone adapter preserves the complete current Relay V1 HTTP flow", asy
 
     const sendResponse = await fetch(`${baseUrl}/api/quantic/send`, {
       method: "POST",
-      headers: jsonHeaders(String(alice.authToken)),
+      headers: jsonHeaders(alice.authToken),
       body: JSON.stringify({
         clientMessageId: "msg-http-0001",
         from: alice.canonicalAddress,
@@ -214,7 +217,7 @@ test("standalone adapter preserves the complete current Relay V1 HTTP flow", asy
     assert.equal(sendResponse.status, 202);
 
     const pullResponse = await fetch(
-      `${baseUrl}/api/quantic/pull?handle=${encodeURIComponent(String(bob.canonicalAddress))}&deviceId=${encodeURIComponent(String(bob.rootDeviceId))}`,
+      `${baseUrl}/api/quantic/pull?handle=${encodeURIComponent(bob.canonicalAddress)}&deviceId=${encodeURIComponent(bob.rootDeviceId)}`,
       { headers: { authorization: `Bearer ${bob.authToken}` } },
     );
     assert.equal(pullResponse.status, 200);
@@ -224,7 +227,7 @@ test("standalone adapter preserves the complete current Relay V1 HTTP flow", asy
 
     const ackResponse = await fetch(`${baseUrl}/api/quantic/ack`, {
       method: "POST",
-      headers: jsonHeaders(String(bob.authToken)),
+      headers: jsonHeaders(bob.authToken),
       body: JSON.stringify({
         handle: bob.canonicalAddress,
         deviceId: bob.rootDeviceId,
@@ -235,7 +238,7 @@ test("standalone adapter preserves the complete current Relay V1 HTTP flow", asy
     assert.equal((await json(ackResponse)).acknowledged, 1);
 
     const receiptsResponse = await fetch(
-      `${baseUrl}/api/quantic/receipts?handle=${encodeURIComponent(String(alice.canonicalAddress))}&deviceId=${encodeURIComponent(String(alice.rootDeviceId))}`,
+      `${baseUrl}/api/quantic/receipts?handle=${encodeURIComponent(alice.canonicalAddress)}&deviceId=${encodeURIComponent(alice.rootDeviceId)}`,
       { headers: { authorization: `Bearer ${alice.authToken}` } },
     );
     assert.equal(receiptsResponse.status, 200);
@@ -245,7 +248,7 @@ test("standalone adapter preserves the complete current Relay V1 HTTP flow", asy
 
     const receiptAck = await fetch(`${baseUrl}/api/quantic/receipts`, {
       method: "POST",
-      headers: jsonHeaders(String(alice.authToken)),
+      headers: jsonHeaders(alice.authToken),
       body: JSON.stringify({
         handle: alice.canonicalAddress,
         deviceId: alice.rootDeviceId,
