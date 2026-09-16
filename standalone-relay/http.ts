@@ -11,6 +11,7 @@ import {
   registerIdentity,
   RelayError,
   resolveIdentity,
+  type QuanticPublicKey,
 } from "../lib/quantic/relay.ts";
 import { RelayRuntime } from "./runtime.ts";
 
@@ -44,7 +45,7 @@ function bearer(request: IncomingMessage) {
   return typeof value === "string" && value.startsWith("Bearer ") ? value.slice(7) : null;
 }
 
-async function readJsonBody(request: IncomingMessage): Promise<Record<string, any>> {
+async function readJsonBody(request: IncomingMessage): Promise<Record<string, unknown>> {
   const declaredLength = Number(request.headers["content-length"] ?? 0);
   if (Number.isFinite(declaredLength) && declaredLength > MAX_REQUEST_BYTES) {
     request.resume();
@@ -70,11 +71,11 @@ async function readJsonBody(request: IncomingMessage): Promise<Record<string, an
 
   if (bytes === 0) throw new RelayHttpRequestError("Corps JSON Quantic requis.", 400);
   try {
-    const value = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    const value: unknown = JSON.parse(Buffer.concat(chunks).toString("utf8"));
     if (!value || typeof value !== "object" || Array.isArray(value)) {
       throw new RelayHttpRequestError("Objet JSON Quantic requis.", 400);
     }
-    return value as Record<string, any>;
+    return value as Record<string, unknown>;
   } catch (error) {
     if (error instanceof RelayHttpRequestError) throw error;
     throw new RelayHttpRequestError("JSON Quantic invalide.", 400);
@@ -122,8 +123,8 @@ export function createRelayRequestHandler(runtime: RelayRuntime) {
         const result = await runtime.mutate(() =>
           createIdentityChallenge({
             handle: String(body.handle ?? ""),
-            publicKey: body.publicKey ?? {},
-            signingPublicKey: body.signingPublicKey ?? {},
+            publicKey: (body.publicKey ?? {}) as QuanticPublicKey,
+            signingPublicKey: (body.signingPublicKey ?? {}) as QuanticPublicKey,
           }),
         );
         json(response, 201, result);
@@ -136,8 +137,8 @@ export function createRelayRequestHandler(runtime: RelayRuntime) {
         const result = await runtime.mutate(() =>
           registerIdentity({
             handle: String(body.handle ?? ""),
-            publicKey: body.publicKey ?? {},
-            signingPublicKey: body.signingPublicKey ?? {},
+            publicKey: (body.publicKey ?? {}) as QuanticPublicKey,
+            signingPublicKey: (body.signingPublicKey ?? {}) as QuanticPublicKey,
             authToken: String(body.authToken ?? ""),
             challenge: typeof body.challenge === "string" ? body.challenge : undefined,
             signature: typeof body.signature === "string" ? body.signature : undefined,
@@ -159,7 +160,7 @@ export function createRelayRequestHandler(runtime: RelayRuntime) {
         const body = await readJsonBody(request);
         const result = await runtime.mutate(() =>
           registerAuthorizedDevice({
-            certificate: body.certificate,
+            certificate: body.certificate as Parameters<typeof registerAuthorizedDevice>[0]["certificate"],
             authToken: String(body.authToken ?? ""),
           }),
         );
@@ -180,7 +181,7 @@ export function createRelayRequestHandler(runtime: RelayRuntime) {
             authToken: bearer(request),
             ciphertext: String(body.ciphertext ?? ""),
             iv: String(body.iv ?? ""),
-            ephemeralPublicKey: body.ephemeralPublicKey ?? {},
+            ephemeralPublicKey: (body.ephemeralPublicKey ?? {}) as QuanticPublicKey,
           }),
         );
         json(response, 202, result);
