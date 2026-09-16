@@ -2,49 +2,62 @@
 
 QuanticMail is the local-first messaging product of Quantic Sillage.
 
-QuanticMail is not designed around Gmail-style hosted mailboxes or SMTP as its core transport. The product uses its own Quantic Network identities such as `vnhz@quantic`.
+QuanticMail is not designed around Gmail-style hosted mailboxes or SMTP as its core transport. The product uses its own Quantic Network identities such as `sansa@quantic`, with a self-certifying canonical identity such as `sansa~4f82a19c2d@quantic`.
 
-## V0.6 architecture
+## V0.8 architecture
 
-- **Identity:** human-readable `name@quantic`
+- **Human identity:** `name@quantic`
+- **Canonical identity:** `name~fingerprint@quantic`, derived from the identity signing key
 - **Client:** Next.js / React / TypeScript
-- **Device crypto:** Web Crypto, ECDH P-256 + AES-256-GCM
+- **Device crypto:** Web Crypto, ECDH P-256 + AES-256-GCM for messages
+- **Identity proof:** ECDSA P-256 proof-of-possession challenges
 - **Local mailbox:** browser IndexedDB
 - **Trusted contacts:** first-seen public keys are pinned locally
 - **Durable local outbox:** encrypted messages stay on the sender device until delivery is acknowledged
+- **Identity recovery:** password-encrypted `.quantic-vault` file using PBKDF2-SHA-256 + AES-256-GCM
 - **Directory and relay:** Render
 - **Readable message storage:** user device
 - **Relay storage:** encrypted envelopes only
 
-The private identity key stays on the user's device. Render receives routing metadata and ciphertext, not plaintext message content.
+The private identity keys stay on the user's device unless the user explicitly exports an encrypted Quantic Identity Vault. Render never receives the vault password or private keys.
 
 ## Current deployment
 
 - **Web application:** `https://quanticmail.onrender.com`
-- **Network:** Quantic Network V0.6 alpha
+- **Identity Vault:** `https://quanticmail.onrender.com/vault`
+- **Network:** Quantic Network V0.7 protocol + V0.8 recovery layer
 
-## V0.6 alpha capabilities
+## V0.8 capabilities
 
-- create and reserve a `@quantic` identity
-- generate identity encryption keys locally
-- resolve another Quantic identity
-- pin a known contact's public key locally and block silent key changes
-- encrypt messages in the browser before sending
+- create a human-readable `@quantic` identity
+- derive a self-certifying canonical identity from a signing-key fingerprint
+- prove canonical identity ownership with a signed server challenge
+- recover the same canonical identity after a relay restart
+- encrypt Quantic messages in the browser
 - keep an encrypted local outbox until a delivery receipt returns
-- automatically retry queued messages after network or relay interruptions
-- deduplicate repeated relay submissions
-- receive and decrypt messages on the recipient device
-- generate a delivery receipt only after local recipient persistence succeeds
-- store readable sent and received messages in IndexedDB
-- automatic polling plus manual synchronization
+- retry queued messages after network or relay interruptions
+- pin known contact keys locally and block silent key changes
+- export the identity into a password-encrypted `.quantic-vault` file
+- restore that identity on a fresh browser/device with a new local auth token
+- keep vault encryption and decryption entirely client-side
 
-See [`docs/V0.6-DURABLE-DELIVERY.md`](docs/V0.6-DURABLE-DELIVERY.md).
+See [`docs/V0.8-IDENTITY-VAULT.md`](docs/V0.8-IDENTITY-VAULT.md).
+
+## What the vault contains
+
+The V0.8 vault contains the encryption private key and the identity-signing private key, together with the matching public keys and the human handle. It does **not** contain the mailbox, contacts, sent messages, received messages, or the current Render authentication token.
+
+When a vault is restored, QuanticMail generates a fresh device token. The restored signing private key then proves ownership of the canonical identity through the V0.7 challenge flow.
 
 ## Zero-cost durability model
 
-Render Free web services use ephemeral local storage. QuanticMail therefore does not treat the Render process as the durable source of truth for message delivery. The sender device retains the encrypted envelope and retries it until the recipient has persisted the plaintext locally and the sender receives the resulting delivery receipt.
+Render Free web services use ephemeral local storage. QuanticMail therefore does not treat the Render process as the durable source of truth for message delivery or identity ownership. Message durability comes from the encrypted sender outbox; identity continuity comes from the user's self-certifying signing key and optional encrypted vault file.
 
-A Render restart can still clear the temporary directory/relay state and current handle reservations. It should no longer, by itself, permanently erase an outbound message that remains in a sender's local outbox. Permanent globally authoritative handle registration remains a later protocol problem.
+A Render restart can still clear temporary directory, relay and receipt state. Active clients can re-register their canonical identities and retry pending envelopes without changing their cryptographic identity.
+
+## Recovery boundary
+
+Quantic Sillage does not retain a copy of the user's private keys or vault password. Losing both the local identity and every exported vault makes that canonical identity unrecoverable by design.
 
 ## Legacy mail work
 
