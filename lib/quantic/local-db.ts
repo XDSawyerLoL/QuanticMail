@@ -1,3 +1,24 @@
+export type DeviceCertificatePayload = {
+  version: 1;
+  canonicalAddress: string;
+  handle: string;
+  fingerprint: string;
+  identityPublicKey: JsonWebKey;
+  identitySigningPublicKey: JsonWebKey;
+  deviceId: string;
+  deviceLabel: string;
+  devicePublicKey: JsonWebKey;
+  deviceSigningPublicKey: JsonWebKey;
+  issuedAt: string;
+};
+
+export type DeviceCertificate = {
+  format: "quantic-device-certificate";
+  version: 1;
+  payload: DeviceCertificatePayload;
+  signature: string;
+};
+
 export type LocalIdentity = {
   handle: string;
   address: string;
@@ -7,6 +28,12 @@ export type LocalIdentity = {
   privateKey: JsonWebKey;
   signingPublicKey?: JsonWebKey;
   signingPrivateKey?: JsonWebKey;
+  deviceId?: string;
+  deviceLabel?: string;
+  deviceSigningPublicKey?: JsonWebKey;
+  deviceSigningPrivateKey?: JsonWebKey;
+  deviceCertificate?: DeviceCertificate;
+  role?: "root" | "secondary";
   authToken: string;
   createdAt: string;
 };
@@ -21,12 +48,20 @@ export type LocalMessage = {
   createdAt: string;
 };
 
+export type LocalContactDevice = {
+  deviceId: string;
+  label: string;
+  publicKey: JsonWebKey;
+  kind?: "root" | "linked";
+};
+
 export type LocalContact = {
   handle: string;
   address: string;
   canonicalAddress?: string;
   fingerprint?: string;
   publicKey: JsonWebKey;
+  devices?: LocalContactDevice[];
   firstSeenAt: string;
   lastSeenAt: string;
 };
@@ -35,6 +70,7 @@ export type LocalOutboxItem = {
   id: string;
   from: string;
   to: string;
+  recipientDeviceId?: string;
   ciphertext: string;
   iv: string;
   ephemeralPublicKey: JsonWebKey;
@@ -42,8 +78,20 @@ export type LocalOutboxItem = {
   lastAttemptAt?: string;
 };
 
+export type LocalPendingDevice = {
+  canonicalAddress: string;
+  deviceId: string;
+  deviceLabel: string;
+  publicKey: JsonWebKey;
+  privateKey: JsonWebKey;
+  deviceSigningPublicKey: JsonWebKey;
+  deviceSigningPrivateKey: JsonWebKey;
+  authToken: string;
+  createdAt: string;
+};
+
 const DB_NAME = "quanticmail-local";
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -62,6 +110,7 @@ function openDb(): Promise<IDBDatabase> {
         const store = db.createObjectStore("outbox", { keyPath: "id" });
         store.createIndex("createdAt", "createdAt");
       }
+      if (!db.objectStoreNames.contains("pairing")) db.createObjectStore("pairing");
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
@@ -104,9 +153,7 @@ export async function listLocalMessages(): Promise<LocalMessage[]> {
     const tx = db.transaction("messages", "readonly");
     const request = tx.objectStore("messages").getAll();
     request.onsuccess = () => {
-      const rows = (request.result as LocalMessage[]).sort((a, b) =>
-        b.createdAt.localeCompare(a.createdAt),
-      );
+      const rows = (request.result as LocalMessage[]).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
       resolve(rows);
     };
     request.onerror = () => reject(request.error);
@@ -149,9 +196,7 @@ export async function listOutboxItems(): Promise<LocalOutboxItem[]> {
     const tx = db.transaction("outbox", "readonly");
     const request = tx.objectStore("outbox").getAll();
     request.onsuccess = () => {
-      const rows = (request.result as LocalOutboxItem[]).sort((a, b) =>
-        a.createdAt.localeCompare(b.createdAt),
-      );
+      const rows = (request.result as LocalOutboxItem[]).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
       resolve(rows);
     };
     request.onerror = () => reject(request.error);
@@ -163,6 +208,36 @@ export async function deleteOutboxItem(id: string) {
   return new Promise<void>((resolve, reject) => {
     const tx = db.transaction("outbox", "readwrite");
     tx.objectStore("outbox").delete(id);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export async function getPendingDevice(): Promise<LocalPendingDevice | null> {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("pairing", "readonly");
+    const request = tx.objectStore("pairing").get("pending-device");
+    request.onsuccess = () => resolve((request.result as LocalPendingDevice | undefined) ?? null);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+export async function savePendingDevice(device: LocalPendingDevice) {
+  const db = await openDb();
+  return new Promise<void>((resolve, reject) => {
+    const tx = db.transaction("pairing", "readwrite");
+    tx.objectStore("pairing").put(device, "pending-device");
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export async function clearPendingDevice() {
+  const db = await openDb();
+  return new Promise<void>((resolve, reject) => {
+    const tx = db.transaction("pairing", "readwrite");
+    tx.objectStore("pairing").delete("pending-device");
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });

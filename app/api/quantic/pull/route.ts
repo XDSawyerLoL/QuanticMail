@@ -10,7 +10,8 @@ export async function GET(request: Request) {
   try {
     const url = new URL(request.url);
     const handle = url.searchParams.get("handle") ?? "";
-    return NextResponse.json({ envelopes: pullEnvelopes(handle, bearer(request)) });
+    const deviceId = url.searchParams.get("deviceId");
+    return NextResponse.json({ envelopes: pullEnvelopes(handle, bearer(request), deviceId) });
   } catch (error) {
     if (error instanceof RelayError) {
       return NextResponse.json({ error: error.message }, { status: error.status });

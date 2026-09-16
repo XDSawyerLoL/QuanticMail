@@ -12,7 +12,9 @@ export async function POST(request: Request) {
     const result = enqueueEnvelope({
       clientMessageId: String(body.clientMessageId ?? ""),
       from: String(body.from ?? ""),
+      fromDeviceId: typeof body.fromDeviceId === "string" ? body.fromDeviceId : undefined,
       to: String(body.to ?? ""),
+      toDeviceId: String(body.toDeviceId ?? ""),
       authToken: bearer(request),
       ciphertext: String(body.ciphertext ?? ""),
       iv: String(body.iv ?? ""),
