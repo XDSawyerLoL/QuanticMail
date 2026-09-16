@@ -7,6 +7,13 @@ import {
   validateManifestShape,
 } from "../lib/quantic/manifest-core.mjs";
 
+const ROOT = "d-1111111111";
+const ROOT2 = "d-2222222222";
+const LINKED_A = "d-aaaaaaaaaa";
+const LINKED_B = "d-bbbbbbbbbb";
+const OLD_A = "d-0a0a0a0a0a";
+const OLD_Z = "d-0f0f0f0f0f";
+
 const identitySigningPublicKey = {
   kty: "EC",
   crv: "P-256",
@@ -24,7 +31,7 @@ const identityPublicKey = {
 function device(deviceId, kind = "linked") {
   return {
     deviceId,
-    label: deviceId === "root-1" ? "PC principal" : `Device ${deviceId}`,
+    label: kind === "root" ? "PC principal" : `Device ${deviceId}`,
     publicKey: { kty: "EC", crv: "P-256", x: `${deviceId}-x`, y: `${deviceId}-y` },
     deviceSigningPublicKey: {
       kty: "EC",
@@ -37,7 +44,7 @@ function device(deviceId, kind = "linked") {
   };
 }
 
-function manifest({ sequence = 1, devices = [device("root-1", "root")], revocations = [] } = {}) {
+function manifest({ sequence = 1, devices = [device(ROOT, "root")], revocations = [] } = {}) {
   return {
     format: "quantic-identity-manifest",
     version: 1,
@@ -60,18 +67,18 @@ function manifest({ sequence = 1, devices = [device("root-1", "root")], revocati
 test("canonical manifest text is deterministic across device and revocation ordering", () => {
   const left = manifest({
     sequence: 4,
-    devices: [device("linked-b"), device("root-1", "root"), device("linked-a")],
+    devices: [device(LINKED_B), device(ROOT, "root"), device(LINKED_A)],
     revocations: [
-      { deviceId: "old-z", revokedAt: "2026-09-16T14:00:00.000Z", reason: "lost" },
-      { deviceId: "old-a", revokedAt: "2026-09-16T13:00:00.000Z", reason: "replaced" },
+      { deviceId: OLD_Z, revokedAt: "2026-09-16T14:00:00.000Z", reason: "lost" },
+      { deviceId: OLD_A, revokedAt: "2026-09-16T13:00:00.000Z", reason: "replaced" },
     ],
   });
   const right = manifest({
     sequence: 4,
-    devices: [device("linked-a"), device("linked-b"), device("root-1", "root")],
+    devices: [device(LINKED_A), device(LINKED_B), device(ROOT, "root")],
     revocations: [
-      { deviceId: "old-a", revokedAt: "2026-09-16T13:00:00.000Z", reason: "replaced" },
-      { deviceId: "old-z", revokedAt: "2026-09-16T14:00:00.000Z", reason: "lost" },
+      { deviceId: OLD_A, revokedAt: "2026-09-16T13:00:00.000Z", reason: "replaced" },
+      { deviceId: OLD_Z, revokedAt: "2026-09-16T14:00:00.000Z", reason: "lost" },
     ],
   });
 
@@ -80,11 +87,11 @@ test("canonical manifest text is deterministic across device and revocation orde
 
 test("manifest requires exactly one root device", () => {
   assert.throws(
-    () => validateManifestShape(manifest({ devices: [device("linked-a")] })),
+    () => validateManifestShape(manifest({ devices: [device(LINKED_A)] })),
     /exactement un appareil maître/i,
   );
   assert.throws(
-    () => validateManifestShape(manifest({ devices: [device("root-1", "root"), device("root-2", "root")] })),
+    () => validateManifestShape(manifest({ devices: [device(ROOT, "root"), device(ROOT2, "root")] })),
     /exactement un appareil maître/i,
   );
   assert.doesNotThrow(() => validateManifestShape(manifest()));
@@ -93,21 +100,21 @@ test("manifest requires exactly one root device", () => {
 test("revoked devices are never active", () => {
   const candidate = manifest({
     sequence: 2,
-    devices: [device("root-1", "root"), device("linked-a"), device("linked-b")],
+    devices: [device(ROOT, "root"), device(LINKED_A), device(LINKED_B)],
     revocations: [
-      { deviceId: "linked-b", revokedAt: "2026-09-16T15:10:00.000Z", reason: "lost" },
+      { deviceId: LINKED_B, revokedAt: "2026-09-16T15:10:00.000Z", reason: "lost" },
     ],
   });
 
-  assert.deepEqual(activeDevices(candidate).map((item) => item.deviceId), ["linked-a", "root-1"]);
+  assert.deepEqual(activeDevices(candidate).map((item) => item.deviceId), [ROOT, LINKED_A].sort());
 });
 
 test("manifest rejects a device present in both active devices and revocations", () => {
   const candidate = manifest({
     sequence: 2,
-    devices: [device("root-1", "root"), device("linked-b")],
+    devices: [device(ROOT, "root"), device(LINKED_B)],
     revocations: [
-      { deviceId: "linked-b", revokedAt: "2026-09-16T15:10:00.000Z", reason: "compromised" },
+      { deviceId: LINKED_B, revokedAt: "2026-09-16T15:10:00.000Z", reason: "compromised" },
     ],
   });
 
@@ -117,23 +124,23 @@ test("manifest rejects a device present in both active devices and revocations",
 test("manifest state rejects sequence rollback", () => {
   const current = manifest({
     sequence: 3,
-    devices: [device("root-1", "root")],
+    devices: [device(ROOT, "root")],
     revocations: [
-      { deviceId: "linked-b", revokedAt: "2026-09-16T15:10:00.000Z", reason: "lost" },
+      { deviceId: LINKED_B, revokedAt: "2026-09-16T15:10:00.000Z", reason: "lost" },
     ],
   });
   const stale = manifest({
     sequence: 2,
-    devices: [device("root-1", "root"), device("linked-b")],
+    devices: [device(ROOT, "root"), device(LINKED_B)],
   });
 
   assert.throws(() => mergeManifestState(current, stale), /rollback/i);
 });
 
 test("same sequence is idempotent only when manifest content is identical", () => {
-  const current = manifest({ sequence: 5, devices: [device("root-1", "root"), device("linked-a")] });
-  const identical = manifest({ sequence: 5, devices: [device("linked-a"), device("root-1", "root")] });
-  const conflicting = manifest({ sequence: 5, devices: [device("root-1", "root"), device("linked-b")] });
+  const current = manifest({ sequence: 5, devices: [device(ROOT, "root"), device(LINKED_A)] });
+  const identical = manifest({ sequence: 5, devices: [device(LINKED_A), device(ROOT, "root")] });
+  const conflicting = manifest({ sequence: 5, devices: [device(ROOT, "root"), device(LINKED_B)] });
 
   assert.equal(mergeManifestState(current, identical), current);
   assert.throws(() => mergeManifestState(current, conflicting), /conflit.*séquence/i);
