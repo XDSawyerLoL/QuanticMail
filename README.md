@@ -12,10 +12,26 @@ The project aims to provide a fast, privacy-conscious webmail experience on cust
 - **Identity:** QuanticMail by Quantic Sillage
 - **Secrets:** never committed to Git; local and production configuration use environment variables / secret stores
 
-## Product direction
+## V0.2 capabilities
 
-The first milestone is a usable webmail client: authentication, inbox, message reading, folders, search and composition. The transport and storage layer stays replaceable so QuanticMail is not locked to a single provider.
+- server-side JMAP authentication
+- encrypted HttpOnly session cookie
+- mailbox and folder discovery
+- live message listing and reading
+- folder switching and refresh
+- local search across loaded messages
+- message composition and JMAP submission
+- logout, origin checks and basic abuse throttling
 
-## Status
+## Local configuration
 
-Initial project bootstrap.
+Copy `.env.example` to `.env.local` and configure:
+
+- `JMAP_SESSION_URL` — the JMAP discovery URL of the mail server
+- `SESSION_SECRET` — a high-entropy secret of at least 32 characters
+
+Real mailbox passwords, server administrator credentials, TLS keys and production tokens must never be committed to this repository.
+
+## Next production milestone
+
+Run Stalwart on production infrastructure, create the mail domain and accounts, then configure MX, SPF, DKIM, DMARC, TLS and PTR/rDNS before exposing the public QuanticMail service.
