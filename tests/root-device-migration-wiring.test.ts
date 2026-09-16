@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const routePath = new URL("../app/api/quantic/register/route.ts", import.meta.url);
-const clientPath = new URL("../components/quantic-network-v11-app.tsx", import.meta.url);
+const transportPath = new URL("../instrumentation-client.ts", import.meta.url);
 
 test("bootstrap register route forwards an explicit legacy root device id", async () => {
   const source = await readFile(routePath, "utf8");
@@ -14,15 +14,17 @@ test("bootstrap register route forwards an explicit legacy root device id", asyn
   );
 });
 
-test("V1.2 client sends its persisted root device id during root registration", async () => {
-  const source = await readFile(clientPath, "utf8");
-  const baseStart = source.indexOf("const base = {");
-  assert.notEqual(baseStart, -1, "root registration payload not found");
-  const baseEnd = source.indexOf("};", baseStart);
-  const registrationPayload = source.slice(baseStart, baseEnd + 2);
+test("V1.2 transport restores the persisted root device id on root registration", async () => {
+  const source = await readFile(transportPath, "utf8");
+  assert.match(source, /getLocalIdentity/, "the client transport must read the persisted local identity");
   assert.match(
-    registrationPayload,
+    source,
     /deviceId:\s*local\.deviceId/,
-    "the client must preserve an existing 10-hex root id after server state loss",
+    "the client transport must preserve an existing 10-hex root id after server state loss",
+  );
+  assert.match(
+    source,
+    /target\.pathname\s*===\s*"\/api\/quantic\/register"/,
+    "device-id restoration must be scoped to root registration only",
   );
 });
