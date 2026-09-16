@@ -17,12 +17,12 @@ handle~0123456789abcdef0123456789abcdef@quantic
 
 Legacy 10-hex fingerprints remain valid. Changing relay, transport or cryptographic profile never changes the canonical address.
 
-This design adds three independent but linked layers:
+This design adds four independent but linked layers:
 
 1. **Route Manifest** — where an identity can be reached.
 2. **Federation V1** — how one relay forwards an opaque envelope to another relay without sharing device auth tokens.
 3. **Crypto Profile V2** — how an identity upgrades from classical P-256 only to hybrid classical + post-quantum cryptography.
-4. **Quantic Discovery Mesh** — how relays discover signed Route Manifests without a mandatory global directory.
+4. **Quantic Discovery Mesh** — how relays discover signed identity, crypto and routing state without a mandatory global directory.
 
 The layers are deliberately separate from the existing `quantic-identity-manifest` so V1/V1.1 manifests, QR pairing, revocation history, one-time prekeys and existing clients remain readable and upgradeable.
 
@@ -113,9 +113,11 @@ The P-256 identity master signing key signs every Route Manifest.
 
 If the current Crypto Profile policy is `hybrid-required`, an ML-DSA-65 signature is also mandatory. A verifier that has already pinned `hybrid-required` must reject a later Route Manifest lacking the ML-DSA signature.
 
+When `cryptoProfileSequence`/`cryptoProfileDigest` are present, they identify the exact Crypto Profile used to validate the route's PQ signature. A later Crypto Profile update therefore requires a new Route Manifest before that new profile can be treated as the route's active PQ signing context.
+
 ### 4.4 Sequence and expiry
 
-- `sequence` starts at 1 and increases for every routing change.
+- `sequence` starts at 1 and increases for every routing change or linked Crypto Profile change.
 - A lower sequence than the highest previously accepted sequence is rejected as rollback.
 - Same sequence + different canonical payload is a fork and must not be silently resolved.
 - Default Route Manifest validity: 30 days.
@@ -219,7 +221,7 @@ Relay B independently verifies the portable envelope against Alice's active devi
 
 ### 6.3 Sender manifest transport
 
-A federation forward packet may carry Alice's current signed Identity Manifest and Crypto Profile as proofs. B verifies them and may cache them.
+A federation forward packet carries Alice's current signed Identity Manifest and, when present, Crypto Profile as portable verification material. B verifies them and may cache them.
 
 B rejects an included manifest/profile if it is older than the highest valid sequence B has already seen. If discovery connectivity exists, B should opportunistically query for a newer sequence before accepting security-sensitive state, but lack of a newer reachable record is not by itself proof that the supplied state is newest globally.
 
@@ -245,11 +247,15 @@ type QuanticFederationForward = {
   expiresAt: string;
   senderIdentityManifest: QuanticIdentityManifest;
   senderCryptoProfile?: QuanticCryptoProfileV2;
+  recipientIdentityManifest: QuanticIdentityManifest;
+  recipientCryptoProfile?: QuanticCryptoProfileV2;
   recipientRouteManifest: QuanticRouteManifest;
   envelope: QuanticPortableEnvelope;
   previousRelayAttestation: string;
 };
 ```
+
+The recipient identity/crypto/route objects must be cross-checked. A stale bundled recipient object may not override a newer valid sequence already cached by a relay.
 
 ### 7.2 Forwarding rules
 
@@ -324,7 +330,7 @@ POST /api/quantic/federation/receipt
 A verifies:
 
 - the destination relay signature;
-- that the destination relay was authorized by the recipient Route Manifest sequence referenced by the receipt;
+- that the destination relay was authorized by the exact recipient Route Manifest sequence retained with the pending federation delivery;
 - message/federation IDs;
 - anti-replay state.
 
@@ -523,39 +529,71 @@ When every active device in the current Identity Manifest has a matching PQ entr
 
 ### 12.1 Scope
 
-The Discovery Mesh distributes signed public routing records. It does not transport message plaintext and does not become the mailbox store.
+The Discovery Mesh distributes signed public identity, crypto and routing records. It does not transport message plaintext and does not become the mailbox store.
 
 Initial mesh participation is implemented by standalone relays. Browser clients query their configured relays. The embedded Next.js relay may consume discovery through configured peers but does not need to host a full DHT node in the first implementation.
 
-### 12.2 DHT model
+### 12.2 DHT keyspaces
 
 Use a Kademlia-style DHT operated by Quantic relays.
 
-Lookup key:
+Three deterministic keyspaces are required:
 
 ```text
-SHA-256("quantic-route:" + lowercaseCanonicalAddress)
+identityKey = SHA-256("quantic-identity:" + lowercaseCanonicalAddress)
+cryptoKey   = SHA-256("quantic-crypto:"   + lowercaseCanonicalAddress)
+routeKey    = SHA-256("quantic-route:"    + lowercaseCanonicalAddress)
 ```
 
-Stored value: the complete signed `QuanticRouteManifest`.
+Values are respectively:
 
-Replication is targeted to the DHT nodes closest to the lookup key; no relay is required to keep a full global directory.
+- the signed `QuanticIdentityManifest`;
+- the signed `QuanticCryptoProfileV2` when one exists;
+- the signed `QuanticRouteManifest`.
 
-### 12.3 Record acceptance
+Replication is targeted to DHT nodes closest to each lookup key; no relay is required to keep a full global directory.
+
+A resolver normally returns a cross-checked discovery bundle:
+
+```ts
+type QuanticDiscoveryBundle = {
+  identityManifest: QuanticIdentityManifest;
+  cryptoProfile?: QuanticCryptoProfileV2;
+  routeManifest: QuanticRouteManifest;
+};
+```
+
+The bundle is a convenience response, not a newly trusted signed object. Every component is independently verified.
+
+### 12.3 Cross-record validation
+
+A resolver must verify at minimum:
+
+- all records name the same canonical identity;
+- the Identity Manifest signature and canonical fingerprint are valid;
+- the Crypto Profile, when present, is rooted in the same P-256 identity key and obeys ML-DSA continuity pins;
+- the Route Manifest is rooted in the same identity key;
+- the Route Manifest's `identityManifestSequence` is not greater than the Identity Manifest supplied;
+- when the Route Manifest references a Crypto Profile sequence/digest, the exact referenced profile is available and validates;
+- a current active recipient device comes from the Identity Manifest, with PQ capability intersected from the Crypto Profile rather than trusted independently.
+
+A newer Identity Manifest may legitimately exist than the sequence referenced by an otherwise valid Route Manifest. The newer identity state governs active/revoked devices. The route remains usable until expiry unless the newer identity state or security policy explicitly invalidates it.
+
+### 12.4 Record acceptance
 
 A discovery node may store or forward a record only after basic structural checks. A consuming relay/client performs full cryptographic verification before using it.
 
 Rules:
 
 - invalid signature: reject;
-- expired manifest: do not return as current;
-- lower sequence than local highest: reject as rollback;
+- expired Route Manifest: do not return as current route;
+- lower sequence than local highest for the same record type: reject as rollback;
 - same sequence + different canonical payload: mark fork, retain evidence, query additional paths;
 - higher valid sequence: accept and cache.
 
-### 12.4 Parallel lookup
+### 12.5 Parallel lookup
 
-A route lookup uses multiple independent paths rather than trusting one peer.
+A discovery resolution uses multiple independent paths rather than trusting one peer.
 
 Initial policy:
 
@@ -568,7 +606,7 @@ Initial policy:
 
 Signatures protect integrity. Multi-path lookup improves availability against malicious/failed peers but does not claim complete Sybil/Eclipse resistance.
 
-### 12.5 Bootstrap
+### 12.6 Bootstrap
 
 A fresh relay needs at least one reachable peer or configured route into the mesh. There is no physically meaningful zero-knowledge discovery without any contact point.
 
@@ -582,9 +620,9 @@ Supported bootstrap sources:
 
 Official bootstrap peers are convenience, not authority. The user may remove all official peers and use only self-controlled peers.
 
-### 12.6 No GitHub dependency
+### 12.7 No GitHub dependency
 
-GitHub registry checkpoints may remain as an optional compatibility/bootstrap source, but normal federation/discovery must not require GitHub.
+GitHub registry checkpoints may remain as an optional compatibility/bootstrap source, but normal identity resolution, crypto negotiation, routing and federation must not require GitHub.
 
 The network acceptance test explicitly runs with GitHub access disabled.
 
@@ -592,13 +630,13 @@ The network acceptance test explicitly runs with GitHub access disabled.
 
 The standalone durable relay snapshot is extended with versioned state for:
 
-- Route Manifests;
+- Identity Manifest cache/highest-sequence pins;
 - Crypto Profiles;
+- Route Manifests;
 - relay descriptors/peer table;
 - DHT routing metadata needed for restart recovery;
-- highest-sequence pins;
 - processed `federationId` records;
-- federation delivery metadata;
+- federation delivery metadata including the exact recipient Route Manifest/digest used;
 - pending federation receipts;
 - relay identity keys or protected references to them.
 
@@ -617,7 +655,7 @@ Relays can observe unavoidable transport metadata including some combination of:
 - relay path;
 - message size;
 - timing;
-- route lookup keys;
+- discovery lookup keys;
 - delivery/receipt timing.
 
 The first federation version does not claim metadata anonymity, onion routing or traffic-analysis resistance.
@@ -632,17 +670,17 @@ Origin relay tries recipient relays in signed priority order. Network errors, re
 
 Cryptographic/authentication failures never trigger blind fallback to a weaker security mode.
 
-### 15.2 Route lookup unavailable
+### 15.2 Route/discovery lookup unavailable
 
-If a valid non-expired route exists in cache, use it.
+If a valid non-expired, fully verified discovery bundle exists in cache, use it subject to anti-downgrade pins.
 
-Otherwise the client's durable outbox keeps the already encrypted logical delivery pending and discovery retries later. The message is not marked sent/delivered until transport acceptance/receipt semantics succeed.
+Otherwise the client's durable outbox keeps the delivery pending and discovery retries later. The message is not marked sent/delivered until transport acceptance/receipt semantics succeed.
 
 ### 15.3 Discovery fork
 
 A same-sequence conflicting signed record is treated as a security event, not “last write wins.”
 
-The resolver queries additional independent peers, retains both candidates for diagnostics and refuses automated routing when it cannot establish a non-conflicting latest record.
+The resolver queries additional independent peers, retains both candidates for diagnostics and refuses automated routing when it cannot establish a non-conflicting latest record required for that send.
 
 ### 15.4 Crypto capability unavailable
 
@@ -670,13 +708,16 @@ Relevant standards/runtime references:
 Expected endpoints, subject to exact module placement during implementation:
 
 ```text
-GET/POST /api/quantic/route-manifest
+GET/POST /api/quantic/identity-manifest
 GET/POST /api/quantic/crypto-profile
+GET/POST /api/quantic/route-manifest
 POST     /api/quantic/federation/hello
 POST     /api/quantic/federation/forward
 POST     /api/quantic/federation/receipt
 GET      /api/quantic/federation/status
 ```
+
+The existing `/api/quantic/manifest` may remain as the compatibility route for the Identity Manifest; implementation should not create two divergent identity-manifest stores.
 
 Standalone discovery also exposes an internal peer/discovery adapter; browser clients do not directly manipulate DHT records in the initial version.
 
@@ -691,7 +732,7 @@ This design is one architecture but implementation should be staged in reviewabl
 - Route Manifest types/canonicalization/signatures/state;
 - persistent relay identity and hello handshake;
 - portable sender-signed envelope;
-- A -> B forwarding using an explicitly known signed Route Manifest;
+- A -> B forwarding using an explicitly known signed discovery bundle/Route Manifest;
 - destination ACK -> signed federation receipt -> origin receipt queue;
 - durable federation metadata;
 - no DHT requirement yet.
@@ -700,7 +741,8 @@ This design is one architecture but implementation should be staged in reviewabl
 
 - peer table and bootstrap;
 - Kademlia discovery adapter;
-- signed Route Manifest publication/lookup;
+- Identity Manifest, Crypto Profile and Route Manifest publication/lookup;
+- cross-record validation;
 - sequence/fork/cache rules;
 - three-path lookup;
 - restart persistence;
@@ -739,9 +781,10 @@ Tests must cover at least:
 - forged destination receipt rejected;
 - recipient route sequence mismatch rejected;
 - restart recovery of pending forwards/receipts;
-- DHT invalid record rejection;
+- DHT invalid Identity/Crypto/Route record rejection;
 - DHT stale record rejection after higher sequence pin;
 - DHT conflicting same-sequence record produces fork state;
+- discovery bundle rejects cross-identity or digest/sequence mismatch;
 - lookup succeeds through independent peers when one path lies or fails;
 - operation succeeds with Render and GitHub disabled when A/B and mesh peers are reachable;
 - Crypto Profile activation requires classical + PQ proof;
@@ -759,7 +802,7 @@ Tests must cover at least:
 
 - Alice is registered only on relay A.
 - Bob is registered only on relay B.
-- A has Bob's valid Route Manifest.
+- A has Bob's valid discovery bundle and Route Manifest.
 - Alice sends through A.
 - A forwards to B without Alice's auth token leaving A.
 - Bob pulls and decrypts on B.
@@ -773,7 +816,7 @@ Tests must cover at least:
 - GitHub registry is unreachable.
 - standalone relays A and B restart from durable local state.
 - mesh peers are reachable through stored/user bootstrap peers.
-- A resolves Bob's signed Route Manifest through the Discovery Mesh.
+- A resolves Bob's signed Identity Manifest, Crypto Profile when present, and Route Manifest through the Discovery Mesh.
 - Alice -> A -> B -> Bob succeeds.
 - receipt B -> A -> Alice succeeds.
 
