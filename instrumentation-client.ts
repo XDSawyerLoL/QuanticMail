@@ -1,3 +1,4 @@
+import { getLocalIdentity } from "@/lib/quantic/local-db";
 import {
   getActiveRelayId,
   getRelayEndpoints,
@@ -22,6 +23,37 @@ function shouldRetryNotFound(path: string) {
   );
 }
 
+function samePublicPoint(a: unknown, b: JsonWebKey) {
+  if (!a || typeof a !== "object") return false;
+  const key = a as JsonWebKey;
+  return key.kty === b.kty && key.crv === b.crv && key.x === b.x && key.y === b.y;
+}
+
+async function withPersistedRootDeviceId(target: URL, init?: RequestInit) {
+  if (
+    target.pathname !== "/api/quantic/register" ||
+    init?.method?.toUpperCase() !== "POST" ||
+    typeof init.body !== "string"
+  ) {
+    return init;
+  }
+
+  try {
+    const body = JSON.parse(init.body) as Record<string, unknown>;
+    if (typeof body.deviceId === "string" && body.deviceId) return init;
+    const local = await getLocalIdentity();
+    if (!local?.deviceId || local.role === "secondary" || !samePublicPoint(body.publicKey, local.publicKey)) {
+      return init;
+    }
+    return {
+      ...init,
+      body: JSON.stringify({ ...body, deviceId: local.deviceId }),
+    };
+  } catch {
+    return init;
+  }
+}
+
 window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
   const headers = new Headers(init?.headers);
   if (headers.get(DIRECT_RELAY_HEADER) === "1") {
@@ -40,8 +72,9 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
 
   const path = `${target.pathname}${target.search}`;
   const retryStatuses = shouldRetryNotFound(path) ? [404] : [];
+  const relayInit = await withPersistedRootDeviceId(target, init);
 
-  const { response, relay } = await relayFetch(getRelayEndpoints(), path, init, {
+  const { response, relay } = await relayFetch(getRelayEndpoints(), path, relayInit, {
     fetchImpl: nativeFetch,
     retryStatuses,
     preferredRelayId: getActiveRelayId(),
