@@ -1,10 +1,10 @@
 import Link from "next/link";
-import { QuanticNetworkApp } from "@/components/quantic-network-app";
+import { QuanticNetworkV1App } from "@/components/quantic-network-v1-app";
 
 export default function Home() {
   return (
     <>
-      <QuanticNetworkApp />
+      <QuanticNetworkV1App />
       <Link
         className="qn-vault-fab"
         href="/network"
