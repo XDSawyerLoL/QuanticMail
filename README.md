@@ -2,14 +2,16 @@
 
 QuanticMail is the local-first messaging product of Quantic Sillage.
 
-Starting with V0.5, QuanticMail is no longer designed around Gmail-style hosted mailboxes or SMTP as its core transport. The product now uses its own Quantic Network identities such as `vnhz@quantic`.
+QuanticMail is not designed around Gmail-style hosted mailboxes or SMTP as its core transport. The product uses its own Quantic Network identities such as `vnhz@quantic`.
 
-## V0.5 architecture
+## V0.6 architecture
 
 - **Identity:** human-readable `name@quantic`
 - **Client:** Next.js / React / TypeScript
 - **Device crypto:** Web Crypto, ECDH P-256 + AES-256-GCM
 - **Local mailbox:** browser IndexedDB
+- **Trusted contacts:** first-seen public keys are pinned locally
+- **Durable local outbox:** encrypted messages stay on the sender device until delivery is acknowledged
 - **Directory and relay:** Render
 - **Readable message storage:** user device
 - **Relay storage:** encrypted envelopes only
@@ -19,25 +21,30 @@ The private identity key stays on the user's device. Render receives routing met
 ## Current deployment
 
 - **Web application:** `https://quanticmail.onrender.com`
-- **Network:** Quantic Network V0.5 alpha
+- **Network:** Quantic Network V0.6 alpha
 
-## V0.5 alpha capabilities
+## V0.6 alpha capabilities
 
 - create and reserve a `@quantic` identity
 - generate identity encryption keys locally
 - resolve another Quantic identity
+- pin a known contact's public key locally and block silent key changes
 - encrypt messages in the browser before sending
-- temporarily queue encrypted envelopes on Render
+- keep an encrypted local outbox until a delivery receipt returns
+- automatically retry queued messages after network or relay interruptions
+- deduplicate repeated relay submissions
 - receive and decrypt messages on the recipient device
-- acknowledge only after local persistence succeeds
+- generate a delivery receipt only after local recipient persistence succeeds
 - store readable sent and received messages in IndexedDB
 - automatic polling plus manual synchronization
 
-See [`docs/V0.5-QUANTIC-NETWORK.md`](docs/V0.5-QUANTIC-NETWORK.md).
+See [`docs/V0.6-DURABLE-DELIVERY.md`](docs/V0.6-DURABLE-DELIVERY.md).
 
-## Important alpha limitation
+## Zero-cost durability model
 
-The current Quantic directory and encrypted relay queue are process-local. A Render restart or redeploy can clear reservations and pending encrypted envelopes. Messages already downloaded and saved locally remain on the user's device. Durable zero-cost persistence is the next infrastructure target.
+Render Free web services use ephemeral local storage. QuanticMail therefore does not treat the Render process as the durable source of truth for message delivery. The sender device retains the encrypted envelope and retries it until the recipient has persisted the plaintext locally and the sender receives the resulting delivery receipt.
+
+A Render restart can still clear the temporary directory/relay state and current handle reservations. It should no longer, by itself, permanently erase an outbound message that remains in a sender's local outbox. Permanent globally authoritative handle registration remains a later protocol problem.
 
 ## Legacy mail work
 

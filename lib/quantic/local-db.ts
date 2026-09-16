@@ -17,8 +17,27 @@ export type LocalMessage = {
   createdAt: string;
 };
 
+export type LocalContact = {
+  handle: string;
+  address: string;
+  publicKey: JsonWebKey;
+  firstSeenAt: string;
+  lastSeenAt: string;
+};
+
+export type LocalOutboxItem = {
+  id: string;
+  from: string;
+  to: string;
+  ciphertext: string;
+  iv: string;
+  ephemeralPublicKey: JsonWebKey;
+  createdAt: string;
+  lastAttemptAt?: string;
+};
+
 const DB_NAME = "quanticmail-local";
-const DB_VERSION = 1;
+const DB_VERSION = 3;
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -28,6 +47,13 @@ function openDb(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains("identity")) db.createObjectStore("identity");
       if (!db.objectStoreNames.contains("messages")) {
         const store = db.createObjectStore("messages", { keyPath: "id" });
+        store.createIndex("createdAt", "createdAt");
+      }
+      if (!db.objectStoreNames.contains("contacts")) {
+        db.createObjectStore("contacts", { keyPath: "handle" });
+      }
+      if (!db.objectStoreNames.contains("outbox")) {
+        const store = db.createObjectStore("outbox", { keyPath: "id" });
         store.createIndex("createdAt", "createdAt");
       }
     };
@@ -78,5 +104,60 @@ export async function listLocalMessages(): Promise<LocalMessage[]> {
       resolve(rows);
     };
     request.onerror = () => reject(request.error);
+  });
+}
+
+export async function getLocalContact(handle: string): Promise<LocalContact | null> {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("contacts", "readonly");
+    const request = tx.objectStore("contacts").get(handle);
+    request.onsuccess = () => resolve((request.result as LocalContact | undefined) ?? null);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+export async function saveLocalContact(contact: LocalContact) {
+  const db = await openDb();
+  return new Promise<void>((resolve, reject) => {
+    const tx = db.transaction("contacts", "readwrite");
+    tx.objectStore("contacts").put(contact);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export async function saveOutboxItem(item: LocalOutboxItem) {
+  const db = await openDb();
+  return new Promise<void>((resolve, reject) => {
+    const tx = db.transaction("outbox", "readwrite");
+    tx.objectStore("outbox").put(item);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export async function listOutboxItems(): Promise<LocalOutboxItem[]> {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("outbox", "readonly");
+    const request = tx.objectStore("outbox").getAll();
+    request.onsuccess = () => {
+      const rows = (request.result as LocalOutboxItem[]).sort((a, b) =>
+        a.createdAt.localeCompare(b.createdAt),
+      );
+      resolve(rows);
+    };
+    request.onerror = () => reject(request.error);
+  });
+}
+
+export async function deleteOutboxItem(id: string) {
+  const db = await openDb();
+  return new Promise<void>((resolve, reject) => {
+    const tx = db.transaction("outbox", "readwrite");
+    tx.objectStore("outbox").delete(id);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
   });
 }

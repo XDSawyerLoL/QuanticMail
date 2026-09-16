@@ -3,22 +3,37 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { decryptEnvelope, encryptForRecipient, generateIdentityKeys, randomToken } from "@/lib/quantic/crypto";
 import {
+  deleteOutboxItem,
+  getLocalContact,
   getLocalIdentity,
   listLocalMessages,
+  listOutboxItems,
+  saveLocalContact,
   saveLocalIdentity,
   saveLocalMessage,
+  saveOutboxItem,
   type LocalIdentity,
   type LocalMessage,
+  type LocalOutboxItem,
 } from "@/lib/quantic/local-db";
 
 type RelayEnvelope = {
   id: string;
+  clientMessageId: string;
   from: string;
   to: string;
   ciphertext: string;
   iv: string;
   ephemeralPublicKey: JsonWebKey;
   createdAt: string;
+};
+
+type DeliveryReceipt = {
+  id: string;
+  clientMessageId: string;
+  from: string;
+  to: string;
+  deliveredAt: string;
 };
 
 type PlainPayload = {
@@ -28,6 +43,11 @@ type PlainPayload = {
   subject: string;
   body: string;
   createdAt: string;
+};
+
+type ResolvedIdentity = {
+  address: string;
+  publicKey: JsonWebKey;
 };
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -41,9 +61,14 @@ function normalizeHandle(value: string) {
   return value.trim().toLowerCase().replace(/@quantic$/i, "");
 }
 
+function samePublicKey(a: JsonWebKey, b: JsonWebKey) {
+  return a.kty === b.kty && a.crv === b.crv && a.x === b.x && a.y === b.y;
+}
+
 export function QuanticNetworkApp() {
   const [identity, setIdentity] = useState<LocalIdentity | null>(null);
   const [messages, setMessages] = useState<LocalMessage[]>([]);
+  const [outboxCount, setOutboxCount] = useState(0);
   const [handle, setHandle] = useState("");
   const [to, setTo] = useState("");
   const [subject, setSubject] = useState("");
@@ -56,7 +81,9 @@ export function QuanticNetworkApp() {
   const syncingRef = useRef(false);
 
   const refreshLocal = useCallback(async () => {
-    setMessages(await listLocalMessages());
+    const [localMessages, outbox] = await Promise.all([listLocalMessages(), listOutboxItems()]);
+    setMessages(localMessages);
+    setOutboxCount(outbox.length);
   }, []);
 
   const publishIdentity = useCallback(async (local: LocalIdentity) => {
@@ -71,24 +98,103 @@ export function QuanticNetworkApp() {
     });
   }, []);
 
+  const pushOutboxItem = useCallback(async (local: LocalIdentity, item: LocalOutboxItem) => {
+    await fetchJson("/api/quantic/send", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${local.authToken}`,
+      },
+      body: JSON.stringify({
+        clientMessageId: item.id,
+        from: item.from,
+        to: item.to,
+        ciphertext: item.ciphertext,
+        iv: item.iv,
+        ephemeralPublicKey: item.ephemeralPublicKey,
+      }),
+    });
+    await saveOutboxItem({ ...item, lastAttemptAt: new Date().toISOString() });
+  }, []);
+
+  const flushOutbox = useCallback(
+    async (local: LocalIdentity) => {
+      const items = await listOutboxItems();
+      const retryCutoff = Date.now() - 30_000;
+      for (const item of items) {
+        if (item.lastAttemptAt && Date.parse(item.lastAttemptAt) > retryCutoff) continue;
+        try {
+          await pushOutboxItem(local, item);
+        } catch {
+          // The encrypted envelope stays in IndexedDB and will be retried later.
+        }
+      }
+    },
+    [pushOutboxItem],
+  );
+
+  const resolveRecipient = useCallback(async (recipient: string): Promise<ResolvedIdentity> => {
+    const cached = await getLocalContact(recipient);
+    let remote: ResolvedIdentity;
+
+    try {
+      remote = await fetchJson<ResolvedIdentity>(
+        `/api/quantic/resolve?handle=${encodeURIComponent(recipient)}`,
+      );
+    } catch (err) {
+      if (cached) return { address: cached.address, publicKey: cached.publicKey };
+      throw err;
+    }
+
+    if (cached && !samePublicKey(cached.publicKey, remote.publicKey)) {
+      throw new Error(
+        `Alerte sécurité : la clé de ${remote.address} a changé. Envoi bloqué pour éviter une usurpation.`,
+      );
+    }
+
+    const now = new Date().toISOString();
+    await saveLocalContact({
+      handle: recipient,
+      address: remote.address,
+      publicKey: remote.publicKey,
+      firstSeenAt: cached?.firstSeenAt ?? now,
+      lastSeenAt: now,
+    });
+    return remote;
+  }, []);
+
   const sync = useCallback(
     async (local = identity, quiet = false) => {
       if (!local || syncingRef.current) return;
       syncingRef.current = true;
       setSyncing(true);
-      if (!quiet) setNotice("Synchronisation…");
+      if (!quiet) {
+        setError("");
+        setNotice("Synchronisation…");
+      }
+
       try {
         await publishIdentity(local);
+        await flushOutbox(local);
+
         const pulled = await fetchJson<{ envelopes: RelayEnvelope[] }>(
           `/api/quantic/pull?handle=${encodeURIComponent(local.handle)}`,
           { headers: { authorization: `Bearer ${local.authToken}` } },
         );
         const acknowledged: string[] = [];
+
         for (const envelope of pulled.envelopes) {
           try {
             const payload = await decryptEnvelope<PlainPayload>(local.privateKey, envelope);
+            if (
+              payload.id !== envelope.clientMessageId ||
+              payload.from !== envelope.from ||
+              payload.to !== envelope.to
+            ) {
+              throw new Error("Enveloppe et contenu Quantic incohérents.");
+            }
             await saveLocalMessage({
-              id: payload.id || envelope.id,
+              id: payload.id,
               direction: "in",
               from: envelope.from,
               to: envelope.to,
@@ -98,9 +204,10 @@ export function QuanticNetworkApp() {
             });
             acknowledged.push(envelope.id);
           } catch {
-            // Keep the envelope on the relay if local decryption fails.
+            // Keep the envelope on the relay if local decryption or validation fails.
           }
         }
+
         if (acknowledged.length) {
           await fetchJson("/api/quantic/ack", {
             method: "POST",
@@ -111,8 +218,35 @@ export function QuanticNetworkApp() {
             body: JSON.stringify({ handle: local.handle, ids: acknowledged }),
           });
         }
+
+        const receiptPayload = await fetchJson<{ receipts: DeliveryReceipt[] }>(
+          `/api/quantic/receipts?handle=${encodeURIComponent(local.handle)}`,
+          { headers: { authorization: `Bearer ${local.authToken}` } },
+        );
+        const receiptIds: string[] = [];
+        for (const receipt of receiptPayload.receipts) {
+          await deleteOutboxItem(receipt.clientMessageId);
+          receiptIds.push(receipt.id);
+        }
+
+        if (receiptIds.length) {
+          await fetchJson("/api/quantic/receipts", {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              authorization: `Bearer ${local.authToken}`,
+            },
+            body: JSON.stringify({ handle: local.handle, ids: receiptIds }),
+          });
+        }
+
         await refreshLocal();
-        if (!quiet) setNotice(acknowledged.length ? `${acknowledged.length} message(s) reçu(s).` : "À jour.");
+        if (!quiet) {
+          const parts = [];
+          if (acknowledged.length) parts.push(`${acknowledged.length} reçu(s)`);
+          if (receiptIds.length) parts.push(`${receiptIds.length} livré(s)`);
+          setNotice(parts.length ? `${parts.join(" · ")}.` : "À jour.");
+        }
       } catch (err) {
         if (!quiet) setError(err instanceof Error ? err.message : "Synchronisation impossible.");
       } finally {
@@ -120,7 +254,7 @@ export function QuanticNetworkApp() {
         setSyncing(false);
       }
     },
-    [identity, publishIdentity, refreshLocal],
+    [flushOutbox, identity, publishIdentity, refreshLocal],
   );
 
   useEffect(() => {
@@ -181,9 +315,7 @@ export function QuanticNetworkApp() {
     setNotice("");
     try {
       const recipient = normalizeHandle(to);
-      const resolved = await fetchJson<{ address: string; publicKey: JsonWebKey }>(
-        `/api/quantic/resolve?handle=${encodeURIComponent(recipient)}`,
-      );
+      const resolved = await resolveRecipient(recipient);
       const createdAt = new Date().toISOString();
       const id = crypto.randomUUID();
       const payload: PlainPayload = {
@@ -195,24 +327,31 @@ export function QuanticNetworkApp() {
         createdAt,
       };
       const encrypted = await encryptForRecipient(resolved.publicKey, payload);
-      await fetchJson("/api/quantic/send", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          authorization: `Bearer ${identity.authToken}`,
-        },
-        body: JSON.stringify({
-          from: identity.handle,
-          to: recipient,
-          ...encrypted,
-        }),
-      });
+      const outboxItem: LocalOutboxItem = {
+        id,
+        from: identity.handle,
+        to: recipient,
+        ciphertext: encrypted.ciphertext,
+        iv: encrypted.iv,
+        ephemeralPublicKey: encrypted.ephemeralPublicKey,
+        createdAt,
+      };
+
       await saveLocalMessage({ ...payload, direction: "out" });
+      await saveOutboxItem(outboxItem);
       await refreshLocal();
+
+      try {
+        await pushOutboxItem(identity, outboxItem);
+        setNotice(`Message chiffré transmis à ${resolved.address}. En attente de livraison.`);
+      } catch {
+        setNotice("Message conservé sur cet appareil. QuanticMail le renverra automatiquement.");
+      }
+
       setTo("");
       setSubject("");
       setBody("");
-      setNotice(`Message chiffré envoyé à ${resolved.address}.`);
+      await refreshLocal();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Envoi impossible.");
     } finally {
@@ -242,7 +381,7 @@ export function QuanticNetworkApp() {
             <button disabled={busy}>{busy ? "Création…" : "Créer mon identité"}</button>
           </form>
           {error && <p className="qn-error">{error}</p>}
-          <p className="qn-footnote">V0.5 alpha · la clé privée est créée et conservée uniquement dans le stockage local de ce navigateur.</p>
+          <p className="qn-footnote">V0.6 alpha · la clé privée est créée et conservée uniquement dans le stockage local de ce navigateur.</p>
         </section>
       </main>
     );
@@ -251,7 +390,7 @@ export function QuanticNetworkApp() {
   return (
     <main className="qn-app">
       <header className="qn-topbar">
-        <div className="qn-brand"><span className="qn-mark small">Q</span><div><strong>QuanticMail</strong><small>Quantic Network · V0.5 alpha</small></div></div>
+        <div className="qn-brand"><span className="qn-mark small">Q</span><div><strong>QuanticMail</strong><small>Quantic Network · V0.6 alpha</small></div></div>
         <div className="qn-identity">
           <button className="qn-address" onClick={() => void navigator.clipboard.writeText(identity.address)} title="Copier l’adresse">{identity.address}</button>
           <button className="qn-sync" onClick={() => void sync()} disabled={syncing}>{syncing ? "Synchro…" : "Synchroniser"}</button>
@@ -264,7 +403,11 @@ export function QuanticNetworkApp() {
           <button className={scope === "all" ? "active" : ""} onClick={() => setScope("all")}>Tous <span>{messages.length}</span></button>
           <button className={scope === "in" ? "active" : ""} onClick={() => setScope("in")}>Reçus <span>{messages.filter((m) => m.direction === "in").length}</span></button>
           <button className={scope === "out" ? "active" : ""} onClick={() => setScope("out")}>Envoyés <span>{messages.filter((m) => m.direction === "out").length}</span></button>
-          <div className="qn-local-note"><strong>Local-first</strong><p>Les messages lisibles restent sur cet appareil.</p></div>
+          <div className="qn-local-note">
+            <strong>Local-first</strong>
+            <p>Les messages lisibles restent sur cet appareil.</p>
+            <p>{outboxCount ? `${outboxCount} message(s) en attente d’accusé de livraison.` : "Aucun message en attente de livraison."}</p>
+          </div>
         </aside>
 
         <section className="qn-card qn-inbox">
@@ -294,7 +437,7 @@ export function QuanticNetworkApp() {
             <button disabled={busy}>{busy ? "Chiffrement…" : "Chiffrer et envoyer"}</button>
           </form>
           {(error || notice) && <p className={error ? "qn-error" : "qn-notice"}>{error || notice}</p>}
-          <p className="qn-footnote">Le texte est chiffré dans ton navigateur avant de partir vers Render.</p>
+          <p className="qn-footnote">Le texte est chiffré dans ton navigateur. Une copie chiffrée reste dans la file locale jusqu’à l’accusé de livraison.</p>
         </section>
       </div>
     </main>

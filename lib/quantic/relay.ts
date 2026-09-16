@@ -4,12 +4,21 @@ export type QuanticPublicKey = JsonWebKey;
 
 export type RelayEnvelope = {
   id: string;
+  clientMessageId: string;
   from: string;
   to: string;
   ciphertext: string;
   iv: string;
   ephemeralPublicKey: QuanticPublicKey;
   createdAt: string;
+};
+
+export type DeliveryReceipt = {
+  id: string;
+  clientMessageId: string;
+  from: string;
+  to: string;
+  deliveredAt: string;
 };
 
 type IdentityRecord = {
@@ -23,6 +32,7 @@ type IdentityRecord = {
 type RelayState = {
   identities: Map<string, IdentityRecord>;
   queues: Map<string, RelayEnvelope[]>;
+  receipts: Map<string, DeliveryReceipt[]>;
   sendWindows: Map<string, number[]>;
 };
 
@@ -34,13 +44,17 @@ const state: RelayState =
   globalThis.__quanticRelayState ?? {
     identities: new Map(),
     queues: new Map(),
+    receipts: new Map(),
     sendWindows: new Map(),
   };
 
+if (!state.receipts) state.receipts = new Map();
 globalThis.__quanticRelayState = state;
 
 const HANDLE = /^[a-z0-9][a-z0-9._-]{2,31}$/;
+const CLIENT_MESSAGE_ID = /^[a-zA-Z0-9._:-]{8,100}$/;
 const MAX_QUEUE = 500;
+const MAX_RECEIPTS = 500;
 const MAX_CIPHERTEXT_CHARS = 400_000;
 const MESSAGE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const SENDS_PER_MINUTE = 60;
@@ -69,6 +83,14 @@ function ensureHandle(value: string) {
   return handle;
 }
 
+function ensureClientMessageId(value: string) {
+  const id = value.trim();
+  if (!CLIENT_MESSAGE_ID.test(id)) {
+    throw new RelayError("Identifiant de message invalide.", 400);
+  }
+  return id;
+}
+
 function tokenHash(token: string) {
   return createHash("sha256").update(token).digest("hex");
 }
@@ -92,6 +114,15 @@ function pruneQueue(handle: string) {
   const fresh = queue.filter((item) => Date.parse(item.createdAt) >= cutoff);
   if (fresh.length) state.queues.set(handle, fresh);
   else state.queues.delete(handle);
+}
+
+function pruneReceipts(handle: string) {
+  const receipts = state.receipts.get(handle);
+  if (!receipts) return;
+  const cutoff = Date.now() - MESSAGE_TTL_MS;
+  const fresh = receipts.filter((item) => Date.parse(item.deliveredAt) >= cutoff);
+  if (fresh.length) state.receipts.set(handle, fresh);
+  else state.receipts.delete(handle);
 }
 
 function checkSendRate(handle: string) {
@@ -151,6 +182,7 @@ export function resolveIdentity(handleInput: string) {
 }
 
 export function enqueueEnvelope(input: {
+  clientMessageId: string;
   from: string;
   to: string;
   authToken: string | null;
@@ -160,9 +192,7 @@ export function enqueueEnvelope(input: {
 }) {
   const sender = authenticate(input.from, input.authToken);
   const recipientHandle = ensureHandle(input.to);
-  if (!state.identities.has(recipientHandle)) {
-    throw new RelayError(`${recipientHandle}@quantic est introuvable.`, 404);
-  }
+  const clientMessageId = ensureClientMessageId(input.clientMessageId);
   validatePublicKey(input.ephemeralPublicKey);
   if (!input.iv || !input.ciphertext || input.ciphertext.length > MAX_CIPHERTEXT_CHARS) {
     throw new RelayError("Enveloppe chiffrée invalide ou trop volumineuse.", 400);
@@ -171,12 +201,19 @@ export function enqueueEnvelope(input: {
   checkSendRate(sender.handle);
   pruneQueue(recipientHandle);
   const queue = state.queues.get(recipientHandle) ?? [];
+  const existing = queue.find(
+    (item) => item.from === `${sender.handle}@quantic` && item.clientMessageId === clientMessageId,
+  );
+  if (existing) {
+    return { id: existing.id, queuedAt: existing.createdAt, duplicate: true };
+  }
   if (queue.length >= MAX_QUEUE) {
     throw new RelayError("File d’attente du destinataire saturée.", 507);
   }
 
   const envelope: RelayEnvelope = {
     id: randomUUID(),
+    clientMessageId,
     from: `${sender.handle}@quantic`,
     to: `${recipientHandle}@quantic`,
     ciphertext: input.ciphertext,
@@ -187,7 +224,7 @@ export function enqueueEnvelope(input: {
 
   queue.push(envelope);
   state.queues.set(recipientHandle, queue);
-  return { id: envelope.id, queuedAt: envelope.createdAt };
+  return { id: envelope.id, queuedAt: envelope.createdAt, duplicate: false };
 }
 
 export function pullEnvelopes(handleInput: string, authToken: string | null) {
@@ -204,8 +241,50 @@ export function acknowledgeEnvelopes(
   const identity = authenticate(handleInput, authToken);
   const idSet = new Set(ids.filter((id) => typeof id === "string" && id.length <= 100));
   const queue = state.queues.get(identity.handle) ?? [];
+  const acknowledged = queue.filter((item) => idSet.has(item.id));
   const next = queue.filter((item) => !idSet.has(item.id));
+
+  for (const envelope of acknowledged) {
+    const senderHandle = normalizeHandle(envelope.from);
+    pruneReceipts(senderHandle);
+    const receipts = state.receipts.get(senderHandle) ?? [];
+    const alreadyRecorded = receipts.some(
+      (receipt) =>
+        receipt.clientMessageId === envelope.clientMessageId && receipt.to === envelope.to,
+    );
+    if (!alreadyRecorded && receipts.length < MAX_RECEIPTS) {
+      receipts.push({
+        id: randomUUID(),
+        clientMessageId: envelope.clientMessageId,
+        from: envelope.from,
+        to: envelope.to,
+        deliveredAt: new Date().toISOString(),
+      });
+      state.receipts.set(senderHandle, receipts);
+    }
+  }
+
   if (next.length) state.queues.set(identity.handle, next);
   else state.queues.delete(identity.handle);
-  return { acknowledged: queue.length - next.length };
+  return { acknowledged: acknowledged.length };
+}
+
+export function pullReceipts(handleInput: string, authToken: string | null) {
+  const identity = authenticate(handleInput, authToken);
+  pruneReceipts(identity.handle);
+  return (state.receipts.get(identity.handle) ?? []).slice(0, 100);
+}
+
+export function acknowledgeReceipts(
+  handleInput: string,
+  authToken: string | null,
+  ids: string[],
+) {
+  const identity = authenticate(handleInput, authToken);
+  const idSet = new Set(ids.filter((id) => typeof id === "string" && id.length <= 100));
+  const receipts = state.receipts.get(identity.handle) ?? [];
+  const next = receipts.filter((item) => !idSet.has(item.id));
+  if (next.length) state.receipts.set(identity.handle, next);
+  else state.receipts.delete(identity.handle);
+  return { acknowledged: receipts.length - next.length };
 }
