@@ -10,6 +10,7 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
     const result = enqueueEnvelope({
+      clientMessageId: String(body.clientMessageId ?? ""),
       from: String(body.from ?? ""),
       to: String(body.to ?? ""),
       authToken: bearer(request),
