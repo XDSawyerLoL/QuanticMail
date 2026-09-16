@@ -6,7 +6,7 @@ import {
   timingSafeEqual,
   verify,
 } from "node:crypto";
-import { identityNamesForKey } from "@/lib/quantic/identity-names.mjs";
+import { identityNamesForKey } from "./identity-names.mjs";
 
 export type QuanticPublicKey = JsonWebKey;
 
