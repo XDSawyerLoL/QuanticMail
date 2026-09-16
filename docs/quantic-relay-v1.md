@@ -81,17 +81,26 @@ La boîte lisible et l’outbox durable restent sur l’appareil utilisateur.
 
 ## Auto-hébergement actuel
 
-Toute instance de QuanticMail contenant ces routes peut servir de relais V1. Une fois déployée en HTTPS, son origine peut être ajoutée depuis la page `/network` d’un autre client QuanticMail.
+Deux implémentations compatibles avec le même protocole V1 existent dans le dépôt :
 
-L’implémentation serveur actuelle conserve encore l’état du relais en mémoire de processus. Elle convient au protocole alpha et aux tests de bascule, mais ce stockage n’est pas encore durable ni répliqué entre relais.
+1. les routes `/api/quantic/*` intégrées à QuanticMail/Next.js ;
+2. le programme Node.js autonome décrit dans `docs/quantic-relay-standalone.md`.
+
+Une instance complète de QuanticMail peut donc toujours agir comme relais lorsqu’elle est déployée en HTTPS. Son implémentation serveur intégrée conserve actuellement l’état du relais en mémoire de processus.
+
+Le relais autonome réutilise le même moteur cryptographique et le même contrat HTTP mais ajoute un stockage JSON versionné et atomique. Son état survit aux arrêts et redémarrages lorsque le même répertoire de données est réutilisé. Il peut tourner sur une machine locale, un mini-PC, un NAS compatible Node.js ou un VPS sans base de données ni service cloud obligatoire.
+
+Une fois publié en HTTPS, son origine peut être ajoutée depuis la page `/network` de QuanticMail. En local, `http://localhost:8787` est accepté.
 
 ## Limites de V1 alpha
 
-Cette première version enlève l’hypothèse d’un endpoint unique côté client, mais ne constitue pas encore un réseau pair-à-pair complet :
+Cette version enlève l’hypothèse d’un endpoint unique côté client et permet désormais d’exécuter un relais durable indépendamment de Render, mais elle ne constitue pas encore un réseau pair-à-pair complet :
 
 - pas encore de réplication automatique des files entre relais ;
 - pas encore de découverte signée d’endpoints attachés à l’identité ;
 - pas encore de transport direct appareil-à-appareil ;
 - l’interface web doit encore être chargée depuis un hébergeur si elle n’est pas déjà disponible localement.
+
+La persistance locale d’un relais ne garantit donc pas encore qu’un expéditeur utilisant exclusivement le relais A trouve automatiquement un destinataire inscrit exclusivement sur le relais B. La découverte et le store-and-forward inter-relais constituent les prochaines étapes.
 
 Ces points correspondent aux étapes suivantes de Quantic Network V1 et doivent être traités sans modifier l’identité canonique des utilisateurs.

@@ -7,7 +7,9 @@
     "test": "node --experimental-transform-types --test tests/*.test.mjs tests/*.test.ts",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "relay:start": "node --experimental-transform-types standalone-relay/main.ts",
+    "relay:dev": "node --watch --experimental-transform-types standalone-relay/main.ts"
   },
   "dependencies": {
     "next": "16.3.3",
