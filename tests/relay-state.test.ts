@@ -19,7 +19,7 @@ test("empty relay state is explicit and versioned", () => {
   const snapshot = exportRelayState("2026-09-16T00:00:01.000Z");
 
   assert.equal(snapshot.format, "quantic-relay-state");
-  assert.equal(snapshot.version, 1);
+  assert.equal(snapshot.version, 2);
   assert.equal(snapshot.savedAt, "2026-09-16T00:00:01.000Z");
   assert.deepEqual(snapshot.identities, []);
   assert.deepEqual(snapshot.aliases, []);
@@ -28,6 +28,9 @@ test("empty relay state is explicit and versioned", () => {
   assert.deepEqual(snapshot.queues, []);
   assert.deepEqual(snapshot.receipts, []);
   assert.deepEqual(snapshot.sendWindows, []);
+  assert.deepEqual(snapshot.manifests, []);
+  assert.deepEqual(snapshot.preKeyPools, []);
+  assert.deepEqual(snapshot.consumedPreKeys, []);
 });
 
 test("relay aliases round-trip through JSON without Set loss", () => {
@@ -73,13 +76,13 @@ test("persistent snapshots never contain raw device auth tokens", () => {
   assert.match(snapshot.identities[0][1].authTokenHash, /^[0-9a-f]{64}$/);
 });
 
-test("unknown state format or version is rejected", () => {
+test("unknown state format or future version is rejected", () => {
   assert.throws(
-    () => restoreRelayState({ format: "wrong", version: 1 }),
+    () => restoreRelayState({ format: "wrong", version: 2 }),
     /format/i,
   );
   assert.throws(
-    () => restoreRelayState({ format: "quantic-relay-state", version: 2 }),
+    () => restoreRelayState({ format: "quantic-relay-state", version: 3 }),
     /version/i,
   );
 });
