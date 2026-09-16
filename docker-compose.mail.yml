@@ -1,21 +1,29 @@
 services:
   stalwart:
-    image: stalwartlabs/stalwart:v0.16.21
+    image: stalwartlabs/stalwart:v0.16
     container_name: quanticmail-stalwart
     restart: unless-stopped
     ports:
-      - "8080:8080"
+      # HTTPS / JMAP / WebUI after TLS setup
+      - "443:443"
+      # Bootstrap/admin HTTP is local-only. Use an SSH tunnel if needed.
+      - "127.0.0.1:8080:8080"
+      # SMTP receive + authenticated submission
       - "25:25"
       - "587:587"
       - "465:465"
+      # IMAP/POP compatibility for standard mail clients
       - "143:143"
       - "993:993"
+      - "110:110"
+      - "995:995"
+      # ManageSieve
       - "4190:4190"
     volumes:
       - stalwart-config:/etc/stalwart
       - stalwart-data:/var/lib/stalwart
     environment:
-      STALWART_PUBLIC_URL: ${STALWART_PUBLIC_URL:-http://localhost:8080}
+      STALWART_PUBLIC_URL: ${STALWART_PUBLIC_URL:-https://mail.quanticsillage.com}
 
 volumes:
   stalwart-config:
