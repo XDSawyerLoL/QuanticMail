@@ -9,6 +9,19 @@ import {
 const nativeFetch = window.fetch.bind(window);
 const DIRECT_RELAY_HEADER = "x-quantic-direct-relay";
 
+function shouldRetryNotFound(path: string) {
+  return (
+    path.startsWith("/api/quantic/resolve") ||
+    path.startsWith("/api/quantic/send") ||
+    path.startsWith("/api/quantic/manifest") ||
+    path.startsWith("/api/quantic/devices/revoke") ||
+    path.startsWith("/api/quantic/pairing/") ||
+    path.startsWith("/api/quantic/registry/status") ||
+    path.startsWith("/api/quantic/prekeys/publish") ||
+    path.startsWith("/api/quantic/prekeys/status")
+  );
+}
+
 window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
   const headers = new Headers(init?.headers);
   if (headers.get(DIRECT_RELAY_HEADER) === "1") {
@@ -26,8 +39,7 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
   }
 
   const path = `${target.pathname}${target.search}`;
-  const retryStatuses =
-    path.startsWith("/api/quantic/resolve") || path.startsWith("/api/quantic/send") ? [404] : [];
+  const retryStatuses = shouldRetryNotFound(path) ? [404] : [];
 
   const { response, relay } = await relayFetch(getRelayEndpoints(), path, init, {
     fetchImpl: nativeFetch,
