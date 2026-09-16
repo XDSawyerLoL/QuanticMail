@@ -58,8 +58,8 @@ test("legacy 40-bit canonical fingerprints remain valid", () => {
 test("strong fingerprint helper returns 32 deterministic lowercase hex characters", async () => {
   let helper;
   await assert.doesNotReject(async () => {
-    const module = await import("../lib/quantic/identity-fingerprint.mjs");
-    helper = module.fingerprintPublicKeyStrong;
+    const fingerprintModule = await import("../lib/quantic/identity-fingerprint.mjs");
+    helper = fingerprintModule.fingerprintPublicKeyStrong;
   });
   assert.equal(typeof helper, "function");
   const first = await helper(signingKey);
