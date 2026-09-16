@@ -17,3 +17,7 @@ jobs:
       - run: npm install
       - run: npm run build
       - run: npm run lint
+      - name: Validate VPS bootstrap script
+        run: bash -n scripts/bootstrap-mail-vps.sh
+      - name: Validate production mail compose
+        run: MAIL_SERVER_HOSTNAME=mx.example.com docker compose -f docker-compose.production.yml config >/dev/null
