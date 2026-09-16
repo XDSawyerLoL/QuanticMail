@@ -1,0 +1,29 @@
+services:
+  stalwart:
+    image: stalwartlabs/stalwart:v0.16.21
+    container_name: quanticmail-stalwart
+    restart: unless-stopped
+    ports:
+      - "25:25"
+      - "443:443"
+      - "465:465"
+      - "587:587"
+      - "993:993"
+      - "127.0.0.1:8080:8080"
+      - "4190:4190"
+    environment:
+      STALWART_PUBLIC_URL: https://mx.sillage.com
+    volumes:
+      - stalwart-etc:/etc/stalwart
+      - stalwart-data:/var/lib/stalwart
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+volumes:
+  stalwart-etc:
+  stalwart-data:
