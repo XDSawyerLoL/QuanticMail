@@ -4,19 +4,20 @@ import {
   ManifestStateError,
   publishManifest,
 } from "@/lib/quantic/manifest-state";
+import { normalizeCanonicalAddress } from "@/lib/quantic/registry-path.mjs";
 import type { QuanticIdentityManifest } from "@/lib/quantic/manifest-types";
-
-const CANONICAL = /^[a-z0-9][a-z0-9._-]{2,31}~[0-9a-f]{10}@quantic$/;
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
-  const canonical = (url.searchParams.get("handle") ?? "").trim().toLowerCase();
-  if (!CANONICAL.test(canonical)) {
+  let canonical: string;
+  try {
+    canonical = normalizeCanonicalAddress(url.searchParams.get("handle") ?? "");
+  } catch {
     return NextResponse.json({ error: "Adresse Quantic canonique requise." }, { status: 400 });
   }
   const manifest = await getManifest(canonical);
   if (!manifest) {
-    return NextResponse.json({ error: "Aucun manifeste V1 publié pour cette identité." }, { status: 404 });
+    return NextResponse.json({ error: "Aucun manifeste V1.1 publié pour cette identité." }, { status: 404 });
   }
   return NextResponse.json({ manifest });
 }

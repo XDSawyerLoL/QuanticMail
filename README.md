@@ -2,83 +2,120 @@
 
 QuanticMail is the local-first messaging product of Quantic Sillage.
 
-QuanticMail is not designed around Gmail-style hosted mailboxes or SMTP as its core transport. The product uses its own Quantic Network identities such as `sansa@quantic`, with a self-certifying canonical identity such as `sansa~4f82a19c2d@quantic`.
+QuanticMail does not use Gmail-style hosted mailboxes or SMTP as its core transport. Quantic Network uses human identities such as `sansa@quantic` and self-certifying canonical identities derived from a signing key.
 
-## V0.9 architecture
+## V1.1 architecture
 
 - **Human identity:** `name@quantic`
-- **Canonical identity:** `name~fingerprint@quantic`, derived from the master identity signing key
+- **New canonical identities:** `name~<32 hex>@quantic` (128-bit displayed fingerprint)
+- **Legacy canonical identities:** existing 10-hex identities remain valid and are not silently renamed
 - **Root device:** retains the master identity signing private key
-- **Linked devices:** each has its own ECDH P-256 encryption key, device signing key and auth token
-- **Device authorization:** a root-signed Quantic device certificate
-- **Message encryption:** AES-256-GCM with per-device ECDH P-256 key agreement
-- **Multi-device delivery:** one independently encrypted envelope per authorized recipient device
-- **Per-device mailbox:** relay queues and delivery receipts are scoped to a device ID
+- **Linked devices:** each has its own ECDH P-256 encryption key, ECDSA P-256 device-signing key and auth token
+- **Device authorization:** root-signed Quantic device certificates plus a signed monotonic identity manifest
+- **Message encryption:** AES-256-GCM with ECDH P-256
+- **One-time prekeys:** per-device signed P-256 ECDH prekeys, atomically claimed once by the relay when available
+- **Fallback:** static per-device ECDH encryption remains available when the prekey pool is empty or unavailable
+- **Multi-device delivery:** one independently encrypted transport envelope per authorized recipient device
+- **Sent-history sync:** encrypted sync copies are sent to the sender's other authorized devices
 - **Local mailbox:** browser IndexedDB
-- **Durable local outbox:** encrypted device deliveries remain local until acknowledged
+- **Durable local outbox:** encrypted deliveries remain local until delivery receipts arrive
 - **Identity recovery:** password-encrypted `.quantic-vault` for the root identity
+- **QR pairing:** 256-bit pairing secret in the URL fragment, HKDF-SHA-256 + AES-256-GCM package encryption, 10-minute rendezvous and one-shot package retrieval
 - **Directory and temporary relay:** Render
+- **Optional durable manifest registry:** GitHub `registry` branch when the Render service has a write token configured
 
-The master identity signing private key does not need to be copied to linked devices. A linked phone or PC receives only its own private device keys plus a certificate signed by the root identity.
+Private identity, device and one-time-prekey keys remain client-side. The relay sees routing metadata and ciphertext but does not receive readable message bodies or private cryptographic keys.
 
 ## Current deployment
 
 - **Web application:** `https://quanticmail.onrender.com`
-- **Device manager:** `https://quanticmail.onrender.com/devices`
+- **Device manager / QR pairing:** `https://quanticmail.onrender.com/devices`
+- **File-pairing fallback:** `https://quanticmail.onrender.com/devices/files`
 - **Identity Vault:** `https://quanticmail.onrender.com/vault`
-- **Network:** Quantic Network V0.9 alpha
+- **Network:** Quantic Network V1.1 alpha
 
-## V0.9 capabilities
+## V1.1 capabilities
 
-- create a human-readable `@quantic` identity
-- derive a self-certifying canonical identity
+- create a new 128-bit canonical Quantic identity while preserving legacy 40-bit identities
 - prove root ownership with ECDSA P-256
-- create a new device request without exposing private keys
-- sign a device certificate on the root device
-- install the certificate on a secondary device
-- re-register a linked device after a relay restart using the certificate
-- resolve all authorized recipient devices
-- encrypt a separate message copy for every recipient device
-- keep each device mailbox isolated on the relay
-- return delivery receipts to the exact sender device
-- keep readable messages local to each browser/device
-- preserve V0.8 encrypted Identity Vault recovery for the root identity
+- authorize independent devices with root-signed certificates
+- maintain a root-signed monotonic device manifest with revocations and rollback protection
+- pair a new PC or phone through a short-lived QR rendezvous without copying the master private key
+- bootstrap the new device with an encrypted copy of available local history
+- publish signed one-time prekeys for each authorized device
+- atomically claim and consume a recipient prekey when available
+- fall back to the authorized device's static key when no prekey is available
+- encrypt one transport delivery per recipient device
+- synchronize readable sent-history records to the sender's other authorized devices through encrypted `sync-copy` deliveries
+- keep per-device relay queues and delivery receipts isolated
+- keep unsent encrypted deliveries in a local durable outbox
+- preserve V0.8 Identity Vault recovery for the root identity
+- optionally checkpoint signed manifests to a GitHub registry branch
 
-See [`docs/V0.9-MULTI-DEVICE.md`](docs/V0.9-MULTI-DEVICE.md).
+See [`docs/V1.1-SECURE-SYNC.md`](docs/V1.1-SECURE-SYNC.md).
 
-## Pairing flow
+## QR pairing flow
 
-1. On the new device, open `/devices`, enter the canonical Quantic identity and a device label, then create a `.quantic-device-request` file.
-2. Move that request file to the root device.
-3. On the root device, open `/devices`, load the request and sign it. QuanticMail produces a `.quantic-device-cert` file.
-4. Move the signed certificate back to the new device and install it.
-5. The new device registers with the relay using its own auth token and certificate.
+1. On the existing root device, open `/devices` and create a QR invitation.
+2. QuanticMail generates a random 256-bit secret locally. The secret is placed in the URL fragment (`#secret=...`), so normal HTTP requests do not send it as part of the URL path or query string.
+3. Scan the QR code on the new device and choose a device label.
+4. The new device creates its own encryption/signing keys locally and submits only its public request through the temporary pairing rendezvous.
+5. The root device explicitly approves the request, signs the device certificate, increments/signs the manifest and encrypts a bootstrap package containing the certificate, manifest and available local history.
+6. The new device downloads that encrypted package once, decrypts it locally, verifies the signed manifest/certificate and registers with its own auth token.
+7. The fallback file-pairing workflow remains available under `/devices/files`.
 
-The request file contains public device keys only. The certificate contains public identity/device data plus the master signature. The root private signing key never appears in either file.
+Pairing invitations expire after 10 minutes. The server stores only the temporary rendezvous state and encrypted package; the pairing secret is never persisted by the application server.
 
-## Message fan-out
+## One-time prekeys
 
-When sending to a V0.9 identity, QuanticMail resolves the authorized device list and encrypts the message independently for every device public key. A compromise of one device private key does not provide the private keys of the other devices.
+Each V1.1 device keeps private one-time ECDH keys in IndexedDB and publishes only signed public prekey records. The relay verifies the device signature against the current signed manifest before accepting them.
 
-Each encrypted delivery has its own outbox record and delivery receipt. The readable sent message is still stored only once in the sender's local mailbox.
+When a sender targets a device, it authenticates and atomically claims one public prekey. The prekey identifier is carried inside the standard JWK `kid` metadata on the ephemeral envelope key, preserving the existing V1 relay envelope shape. After authenticated decryption and local message persistence, the recipient deletes the corresponding local private prekey.
+
+If no one-time prekey is available, QuanticMail uses the authorized device's static ECDH key as an explicit compatibility/degraded-security fallback instead of making delivery impossible.
+
+## Sent-history sync
+
+A logical outgoing message has one stable message ID. Normal recipient deliveries and encrypted copies sent to the sender's other active devices carry that same logical ID.
+
+A sync copy is transported back to the sender's own canonical identity but retains the external logical recipient inside the encrypted payload. On receipt, it is validated and stored as an **outgoing** message. IndexedDB's message key makes repeated history imports/idempotent sync overwrite the same logical record instead of creating duplicates.
+
+## Durable manifest registry
+
+Render Free storage is ephemeral, so QuanticMail does not treat process memory as the durable authority for device authorization. Signed manifests can be checkpointed to the repository's `registry` branch.
+
+Runtime configuration:
+
+- `QUANTIC_GITHUB_TOKEN`: GitHub token with permission to read/write repository contents
+- `QUANTIC_GITHUB_OWNER`: defaults to `XDSawyerLoL`
+- `QUANTIC_GITHUB_REPO`: defaults to `QuanticMail`
+- `QUANTIC_GITHUB_BRANCH`: defaults to `registry`
+
+If `QUANTIC_GITHUB_TOKEN` is absent, QuanticMail deliberately reports registry mode as `memory`; it does not pretend durable GitHub persistence is active. A token must be provided through Render environment variables, never committed to this repository.
 
 ## Zero-cost durability model
 
-Render Free web services use ephemeral local storage. QuanticMail therefore does not treat the relay as the durable authority for identity ownership, device authorization or undelivered content.
+The current Render Free service can restart and lose process-memory relay state. QuanticMail therefore relies on cryptographically portable client state rather than pretending the free relay is permanent storage:
 
-- identity ownership is proven by the master signing key;
-- linked-device authorization is proven by the root-signed device certificate;
-- unsent/unacknowledged encrypted deliveries remain in the sender's local outbox;
-- a linked device can re-register from its local certificate after a relay restart.
+- root ownership is proven by the master signing key;
+- device authorization is proven by root-signed certificates and manifests;
+- linked devices re-register from their local certificates after a restart;
+- undelivered encrypted payloads remain in the sender's IndexedDB outbox;
+- readable mailbox history remains on user devices and can be bootstrapped during pairing;
+- optional GitHub checkpoints preserve signed manifest state when explicitly configured.
 
-A Render restart can still clear temporary queues and device-directory state. Active devices rebuild that state by re-registering.
+Temporary relay queues can still be lost by a Render restart before delivery. V1.1 reduces the impact through local retry/outbox logic but does not claim server-side durable message storage.
 
-## Security boundary
+## Security boundary and current limitations
 
-The root device can authorize new devices because it holds the master identity signing private key. Linked devices intentionally cannot authorize additional devices. Revocation, QR pairing and synchronized message history are future protocol layers; V0.9 focuses on independent device authorization and live encrypted delivery.
+QuanticMail V1.1 is an **alpha protocol implementation and has not received an independent security audit**. ECDH/ECDSA currently use P-256 and message encryption uses AES-256-GCM.
+
+One-time-prekey pool state on the free relay is process-memory state. After a relay restart devices replenish fresh prekeys rather than treating the relay as a durable prekey authority. Static-key fallback is intentionally visible in the protocol design and means forward-secrecy properties are not uniform for every delivery.
+
+The root device can authorize/revoke linked devices because it retains the master signing private key. Linked devices do not receive that master private key.
 
 ## Legacy mail work
 
-The repository still contains the earlier JMAP/Stalwart and Resend experiments for reference. They are no longer the default product direction.
+The repository still contains earlier JMAP/Stalwart and Resend experiments for reference. They are no longer the default product direction.
 
-Quantic Network does not require SMTP, MX, IMAP, SPF, DKIM, DMARC, a purchased domain, or a Gmail/Outlook account for communication between Quantic identities.
+Quantic Network communication between Quantic identities does not require SMTP, MX, IMAP, SPF, DKIM, DMARC, a purchased domain, or a Gmail/Outlook account.

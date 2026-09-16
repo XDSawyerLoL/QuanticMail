@@ -3,7 +3,7 @@ import { activeDevices } from "@/lib/quantic/manifest-core.mjs";
 import { getManifest } from "@/lib/quantic/manifest-state";
 import { RelayError, resolveIdentity } from "@/lib/quantic/relay";
 
-const CANONICAL = /^[a-z0-9][a-z0-9._-]{2,31}~[0-9a-f]{10}@quantic$/;
+const CANONICAL = /^[a-z0-9][a-z0-9._-]{2,31}~(?:[0-9a-f]{10}|[0-9a-f]{32})@quantic$/;
 
 function manifestIdentity(manifest: Awaited<ReturnType<typeof getManifest>>) {
   if (!manifest) return null;
@@ -18,6 +18,7 @@ function manifestIdentity(manifest: Awaited<ReturnType<typeof getManifest>>) {
       deviceId: device.deviceId,
       label: device.label,
       publicKey: device.publicKey,
+      deviceSigningPublicKey: device.deviceSigningPublicKey,
       kind: device.kind,
     })),
     manifest,

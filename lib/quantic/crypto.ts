@@ -1,3 +1,5 @@
+import { fingerprintPublicKeyStrong as fingerprintPublicKeyStrongCore } from "@/lib/quantic/identity-fingerprint.mjs";
+
 function toBase64(bytes: Uint8Array) {
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
@@ -28,6 +30,10 @@ export async function fingerprintPublicKey(publicJwk: JsonWebKey) {
   const canonical = `P-256:${publicJwk.x}:${publicJwk.y}`;
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonical));
   return toHex(new Uint8Array(digest)).slice(0, 10);
+}
+
+export async function fingerprintPublicKeyStrong(publicJwk: JsonWebKey) {
+  return fingerprintPublicKeyStrongCore(publicJwk);
 }
 
 export async function generateIdentityKeys() {

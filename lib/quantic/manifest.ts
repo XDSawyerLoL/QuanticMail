@@ -1,4 +1,8 @@
-import { fingerprintPublicKey, signChallenge } from "@/lib/quantic/crypto";
+import {
+  fingerprintPublicKey,
+  fingerprintPublicKeyStrong,
+  signChallenge,
+} from "@/lib/quantic/crypto";
 import { deviceIdFromPublicKey, verifyTextSignature } from "@/lib/quantic/device";
 import type { DeviceCertificate, LocalIdentity } from "@/lib/quantic/local-db";
 import { canonicalManifestText } from "@/lib/quantic/manifest-core.mjs";
@@ -62,7 +66,9 @@ export async function createInitialManifest(identity: LocalIdentity): Promise<Qu
 export async function verifyManifestBrowser(manifest: QuanticIdentityManifest) {
   const payload = manifest.payload;
   if (manifest.format !== "quantic-identity-manifest" || manifest.version !== 1 || payload.version !== 1) return false;
-  const fingerprint = await fingerprintPublicKey(payload.identitySigningPublicKey);
+  const fingerprint = payload.fingerprint.length === 32
+    ? await fingerprintPublicKeyStrong(payload.identitySigningPublicKey)
+    : await fingerprintPublicKey(payload.identitySigningPublicKey);
   if (fingerprint !== payload.fingerprint) return false;
   if (`${payload.handle}~${fingerprint}@quantic` !== payload.canonicalAddress) return false;
   const roots = payload.devices.filter((device) => device.kind === "root");

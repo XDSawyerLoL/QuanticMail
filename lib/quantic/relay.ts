@@ -6,6 +6,7 @@ import {
   timingSafeEqual,
   verify,
 } from "node:crypto";
+import { identityNamesForKey } from "@/lib/quantic/identity-names.mjs";
 
 export type QuanticPublicKey = JsonWebKey;
 
@@ -117,7 +118,7 @@ if (!state.receipts) state.receipts = new Map();
 globalThis.__quanticRelayState = state;
 
 const HANDLE = /^[a-z0-9][a-z0-9._-]{2,31}$/;
-const FINGERPRINT = /^[0-9a-f]{10}$/;
+const FINGERPRINT = /^(?:[0-9a-f]{10}|[0-9a-f]{32})$/;
 const DEVICE_ID = /^d-[0-9a-f]{10}$/;
 const CLIENT_MESSAGE_ID = /^[a-zA-Z0-9._:-]{8,100}$/;
 const MAX_QUEUE = 500;
@@ -159,23 +160,22 @@ function validateSigningPublicKey(key: QuanticPublicKey) {
   }
 }
 
-function fingerprintPublicKey(key: QuanticPublicKey) {
-  validateSigningPublicKey(key);
-  return createHash("sha256").update(`P-256:${key.x}:${key.y}`).digest("hex").slice(0, 10);
-}
-
 function deviceIdForKey(key: QuanticPublicKey) {
   validateEncryptionPublicKey(key);
   return `d-${createHash("sha256").update(`P-256:${key.x}:${key.y}`).digest("hex").slice(0, 10)}`;
 }
 
-function identityNames(handle: string, signingPublicKey: QuanticPublicKey) {
-  const fingerprint = fingerprintPublicKey(signingPublicKey);
-  return {
-    fingerprint,
-    address: `${handle}@quantic`,
-    canonicalAddress: `${handle}~${fingerprint}@quantic`,
-  };
+function identityNames(
+  handle: string,
+  signingPublicKey: QuanticPublicKey,
+  requestedFingerprint: string | null = null,
+) {
+  validateSigningPublicKey(signingPublicKey);
+  try {
+    return identityNamesForKey(handle, signingPublicKey, requestedFingerprint);
+  } catch (error) {
+    throw new RelayError(error instanceof Error ? error.message : "Identité Quantic invalide.", 400);
+  }
 }
 
 function tokenHash(token: string) {
@@ -383,14 +383,14 @@ export function createIdentityChallenge(input: {
   publicKey: QuanticPublicKey;
   signingPublicKey: QuanticPublicKey;
 }) {
-  const { handle } = parseLocator(input.handle);
+  const locator = parseLocator(input.handle);
   validateEncryptionPublicKey(input.publicKey);
   validateSigningPublicKey(input.signingPublicKey);
-  const names = identityNames(handle, input.signingPublicKey);
+  const names = identityNames(locator.handle, input.signingPublicKey, locator.fingerprint);
   const challenge = randomBytes(32).toString("base64url");
   state.challenges.set(names.canonicalAddress, {
     challenge,
-    handle,
+    handle: locator.handle,
     canonicalAddress: names.canonicalAddress,
     fingerprint: names.fingerprint,
     publicKey: input.publicKey,
@@ -408,12 +408,12 @@ export function registerIdentity(input: {
   challenge?: string;
   signature?: string;
 }) {
-  const { handle } = parseLocator(input.handle);
+  const locator = parseLocator(input.handle);
   validateEncryptionPublicKey(input.publicKey);
   validateSigningPublicKey(input.signingPublicKey);
   if (input.authToken.length < 40) throw new RelayError("Jeton d’appareil invalide.", 400);
 
-  const names = identityNames(handle, input.signingPublicKey);
+  const names = identityNames(locator.handle, input.signingPublicKey, locator.fingerprint);
   const existing = state.identities.get(names.canonicalAddress);
   const alreadyAuthenticated = existing && tokenMatches(existing.authTokenHash, input.authToken);
   if (!alreadyAuthenticated) {
@@ -437,7 +437,7 @@ export function registerIdentity(input: {
 
   const now = new Date().toISOString();
   const identity: IdentityRecord = {
-    handle,
+    handle: locator.handle,
     ...names,
     publicKey: input.publicKey,
     signingPublicKey: input.signingPublicKey,
@@ -446,7 +446,7 @@ export function registerIdentity(input: {
     updatedAt: now,
   };
   state.identities.set(names.canonicalAddress, identity);
-  addAlias(handle, names.canonicalAddress);
+  addAlias(locator.handle, names.canonicalAddress);
 
   const rootDeviceId = deviceIdForKey(input.publicKey);
   const existingRoot = state.devices.get(deviceKey(names.canonicalAddress, rootDeviceId));
@@ -497,10 +497,7 @@ export function registerAuthorizedDevice(input: {
   validateSigningPublicKey(payload.identitySigningPublicKey);
   validateEncryptionPublicKey(payload.devicePublicKey);
   validateSigningPublicKey(payload.deviceSigningPublicKey);
-  const calculatedIdentityFingerprint = fingerprintPublicKey(payload.identitySigningPublicKey);
-  if (calculatedIdentityFingerprint !== payload.fingerprint) {
-    throw new RelayError("Empreinte maîtresse du certificat invalide.", 400);
-  }
+  const names = identityNames(payload.handle, payload.identitySigningPublicKey, payload.fingerprint);
   const calculatedDeviceId = deviceIdForKey(payload.devicePublicKey);
   if (calculatedDeviceId !== payload.deviceId || !DEVICE_ID.test(payload.deviceId)) {
     throw new RelayError("Identifiant cryptographique de l’appareil invalide.", 400);
@@ -512,7 +509,6 @@ export function registerAuthorizedDevice(input: {
     throw new RelayError("Signature du certificat d’appareil invalide.", 401);
   }
 
-  const names = identityNames(payload.handle, payload.identitySigningPublicKey);
   if (names.canonicalAddress !== payload.canonicalAddress) {
     throw new RelayError("Adresse canonique du certificat incohérente.", 400);
   }
