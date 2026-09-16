@@ -24,7 +24,7 @@ test("V1.2 transport restores the persisted root device id on root registration"
   );
   assert.match(
     source,
-    /target\.pathname\s*===\s*"\/api\/quantic\/register"/,
+    /target\.pathname\s*!==\s*"\/api\/quantic\/register"/,
     "device-id restoration must be scoped to root registration only",
   );
 });
