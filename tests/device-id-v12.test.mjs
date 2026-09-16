@@ -47,15 +47,16 @@ function manifest(deviceId) {
   };
 }
 
-test("strong device id is deterministic d- plus 32 lowercase hex", () => {
+test("strong device id is deterministic d- plus 32 lowercase hex", async () => {
   const expected = `d-${expectedHex().slice(0, 32)}`;
-  assert.equal(deviceIdForPublicKey(key), expected);
-  assert.match(deviceIdForPublicKey(key), /^d-[0-9a-f]{32}$/);
+  const actual = await deviceIdForPublicKey(key);
+  assert.equal(actual, expected);
+  assert.match(actual, /^d-[0-9a-f]{32}$/);
 });
 
-test("legacy device id remains the historical 10-hex prefix", () => {
+test("legacy device id remains the historical 10-hex prefix", async () => {
   const expected = `d-${expectedHex().slice(0, 10)}`;
-  assert.equal(deviceIdForPublicKey(key, 10), expected);
+  assert.equal(await deviceIdForPublicKey(key, 10), expected);
   assert.equal(isValidDeviceId(expected), true);
 });
 
@@ -67,11 +68,11 @@ test("device id validator accepts legacy and strong forms only", () => {
   assert.equal(isValidDeviceId(`d-${"a".repeat(33)}`), false);
 });
 
-test("device id must match the corresponding public-key digest prefix", () => {
-  assert.doesNotThrow(() => assertDeviceIdMatchesKey(`d-${expectedHex().slice(0, 10)}`, key));
-  assert.doesNotThrow(() => assertDeviceIdMatchesKey(`d-${expectedHex().slice(0, 32)}`, key));
-  assert.throws(() => assertDeviceIdMatchesKey(`d-${"f".repeat(10)}`, key), /correspond/i);
-  assert.throws(() => assertDeviceIdMatchesKey(`d-${"f".repeat(32)}`, key), /correspond/i);
+test("device id must match the corresponding public-key digest prefix", async () => {
+  await assert.doesNotReject(() => assertDeviceIdMatchesKey(`d-${expectedHex().slice(0, 10)}`, key));
+  await assert.doesNotReject(() => assertDeviceIdMatchesKey(`d-${expectedHex().slice(0, 32)}`, key));
+  await assert.rejects(() => assertDeviceIdMatchesKey(`d-${"f".repeat(10)}`, key), /correspond/i);
+  await assert.rejects(() => assertDeviceIdMatchesKey(`d-${"f".repeat(32)}`, key), /correspond/i);
 });
 
 test("manifest shape accepts legacy and strong device ids", () => {
