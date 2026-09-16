@@ -1,22 +1,19 @@
 import { NextResponse } from "next/server";
-import { registerIdentity, RelayError } from "@/lib/quantic/relay";
+import { createIdentityChallenge, RelayError } from "@/lib/quantic/relay";
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const result = registerIdentity({
+    const result = createIdentityChallenge({
       handle: String(body.handle ?? ""),
       publicKey: body.publicKey ?? {},
       signingPublicKey: body.signingPublicKey ?? {},
-      authToken: String(body.authToken ?? ""),
-      challenge: typeof body.challenge === "string" ? body.challenge : undefined,
-      signature: typeof body.signature === "string" ? body.signature : undefined,
     });
     return NextResponse.json(result, { status: 201 });
   } catch (error) {
     if (error instanceof RelayError) {
       return NextResponse.json({ error: error.message }, { status: error.status });
     }
-    return NextResponse.json({ error: "Requête Quantic invalide." }, { status: 400 });
+    return NextResponse.json({ error: "Défi Quantic invalide." }, { status: 400 });
   }
 }
