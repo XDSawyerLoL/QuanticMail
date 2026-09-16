@@ -1,60 +1,114 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { FormEvent, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import type { MailSnapshot } from "@/lib/mail/service";
 
-type Mail = {
-  id: number;
-  sender: string;
-  subject: string;
-  preview: string;
-  time: string;
-  unread?: boolean;
-  starred?: boolean;
-};
+function displayTime(value: string) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const now = new Date();
+  const sameDay = date.toDateString() === now.toDateString();
+  return sameDay
+    ? new Intl.DateTimeFormat("fr-FR", { hour: "2-digit", minute: "2-digit" }).format(date)
+    : new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "short" }).format(date);
+}
 
-const mails: Mail[] = [
-  {
-    id: 1,
-    sender: "Quantic Sillage",
-    subject: "Bienvenue dans QuanticMail",
-    preview: "Votre nouvelle messagerie est prête à être connectée à votre domaine.",
-    time: "14:32",
-    unread: true,
-    starred: true,
-  },
-  {
-    id: 2,
-    sender: "Providence",
-    subject: "Rapport hebdomadaire",
-    preview: "Le rapport Providence est disponible pour consultation.",
-    time: "11:08",
-    unread: true,
-  },
-  {
-    id: 3,
-    sender: "Quantic OS",
-    subject: "Build terminé",
-    preview: "La dernière compilation a été terminée avec succès.",
-    time: "Hier",
-  },
-];
+function initials(email: string) {
+  const local = email.split("@")[0] || "QM";
+  return local
+    .split(/[._-]/)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() || "")
+    .join("") || "QM";
+}
 
-const folders = ["Boîte de réception", "Suivis", "Envoyés", "Brouillons", "Archives", "Corbeille"];
-
-export function MailShell() {
-  const [selectedId, setSelectedId] = useState(1);
-  const [folder, setFolder] = useState("Boîte de réception");
+export function MailShell({ initialSnapshot }: { initialSnapshot: MailSnapshot }) {
+  const router = useRouter();
+  const [snapshot, setSnapshot] = useState(initialSnapshot);
+  const [selectedId, setSelectedId] = useState(initialSnapshot.messages[0]?.id || "");
   const [query, setQuery] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState("");
+  const [composerOpen, setComposerOpen] = useState(false);
+  const [to, setTo] = useState("");
+  const [subject, setSubject] = useState("");
+  const [body, setBody] = useState("");
+  const [sendState, setSendState] = useState<"idle" | "sending" | "sent">("idle");
+  const [sendError, setSendError] = useState("");
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return mails;
-    return mails.filter((mail) =>
-      [mail.sender, mail.subject, mail.preview].some((value) => value.toLowerCase().includes(q)),
+    if (!q) return snapshot.messages;
+    return snapshot.messages.filter((mail) =>
+      [mail.sender, mail.senderEmail, mail.subject, mail.preview].some((value) =>
+        value.toLowerCase().includes(q),
+      ),
     );
-  }, [query]);
+  }, [query, snapshot.messages]);
 
-  const selected = mails.find((mail) => mail.id === selectedId) ?? mails[0];
+  const selected = snapshot.messages.find((mail) => mail.id === selectedId) ?? snapshot.messages[0];
+  const activeMailbox = snapshot.mailboxes.find((mailbox) => mailbox.id === snapshot.activeMailboxId);
+
+  async function loadMailbox(mailboxId = snapshot.activeMailboxId) {
+    if (!mailboxId) return;
+    setLoading(true);
+    setLoadError("");
+    try {
+      const response = await fetch(`/api/mail?mailboxId=${encodeURIComponent(mailboxId)}`, {
+        cache: "no-store",
+      });
+      const data = (await response.json()) as MailSnapshot & { error?: string };
+      if (response.status === 401) {
+        router.refresh();
+        return;
+      }
+      if (!response.ok) throw new Error(data.error || "Impossible de charger le dossier.");
+      setSnapshot(data);
+      setSelectedId(data.messages[0]?.id || "");
+      setQuery("");
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : "Chargement impossible.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function logout() {
+    await fetch("/api/auth/logout", { method: "POST" });
+    router.refresh();
+  }
+
+  async function send(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSendState("sending");
+    setSendError("");
+    try {
+      const response = await fetch("/api/mail/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ to, subject, body }),
+      });
+      const data = (await response.json()) as { error?: string };
+      if (response.status === 401) {
+        router.refresh();
+        return;
+      }
+      if (!response.ok) throw new Error(data.error || "Échec de l’envoi.");
+      setSendState("sent");
+      setTo("");
+      setSubject("");
+      setBody("");
+      window.setTimeout(() => {
+        setComposerOpen(false);
+        setSendState("idle");
+      }, 700);
+    } catch (error) {
+      setSendError(error instanceof Error ? error.message : "Échec de l’envoi.");
+      setSendState("idle");
+    }
+  }
 
   return (
     <main className="mail-app">
@@ -67,26 +121,28 @@ export function MailShell() {
           </div>
         </div>
 
-        <button className="compose">＋ Nouveau message</button>
+        <button className="compose" onClick={() => setComposerOpen(true)}>＋ Nouveau message</button>
 
         <nav className="folders" aria-label="Dossiers">
-          {folders.map((item) => (
+          {snapshot.mailboxes.map((mailbox) => (
             <button
-              key={item}
-              className={folder === item ? "folder active" : "folder"}
-              onClick={() => setFolder(item)}
+              key={mailbox.id}
+              className={snapshot.activeMailboxId === mailbox.id ? "folder active" : "folder"}
+              onClick={() => loadMailbox(mailbox.id)}
+              disabled={loading}
             >
-              <span>{item}</span>
-              {item === "Boîte de réception" && <small>2</small>}
+              <span>{mailbox.name}</span>
+              {mailbox.unreadEmails > 0 && <small>{mailbox.unreadEmails}</small>}
             </button>
           ))}
         </nav>
 
         <div className="account-card">
-          <div className="avatar">VH</div>
-          <div>
-            <strong>Valentin Hernandez</strong>
-            <span>valentin.hernandez@sillage.com</span>
+          <div className="avatar">{initials(snapshot.accountEmail)}</div>
+          <div className="account-details">
+            <strong>{snapshot.accountEmail.split("@")[0]}</strong>
+            <span>{snapshot.accountEmail}</span>
+            <button className="logout-link" onClick={logout}>Déconnexion</button>
           </div>
         </div>
       </aside>
@@ -95,11 +151,10 @@ export function MailShell() {
         <header className="toolbar">
           <div>
             <span className="eyebrow">QuanticMail</span>
-            <h1>{folder}</h1>
+            <h1>{activeMailbox?.name || "Messagerie"}</h1>
           </div>
           <div className="toolbar-actions">
-            <button aria-label="Actualiser">↻</button>
-            <button aria-label="Réglages">⚙</button>
+            <button aria-label="Actualiser" onClick={() => loadMailbox()} disabled={loading}>↻</button>
           </div>
         </header>
 
@@ -108,20 +163,26 @@ export function MailShell() {
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Rechercher dans les messages"
+            placeholder="Rechercher dans les messages chargés"
           />
         </label>
 
+        {loadError && <p className="panel-error">{loadError}</p>}
+        {loading && <p className="panel-status">Chargement…</p>}
+
         <div className="message-list">
+          {!loading && filtered.length === 0 && (
+            <div className="empty-state">Aucun message dans ce dossier.</div>
+          )}
           {filtered.map((mail) => (
             <button
               key={mail.id}
-              className={selectedId === mail.id ? "message selected" : "message"}
+              className={selected?.id === mail.id ? "message selected" : "message"}
               onClick={() => setSelectedId(mail.id)}
             >
               <div className="message-row">
                 <strong>{mail.sender}</strong>
-                <time>{mail.time}</time>
+                <time>{displayTime(mail.receivedAt)}</time>
               </div>
               <div className="message-row subject-row">
                 <span className={mail.unread ? "unread-dot" : "read-dot"} />
@@ -135,41 +196,78 @@ export function MailShell() {
       </section>
 
       <article className="reader">
-        <header className="reader-header">
-          <div>
-            <span className="eyebrow">Message</span>
-            <h2>{selected.subject}</h2>
-          </div>
-          <div className="reader-actions">
-            <button>Archiver</button>
-            <button>Supprimer</button>
-            <button>•••</button>
-          </div>
-        </header>
+        {selected ? (
+          <>
+            <header className="reader-header">
+              <div>
+                <span className="eyebrow">Message</span>
+                <h2>{selected.subject}</h2>
+              </div>
+            </header>
 
-        <div className="sender-line">
-          <div className="avatar large">QS</div>
-          <div>
-            <strong>{selected.sender}</strong>
-            <span>à valentin.hernandez@sillage.com</span>
+            <div className="sender-line">
+              <div className="avatar large">{initials(selected.senderEmail || selected.sender)}</div>
+              <div>
+                <strong>{selected.sender}</strong>
+                <span>{selected.senderEmail} · à {snapshot.accountEmail}</span>
+              </div>
+              <time>{displayTime(selected.receivedAt)}</time>
+            </div>
+
+            <div className="message-body live-body">{selected.body || selected.preview}</div>
+
+            <div className="reply-box">
+              <button onClick={() => {
+                setTo(selected.senderEmail);
+                setSubject(selected.subject.startsWith("Re:") ? selected.subject : `Re: ${selected.subject}`);
+                setComposerOpen(true);
+              }}>↩ Répondre</button>
+            </div>
+          </>
+        ) : (
+          <div className="reader-empty">
+            <span className="eyebrow">QuanticMail</span>
+            <h2>Aucun message sélectionné</h2>
           </div>
-          <time>{selected.time}</time>
-        </div>
-
-        <div className="message-body">
-          <p>Bonjour Valentin,</p>
-          <p>{selected.preview}</p>
-          <p>
-            Cette première interface sert de socle au client QuanticMail. Les messages de cette version sont des données locales de démonstration ; la couche JMAP prévue dans le dépôt permettra ensuite de connecter la boîte à un serveur mail réel.
-          </p>
-          <p>— Quantic Sillage</p>
-        </div>
-
-        <div className="reply-box">
-          <button>↩ Répondre</button>
-          <button>↪ Transférer</button>
-        </div>
+        )}
       </article>
+
+      {composerOpen && (
+        <div className="composer-backdrop" role="presentation" onMouseDown={(event) => {
+          if (event.target === event.currentTarget && sendState !== "sending") setComposerOpen(false);
+        }}>
+          <section className="composer" role="dialog" aria-modal="true" aria-label="Nouveau message">
+            <header>
+              <div>
+                <span className="eyebrow">QuanticMail</span>
+                <h2>Nouveau message</h2>
+              </div>
+              <button className="composer-close" onClick={() => setComposerOpen(false)} disabled={sendState === "sending"}>×</button>
+            </header>
+            <form onSubmit={send}>
+              <label>
+                À
+                <input type="email" value={to} onChange={(event) => setTo(event.target.value)} required />
+              </label>
+              <label>
+                Objet
+                <input value={subject} onChange={(event) => setSubject(event.target.value)} />
+              </label>
+              <label className="composer-body-label">
+                Message
+                <textarea value={body} onChange={(event) => setBody(event.target.value)} required />
+              </label>
+              {sendError && <p className="form-error" role="alert">{sendError}</p>}
+              <footer>
+                <span>{sendState === "sent" ? "Message envoyé." : `Depuis ${snapshot.accountEmail}`}</span>
+                <button type="submit" disabled={sendState !== "idle"}>
+                  {sendState === "sending" ? "Envoi…" : sendState === "sent" ? "Envoyé ✓" : "Envoyer"}
+                </button>
+              </footer>
+            </form>
+          </section>
+        </div>
+      )}
     </main>
   );
 }
