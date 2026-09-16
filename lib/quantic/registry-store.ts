@@ -1,4 +1,5 @@
 import { registryFilePath } from "@/lib/quantic/registry-path.mjs";
+import { decideRegistryWrite } from "@/lib/quantic/registry-write-core.mjs";
 import type { QuanticIdentityManifest } from "@/lib/quantic/manifest-types";
 
 const API_VERSION = "2022-11-28";
@@ -94,13 +95,8 @@ export async function saveRegistryManifest(manifest: QuanticIdentityManifest) {
   if (!current) return { persisted: false, mode: "memory" as const };
   try {
     const remote = await readRemote(current, manifest.payload.canonicalAddress);
-    if (remote.manifest?.payload?.sequence && remote.manifest.payload.sequence > manifest.payload.sequence) {
-      throw new Error("GitHub registry already contains a newer manifest sequence.");
-    }
-    if (
-      remote.manifest?.payload?.sequence === manifest.payload.sequence &&
-      JSON.stringify(remote.manifest) === JSON.stringify(manifest)
-    ) {
+    const decision = decideRegistryWrite(remote.manifest, manifest);
+    if (decision === "unchanged") {
       lastRegistryError = "";
       return { persisted: true, mode: "github" as const, unchanged: true };
     }
