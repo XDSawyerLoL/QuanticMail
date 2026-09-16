@@ -1,6 +1,7 @@
 import {
   getActiveRelayId,
   getRelayEndpoints,
+  isRetryableRelayStatus,
   relayFetch,
   saveActiveRelayId,
 } from "@/lib/quantic/relay-client";
@@ -33,6 +34,8 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     retryStatuses,
     preferredRelayId: getActiveRelayId(),
   });
-  saveActiveRelayId(relay.id);
+  if (!isRetryableRelayStatus(response.status, retryStatuses)) {
+    saveActiveRelayId(relay.id);
+  }
   return response;
 };
