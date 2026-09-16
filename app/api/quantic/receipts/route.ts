@@ -14,7 +14,8 @@ export async function GET(request: Request) {
   try {
     const url = new URL(request.url);
     const handle = url.searchParams.get("handle") ?? "";
-    return NextResponse.json({ receipts: pullReceipts(handle, bearer(request)) });
+    const deviceId = url.searchParams.get("deviceId");
+    return NextResponse.json({ receipts: pullReceipts(handle, bearer(request), deviceId) });
   } catch (error) {
     if (error instanceof RelayError) {
       return NextResponse.json({ error: error.message }, { status: error.status });
@@ -29,6 +30,7 @@ export async function POST(request: Request) {
     const result = acknowledgeReceipts(
       String(body.handle ?? ""),
       bearer(request),
+      typeof body.deviceId === "string" ? body.deviceId : undefined,
       Array.isArray(body.ids) ? body.ids : [],
     );
     return NextResponse.json(result);
