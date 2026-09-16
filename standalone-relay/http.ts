@@ -13,9 +13,15 @@ import {
   resolveIdentity,
   type QuanticPublicKey,
 } from "../lib/quantic/relay.ts";
+import { signRelayHello, type RelayIdentity } from "./identity.ts";
 import { RelayRuntime } from "./runtime.ts";
 
 export const MAX_REQUEST_BYTES = 512 * 1024;
+
+export type RelayHttpFederationContext = {
+  identity: RelayIdentity;
+  getPublicEndpoint(): string;
+};
 
 class RelayHttpRequestError extends Error {
   readonly status: number;
@@ -86,7 +92,10 @@ function methodNotAllowed(response: ServerResponse) {
   json(response, 405, { error: "Méthode Quantic non autorisée." });
 }
 
-export function createRelayRequestHandler(runtime: RelayRuntime) {
+export function createRelayRequestHandler(
+  runtime: RelayRuntime,
+  federation?: RelayHttpFederationContext,
+) {
   return async function relayRequestHandler(request: IncomingMessage, response: ServerResponse) {
     applyCors(response);
 
@@ -112,8 +121,30 @@ export function createRelayRequestHandler(runtime: RelayRuntime) {
           ok: true,
           protocol: "quantic-relay/1",
           service: "Quantic Network Relay",
+          ...(federation ? { relayId: federation.identity.relayId, federation: "quantic-federation/1" } : {}),
           time: new Date().toISOString(),
         });
+        return;
+      }
+
+      if (path === "/api/quantic/federation/hello") {
+        if (method !== "POST") return methodNotAllowed(response);
+        if (!federation) {
+          throw new RelayHttpRequestError("Fédération Quantic indisponible.", 503);
+        }
+        const body = await readJsonBody(request);
+        const nonce = typeof body.nonce === "string" ? body.nonce : "";
+        if (!/^[A-Za-z0-9._~-]{16,256}$/.test(nonce)) {
+          throw new RelayHttpRequestError("Nonce de fédération invalide.", 400);
+        }
+        try {
+          json(response, 200, signRelayHello(federation.identity, federation.getPublicEndpoint(), nonce));
+        } catch (error) {
+          throw new RelayHttpRequestError(
+            error instanceof Error ? error.message : "Preuve de relais invalide.",
+            400,
+          );
+        }
         return;
       }
 
