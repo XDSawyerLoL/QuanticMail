@@ -15,18 +15,18 @@ function keyPair() {
   return generateKeyPairSync("ec", { namedCurve: "prime256v1" });
 }
 
-function fingerprint(publicJwk) {
+function fingerprint(publicJwk, length = 10) {
   return createHash("sha256")
     .update(`P-256:${publicJwk.x}:${publicJwk.y}`)
     .digest("hex")
-    .slice(0, 10);
+    .slice(0, length);
 }
 
 function deviceId(publicJwk) {
   return `d-${fingerprint(publicJwk)}`;
 }
 
-function makeSignedManifest() {
+function makeSignedManifest(fingerprintLength = 10) {
   const rootSigning = keyPair();
   const identityEncryption = keyPair();
   const rootDeviceEncryption = keyPair();
@@ -36,7 +36,7 @@ function makeSignedManifest() {
   const identityPublicKey = identityEncryption.publicKey.export({ format: "jwk" });
   const rootPublicKey = rootDeviceEncryption.publicKey.export({ format: "jwk" });
   const rootDeviceSigningPublicKey = rootDeviceSigning.publicKey.export({ format: "jwk" });
-  const fp = fingerprint(identitySigningPublicKey);
+  const fp = fingerprint(identitySigningPublicKey, fingerprintLength);
   const handle = "sansa";
 
   const payload = {
@@ -79,6 +79,12 @@ function makeSignedManifest() {
 
 test("valid root-signed manifest verifies", () => {
   const { manifest } = makeSignedManifest();
+  assert.equal(verifyManifestSignature(manifest), true);
+  assert.doesNotThrow(() => assertVerifiedManifest(manifest));
+});
+
+test("valid V1.1 32-hex root-signed manifest verifies", () => {
+  const { manifest } = makeSignedManifest(32);
   assert.equal(verifyManifestSignature(manifest), true);
   assert.doesNotThrow(() => assertVerifiedManifest(manifest));
 });
