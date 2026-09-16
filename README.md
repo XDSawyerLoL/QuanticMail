@@ -1,52 +1,46 @@
 # QuanticMail
 
-QuanticMail is the mail product of Quantic Sillage.
+QuanticMail is the local-first messaging product of Quantic Sillage.
 
-The project aims to provide a fast, privacy-conscious webmail experience on a domain controlled by Quantic Sillage, while remaining interoperable with standard email clients.
+Starting with V0.5, QuanticMail is no longer designed around Gmail-style hosted mailboxes or SMTP as its core transport. The product now uses its own Quantic Network identities such as `vnhz@quantic`.
 
-## Architecture
+## V0.5 architecture
 
-- **Web client:** Next.js / React / TypeScript
-- **Mail API:** JMAP
-- **Mail server:** Stalwart (JMAP, SMTP, IMAP, CalDAV, CardDAV)
-- **Identity:** QuanticMail by Quantic Sillage
-- **Secrets:** never committed to Git; local and production configuration use environment variables / secret stores
+- **Identity:** human-readable `name@quantic`
+- **Client:** Next.js / React / TypeScript
+- **Device crypto:** Web Crypto, ECDH P-256 + AES-256-GCM
+- **Local mailbox:** browser IndexedDB
+- **Directory and relay:** Render
+- **Readable message storage:** user device
+- **Relay storage:** encrypted envelopes only
+
+The private identity key stays on the user's device. Render receives routing metadata and ciphertext, not plaintext message content.
 
 ## Current deployment
 
 - **Web application:** `https://quanticmail.onrender.com`
-- **Production mail domain:** configurable; do not use a domain until Quantic Sillage owns and controls it
-- **Current brand-domain candidate:** `quanticsillage.com`
+- **Network:** Quantic Network V0.5 alpha
 
-The web application and mail server are intentionally separate. Render hosts the Next.js application; Stalwart belongs on a dedicated VPS with SMTP port access, a dedicated public IP and configurable PTR/rDNS.
+## V0.5 alpha capabilities
 
-## V0.2 capabilities
+- create and reserve a `@quantic` identity
+- generate identity encryption keys locally
+- resolve another Quantic identity
+- encrypt messages in the browser before sending
+- temporarily queue encrypted envelopes on Render
+- receive and decrypt messages on the recipient device
+- acknowledge only after local persistence succeeds
+- store readable sent and received messages in IndexedDB
+- automatic polling plus manual synchronization
 
-- server-side JMAP authentication
-- encrypted HttpOnly session cookie
-- mailbox and folder discovery
-- live message listing and reading
-- folder switching and refresh
-- local search across loaded messages
-- message composition and JMAP submission
-- logout, origin checks and basic abuse throttling
+See [`docs/V0.5-QUANTIC-NETWORK.md`](docs/V0.5-QUANTIC-NETWORK.md).
 
-## V0.3 production tooling
+## Important alpha limitation
 
-- hardened production Stalwart Docker Compose
-- VPS bootstrap script with firewall rules
-- configurable mail-server hostname
-- production topology and DNS checklist
-- PTR/rDNS and deliverability requirements
+The current Quantic directory and encrypted relay queue are process-local. A Render restart or redeploy can clear reservations and pending encrypted envelopes. Messages already downloaded and saved locally remain on the user's device. Durable zero-cost persistence is the next infrastructure target.
 
-See [`docs/V0.3-PRODUCTION.md`](docs/V0.3-PRODUCTION.md).
+## Legacy mail work
 
-## Local configuration
+The repository still contains the earlier JMAP/Stalwart and Resend experiments for reference. They are no longer the default product direction.
 
-Copy `.env.example` to `.env.local` and configure:
-
-- `NEXT_PUBLIC_MAIL_DOMAIN` — a domain you control
-- `JMAP_SESSION_URL` — the JMAP discovery URL of the mail server
-- `SESSION_SECRET` — a high-entropy secret of at least 32 characters
-
-Real mailbox passwords, server administrator credentials, TLS keys and production tokens must never be committed to this repository.
+Quantic Network does not require SMTP, MX, IMAP, SPF, DKIM, DMARC, a purchased domain, or a Gmail/Outlook account for communication between Quantic identities.
