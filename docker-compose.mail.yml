@@ -1,0 +1,22 @@
+services:
+  stalwart:
+    image: stalwartlabs/stalwart:v0.16.21
+    container_name: quanticmail-stalwart
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+      - "25:25"
+      - "587:587"
+      - "465:465"
+      - "143:143"
+      - "993:993"
+      - "4190:4190"
+    volumes:
+      - stalwart-config:/etc/stalwart
+      - stalwart-data:/var/lib/stalwart
+    environment:
+      STALWART_PUBLIC_URL: ${STALWART_PUBLIC_URL:-http://localhost:8080}
+
+volumes:
+  stalwart-config:
+  stalwart-data:
