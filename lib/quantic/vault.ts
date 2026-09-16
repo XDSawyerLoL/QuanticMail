@@ -45,6 +45,12 @@ function fromBase64(value: string) {
   return bytes;
 }
 
+function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return copy.buffer;
+}
+
 function randomBytes(length: number) {
   const bytes = new Uint8Array(length);
   crypto.getRandomValues(bytes);
@@ -60,7 +66,7 @@ function assertPassword(password: string) {
 async function deriveVaultKey(password: string, salt: Uint8Array, iterations: number) {
   const passwordKey = await crypto.subtle.importKey(
     "raw",
-    new TextEncoder().encode(password),
+    toArrayBuffer(new TextEncoder().encode(password)),
     "PBKDF2",
     false,
     ["deriveKey"],
@@ -70,7 +76,7 @@ async function deriveVaultKey(password: string, salt: Uint8Array, iterations: nu
     {
       name: "PBKDF2",
       hash: "SHA-256",
-      salt,
+      salt: toArrayBuffer(salt),
       iterations,
     },
     passwordKey,
@@ -140,9 +146,13 @@ export async function exportIdentityVault(identity: LocalIdentity, password: str
   const key = await deriveVaultKey(password, salt, PBKDF2_ITERATIONS);
   const plaintext = new TextEncoder().encode(JSON.stringify(payload));
   const ciphertext = await crypto.subtle.encrypt(
-    { name: "AES-GCM", iv, additionalData: AAD },
+    {
+      name: "AES-GCM",
+      iv: toArrayBuffer(iv),
+      additionalData: toArrayBuffer(AAD),
+    },
     key,
-    plaintext,
+    toArrayBuffer(plaintext),
   );
 
   const envelope: VaultEnvelope = {
@@ -178,11 +188,11 @@ export async function importIdentityVault(text: string, password: string) {
     const plaintext = await crypto.subtle.decrypt(
       {
         name: "AES-GCM",
-        iv: fromBase64(envelope.cipher.iv),
-        additionalData: AAD,
+        iv: toArrayBuffer(fromBase64(envelope.cipher.iv)),
+        additionalData: toArrayBuffer(AAD),
       },
       key,
-      fromBase64(envelope.ciphertext),
+      toArrayBuffer(fromBase64(envelope.ciphertext)),
     );
     const payload = JSON.parse(new TextDecoder().decode(plaintext)) as VaultIdentityPayload;
 
