@@ -11,22 +11,70 @@ function fromBase64(value: string) {
   return bytes;
 }
 
+function toHex(bytes: Uint8Array) {
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
 export function randomToken(byteLength = 32) {
   const bytes = new Uint8Array(byteLength);
   crypto.getRandomValues(bytes);
   return toBase64(bytes);
 }
 
+export async function fingerprintPublicKey(publicJwk: JsonWebKey) {
+  if (publicJwk.kty !== "EC" || publicJwk.crv !== "P-256" || !publicJwk.x || !publicJwk.y) {
+    throw new Error("Clé publique d’identité invalide.");
+  }
+  const canonical = `P-256:${publicJwk.x}:${publicJwk.y}`;
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonical));
+  return toHex(new Uint8Array(digest)).slice(0, 10);
+}
+
 export async function generateIdentityKeys() {
-  const pair = await crypto.subtle.generateKey(
+  const encryptionPair = await crypto.subtle.generateKey(
     { name: "ECDH", namedCurve: "P-256" },
     true,
     ["deriveKey"],
   );
+  const signingPair = await crypto.subtle.generateKey(
+    { name: "ECDSA", namedCurve: "P-256" },
+    true,
+    ["sign", "verify"],
+  );
   return {
-    publicKey: await crypto.subtle.exportKey("jwk", pair.publicKey),
-    privateKey: await crypto.subtle.exportKey("jwk", pair.privateKey),
+    publicKey: await crypto.subtle.exportKey("jwk", encryptionPair.publicKey),
+    privateKey: await crypto.subtle.exportKey("jwk", encryptionPair.privateKey),
+    signingPublicKey: await crypto.subtle.exportKey("jwk", signingPair.publicKey),
+    signingPrivateKey: await crypto.subtle.exportKey("jwk", signingPair.privateKey),
   };
+}
+
+export async function generateSigningKeys() {
+  const pair = await crypto.subtle.generateKey(
+    { name: "ECDSA", namedCurve: "P-256" },
+    true,
+    ["sign", "verify"],
+  );
+  return {
+    signingPublicKey: await crypto.subtle.exportKey("jwk", pair.publicKey),
+    signingPrivateKey: await crypto.subtle.exportKey("jwk", pair.privateKey),
+  };
+}
+
+export async function signChallenge(privateJwk: JsonWebKey, challenge: string) {
+  const privateKey = await crypto.subtle.importKey(
+    "jwk",
+    privateJwk,
+    { name: "ECDSA", namedCurve: "P-256" },
+    false,
+    ["sign"],
+  );
+  const signature = await crypto.subtle.sign(
+    { name: "ECDSA", hash: "SHA-256" },
+    privateKey,
+    new TextEncoder().encode(challenge),
+  );
+  return toBase64(new Uint8Array(signature));
 }
 
 export async function encryptForRecipient(

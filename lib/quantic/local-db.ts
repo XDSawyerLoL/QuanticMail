@@ -1,8 +1,12 @@
 export type LocalIdentity = {
   handle: string;
   address: string;
+  canonicalAddress?: string;
+  fingerprint?: string;
   publicKey: JsonWebKey;
   privateKey: JsonWebKey;
+  signingPublicKey?: JsonWebKey;
+  signingPrivateKey?: JsonWebKey;
   authToken: string;
   createdAt: string;
 };
@@ -20,6 +24,8 @@ export type LocalMessage = {
 export type LocalContact = {
   handle: string;
   address: string;
+  canonicalAddress?: string;
+  fingerprint?: string;
   publicKey: JsonWebKey;
   firstSeenAt: string;
   lastSeenAt: string;
