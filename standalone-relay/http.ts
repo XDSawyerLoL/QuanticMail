@@ -13,6 +13,11 @@ import {
   resolveIdentity,
   type QuanticPublicKey,
 } from "../lib/quantic/relay.ts";
+import {
+  publishStandaloneManifest,
+  readStandaloneManifest,
+} from "../lib/quantic/standalone-manifest.ts";
+import type { QuanticIdentityManifest } from "../lib/quantic/manifest-types.ts";
 import { RelayRuntime } from "./runtime.ts";
 
 export const MAX_REQUEST_BYTES = 512 * 1024;
@@ -112,6 +117,7 @@ export function createRelayRequestHandler(runtime: RelayRuntime) {
           ok: true,
           protocol: "quantic-relay/1",
           service: "Quantic Network Relay",
+          capabilities: ["durable-state-v2", "signed-manifests"],
           time: new Date().toISOString(),
         });
         return;
@@ -140,6 +146,7 @@ export function createRelayRequestHandler(runtime: RelayRuntime) {
             publicKey: (body.publicKey ?? {}) as QuanticPublicKey,
             signingPublicKey: (body.signingPublicKey ?? {}) as QuanticPublicKey,
             authToken: String(body.authToken ?? ""),
+            deviceId: typeof body.deviceId === "string" ? body.deviceId : undefined,
             challenge: typeof body.challenge === "string" ? body.challenge : undefined,
             signature: typeof body.signature === "string" ? body.signature : undefined,
           }),
@@ -151,7 +158,41 @@ export function createRelayRequestHandler(runtime: RelayRuntime) {
       if (path === "/api/quantic/resolve") {
         if (method !== "GET") return methodNotAllowed(response);
         const handle = url.searchParams.get("handle") ?? "";
-        json(response, 200, await runtime.read(() => resolveIdentity(handle)));
+        const resolved = await runtime.read(() => resolveIdentity(handle));
+        const manifest = await runtime.read(() => readStandaloneManifest(resolved.canonicalAddress));
+        json(response, 200, manifest ? { ...resolved, manifest } : resolved);
+        return;
+      }
+
+      if (path === "/api/quantic/manifest") {
+        if (method === "GET") {
+          const canonical = url.searchParams.get("canonical") ?? url.searchParams.get("handle") ?? "";
+          if (!canonical) throw new RelayHttpRequestError("Adresse canonique Quantic requise.", 400);
+          const manifest = await runtime.read(() => readStandaloneManifest(canonical));
+          if (!manifest) throw new RelayHttpRequestError("Manifeste Quantic introuvable.", 404);
+          json(response, 200, { manifest });
+          return;
+        }
+        if (method === "POST") {
+          const body = await readJsonBody(request);
+          if (!body.manifest) throw new RelayHttpRequestError("Manifeste signé requis.", 400);
+          const manifest = await runtime.mutate(() =>
+            publishStandaloneManifest(body.manifest as QuanticIdentityManifest),
+          );
+          json(response, 200, { manifest, persisted: true, mode: "standalone" });
+          return;
+        }
+        return methodNotAllowed(response);
+      }
+
+      if (path === "/api/quantic/devices/revoke") {
+        if (method !== "POST") return methodNotAllowed(response);
+        const body = await readJsonBody(request);
+        if (!body.manifest) throw new RelayHttpRequestError("Manifeste signé requis.", 400);
+        const manifest = await runtime.mutate(() =>
+          publishStandaloneManifest(body.manifest as QuanticIdentityManifest),
+        );
+        json(response, 200, { manifest, persisted: true, mode: "standalone" });
         return;
       }
 
