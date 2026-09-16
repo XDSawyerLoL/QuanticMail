@@ -9,6 +9,7 @@ export type RelayEndpoint = {
 export type StorageLike = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
 export const RELAY_STORAGE_KEY = "quantic.relay-endpoints.v1";
+export const ACTIVE_RELAY_STORAGE_KEY = "quantic.active-relay.v1";
 
 export const DEFAULT_RELAY_ENDPOINTS: RelayEndpoint[] = [
   {
@@ -40,6 +41,10 @@ export class RelayUnavailableError extends Error {
   }
 }
 
+function storageTarget(storage?: StorageLike) {
+  return storage ?? (typeof window !== "undefined" ? window.localStorage : undefined);
+}
+
 export function normalizeRelayBaseUrl(value: string) {
   const trimmed = value.trim();
   if (!trimmed) return "";
@@ -67,15 +72,22 @@ function sanitizeRelayEndpoint(value: RelayEndpoint, index: number): RelayEndpoi
   };
 }
 
-export function orderedRelays(relays: RelayEndpoint[]) {
-  return relays
+export function orderedRelays(relays: RelayEndpoint[], activeRelayId?: string | null) {
+  const ordered = relays
     .map(sanitizeRelayEndpoint)
     .filter((relay) => relay.enabled)
     .sort((a, b) => a.priority - b.priority || a.id.localeCompare(b.id));
+
+  if (!activeRelayId) return ordered;
+  const activeIndex = ordered.findIndex((relay) => relay.id === activeRelayId);
+  if (activeIndex <= 0) return ordered;
+  const [active] = ordered.splice(activeIndex, 1);
+  ordered.unshift(active);
+  return ordered;
 }
 
 export function getRelayEndpoints(storage?: StorageLike): RelayEndpoint[] {
-  const target = storage ?? (typeof window !== "undefined" ? window.localStorage : undefined);
+  const target = storageTarget(storage);
   if (!target) return DEFAULT_RELAY_ENDPOINTS.map((relay) => ({ ...relay }));
   const raw = target.getItem(RELAY_STORAGE_KEY);
   if (!raw) return DEFAULT_RELAY_ENDPOINTS.map((relay) => ({ ...relay }));
@@ -91,10 +103,25 @@ export function getRelayEndpoints(storage?: StorageLike): RelayEndpoint[] {
 }
 
 export function saveRelayEndpoints(relays: RelayEndpoint[], storage?: StorageLike) {
-  const target = storage ?? (typeof window !== "undefined" ? window.localStorage : undefined);
+  const target = storageTarget(storage);
   if (!target) return;
   const sanitized = relays.map((relay, index) => sanitizeRelayEndpoint(relay, index));
   target.setItem(RELAY_STORAGE_KEY, JSON.stringify(sanitized));
+}
+
+export function getActiveRelayId(storage?: StorageLike) {
+  const target = storageTarget(storage);
+  return target?.getItem(ACTIVE_RELAY_STORAGE_KEY) || null;
+}
+
+export function saveActiveRelayId(relayId: string | null, storage?: StorageLike) {
+  const target = storageTarget(storage);
+  if (!target) return;
+  if (!relayId) {
+    target.removeItem(ACTIVE_RELAY_STORAGE_KEY);
+    return;
+  }
+  target.setItem(ACTIVE_RELAY_STORAGE_KEY, relayId);
 }
 
 export function buildRelayUrl(relay: RelayEndpoint, path: string) {
@@ -105,6 +132,7 @@ export function buildRelayUrl(relay: RelayEndpoint, path: string) {
 type RelayFetchOptions = {
   retryStatuses?: number[];
   fetchImpl?: typeof fetch;
+  preferredRelayId?: string | null;
 };
 
 function shouldRetryStatus(status: number, extra: number[]) {
@@ -117,7 +145,7 @@ export async function relayFetch(
   init?: RequestInit,
   options: RelayFetchOptions = {},
 ): Promise<{ response: Response; relay: RelayEndpoint }> {
-  const candidates = orderedRelays(relays);
+  const candidates = orderedRelays(relays, options.preferredRelayId);
   if (!candidates.length) throw new RelayUnavailableError([]);
 
   const attempts: { relay: RelayEndpoint; error: unknown }[] = [];
