@@ -1,4 +1,9 @@
-import { getRelayEndpoints, relayFetch } from "@/lib/quantic/relay-client";
+import {
+  getActiveRelayId,
+  getRelayEndpoints,
+  relayFetch,
+  saveActiveRelayId,
+} from "@/lib/quantic/relay-client";
 
 const nativeFetch = window.fetch.bind(window);
 const DIRECT_RELAY_HEADER = "x-quantic-direct-relay";
@@ -23,9 +28,11 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
   const retryStatuses =
     path.startsWith("/api/quantic/resolve") || path.startsWith("/api/quantic/send") ? [404] : [];
 
-  const { response } = await relayFetch(getRelayEndpoints(), path, init, {
+  const { response, relay } = await relayFetch(getRelayEndpoints(), path, init, {
     fetchImpl: nativeFetch,
     retryStatuses,
+    preferredRelayId: getActiveRelayId(),
   });
+  saveActiveRelayId(relay.id);
   return response;
 };
