@@ -12,6 +12,7 @@ export async function POST(request: Request) {
     const result = acknowledgeEnvelopes(
       String(body.handle ?? ""),
       bearer(request),
+      typeof body.deviceId === "string" ? body.deviceId : undefined,
       Array.isArray(body.ids) ? body.ids : [],
     );
     return NextResponse.json(result);
