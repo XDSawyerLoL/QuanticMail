@@ -5,7 +5,7 @@ import {
   createEmptyRelayState,
   exportRelayState,
   restoreRelayState,
-} from "../lib/quantic/relay.ts";
+} from "../lib/quantic/relay-state.ts";
 
 function emptySavedAt() {
   return "2026-09-16T00:00:00.000Z";
