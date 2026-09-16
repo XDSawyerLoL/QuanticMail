@@ -53,12 +53,16 @@ export async function generateOneTimePreKey(
 }
 
 export function publicPreKey(local: LocalPreKey): SignedPreKeyRecord {
-  const {
-    privateKey: _privateKey,
-    state: _state,
-    ...record
-  } = local;
-  return record;
+  return {
+    version: local.version,
+    canonicalAddress: local.canonicalAddress,
+    deviceId: local.deviceId,
+    preKeyId: local.preKeyId,
+    publicKey: local.publicKey,
+    createdAt: local.createdAt,
+    expiresAt: local.expiresAt,
+    signature: local.signature,
+  };
 }
 
 export { verifyPreKeySignature };
