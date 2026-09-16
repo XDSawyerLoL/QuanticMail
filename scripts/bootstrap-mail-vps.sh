@@ -2,7 +2,20 @@
 set -euo pipefail
 
 if [[ "${EUID}" -ne 0 ]]; then
-  echo "Run as root: sudo bash scripts/bootstrap-mail-vps.sh"
+  echo "Run as root, preserving the required hostname:"
+  echo "  sudo env MAIL_SERVER_HOSTNAME=mx.example.com bash scripts/bootstrap-mail-vps.sh"
+  exit 1
+fi
+
+MAIL_SERVER_HOSTNAME="${MAIL_SERVER_HOSTNAME:-}"
+if [[ -z "$MAIL_SERVER_HOSTNAME" ]]; then
+  echo "MAIL_SERVER_HOSTNAME is required."
+  echo "Example: sudo env MAIL_SERVER_HOSTNAME=mx.example.com bash scripts/bootstrap-mail-vps.sh"
+  exit 1
+fi
+
+if [[ ! "$MAIL_SERVER_HOSTNAME" =~ ^[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]]; then
+  echo "MAIL_SERVER_HOSTNAME does not look like a valid public hostname: $MAIL_SERVER_HOSTNAME"
   exit 1
 fi
 
@@ -31,15 +44,18 @@ ufw allow 993/tcp comment 'IMAPS'
 ufw allow 4190/tcp comment 'ManageSieve'
 ufw --force enable
 
-mkdir -p /opt/quanticmail
+install -d -m 0750 /opt/quanticmail
 cp docker-compose.production.yml /opt/quanticmail/docker-compose.yml
+printf 'MAIL_SERVER_HOSTNAME=%s\n' "$MAIL_SERVER_HOSTNAME" > /opt/quanticmail/.env
+chmod 0600 /opt/quanticmail/.env
 cd /opt/quanticmail
 
-docker compose pull
-docker compose up -d
+docker compose --env-file .env config >/dev/null
+docker compose --env-file .env pull
+docker compose --env-file .env up -d
 
 echo
-echo "QuanticMail Stalwart container started."
+echo "QuanticMail Stalwart container started for: $MAIL_SERVER_HOSTNAME"
 echo "Bootstrap admin credentials:"
 docker logs quanticmail-stalwart 2>&1 | grep -A8 'bootstrap mode' || true
 
