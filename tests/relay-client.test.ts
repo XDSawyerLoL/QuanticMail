@@ -2,11 +2,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   buildRelayUrl,
+  getActiveRelayId,
   getRelayEndpoints,
   normalizeRelayBaseUrl,
   orderedRelays,
   relayFetch,
   relayFetchJson,
+  saveActiveRelayId,
   saveRelayEndpoints,
   type RelayEndpoint,
   type StorageLike,
@@ -43,6 +45,17 @@ test("orders enabled relays by priority and ignores disabled relays", () => {
     ]).map((item) => item.id),
     ["fast", "slow"],
   );
+});
+
+test("keeps the active relay first after failover until the client changes it", () => {
+  const relays = [relay("primary", "https://primary.example", 10), relay("backup", "https://backup.example", 20)];
+  assert.deepEqual(orderedRelays(relays, "backup").map((item) => item.id), ["backup", "primary"]);
+
+  const storage = new MemoryStorage();
+  saveActiveRelayId("backup", storage);
+  assert.equal(getActiveRelayId(storage), "backup");
+  saveActiveRelayId(null, storage);
+  assert.equal(getActiveRelayId(storage), null);
 });
 
 test("builds relative URLs for same-origin and absolute URLs for external relays", () => {
