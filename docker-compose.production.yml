@@ -12,7 +12,7 @@ services:
       - "127.0.0.1:8080:8080"
       - "4190:4190"
     environment:
-      STALWART_PUBLIC_URL: https://mx.sillage.com
+      STALWART_PUBLIC_URL: "https://${MAIL_SERVER_HOSTNAME:?Set MAIL_SERVER_HOSTNAME in the production environment}"
     volumes:
       - stalwart-etc:/etc/stalwart
       - stalwart-data:/var/lib/stalwart
