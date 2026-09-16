@@ -1,3 +1,5 @@
+import type { QuanticIdentityManifest } from "@/lib/quantic/manifest-types";
+
 export type DeviceCertificatePayload = {
   version: 1;
   canonicalAddress: string;
@@ -33,6 +35,7 @@ export type LocalIdentity = {
   deviceSigningPublicKey?: JsonWebKey;
   deviceSigningPrivateKey?: JsonWebKey;
   deviceCertificate?: DeviceCertificate;
+  manifest?: QuanticIdentityManifest;
   role?: "root" | "secondary";
   authToken: string;
   createdAt: string;
@@ -61,6 +64,8 @@ export type LocalContact = {
   canonicalAddress?: string;
   fingerprint?: string;
   publicKey: JsonWebKey;
+  signingPublicKey?: JsonWebKey;
+  manifestSequence?: number;
   devices?: LocalContactDevice[];
   firstSeenAt: string;
   lastSeenAt: string;
@@ -91,7 +96,7 @@ export type LocalPendingDevice = {
 };
 
 const DB_NAME = "quanticmail-local";
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
