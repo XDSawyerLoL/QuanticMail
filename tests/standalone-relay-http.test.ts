@@ -11,6 +11,19 @@ import {
 import { createRelayRequestHandler, MAX_REQUEST_BYTES } from "../standalone-relay/http.ts";
 import { RelayRuntime, type RelayStateStore } from "../standalone-relay/runtime.ts";
 
+type DeviceCertificatePayloadFixture = {
+  canonicalAddress: string;
+  handle: string;
+  fingerprint: string;
+  identityPublicKey: JsonWebKey;
+  identitySigningPublicKey: JsonWebKey;
+  deviceId: string;
+  deviceLabel: string;
+  devicePublicKey: JsonWebKey;
+  deviceSigningPublicKey: JsonWebKey;
+  issuedAt: string;
+};
+
 function memoryStore(): RelayStateStore {
   let durable: RelayPersistentState | null = null;
   return {
@@ -55,7 +68,7 @@ function jsonHeaders(token?: string) {
 }
 
 async function json(response: Response) {
-  return response.json() as Promise<Record<string, any>>;
+  return response.json() as Promise<Record<string, unknown>>;
 }
 
 function identityKeys() {
@@ -112,7 +125,7 @@ async function registerUser(baseUrl: string, handle: string) {
   };
 }
 
-function certificateMessage(payload: Record<string, any>) {
+function certificateMessage(payload: DeviceCertificatePayloadFixture) {
   return [
     "quantic-device-certificate-v1",
     payload.canonicalAddress,
@@ -169,8 +182,7 @@ test("standalone adapter preserves the complete current Relay V1 HTTP flow", asy
       .update(`P-256:${linkedPublicKey.x}:${linkedPublicKey.y}`)
       .digest("hex")
       .slice(0, 10)}`;
-    const payload = {
-      version: 1,
+    const payload: DeviceCertificatePayloadFixture = {
       canonicalAddress: alice.canonicalAddress,
       handle: "alice",
       fingerprint: alice.fingerprint,
@@ -185,7 +197,7 @@ test("standalone adapter preserves the complete current Relay V1 HTTP flow", asy
     const certificate = {
       format: "quantic-device-certificate",
       version: 1,
-      payload,
+      payload: { version: 1, ...payload },
       signature: sign(
         "sha256",
         Buffer.from(certificateMessage(payload), "utf8"),
@@ -221,7 +233,7 @@ test("standalone adapter preserves the complete current Relay V1 HTTP flow", asy
       { headers: { authorization: `Bearer ${bob.authToken}` } },
     );
     assert.equal(pullResponse.status, 200);
-    const envelopes = (await json(pullResponse)).envelopes as Array<Record<string, any>>;
+    const envelopes = (await json(pullResponse)).envelopes as Array<Record<string, unknown>>;
     assert.equal(envelopes.length, 1);
     assert.equal(envelopes[0].clientMessageId, "msg-http-0001");
 
@@ -242,7 +254,7 @@ test("standalone adapter preserves the complete current Relay V1 HTTP flow", asy
       { headers: { authorization: `Bearer ${alice.authToken}` } },
     );
     assert.equal(receiptsResponse.status, 200);
-    const receipts = (await json(receiptsResponse)).receipts as Array<Record<string, any>>;
+    const receipts = (await json(receiptsResponse)).receipts as Array<Record<string, unknown>>;
     assert.equal(receipts.length, 1);
     assert.equal(receipts[0].clientMessageId, "msg-http-0001");
 
