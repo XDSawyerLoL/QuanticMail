@@ -30,7 +30,9 @@ export type DiscoveryCryptoVerifier = (
   pinnedProfile: QuanticCryptoProfileV2 | null,
 ) => QuanticCryptoProfileV2 | { profile: QuanticCryptoProfileV2; digest: string };
 
+export function normalizeDiscoveryHandle(value: unknown): string;
 export function discoveryKey(kind: DiscoveryKind, canonicalAddress: string): string;
+export function discoveryHandleKey(value: unknown): string;
 
 export function validateDiscoveryBundle(
   bundle: DiscoveryBundle,
