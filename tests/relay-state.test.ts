@@ -13,9 +13,18 @@ import {
   replaceRouteManifestEntries,
   routeManifestEntries,
 } from "../lib/quantic/route-manifest-state.ts";
+import {
+  checkFederationReplay,
+  recordFederationAccepted,
+  replaceFederationStateEntries,
+} from "../standalone-relay/federation-state.ts";
 
 function emptySavedAt() {
   return "2026-09-16T00:00:00.000Z";
+}
+
+function emptyFederationState() {
+  return { seen: [], inbound: [], outbound: [], pendingReceipts: [] };
 }
 
 test("empty relay state is explicit and versioned", () => {
@@ -34,6 +43,7 @@ test("empty relay state is explicit and versioned", () => {
   assert.deepEqual(snapshot.receipts, []);
   assert.deepEqual(snapshot.sendWindows, []);
   assert.deepEqual(snapshot.routeManifests, []);
+  assert.deepEqual(snapshot.federation, emptyFederationState());
 });
 
 test("relay aliases round-trip through JSON without Set loss", () => {
@@ -72,13 +82,37 @@ test("route manifest cache round-trips through relay durable state", () => {
   assert.deepEqual(routeManifestEntries(), [[route.payload.canonicalAddress, route]]);
 });
 
-test("legacy version-1 relay snapshots without routeManifests still restore", () => {
+test("federation replay state round-trips through relay durable state", () => {
+  restoreRelayState(createEmptyRelayState(emptySavedAt()));
+  const federationId = "fed-state-000000000001";
+  const digest = "a".repeat(64);
+  recordFederationAccepted({
+    federationId,
+    envelopeDigest: digest,
+    expiresAt: "2026-10-16T00:00:00.000Z",
+  });
+
+  const snapshot = exportRelayState(emptySavedAt());
+  assert.equal(snapshot.federation.seen.length, 1);
+
+  replaceFederationStateEntries(emptyFederationState());
+  restoreRelayState(JSON.parse(JSON.stringify(snapshot)), Date.parse("2026-09-17T00:00:00.000Z"));
+  assert.deepEqual(
+    checkFederationReplay(federationId, digest, Date.parse("2026-09-17T00:01:00.000Z")),
+    { duplicate: true },
+  );
+});
+
+test("legacy version-1 relay snapshots without route or federation state still restore", () => {
   const state = createEmptyRelayState(emptySavedAt());
   const legacy = { ...state };
   delete (legacy as Partial<typeof state>).routeManifests;
+  delete (legacy as Partial<typeof state>).federation;
 
   restoreRelayState(legacy);
-  assert.deepEqual(exportRelayState(emptySavedAt()).routeManifests, []);
+  const restored = exportRelayState(emptySavedAt());
+  assert.deepEqual(restored.routeManifests, []);
+  assert.deepEqual(restored.federation, emptyFederationState());
 });
 
 test("persistent snapshots never contain raw device auth tokens", () => {
