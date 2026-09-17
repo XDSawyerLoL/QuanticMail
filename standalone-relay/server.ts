@@ -6,6 +6,7 @@ import { retryPendingFederationReceipts } from "./federation-retry.ts";
 import { createRelayRequestHandler } from "./http.ts";
 import { loadOrCreateRelayIdentity } from "./identity.ts";
 import { createPostgresRelayPersistenceFromUrl } from "./postgres-storage.ts";
+import { createCompatRegisterRequestHandler } from "./register-compat-http.ts";
 import { RelayRuntime } from "./runtime.ts";
 import { createFileRelayStateStore } from "./storage.ts";
 
@@ -73,8 +74,10 @@ export async function startRelayServer(
   const discoveryHandler = createDiscoveryRequestHandler(runtime, {
     localRelayId: relayIdentity.relayId,
   });
+  const compatRegisterHandler = createCompatRegisterRequestHandler(runtime);
   const server = createServer((request, response) => {
     void (async () => {
+      if (await compatRegisterHandler(request, response)) return;
       if (await discoveryHandler(request, response)) return;
       await relayHandler(request, response);
     })();
