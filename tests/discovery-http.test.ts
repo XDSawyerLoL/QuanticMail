@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash, generateKeyPairSync, sign } from "node:crypto";
+import { createServer } from "node:http";
 import * as fs from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -119,6 +120,36 @@ async function postJson(url: string, body: unknown) {
   });
 }
 
+async function startPublishCapture() {
+  let captured: unknown = null;
+  const server = createServer((request, response) => {
+    void (async () => {
+      const chunks: Buffer[] = [];
+      for await (const chunk of request) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      if (request.method === "POST" && request.url === "/api/quantic/discovery/publish") {
+        captured = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+        response.statusCode = 201;
+        response.setHeader("content-type", "application/json");
+        response.end('{"accepted":true}\n');
+        return;
+      }
+      response.statusCode = 404;
+      response.end();
+    })();
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => resolve());
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("Capture Discovery sans port.");
+  return {
+    endpoint: `http://127.0.0.1:${address.port}`,
+    captured: () => captured,
+    close: () => new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve())),
+  };
+}
+
 test("Discovery HTTP publishes only a cryptographically valid bundle and finds it by namespaced key", async () => {
   const dataDir = await tempDir();
   const relay = await startRelayServer({ host: "127.0.0.1", port: 0, dataDir });
@@ -141,6 +172,37 @@ test("Discovery HTTP publishes only a cryptographically valid bundle and finds i
     assert.ok(Array.isArray(found.peers));
   } finally {
     await relay.close();
+    await fs.rm(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("Discovery publish replicates a valid bundle only to known mesh peers", async () => {
+  const dataDir = await tempDir();
+  const capture = await startPublishCapture();
+  const relay = await startRelayServer({ host: "127.0.0.1", port: 0, dataDir });
+  try {
+    const targetRelayId = "a".repeat(64);
+    replaceDiscoveryPeerEntries([[targetRelayId, {
+      relayId: targetRelayId,
+      endpoint: capture.endpoint,
+      lastSeenAt: new Date().toISOString(),
+      failures: 0,
+      bucketIndex: 0,
+    }]]);
+    const bundle = signedBundle("replicatemesh");
+    const publish = await postJson(`${relay.url}/api/quantic/discovery/publish`, { bundle });
+    assert.equal(publish.status, 201);
+    const body = await publish.json() as {
+      replication?: { attempted: number; succeeded: number; failed: number };
+    };
+    assert.deepEqual(body.replication, { attempted: 1, succeeded: 1, failed: 0 });
+    const captured = capture.captured() as { bundle?: typeof bundle; replicate?: boolean } | null;
+    assert.equal(captured?.bundle?.identityManifest.payload.canonicalAddress, bundle.identityManifest.payload.canonicalAddress);
+    assert.equal(captured?.replicate, false);
+  } finally {
+    replaceDiscoveryPeerEntries([]);
+    await relay.close();
+    await capture.close();
     await fs.rm(dataDir, { recursive: true, force: true });
   }
 });
