@@ -28,24 +28,26 @@ function legacyV1State() {
   };
 }
 
-test("empty relay state is emitted as V2 with durable V1.1 stores", () => {
+test("empty relay state is emitted as V3 with durable protocol stores", () => {
   restoreRelayState(createEmptyRelayState(savedAt));
   const snapshot = exportRelayState(savedAt);
 
-  assert.equal(snapshot.version, 2);
+  assert.equal(snapshot.version, 3);
   assert.deepEqual(snapshot.manifests, []);
   assert.deepEqual(snapshot.preKeyPools, []);
   assert.deepEqual(snapshot.consumedPreKeys, []);
+  assert.deepEqual(snapshot.discoveryPeers, []);
 });
 
-test("legacy V1 relay state migrates to V2 with empty manifest and prekey stores", () => {
+test("legacy V1 relay state migrates to V3 with empty durable protocol stores", () => {
   restoreRelayState(legacyV1State());
   const migrated = exportRelayState(savedAt);
 
-  assert.equal(migrated.version, 2);
+  assert.equal(migrated.version, 3);
   assert.deepEqual(migrated.manifests, []);
   assert.deepEqual(migrated.preKeyPools, []);
   assert.deepEqual(migrated.consumedPreKeys, []);
+  assert.deepEqual(migrated.discoveryPeers, []);
   assert.equal(getStandaloneManifest("alice~0123456789@quantic"), null);
   assert.equal(getStandalonePreKeyStore().pools.size, 0);
   assert.equal(getStandalonePreKeyStore().consumed.size, 0);
@@ -53,7 +55,7 @@ test("legacy V1 relay state migrates to V2 with empty manifest and prekey stores
 
 test("future relay state versions remain rejected", () => {
   assert.throws(
-    () => restoreRelayState({ ...legacyV1State(), version: 3 }),
+    () => restoreRelayState({ ...legacyV1State(), version: 4 }),
     /version/i,
   );
 });
