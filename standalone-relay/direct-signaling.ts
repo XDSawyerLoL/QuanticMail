@@ -3,7 +3,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 
 import { authenticateLocalDevice, RelayError } from "../lib/quantic/relay.ts";
 
-export type DirectSignalType = "offer" | "answer" | "ice" | "cancel";
+export type DirectSignalType = "offer" | "answer" | "ice" | "cancel" | "receipt";
 export type EncryptedDirectSignal = {
   ciphertext: string;
   iv: string;
@@ -34,7 +34,7 @@ const MAX_REQUEST_BYTES = 96 * 1024;
 const DEFAULT_SIGNAL_TTL_MS = 60_000;
 const DEFAULT_MAX_QUEUE = 64;
 const DEFAULT_MAX_PAYLOAD_BYTES = 64 * 1024;
-const SIGNAL_TYPES = new Set<DirectSignalType>(["offer", "answer", "ice", "cancel"]);
+const SIGNAL_TYPES = new Set<DirectSignalType>(["offer", "answer", "ice", "cancel", "receipt"]);
 
 function bearer(request: IncomingMessage) {
   const header = request.headers.authorization ?? "";
@@ -42,11 +42,15 @@ function bearer(request: IncomingMessage) {
   return match?.[1] ?? null;
 }
 
-function json(response: ServerResponse, status: number, payload: unknown) {
+function applyCors(response: ServerResponse) {
   response.setHeader("Access-Control-Allow-Origin", "*");
   response.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   response.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
   response.setHeader("Access-Control-Max-Age", "86400");
+}
+
+function json(response: ServerResponse, status: number, payload: unknown) {
+  applyCors(response);
   response.statusCode = status;
   response.setHeader("Content-Type", "application/json; charset=utf-8");
   response.end(`${JSON.stringify(payload)}\n`);
@@ -138,6 +142,7 @@ export function createDirectSignalingRequestHandler(options: DirectSignalingOpti
 
     try {
       if (request.method === "OPTIONS") {
+        applyCors(response);
         response.statusCode = 204;
         response.end();
         return true;
