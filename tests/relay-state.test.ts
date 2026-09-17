@@ -33,7 +33,7 @@ test("empty relay state is explicit and versioned", () => {
   const snapshot = exportRelayState("2026-09-16T00:00:01.000Z");
 
   assert.equal(snapshot.format, "quantic-relay-state");
-  assert.equal(snapshot.version, 2);
+  assert.equal(snapshot.version, 3);
   assert.equal(snapshot.savedAt, "2026-09-16T00:00:01.000Z");
   assert.deepEqual(snapshot.identities, []);
   assert.deepEqual(snapshot.aliases, []);
@@ -47,6 +47,7 @@ test("empty relay state is explicit and versioned", () => {
   assert.deepEqual(snapshot.consumedPreKeys, []);
   assert.deepEqual(snapshot.routeManifests, []);
   assert.deepEqual(snapshot.federation, emptyFederationState());
+  assert.deepEqual(snapshot.discoveryPeers, []);
 });
 
 test("relay aliases round-trip through JSON without Set loss", () => {
@@ -106,7 +107,7 @@ test("federation replay state round-trips through relay durable state", () => {
   );
 });
 
-test("legacy version-1 relay snapshots without V1.2, route or federation state still restore", () => {
+test("legacy version-1 relay snapshots without V1.2, route, federation or discovery state still restore", () => {
   const state = createEmptyRelayState(emptySavedAt());
   const legacy: Record<string, unknown> = { ...state, version: 1 };
   delete legacy.manifests;
@@ -114,6 +115,7 @@ test("legacy version-1 relay snapshots without V1.2, route or federation state s
   delete legacy.consumedPreKeys;
   delete legacy.routeManifests;
   delete legacy.federation;
+  delete legacy.discoveryPeers;
 
   restoreRelayState(legacy);
   const restored = exportRelayState(emptySavedAt());
@@ -122,6 +124,7 @@ test("legacy version-1 relay snapshots without V1.2, route or federation state s
   assert.deepEqual(restored.consumedPreKeys, []);
   assert.deepEqual(restored.routeManifests, []);
   assert.deepEqual(restored.federation, emptyFederationState());
+  assert.deepEqual(restored.discoveryPeers, []);
 });
 
 test("persistent snapshots never contain raw device auth tokens", () => {
@@ -160,11 +163,11 @@ test("persistent snapshots never contain raw device auth tokens", () => {
 
 test("unknown state format or future version is rejected", () => {
   assert.throws(
-    () => restoreRelayState({ format: "wrong", version: 2 }),
+    () => restoreRelayState({ format: "wrong", version: 3 }),
     /format/i,
   );
   assert.throws(
-    () => restoreRelayState({ format: "quantic-relay-state", version: 3 }),
+    () => restoreRelayState({ format: "quantic-relay-state", version: 4 }),
     /version/i,
   );
 });
