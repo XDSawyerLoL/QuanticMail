@@ -1,3 +1,5 @@
+import type { QuanticCryptoProfileV2 } from "../lib/quantic/crypto-profile-core.mjs";
+import { verifyCryptoProfile } from "../lib/quantic/crypto-profile-node.mjs";
 import { discoveryKey, validateDiscoveryBundle } from "../lib/quantic/discovery-core.mjs";
 import { canonicalRouteManifestText } from "../lib/quantic/federation-core.mjs";
 import type { QuanticRouteManifest } from "../lib/quantic/federation-types.ts";
@@ -8,7 +10,7 @@ import { iterativeFindRecord, xorDistance } from "./kademlia.ts";
 
 export type DiscoveryBundle = {
   identityManifest: QuanticIdentityManifest;
-  cryptoProfile?: unknown;
+  cryptoProfile?: QuanticCryptoProfileV2;
   routeManifest: QuanticRouteManifest;
 };
 
@@ -92,7 +94,7 @@ function validateAgainstPinned(bundle: DiscoveryBundle, pinned: DiscoveryBundle 
           routeManifest: pinned.routeManifest,
         }
       : {},
-    { nowMs: Date.now() },
+    { nowMs: Date.now(), verifyCryptoProfile },
   ) as DiscoveryBundle & { canonicalAddress: string };
 }
 
