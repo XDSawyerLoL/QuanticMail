@@ -1,5 +1,6 @@
 import { createServer, type Server } from "node:http";
 
+import { bootstrapDiscoveryPeers } from "./discovery-bootstrap.ts";
 import { createDiscoveryRequestHandler } from "./discovery-http.ts";
 import { retryPendingFederationReceipts } from "./federation-retry.ts";
 import { createRelayRequestHandler } from "./http.ts";
@@ -12,6 +13,7 @@ export type RelayServerOptions = {
   port?: number;
   dataDir?: string;
   publicEndpoint?: string;
+  bootstrapEndpoints?: string[];
 };
 
 export type RunningRelayServer = {
@@ -91,6 +93,12 @@ export async function startRelayServer(
   const actualPort = address.port;
   const url = `http://${urlHost(host)}:${actualPort}`;
   if (!publicEndpoint) publicEndpoint = url;
+
+  await bootstrapDiscoveryPeers(
+    runtime,
+    relayIdentity.relayId,
+    options.bootstrapEndpoints ?? [],
+  );
 
   let retryTask: Promise<void> | null = null;
   const runFederationRetry = () => {
