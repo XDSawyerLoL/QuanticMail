@@ -4,27 +4,29 @@ QuanticMail is the local-first messaging product of Quantic Sillage.
 
 QuanticMail does not use Gmail-style hosted mailboxes or SMTP as its core transport. Quantic Network uses human identities such as `sansa@quantic` and self-certifying canonical identities derived from a signing key.
 
-## V1.1 architecture
+## Current architecture
 
 - **Human identity:** `name@quantic`
 - **New canonical identities:** `name~<32 hex>@quantic` (128-bit displayed fingerprint)
 - **Legacy canonical identities:** existing 10-hex identities remain valid and are not silently renamed
 - **Root device:** retains the master identity signing private key
-- **Linked devices:** each has its own ECDH P-256 encryption key, ECDSA P-256 device-signing key and auth token
+- **Linked devices:** each has independent encryption/signing material and its own auth token
 - **Device authorization:** root-signed Quantic device certificates plus a signed monotonic identity manifest
-- **Message encryption:** AES-256-GCM with ECDH P-256
+- **Classical compatibility:** P-256 ECDH/ECDSA remains supported
+- **Crypto V2:** ML-KEM-768 + ML-DSA-65 hybrid protection can be activated through a signed Crypto Profile; `hybrid-required` is downgrade-protected
+- **Message encryption:** AES-256-GCM, with hybrid P-256 + ML-KEM key derivation when Crypto V2 requires it
 - **One-time prekeys:** per-device signed P-256 ECDH prekeys, atomically claimed once by the relay when available
-- **Fallback:** static per-device ECDH encryption remains available when the prekey pool is empty or unavailable
 - **Multi-device delivery:** one independently encrypted transport envelope per authorized recipient device
 - **Sent-history sync:** encrypted sync copies are sent to the sender's other authorized devices
 - **Local mailbox:** browser IndexedDB
 - **Durable local outbox:** encrypted deliveries remain local until delivery receipts arrive
 - **Identity recovery:** password-encrypted `.quantic-vault` for the root identity
 - **QR pairing:** 256-bit pairing secret in the URL fragment, HKDF-SHA-256 + AES-256-GCM package encryption, 10-minute rendezvous and one-shot package retrieval
-- **Discovery and federation:** standalone Quantic relays can discover signed identity/route bundles through a Kademlia-style peer mesh; this mesh is separate from the current Render-hosted Next web application
-- **Optional durable manifest registry:** GitHub `registry` branch when the Render service has a write token configured
+- **Federation:** independent Quantic relays can exchange signed portable envelopes and delivery receipts
+- **Discovery Mesh:** standalone relays discover signed identity/route/Crypto Profile bundles through a bounded Kademlia-style peer mesh
+- **Optional GitHub checkpoint:** signed identity manifests can still be checkpointed to the `registry` branch when explicitly configured
 
-Private identity, device and one-time-prekey keys remain client-side. The relay sees routing metadata and ciphertext but does not receive readable message bodies or private cryptographic keys.
+Private identity, device, one-time-prekey and post-quantum private keys remain client-side. Relays see routing metadata and ciphertext but do not receive readable message bodies or private cryptographic keys.
 
 ## Current deployment
 
@@ -32,29 +34,28 @@ Private identity, device and one-time-prekey keys remain client-side. The relay 
 - **Device manager / QR pairing:** `https://quanticmail.onrender.com/devices`
 - **File-pairing fallback:** `https://quanticmail.onrender.com/devices/files`
 - **Identity Vault:** `https://quanticmail.onrender.com/vault`
-- **Network:** Quantic Network V1.1 alpha
+- **Protocol stack:** QuanticMail V1.2 + Federation + Crypto V2 + Discovery Mesh support
 
-The current Render deployment runs the Next web application. It is not, by itself, a deployed public node of the standalone Discovery Mesh described below.
+The current Render deployment runs the Next web application. It is **not**, by itself, a public node of the standalone Discovery Mesh. Discovery Mesh runs in the standalone relay process described below.
 
-## V1.1 capabilities
+## Secure multi-device messaging
 
-- create a new 128-bit canonical Quantic identity while preserving legacy 40-bit identities
-- prove root ownership with ECDSA P-256
-- authorize independent devices with root-signed certificates
-- maintain a root-signed monotonic device manifest with revocations and rollback protection
-- pair a new PC or phone through a short-lived QR rendezvous without copying the master private key
-- bootstrap the new device with an encrypted copy of available local history
-- publish signed one-time prekeys for each authorized device
-- atomically claim and consume a recipient prekey when available
-- fall back to the authorized device's static key when no prekey is available
-- encrypt one transport delivery per recipient device
-- synchronize readable sent-history records to the sender's other authorized devices through encrypted `sync-copy` deliveries
-- keep per-device relay queues and delivery receipts isolated
-- keep unsent encrypted deliveries in a local durable outbox
-- preserve V0.8 Identity Vault recovery for the root identity
-- optionally checkpoint signed manifests to a GitHub registry branch
+QuanticMail can:
 
-See [`docs/V1.1-SECURE-SYNC.md`](docs/V1.1-SECURE-SYNC.md).
+- create a new 128-bit canonical Quantic identity while preserving legacy 40-bit identities;
+- prove root ownership with ECDSA P-256;
+- authorize independent devices with root-signed certificates;
+- maintain a signed monotonic device manifest with revocations and rollback protection;
+- pair a new PC or phone through a short-lived QR rendezvous without copying the master private key;
+- bootstrap the new device with an encrypted copy of available local history;
+- publish signed one-time prekeys for each authorized device;
+- atomically claim and consume a recipient prekey when available;
+- fall back to an authorized device's static P-256 key when no prekey is available;
+- synchronize sent-history records to the sender's other devices;
+- retain unsent encrypted deliveries in a durable local outbox;
+- optionally activate Crypto V2 hybrid protection and prevent a silent downgrade once `hybrid-required` is pinned.
+
+See [`docs/V1.1-SECURE-SYNC.md`](docs/V1.1-SECURE-SYNC.md) for the secure-sync foundation.
 
 ## QR pairing flow
 
@@ -66,15 +67,23 @@ See [`docs/V1.1-SECURE-SYNC.md`](docs/V1.1-SECURE-SYNC.md).
 6. The new device downloads that encrypted package once, decrypts it locally, verifies the signed manifest/certificate and registers with its own auth token.
 7. The fallback file-pairing workflow remains available under `/devices/files`.
 
-Pairing invitations expire after 10 minutes. The server stores only the temporary rendezvous state and encrypted package; the pairing secret is never persisted by the application server.
+Pairing invitations expire after 10 minutes. The server stores only temporary rendezvous state and the encrypted package; the pairing secret is never persisted by the application server.
 
 ## One-time prekeys
 
-Each V1.1 device keeps private one-time ECDH keys in IndexedDB and publishes only signed public prekey records. The relay verifies the device signature against the current signed manifest before accepting them.
+Each device keeps private one-time ECDH keys locally and publishes only signed public prekey records. The relay verifies the device signature against the current signed manifest before accepting them.
 
-When a sender targets a device, it authenticates and atomically claims one public prekey. The prekey identifier is carried inside the standard JWK `kid` metadata on the ephemeral envelope key, preserving the existing V1 relay envelope shape. After authenticated decryption and local message persistence, the recipient deletes the corresponding local private prekey.
+When a sender targets a device, it authenticates and atomically claims one public prekey. After authenticated decryption and local message persistence, the recipient deletes the corresponding private one-time prekey.
 
 If no one-time prekey is available, QuanticMail uses the authorized device's static ECDH key as an explicit compatibility/degraded-security fallback instead of making delivery impossible.
+
+## Crypto V2
+
+Crypto V2 adds a signed public Crypto Profile bound to the existing Quantic identity. The profile can advertise ML-KEM-768 device encryption keys and ML-DSA-65 signing keys.
+
+The protocol supports a transition mode and a `hybrid-required` mode. Once `hybrid-required` is pinned, classical-only delivery cannot silently replace it. Discovery Mesh transports the Crypto Profile together with the signed Identity Manifest and Route Manifest, verifies the P-256 and ML-DSA proofs, checks the canonical profile digest referenced by the Route Manifest, persists the profile in the relay snapshot, and refuses profile removal as a downgrade.
+
+Crypto V2 private material remains on user devices. The relay stores only signed public profiles needed for verification and routing.
 
 ## Sent-history sync
 
@@ -99,17 +108,23 @@ Runtime variables:
 
 An empty `QUANTIC_RELAY_BOOTSTRAP` is valid and creates an isolated/private relay until peers are learned or configured. Bootstrap relays are only entry points: the relay performs a nonce-bound signed Federation hello, derives/verifies the peer `relayId` from its signing key and persists the peer in the normal atomic relay snapshot. A bootstrap endpoint does not sign user identities and is not a directory authority.
 
-Discovery uses namespaced 256-bit keys, XOR distance, bounded Kademlia-style buckets and bounded iterative lookup. Lookups can follow multiple peer paths. Every discovered Identity Manifest + Route Manifest bundle is cryptographically validated before it can enter trusted local state; older records and same-sequence forks are rejected against pinned state.
+Discovery uses namespaced 256-bit keys, XOR distance, bounded Kademlia-style buckets and bounded iterative lookup. Lookups can follow multiple peer paths. Every discovered bundle is cryptographically validated before it can enter trusted local state. Identity, route and Crypto Profile rollback/fork rules remain authoritative over network hints.
 
-`POST /api/quantic/discovery/publish` stores a valid bundle locally and replicates it only to the K closest known peers. Replicated copies carry `replicate:false`, so peers do not create unbounded broadcast loops. `POST /api/quantic/discovery/lookup` performs the multi-hop lookup and caches only a valid accepted result.
+`POST /api/quantic/discovery/publish` stores a valid bundle locally and replicates it only to the K closest known peers. Replicated copies carry `replicate:false`, so peers do not create unbounded broadcast loops. `POST /api/quantic/discovery/lookup` performs multi-hop lookup and caches only a valid accepted result.
 
 The acceptance suite launches three independent relay processes with GitHub and Render bootstrap variables removed: relay A knows only C, C knows only B, Bob exists on B, and A discovers Bob through C before Federation delivers the encrypted message to B and returns Bob's delivery receipt to Alice. This proves the tested Discovery/Federation path does not require GitHub or Render once reachable mesh peers are available.
 
 This is not a global-consensus system: network partitions can temporarily expose different reachable records. Cryptographic signatures, monotonic sequences, rollback checks and fork rejection determine what a relay may accept; bootstrap nodes themselves are not trusted as identity authorities.
 
-## Durable manifest registry
+## Durable standalone relay state
 
-Render Free storage is ephemeral, so QuanticMail does not treat process memory as the durable authority for device authorization. Signed manifests can be checkpointed to the repository's `registry` branch.
+The standalone relay persists its protocol state atomically on disk. The current snapshot includes identity/device relay state, encrypted queues, receipts, signed manifests, one-time-prekey pools and consumed tombstones, Route Manifests, public Crypto Profiles, Federation replay/receipt state and Discovery peers.
+
+Old state formats remain readable through migration logic. Private identity and post-quantum keys are not written into the relay snapshot.
+
+## Optional GitHub manifest checkpoint
+
+The web/Render path can optionally checkpoint signed identity manifests to the repository's `registry` branch.
 
 Runtime configuration:
 
@@ -118,26 +133,17 @@ Runtime configuration:
 - `QUANTIC_GITHUB_REPO`: defaults to `QuanticMail`
 - `QUANTIC_GITHUB_BRANCH`: defaults to `registry`
 
-If `QUANTIC_GITHUB_TOKEN` is absent, QuanticMail deliberately reports registry mode as `memory`; it does not pretend durable GitHub persistence is active. A token must be provided through Render environment variables, never committed to this repository.
+If `QUANTIC_GITHUB_TOKEN` is absent, QuanticMail deliberately reports registry mode as `memory`; it does not pretend durable GitHub persistence is active. A token must be provided through environment variables, never committed to this repository.
 
-## Zero-cost durability model
+Discovery Mesh itself does not require the GitHub registry for peer-to-peer lookup.
 
-The current Render Free service can restart and lose process-memory relay state. QuanticMail therefore relies on cryptographically portable client state rather than pretending the free relay is permanent storage:
+## Security boundary and limitations
 
-- root ownership is proven by the master signing key;
-- device authorization is proven by root-signed certificates and manifests;
-- linked devices re-register from their local certificates after a restart;
-- undelivered encrypted payloads remain in the sender's IndexedDB outbox;
-- readable mailbox history remains on user devices and can be bootstrapped during pairing;
-- optional GitHub checkpoints preserve signed manifest state when explicitly configured.
+QuanticMail is an **alpha protocol implementation and has not received an independent security audit**.
 
-Temporary relay queues can still be lost by a Render restart before delivery. V1.1 reduces the impact through local retry/outbox logic but does not claim server-side durable message storage.
+P-256 remains the compatibility foundation for legacy identities, certificates and classical fallback. Crypto V2 adds ML-KEM-768 and ML-DSA-65 in a hybrid design rather than replacing every classical primitive at once. Native post-quantum runtime support used by the current implementation is still evolving, so compatibility must be tested on target runtimes.
 
-## Security boundary and current limitations
-
-QuanticMail V1.1 is an **alpha protocol implementation and has not received an independent security audit**. ECDH/ECDSA currently use P-256 and message encryption uses AES-256-GCM.
-
-One-time-prekey pool state on the free relay is process-memory state. After a relay restart devices replenish fresh prekeys rather than treating the relay as a durable prekey authority. Static-key fallback is intentionally visible in the protocol design and means forward-secrecy properties are not uniform for every delivery.
+One-time-prekey forward-secrecy properties are not uniform when static-key fallback is used. The standalone relay persists its public prekey state, while deployment-specific web relay behavior may differ. Discovery Mesh protects the authenticity and monotonicity of discovered records, but it does not provide global consensus or guarantee availability across a network partition.
 
 The root device can authorize/revoke linked devices because it retains the master signing private key. Linked devices do not receive that master private key.
 
