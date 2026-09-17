@@ -62,7 +62,9 @@ export async function startRelayServer(
     identity: relayIdentity,
     getPublicEndpoint: () => publicEndpoint,
   });
-  const discoveryHandler = createDiscoveryRequestHandler(runtime);
+  const discoveryHandler = createDiscoveryRequestHandler(runtime, {
+    localRelayId: relayIdentity.relayId,
+  });
   const server = createServer((request, response) => {
     void (async () => {
       if (await discoveryHandler(request, response)) return;
