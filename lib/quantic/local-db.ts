@@ -1,3 +1,7 @@
+import {
+  generateLocalPqcKeyMaterial,
+  type LocalPqcKeyMaterial,
+} from "@/lib/quantic/device-pqc";
 import type { QuanticIdentityManifest } from "@/lib/quantic/manifest-types";
 
 export type DeviceCertificatePayload = {
@@ -37,6 +41,7 @@ export type LocalIdentity = {
   deviceCertificate?: DeviceCertificate;
   manifest?: QuanticIdentityManifest;
   role?: "root" | "secondary";
+  pqc?: LocalPqcKeyMaterial;
   authToken: string;
   createdAt: string;
 };
@@ -96,6 +101,7 @@ export type LocalPendingDevice = {
   privateKey: JsonWebKey;
   deviceSigningPublicKey: JsonWebKey;
   deviceSigningPrivateKey: JsonWebKey;
+  pqc?: LocalPqcKeyMaterial;
   authToken: string;
   createdAt: string;
 };
@@ -155,10 +161,15 @@ export async function getLocalIdentity(): Promise<LocalIdentity | null> {
 }
 
 export async function saveLocalIdentity(identity: LocalIdentity) {
+  const pqc = identity.pqc ?? (await generateLocalPqcKeyMaterial());
+  const next: LocalIdentity = {
+    ...identity,
+    pqc: pqc ?? undefined,
+  };
   const db = await openDb();
   return new Promise<void>((resolve, reject) => {
     const tx = db.transaction("identity", "readwrite");
-    tx.objectStore("identity").put(identity, "current");
+    tx.objectStore("identity").put(next, "current");
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
