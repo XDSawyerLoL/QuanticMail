@@ -1,5 +1,15 @@
+import type { QuanticRouteManifest } from "./federation-types.ts";
 import type { DeliveryReceipt, QuanticPublicKey, RelayEnvelope } from "./relay.ts";
 import "./relay.ts";
+import {
+  replaceRouteManifestEntries,
+  routeManifestEntries,
+} from "./route-manifest-state.ts";
+import {
+  federationStateEntries,
+  replaceFederationStateEntries,
+  type FederationStateEntries,
+} from "../../standalone-relay/federation-state.ts";
 
 type IdentityRecord = {
   handle: string;
@@ -56,10 +66,16 @@ export type RelayPersistentState = {
   queues: Array<[string, RelayEnvelope[]]>;
   receipts: Array<[string, DeliveryReceipt[]]>;
   sendWindows: Array<[string, number[]]>;
+  routeManifests: Array<[string, QuanticRouteManifest]>;
+  federation: FederationStateEntries;
 };
 
 const MESSAGE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const SEND_WINDOW_MS = 60_000;
+
+function emptyFederationState(): FederationStateEntries {
+  return { seen: [], inbound: [], outbound: [], pendingReceipts: [] };
+}
 
 function relayState() {
   const globalRelay = globalThis as typeof globalThis & {
@@ -107,6 +123,17 @@ function requireAliases(value: unknown): Array<[string, string[]]> {
   });
 }
 
+function requireFederation(value: unknown): FederationStateEntries {
+  if (value === undefined) return emptyFederationState();
+  const record = requireObject(value, "federation");
+  return {
+    seen: requireEntries(record.seen, "federation.seen"),
+    inbound: requireEntries(record.inbound, "federation.inbound"),
+    outbound: requireEntries(record.outbound, "federation.outbound"),
+    pendingReceipts: requireEntries(record.pendingReceipts, "federation.pendingReceipts"),
+  } as FederationStateEntries;
+}
+
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
@@ -123,6 +150,8 @@ export function createEmptyRelayState(savedAt = new Date().toISOString()): Relay
     queues: [],
     receipts: [],
     sendWindows: [],
+    routeManifests: [],
+    federation: emptyFederationState(),
   };
 }
 
@@ -139,6 +168,8 @@ export function exportRelayState(savedAt = new Date().toISOString()): RelayPersi
     queues: [...state.queues.entries()],
     receipts: [...state.receipts.entries()],
     sendWindows: [...state.sendWindows.entries()],
+    routeManifests: routeManifestEntries(),
+    federation: federationStateEntries(),
   });
 }
 
@@ -182,6 +213,10 @@ export function restoreRelayState(input: unknown, nowMs = Date.now()) {
       return [key, stamps.filter((stamp) => stamp >= nowMs - SEND_WINDOW_MS)] as [string, number[]];
     })
     .filter(([, stamps]) => stamps.length > 0);
+  const routeManifests = record.routeManifests === undefined
+    ? []
+    : requireEntries<QuanticRouteManifest>(record.routeManifests, "routeManifests");
+  const federation = requireFederation(record.federation);
 
   const next: RelayState = {
     identities: new Map(identities),
@@ -201,4 +236,7 @@ export function restoreRelayState(input: unknown, nowMs = Date.now()) {
   state.queues = next.queues;
   state.receipts = next.receipts;
   state.sendWindows = next.sendWindows;
+  replaceRouteManifestEntries(routeManifests);
+  replaceFederationStateEntries(federation);
+  federationStateEntries(nowMs);
 }

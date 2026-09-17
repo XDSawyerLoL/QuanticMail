@@ -1,6 +1,8 @@
 import { createServer, type Server } from "node:http";
 
+import { retryPendingFederationReceipts } from "./federation-retry.ts";
 import { createRelayRequestHandler } from "./http.ts";
+import { loadOrCreateRelayIdentity } from "./identity.ts";
 import { RelayRuntime } from "./runtime.ts";
 import { createFileRelayStateStore } from "./storage.ts";
 
@@ -8,6 +10,7 @@ export type RelayServerOptions = {
   host?: string;
   port?: number;
   dataDir?: string;
+  publicEndpoint?: string;
 };
 
 export type RunningRelayServer = {
@@ -15,6 +18,7 @@ export type RunningRelayServer = {
   port: number;
   url: string;
   dataDir: string;
+  relayId: string;
   close(): Promise<void>;
 };
 
@@ -45,11 +49,16 @@ export async function startRelayServer(
   const dataDir = options.dataDir ?? "./data";
   validateServerPort(port);
 
+  const relayIdentity = await loadOrCreateRelayIdentity(dataDir);
   const store = createFileRelayStateStore(dataDir);
   const runtime = new RelayRuntime(store);
   await runtime.initialize();
 
-  const handler = createRelayRequestHandler(runtime);
+  let publicEndpoint = options.publicEndpoint ?? "";
+  const handler = createRelayRequestHandler(runtime, {
+    identity: relayIdentity,
+    getPublicEndpoint: () => publicEndpoint,
+  });
   const server = createServer((request, response) => {
     void handler(request, response);
   });
@@ -75,12 +84,32 @@ export async function startRelayServer(
   }
 
   const actualPort = address.port;
-  let closing: Promise<void> | null = null;
+  const url = `http://${urlHost(host)}:${actualPort}`;
+  if (!publicEndpoint) publicEndpoint = url;
 
+  let retryTask: Promise<void> | null = null;
+  const runFederationRetry = () => {
+    if (retryTask) return retryTask;
+    retryTask = retryPendingFederationReceipts(runtime)
+      .catch(() => undefined)
+      .finally(() => {
+        retryTask = null;
+      });
+    return retryTask;
+  };
+  const retryTimer = setInterval(() => {
+    void runFederationRetry();
+  }, 1_000);
+  retryTimer.unref();
+  void runFederationRetry();
+
+  let closing: Promise<void> | null = null;
   const close = () => {
     if (!closing) {
       closing = (async () => {
+        clearInterval(retryTimer);
         await closeHttpServer(server);
+        if (retryTask) await retryTask;
         await runtime.flush();
       })();
     }
@@ -90,8 +119,9 @@ export async function startRelayServer(
   return {
     host,
     port: actualPort,
-    url: `http://${urlHost(host)}:${actualPort}`,
+    url,
     dataDir,
+    relayId: relayIdentity.relayId,
     close,
   };
 }
