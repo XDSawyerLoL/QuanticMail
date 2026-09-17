@@ -127,7 +127,6 @@ function makeBundle(relayId: string, endpoint: string) {
     issuedAt,
     expiresAt,
   };
-  // The route relayId must match the signing key, so replace the caller hint with the real key digest.
   routePayload.relays[0].relayId = createHash("sha256")
     .update(relayKey.publicKey.export({ type: "spki", format: "der" }))
     .digest("hex");
@@ -143,7 +142,7 @@ function makeBundle(relayId: string, endpoint: string) {
     },
   };
 
-  return { canonicalAddress, identityManifest, cryptoProfile, routeManifest };
+  return { canonicalAddress, identityManifest, cryptoProfile, routeManifest, ownerPrivateKey: owner.privateKey };
 }
 
 const pqAvailable = (() => {
@@ -157,17 +156,21 @@ const pqAvailable = (() => {
 })();
 const skip = pqAvailable ? false : "native PQ runtime unavailable";
 
+async function publish(url: string, bundle: unknown) {
+  return fetch(`${url}/api/quantic/discovery/publish`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ bundle }),
+  });
+}
+
 test("Discovery Mesh publishes, persists, and returns a verified hybrid-required Crypto Profile V2", { skip }, async () => {
   const dataDir = await fs.mkdtemp(join(tmpdir(), "quantic-discovery-pqc-"));
   let relay = await startRelayServer({ host: "127.0.0.1", port: 0, dataDir });
   try {
     const bundle = makeBundle(relay.relayId, relay.url);
-    const publish = await fetch(`${relay.url}/api/quantic/discovery/publish`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ bundle }),
-    });
-    assert.equal(publish.status, 201);
+    const published = await publish(relay.url, bundle);
+    assert.equal(published.status, 201);
 
     const found = await fetch(`${relay.url}/api/quantic/discovery/find`, {
       method: "POST",
@@ -192,6 +195,41 @@ test("Discovery Mesh publishes, persists, and returns a verified hybrid-required
     assert.equal(restored.bundle?.cryptoProfile?.payload.sequence, 1);
   } finally {
     await relay.close().catch(() => undefined);
+    await fs.rm(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("Discovery Mesh rejects removal of a pinned hybrid-required Crypto Profile", { skip }, async () => {
+  const dataDir = await fs.mkdtemp(join(tmpdir(), "quantic-discovery-pqc-downgrade-"));
+  const relay = await startRelayServer({ host: "127.0.0.1", port: 0, dataDir });
+  try {
+    const bundle = makeBundle(relay.relayId, relay.url);
+    assert.equal((await publish(relay.url, bundle)).status, 201);
+
+    const downgradedPayload = {
+      ...bundle.routeManifest.payload,
+      sequence: 2,
+      cryptoProfileSequence: null,
+      cryptoProfileDigest: null,
+      issuedAt: new Date().toISOString(),
+    };
+    const downgradedRoute = {
+      ...bundle.routeManifest,
+      payload: downgradedPayload,
+      signatures: {
+        p256: sign("sha256", Buffer.from(canonicalRouteManifestText(downgradedPayload), "utf8"), {
+          key: bundle.ownerPrivateKey,
+          dsaEncoding: "ieee-p1363",
+        }).toString("base64"),
+      },
+    };
+    const downgrade = await publish(relay.url, {
+      identityManifest: bundle.identityManifest,
+      routeManifest: downgradedRoute,
+    });
+    assert.equal(downgrade.status, 400);
+  } finally {
+    await relay.close();
     await fs.rm(dataDir, { recursive: true, force: true });
   }
 });
