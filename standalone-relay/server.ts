@@ -1,7 +1,9 @@
 import { createServer, type Server } from "node:http";
 
 import { bootstrapDiscoveryPeers } from "./discovery-bootstrap.ts";
+import { createDiscoveryHandleRequestHandler } from "./discovery-handle-http.ts";
 import { createDiscoveryRequestHandler } from "./discovery-http.ts";
+import { createDiscoveryResolveRequestHandler } from "./discovery-resolve-http.ts";
 import { retryPendingFederationReceipts } from "./federation-retry.ts";
 import { createRelayRequestHandler } from "./http.ts";
 import { loadOrCreateRelayIdentity } from "./identity.ts";
@@ -74,10 +76,14 @@ export async function startRelayServer(
   const discoveryHandler = createDiscoveryRequestHandler(runtime, {
     localRelayId: relayIdentity.relayId,
   });
+  const discoveryHandleHandler = createDiscoveryHandleRequestHandler(runtime);
+  const discoveryResolveHandler = createDiscoveryResolveRequestHandler(runtime, relayIdentity.relayId);
   const compatRegisterHandler = createCompatRegisterRequestHandler(runtime);
   const server = createServer((request, response) => {
     void (async () => {
       if (await compatRegisterHandler(request, response)) return;
+      if (await discoveryHandleHandler(request, response)) return;
+      if (await discoveryResolveHandler(request, response)) return;
       if (await discoveryHandler(request, response)) return;
       await relayHandler(request, response);
     })();
