@@ -32,10 +32,10 @@ test("xorDistance is exact and symmetric over 256-bit relay IDs", async () => {
   const b = `${"0".repeat(63)}f`;
   const c = `${"f"}${"0".repeat(63)}`;
 
-  assert.equal(xorDistance(a, b), 15n);
-  assert.equal(xorDistance(b, a), 15n);
-  assert.equal(xorDistance(a, c), 15n << 252n);
-  assert.equal(xorDistance(a, a), 0n);
+  assert.equal(xorDistance(a, b), BigInt(15));
+  assert.equal(xorDistance(b, a), BigInt(15));
+  assert.equal(xorDistance(a, c), BigInt(15) << BigInt(252));
+  assert.equal(xorDistance(a, a), BigInt(0));
   assert.throws(() => xorDistance("bad", b), /relay id|256|hex/i);
 });
 
