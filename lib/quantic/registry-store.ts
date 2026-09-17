@@ -25,6 +25,11 @@ type GitHubDirectoryEntry = {
   type?: string;
 };
 
+type RegistryManifestRead = {
+  sha?: string;
+  manifest: QuanticIdentityManifest | null;
+};
+
 let lastRegistryError = "";
 
 function config(): RegistryConfig | null {
@@ -55,32 +60,27 @@ function decodeContent(value: string) {
   return Buffer.from(value.replace(/\n/g, ""), "base64").toString("utf8");
 }
 
-async function readManifestPath(current: RegistryConfig, path: string) {
+async function readManifestPath(current: RegistryConfig, path: string): Promise<RegistryManifestRead> {
   const response = await fetch(`${contentUrl(current, path)}?ref=${encodeURIComponent(current.branch)}`, {
     headers: headers(current),
     cache: "no-store",
   });
-  if (response.status === 404) return null;
+  if (response.status === 404) return { sha: undefined, manifest: null };
   if (!response.ok) throw new Error(`GitHub registry read failed (${response.status}).`);
   const data = (await response.json()) as GitHubContentResponse;
   if (!data.content || data.encoding !== "base64") {
     throw new Error("GitHub registry returned an invalid manifest object.");
   }
-  return JSON.parse(decodeContent(data.content)) as QuanticIdentityManifest;
+  return {
+    sha: data.sha,
+    manifest: JSON.parse(decodeContent(data.content)) as QuanticIdentityManifest,
+  };
 }
 
 async function readRemote(current: RegistryConfig, canonicalAddress: string) {
   const path = registryFilePath(canonicalAddress);
-  const manifest = await readManifestPath(current, path);
-  if (!manifest) return { path, sha: undefined, manifest: null as QuanticIdentityManifest | null };
-
-  const response = await fetch(`${contentUrl(current, path)}?ref=${encodeURIComponent(current.branch)}`, {
-    headers: headers(current),
-    cache: "no-store",
-  });
-  if (!response.ok) throw new Error(`GitHub registry read failed (${response.status}).`);
-  const data = (await response.json()) as GitHubContentResponse;
-  return { path, sha: data.sha, manifest };
+  const remote = await readManifestPath(current, path);
+  return { path, ...remote };
 }
 
 export function registryStatus() {
@@ -126,8 +126,8 @@ export async function loadRegistryManifestsByHandle(locator: string) {
       .map((entry) => entry.path as string);
     const settled = await Promise.allSettled(paths.map((path) => readManifestPath(current, path)));
     const manifests = settled
-      .filter((item): item is PromiseFulfilledResult<QuanticIdentityManifest | null> => item.status === "fulfilled")
-      .map((item) => item.value)
+      .filter((item): item is PromiseFulfilledResult<RegistryManifestRead> => item.status === "fulfilled")
+      .map((item) => item.value.manifest)
       .filter((manifest): manifest is QuanticIdentityManifest => Boolean(manifest));
 
     lastRegistryError = "";
