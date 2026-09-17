@@ -11,7 +11,16 @@ export type StorageLike = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 export const RELAY_STORAGE_KEY = "quantic.relay-endpoints.v1";
 export const ACTIVE_RELAY_STORAGE_KEY = "quantic.active-relay.v1";
 
+export const DURABLE_PUBLIC_RELAY: RelayEndpoint = {
+  id: "quantic-public",
+  label: "Quantic public relay",
+  baseUrl: "https://quanticmail-network-relay.onrender.com",
+  priority: 10,
+  enabled: true,
+};
+
 export const DEFAULT_RELAY_ENDPOINTS: RelayEndpoint[] = [
+  DURABLE_PUBLIC_RELAY,
   {
     id: "quantic-bootstrap",
     label: "Quantic bootstrap",
@@ -72,6 +81,13 @@ function sanitizeRelayEndpoint(value: RelayEndpoint, index: number): RelayEndpoi
   };
 }
 
+function migrateLegacyBootstrap(relays: RelayEndpoint[]) {
+  const hasLegacyBootstrap = relays.some((relay) => relay.id === "quantic-bootstrap");
+  const hasDurable = relays.some((relay) => relay.id === DURABLE_PUBLIC_RELAY.id);
+  if (!hasLegacyBootstrap || hasDurable) return relays;
+  return [{ ...DURABLE_PUBLIC_RELAY }, ...relays];
+}
+
 export function orderedRelays(relays: RelayEndpoint[], activeRelayId?: string | null) {
   const ordered = relays
     .map(sanitizeRelayEndpoint)
@@ -79,6 +95,12 @@ export function orderedRelays(relays: RelayEndpoint[], activeRelayId?: string | 
     .sort((a, b) => a.priority - b.priority || a.id.localeCompare(b.id));
 
   if (!activeRelayId) return ordered;
+  if (
+    activeRelayId === "quantic-bootstrap" &&
+    ordered.some((relay) => relay.id === DURABLE_PUBLIC_RELAY.id)
+  ) {
+    return ordered;
+  }
   const activeIndex = ordered.findIndex((relay) => relay.id === activeRelayId);
   if (activeIndex <= 0) return ordered;
   const [active] = ordered.splice(activeIndex, 1);
@@ -96,7 +118,10 @@ export function getRelayEndpoints(storage?: StorageLike): RelayEndpoint[] {
     if (!Array.isArray(parsed) || parsed.length === 0) {
       return DEFAULT_RELAY_ENDPOINTS.map((relay) => ({ ...relay }));
     }
-    return parsed.map((relay, index) => sanitizeRelayEndpoint(relay as RelayEndpoint, index));
+    const sanitized = parsed.map((relay, index) => sanitizeRelayEndpoint(relay as RelayEndpoint, index));
+    return migrateLegacyBootstrap(sanitized).sort(
+      (a, b) => a.priority - b.priority || a.id.localeCompare(b.id),
+    );
   } catch {
     return DEFAULT_RELAY_ENDPOINTS.map((relay) => ({ ...relay }));
   }
