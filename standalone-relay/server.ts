@@ -1,5 +1,6 @@
 import { createServer, type Server } from "node:http";
 
+import { createDiscoveryRequestHandler } from "./discovery-http.ts";
 import { retryPendingFederationReceipts } from "./federation-retry.ts";
 import { createRelayRequestHandler } from "./http.ts";
 import { loadOrCreateRelayIdentity } from "./identity.ts";
@@ -55,12 +56,16 @@ export async function startRelayServer(
   await runtime.initialize();
 
   let publicEndpoint = options.publicEndpoint ?? "";
-  const handler = createRelayRequestHandler(runtime, {
+  const relayHandler = createRelayRequestHandler(runtime, {
     identity: relayIdentity,
     getPublicEndpoint: () => publicEndpoint,
   });
+  const discoveryHandler = createDiscoveryRequestHandler(runtime);
   const server = createServer((request, response) => {
-    void handler(request, response);
+    void (async () => {
+      if (await discoveryHandler(request, response)) return;
+      await relayHandler(request, response);
+    })();
   });
 
   await new Promise<void>((resolve, reject) => {
