@@ -5,6 +5,7 @@ import { createDiscoveryRequestHandler } from "./discovery-http.ts";
 import { retryPendingFederationReceipts } from "./federation-retry.ts";
 import { createRelayRequestHandler } from "./http.ts";
 import { loadOrCreateRelayIdentity } from "./identity.ts";
+import { createPostgresRelayPersistenceFromUrl } from "./postgres-storage.ts";
 import { RelayRuntime } from "./runtime.ts";
 import { createFileRelayStateStore } from "./storage.ts";
 
@@ -12,6 +13,7 @@ export type RelayServerOptions = {
   host?: string;
   port?: number;
   dataDir?: string;
+  databaseUrl?: string;
   publicEndpoint?: string;
   bootstrapEndpoints?: string[];
 };
@@ -52,8 +54,14 @@ export async function startRelayServer(
   const dataDir = options.dataDir ?? "./data";
   validateServerPort(port);
 
-  const relayIdentity = await loadOrCreateRelayIdentity(dataDir);
-  const store = createFileRelayStateStore(dataDir);
+  const databaseUrl = options.databaseUrl?.trim() || "";
+  const postgresPersistence = databaseUrl
+    ? await createPostgresRelayPersistenceFromUrl(databaseUrl)
+    : null;
+  const relayIdentity = postgresPersistence
+    ? await postgresPersistence.loadOrCreateIdentity()
+    : await loadOrCreateRelayIdentity(dataDir);
+  const store = postgresPersistence?.stateStore ?? createFileRelayStateStore(dataDir);
   const runtime = new RelayRuntime(store);
   await runtime.initialize();
 
@@ -72,23 +80,29 @@ export async function startRelayServer(
     })();
   });
 
-  await new Promise<void>((resolve, reject) => {
-    const onError = (error: Error) => {
-      server.off("listening", onListening);
-      reject(error);
-    };
-    const onListening = () => {
-      server.off("error", onError);
-      resolve();
-    };
-    server.once("error", onError);
-    server.once("listening", onListening);
-    server.listen(port, host);
-  });
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const onError = (error: Error) => {
+        server.off("listening", onListening);
+        reject(error);
+      };
+      const onListening = () => {
+        server.off("error", onError);
+        resolve();
+      };
+      server.once("error", onError);
+      server.once("listening", onListening);
+      server.listen(port, host);
+    });
+  } catch (error) {
+    await postgresPersistence?.close().catch(() => undefined);
+    throw error;
+  }
 
   const address = server.address();
   if (!address || typeof address === "string") {
     await closeHttpServer(server);
+    await postgresPersistence?.close().catch(() => undefined);
     throw new Error("Impossible de déterminer le port Quantic Relay.");
   }
 
@@ -126,6 +140,7 @@ export async function startRelayServer(
         await closeHttpServer(server);
         if (retryTask) await retryTask;
         await runtime.flush();
+        await postgresPersistence?.close();
       })();
     }
     return closing;
