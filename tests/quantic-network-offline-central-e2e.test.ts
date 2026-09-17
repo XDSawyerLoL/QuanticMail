@@ -187,7 +187,8 @@ async function registerIdentityOnRelay(relayUrl: string, identity: ReturnType<ty
       signature: ownershipSignature,
     }),
   });
-  assert.equal(response.status, 201, await response.text());
+  const text = await response.text();
+  assert.equal(response.status, 201, text);
 }
 
 async function relayHello(relay: IsolatedRelay) {
@@ -264,8 +265,9 @@ async function signedEncryptedEnvelope(sender: ReturnType<typeof signedIdentity>
 
 async function peersFor(relayUrl: string, key: string) {
   const response = await fetch(`${relayUrl}/api/quantic/discovery/peers?key=${key}`);
-  assert.equal(response.status, 200, await response.text());
-  return response.json() as Promise<{ peers: Array<{ relayId: string; endpoint: string }> }>;
+  const text = await response.text();
+  assert.equal(response.status, 200, text);
+  return JSON.parse(text) as { peers: Array<{ relayId: string; endpoint: string }> };
 }
 
 test("A discovers Bob on B through bootstrap C and Federation delivers without Render or GitHub", async () => {
@@ -291,7 +293,8 @@ test("A discovers Bob on B through bootstrap C and Federation delivers without R
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ bundle: { identityManifest: bob.manifest, routeManifest: route } }),
     });
-    assert.equal(publishResponse.status, 201, await publishResponse.text());
+    const publishText = await publishResponse.text();
+    assert.equal(publishResponse.status, 201, publishText);
 
     const key = discoveryKey("identity", bob.canonicalAddress);
     const peersA = await peersFor(relayA.url, key);
@@ -307,8 +310,9 @@ test("A discovers Bob on B through bootstrap C and Federation delivers without R
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ canonicalAddress: bob.canonicalAddress }),
     });
-    assert.equal(lookupResponse.status, 200, await lookupResponse.text());
-    const discovered = await lookupResponse.json() as {
+    const lookupText = await lookupResponse.text();
+    assert.equal(lookupResponse.status, 200, lookupText);
+    const discovered = JSON.parse(lookupText) as {
       bundle: { identityManifest: typeof bob.manifest; routeManifest: typeof route } | null;
     };
     assert.equal(discovered.bundle?.identityManifest.payload.canonicalAddress, bob.canonicalAddress);
@@ -328,7 +332,8 @@ test("A discovers Bob on B through bootstrap C and Federation delivers without R
         envelope,
       }),
     });
-    assert.equal(sendResponse.status, 202, await sendResponse.text());
+    const sendText = await sendResponse.text();
+    assert.equal(sendResponse.status, 202, sendText);
 
     const pullResponse = await fetch(
       `${relayB.url}/api/quantic/pull?handle=${encodeURIComponent(bob.canonicalAddress)}&deviceId=${encodeURIComponent(bob.deviceId)}`,
@@ -354,7 +359,8 @@ test("A discovers Bob on B through bootstrap C and Federation delivers without R
         ids: [pull.envelopes[0].id],
       }),
     });
-    assert.equal(ackResponse.status, 200, await ackResponse.text());
+    const ackText = await ackResponse.text();
+    assert.equal(ackResponse.status, 200, ackText);
 
     const receiptsResponse = await fetch(
       `${relayA.url}/api/quantic/receipts?handle=${encodeURIComponent(alice.canonicalAddress)}&deviceId=${encodeURIComponent(alice.deviceId)}`,
