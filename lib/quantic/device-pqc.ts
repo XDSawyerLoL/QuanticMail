@@ -76,7 +76,7 @@ async function canGenerate(name: "ML-KEM-768" | "ML-DSA-65", usages: string[]) {
   const api = subtle();
   if (!api) return false;
   try {
-    await api.generateKey({ name } as Algorithm, false, usages as KeyUsage[]);
+    await api.generateKey({ name } as Algorithm, false, usages as unknown as KeyUsage[]);
     return true;
   } catch {
     return false;
@@ -129,7 +129,7 @@ export async function generateLocalPqcKeyMaterial(): Promise<LocalPqcKeyMaterial
     api.generateKey(
       { name: "ML-KEM-768" } as Algorithm,
       true,
-      ["encapsulateBits", "decapsulateBits"] as KeyUsage[],
+      ["encapsulateBits", "decapsulateBits"] as unknown as KeyUsage[],
     ) as Promise<CryptoKeyPair>,
     api.generateKey(
       { name: "ML-DSA-65" } as Algorithm,
