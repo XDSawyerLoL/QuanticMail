@@ -57,3 +57,25 @@ export type QuanticPortableEnvelope = {
     mlDsa65Device?: string;
   };
 };
+
+export type QuanticFederationReceiptPayload = {
+  version: 1;
+  federationId: string;
+  envelopeDigest: string;
+  clientMessageId: string;
+  from: string;
+  fromDeviceId: string;
+  to: string;
+  toDeviceId: string;
+  destinationRelayId: string;
+  routeSequence: number;
+  deliveredAt: string;
+  expiresAt: string;
+};
+
+export type QuanticFederationReceipt = {
+  format: "quantic-federation-receipt";
+  version: 1;
+  payload: QuanticFederationReceiptPayload;
+  p256Signature: string;
+};
