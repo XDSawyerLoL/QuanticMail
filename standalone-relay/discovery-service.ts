@@ -1,5 +1,5 @@
 import type { QuanticCryptoProfileV2 } from "../lib/quantic/crypto-profile-core.mjs";
-import { verifyCryptoProfile } from "../lib/quantic/crypto-profile-node.mjs";
+import { verifyDiscoveryCryptoProfile } from "../lib/quantic/discovery-crypto-node.ts";
 import { discoveryKey, validateDiscoveryBundle } from "../lib/quantic/discovery-core.mjs";
 import { canonicalRouteManifestText } from "../lib/quantic/federation-core.mjs";
 import type { QuanticRouteManifest } from "../lib/quantic/federation-types.ts";
@@ -94,7 +94,7 @@ function validateAgainstPinned(bundle: DiscoveryBundle, pinned: DiscoveryBundle 
           routeManifest: pinned.routeManifest,
         }
       : {},
-    { nowMs: Date.now(), verifyCryptoProfile },
+    { nowMs: Date.now(), verifyCryptoProfile: verifyDiscoveryCryptoProfile },
   ) as DiscoveryBundle & { canonicalAddress: string };
 }
 
