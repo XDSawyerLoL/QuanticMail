@@ -1,4 +1,7 @@
-import type { QuanticFederationReceipt } from "../lib/quantic/federation-types.ts";
+import type {
+  QuanticFederationReceipt,
+  QuanticRouteManifest,
+} from "../lib/quantic/federation-types.ts";
 
 export type FederationSeenRecord = {
   federationId: string;
@@ -33,6 +36,7 @@ export type FederationOutboundRecord = {
   destinationRelayId: string;
   destinationEndpoint: string;
   routeSequence: number;
+  routeManifest: QuanticRouteManifest;
   expiresAt: string;
   result: "pending" | "accepted" | "delivered";
 };
