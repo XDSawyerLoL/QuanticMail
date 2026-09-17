@@ -1,5 +1,11 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 
+import { enqueueFederatedEnvelope } from "../lib/quantic/federation-delivery.ts";
+import type {
+  QuanticPortableEnvelope,
+  QuanticRouteManifest,
+} from "../lib/quantic/federation-types.ts";
+import type { QuanticIdentityManifest } from "../lib/quantic/manifest-types.ts";
 import {
   acknowledgeEnvelopes,
   acknowledgeReceipts,
@@ -13,6 +19,7 @@ import {
   resolveIdentity,
   type QuanticPublicKey,
 } from "../lib/quantic/relay.ts";
+import { acceptRouteManifest } from "../lib/quantic/route-manifest-state.ts";
 import { signRelayHello, type RelayIdentity } from "./identity.ts";
 import { RelayRuntime } from "./runtime.ts";
 
@@ -92,6 +99,62 @@ function methodNotAllowed(response: ServerResponse) {
   json(response, 405, { error: "Méthode Quantic non autorisée." });
 }
 
+function sameP256Key(first: JsonWebKey, second: JsonWebKey) {
+  return (
+    first?.kty === "EC" &&
+    second?.kty === "EC" &&
+    first.crv === "P-256" &&
+    second.crv === "P-256" &&
+    first.x === second.x &&
+    first.y === second.y
+  );
+}
+
+function endpointOrigin(value: string) {
+  try {
+    return new URL(value).origin;
+  } catch {
+    throw new RelayError("Endpoint de fédération invalide.", 400);
+  }
+}
+
+function validateForwardPacket(body: Record<string, unknown>, localRelayId: string) {
+  if (body.format !== "quantic-federation-forward" || body.version !== 1) {
+    throw new RelayError("Paquet de fédération Quantic invalide.", 400);
+  }
+  if (typeof body.federationId !== "string" || !/^[A-Za-z0-9._:-]{12,128}$/.test(body.federationId)) {
+    throw new RelayError("Identifiant de fédération invalide.", 400);
+  }
+  if (!Number.isSafeInteger(body.hopLimit) || (body.hopLimit as number) <= 0 || (body.hopLimit as number) > 16) {
+    throw new RelayError("Limite de sauts de fédération invalide.", 400);
+  }
+  if (!Array.isArray(body.visitedRelayIds) || body.visitedRelayIds.length > 16) {
+    throw new RelayError("Historique de relais invalide.", 400);
+  }
+  if (
+    body.visitedRelayIds.some(
+      (relayId) => typeof relayId !== "string" || !/^[0-9a-f]{64}$/.test(relayId),
+    )
+  ) {
+    throw new RelayError("Historique de relais invalide.", 400);
+  }
+  if (body.visitedRelayIds.includes(localRelayId)) {
+    throw new RelayError("Boucle de fédération Quantic détectée.", 409);
+  }
+  if (typeof body.previousRelayId !== "string" || !/^[0-9a-f]{64}$/.test(body.previousRelayId)) {
+    throw new RelayError("Relay ID précédent invalide.", 400);
+  }
+  if (typeof body.expiresAt !== "string" || Number.isNaN(Date.parse(body.expiresAt))) {
+    throw new RelayError("Expiration de fédération invalide.", 400);
+  }
+  if (Date.parse(body.expiresAt) <= Date.now()) {
+    throw new RelayError("Paquet de fédération Quantic expiré.", 410);
+  }
+  if (typeof body.previousRelayAttestation !== "string" || body.previousRelayAttestation.length < 8) {
+    throw new RelayError("Attestation du relais précédent absente.", 400);
+  }
+}
+
 export function createRelayRequestHandler(
   runtime: RelayRuntime,
   federation?: RelayHttpFederationContext,
@@ -145,6 +208,50 @@ export function createRelayRequestHandler(
             400,
           );
         }
+        return;
+      }
+
+      if (path === "/api/quantic/federation/forward") {
+        if (method !== "POST") return methodNotAllowed(response);
+        if (!federation) throw new RelayError("Fédération Quantic indisponible.", 503);
+        const body = await readJsonBody(request);
+        validateForwardPacket(body, federation.identity.relayId);
+
+        const result = await runtime.mutate(() => {
+          let route: QuanticRouteManifest;
+          try {
+            route = acceptRouteManifest(
+              body.recipientRouteManifest as QuanticRouteManifest,
+              body.recipientIdentityManifest as QuanticIdentityManifest,
+            );
+          } catch (error) {
+            throw new RelayError(
+              error instanceof Error ? error.message : "Route Manifest Quantic invalide.",
+              400,
+            );
+          }
+
+          const localRoute = route.payload.relays.find(
+            (entry) => entry.relayId === federation.identity.relayId,
+          );
+          if (!localRoute) {
+            throw new RelayError("Ce relais n’est pas autorisé par le Route Manifest destinataire.", 403);
+          }
+          if (!sameP256Key(localRoute.classicalSigningPublicKey, federation.identity.publicKeyJwk)) {
+            throw new RelayError("La clé du relais ne correspond pas au Route Manifest destinataire.", 403);
+          }
+          if (endpointOrigin(localRoute.endpoint) !== endpointOrigin(federation.getPublicEndpoint())) {
+            throw new RelayError("L’endpoint du relais ne correspond pas au Route Manifest destinataire.", 403);
+          }
+
+          return enqueueFederatedEnvelope({
+            envelope: body.envelope as QuanticPortableEnvelope,
+            senderIdentityManifest: body.senderIdentityManifest as QuanticIdentityManifest,
+            recipientIdentityManifest: body.recipientIdentityManifest as QuanticIdentityManifest,
+            senderCryptoProfile: body.senderCryptoProfile,
+          });
+        });
+        json(response, 202, result);
         return;
       }
 
