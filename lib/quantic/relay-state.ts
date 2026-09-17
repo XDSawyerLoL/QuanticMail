@@ -1,3 +1,8 @@
+import type { QuanticCryptoProfileV2 } from "./crypto-profile-core.mjs";
+import {
+  cryptoProfileEntries,
+  replaceCryptoProfileEntries,
+} from "./crypto-profile-state.ts";
 import type { QuanticRouteManifest } from "./federation-types.ts";
 import type { DeliveryReceipt, QuanticPublicKey, RelayEnvelope } from "./relay.ts";
 import "./relay.ts";
@@ -67,6 +72,7 @@ export type RelayPersistentState = {
   receipts: Array<[string, DeliveryReceipt[]]>;
   sendWindows: Array<[string, number[]]>;
   routeManifests: Array<[string, QuanticRouteManifest]>;
+  cryptoProfiles: Array<[string, QuanticCryptoProfileV2]>;
   federation: FederationStateEntries;
 };
 
@@ -151,6 +157,7 @@ export function createEmptyRelayState(savedAt = new Date().toISOString()): Relay
     receipts: [],
     sendWindows: [],
     routeManifests: [],
+    cryptoProfiles: [],
     federation: emptyFederationState(),
   };
 }
@@ -169,6 +176,7 @@ export function exportRelayState(savedAt = new Date().toISOString()): RelayPersi
     receipts: [...state.receipts.entries()],
     sendWindows: [...state.sendWindows.entries()],
     routeManifests: routeManifestEntries(),
+    cryptoProfiles: cryptoProfileEntries(),
     federation: federationStateEntries(),
   });
 }
@@ -216,6 +224,9 @@ export function restoreRelayState(input: unknown, nowMs = Date.now()) {
   const routeManifests = record.routeManifests === undefined
     ? []
     : requireEntries<QuanticRouteManifest>(record.routeManifests, "routeManifests");
+  const cryptoProfiles = record.cryptoProfiles === undefined
+    ? []
+    : requireEntries<QuanticCryptoProfileV2>(record.cryptoProfiles, "cryptoProfiles");
   const federation = requireFederation(record.federation);
 
   const next: RelayState = {
@@ -237,6 +248,7 @@ export function restoreRelayState(input: unknown, nowMs = Date.now()) {
   state.receipts = next.receipts;
   state.sendWindows = next.sendWindows;
   replaceRouteManifestEntries(routeManifests);
+  replaceCryptoProfileEntries(cryptoProfiles);
   replaceFederationStateEntries(federation);
   federationStateEntries(nowMs);
 }
