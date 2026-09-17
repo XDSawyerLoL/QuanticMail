@@ -24,13 +24,14 @@ function auth(locator: string, token: string | null, deviceId?: string | null) {
 
 async function withServer(
   run: (baseUrl: string, advance: (ms: number) => void) => Promise<void>,
-  options: { maxQueue?: number } = {},
+  options: { maxQueue?: number; maxTotalSignals?: number } = {},
 ) {
   let now = Date.parse("2026-09-17T12:00:00.000Z");
   const handler = createDirectSignalingRequestHandler({
     authenticate: auth,
     now: () => now,
     maxQueue: options.maxQueue,
+    maxTotalSignals: options.maxTotalSignals,
   });
   const server = createServer((request, response) => { void handler(request, response); });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -122,6 +123,27 @@ test("direct signaling carries only bounded encrypted rendezvous payloads and ex
   });
 });
 
+test("direct signaling accepts encrypted receipt fallback when the data channel is gone", async () => {
+  await withServer(async (baseUrl) => {
+    const sent = await post(baseUrl, "/api/quantic/direct/send", "alice-token", {
+      from: ALICE,
+      fromDeviceId: ALICE_DEVICE,
+      to: BOB,
+      toDeviceId: BOB_DEVICE,
+      type: "receipt",
+      encrypted: encryptedSignal(),
+    });
+    assert.equal(sent.status, 202, await sent.text());
+
+    const poll = await fetch(
+      `${baseUrl}/api/quantic/direct/poll?handle=${encodeURIComponent(BOB)}&deviceId=${encodeURIComponent(BOB_DEVICE)}`,
+      { headers: { authorization: "Bearer bob-token" } },
+    );
+    const payload = await poll.json() as { signals: Array<{ type: string }> };
+    assert.equal(payload.signals[0]?.type, "receipt");
+  });
+});
+
 test("direct signaling bounds each device queue to prevent relay flooding", async () => {
   await withServer(async (baseUrl) => {
     for (let index = 0; index < 2; index += 1) {
@@ -145,4 +167,47 @@ test("direct signaling bounds each device queue to prevent relay flooding", asyn
     });
     assert.equal(flooded.status, 429);
   }, { maxQueue: 2 });
+});
+
+test("direct signaling caps total queued signals across invented destinations and frees expired capacity", async () => {
+  await withServer(async (baseUrl, advance) => {
+    const targets = [
+      ["target.one~11111111111111111111111111111111@quantic", "d-11111111111111111111111111111111"],
+      ["target.two~22222222222222222222222222222222@quantic", "d-22222222222222222222222222222222"],
+      ["target.three~33333333333333333333333333333333@quantic", "d-33333333333333333333333333333333"],
+    ] as const;
+
+    for (const [to, toDeviceId] of targets.slice(0, 2)) {
+      const response = await post(baseUrl, "/api/quantic/direct/send", "alice-token", {
+        from: ALICE,
+        fromDeviceId: ALICE_DEVICE,
+        to,
+        toDeviceId,
+        type: "ice",
+        encrypted: encryptedSignal(),
+      });
+      assert.equal(response.status, 202);
+    }
+
+    const saturated = await post(baseUrl, "/api/quantic/direct/send", "alice-token", {
+      from: ALICE,
+      fromDeviceId: ALICE_DEVICE,
+      to: targets[2][0],
+      toDeviceId: targets[2][1],
+      type: "ice",
+      encrypted: encryptedSignal(),
+    });
+    assert.equal(saturated.status, 429);
+
+    advance(61_000);
+    const afterExpiry = await post(baseUrl, "/api/quantic/direct/send", "alice-token", {
+      from: ALICE,
+      fromDeviceId: ALICE_DEVICE,
+      to: targets[2][0],
+      toDeviceId: targets[2][1],
+      type: "ice",
+      encrypted: encryptedSignal(),
+    });
+    assert.equal(afterExpiry.status, 202);
+  }, { maxTotalSignals: 2 });
 });
