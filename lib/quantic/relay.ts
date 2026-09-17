@@ -502,7 +502,7 @@ export function registerIdentity(input: {
   addAlias(locator.handle, names.canonicalAddress);
 
   const priorRoot = existingRootDevice(identity);
-  const rootDeviceId = priorRoot?.deviceId ?? input.deviceId ?? deviceIdForKey(input.publicKey, names.fingerprint.length === 32 ? 32 : 10);
+  const rootDeviceId = priorRoot?.deviceId ?? input.deviceId ?? deviceIdForKey(input.publicKey, 10);
   const existingRoot = state.devices.get(deviceKey(names.canonicalAddress, rootDeviceId));
   state.devices.set(deviceKey(names.canonicalAddress, rootDeviceId), {
     canonicalAddress: names.canonicalAddress,
