@@ -18,6 +18,7 @@ import { createInitialManifest, verifyManifestBrowser } from "@/lib/quantic/mani
 import type { QuanticIdentityManifest } from "@/lib/quantic/manifest-types";
 import { localMessageFromEnvelope } from "@/lib/quantic/message-core.mjs";
 import { generateOneTimePreKey, publicPreKey, verifyPreKeySignature, type SignedPreKeyRecord } from "@/lib/quantic/prekey";
+import { getRelayEndpoints, relayFetchJson } from "@/lib/quantic/relay-client";
 import {
   deleteLocalPreKey,
   deleteOutboxItem,
@@ -328,7 +329,13 @@ export function QuanticNetworkV11App() {
     const cached = await getLocalContact(locator);
     let remote: ResolvedIdentity;
     try {
-      remote = await fetchJson<ResolvedIdentity>(`/api/quantic/resolve?handle=${encodeURIComponent(locator)}`);
+      const result = await relayFetchJson<ResolvedIdentity>(
+        getRelayEndpoints(),
+        `/api/quantic/resolve?handle=${encodeURIComponent(locator)}`,
+        undefined,
+        { retryStatuses: [404] },
+      );
+      remote = result.data;
     } catch (err) {
       if (!cached) throw err;
       const devices = cached.devices?.length
