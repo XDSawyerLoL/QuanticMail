@@ -9,6 +9,7 @@ import {
   getStandaloneManifest,
   getStandaloneManifestStore,
 } from "../lib/quantic/standalone-v11-state.ts";
+import { createDiscoveryService, type DiscoveryBundle } from "./discovery-service.ts";
 import { discoveryPeerEntries, type DiscoveryPeer } from "./discovery-state.ts";
 import { xorDistance } from "./kademlia.ts";
 import { RelayRuntime } from "./runtime.ts";
@@ -16,12 +17,7 @@ import { RelayRuntime } from "./runtime.ts";
 const DISCOVERY_KEY = /^[0-9a-f]{64}$/;
 const MAX_DISCOVERY_PEERS = 20;
 const MAX_REQUEST_BYTES = 512 * 1024;
-
-type DiscoveryBundle = {
-  identityManifest: QuanticIdentityManifest;
-  cryptoProfile?: unknown;
-  routeManifest: QuanticRouteManifest;
-};
+const DISCOVERY_FETCH_TIMEOUT_MS = 5_000;
 
 class DiscoveryHttpError extends Error {
   readonly status: number;
@@ -81,6 +77,18 @@ function requireKey(value: unknown) {
   return value;
 }
 
+function requireCanonicalAddress(value: unknown) {
+  if (typeof value !== "string" || value.length === 0 || value.length > 256) {
+    throw new DiscoveryHttpError("Adresse canonique Discovery invalide.", 400);
+  }
+  try {
+    discoveryKey("identity", value);
+  } catch {
+    throw new DiscoveryHttpError("Adresse canonique Discovery invalide.", 400);
+  }
+  return value;
+}
+
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
@@ -97,6 +105,13 @@ function findLocalBundle(key: string): DiscoveryBundle | null {
     }
   }
   return null;
+}
+
+function localBundle(canonicalAddress: string): DiscoveryBundle | null {
+  const identityManifest = getStandaloneManifest(canonicalAddress);
+  const routeManifest = getRouteManifest(canonicalAddress);
+  if (!identityManifest || !routeManifest) return null;
+  return clone({ identityManifest, routeManifest });
 }
 
 function nearestPeers(key: string, limit = MAX_DISCOVERY_PEERS): DiscoveryPeer[] {
@@ -142,6 +157,24 @@ function publishBundle(bundle: DiscoveryBundle) {
   return accepted;
 }
 
+async function findOnPeer(peer: DiscoveryPeer, key: string) {
+  const response = await fetch(`${peer.endpoint}/api/quantic/discovery/find`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ key }),
+    signal: AbortSignal.timeout(DISCOVERY_FETCH_TIMEOUT_MS),
+  });
+  if (!response.ok) throw new Error(`Lookup Discovery refusé par ${peer.endpoint} (${response.status}).`);
+  const payload = await response.json() as {
+    bundle?: DiscoveryBundle | null;
+    peers?: DiscoveryPeer[];
+  };
+  return {
+    bundle: payload.bundle ?? null,
+    peers: Array.isArray(payload.peers) ? payload.peers : [],
+  };
+}
+
 function statusFromError(error: unknown) {
   if (error instanceof DiscoveryHttpError) return error.status;
   if (error && typeof error === "object" && "status" in error) {
@@ -151,7 +184,10 @@ function statusFromError(error: unknown) {
   return 500;
 }
 
-export function createDiscoveryRequestHandler(runtime: RelayRuntime) {
+export function createDiscoveryRequestHandler(
+  runtime: RelayRuntime,
+  options: { localRelayId?: string } = {},
+) {
   return async function discoveryRequestHandler(
     request: IncomingMessage,
     response: ServerResponse,
@@ -194,6 +230,35 @@ export function createDiscoveryRequestHandler(runtime: RelayRuntime) {
         const bundle = await runtime.read(() => findLocalBundle(key));
         const peers = await runtime.read(() => nearestPeers(key));
         json(response, 200, { bundle, peers });
+        return true;
+      }
+
+      if (path === "/api/quantic/discovery/lookup") {
+        if (request.method !== "POST") throw new DiscoveryHttpError("Méthode Discovery non autorisée.", 405);
+        if (!options.localRelayId) throw new DiscoveryHttpError("Discovery Mesh non initialisé.", 503);
+        const body = await readJsonBody(request);
+        const canonicalAddress = requireCanonicalAddress(body.canonicalAddress);
+        const peerSnapshot = await runtime.read(() => discoveryPeerEntries().map(([, peer]) => peer));
+        const pinned = await runtime.read(() => localBundle(canonicalAddress));
+        const service = createDiscoveryService({
+          localRelayId: options.localRelayId,
+          peers: () => peerSnapshot,
+          pinnedBundle: () => pinned,
+          acceptLocal: async (bundle) => {
+            const accepted = await runtime.mutate(() => publishBundle(bundle));
+            return {
+              identityManifest: accepted.identityManifest,
+              ...(accepted.cryptoProfile ? { cryptoProfile: accepted.cryptoProfile } : {}),
+              routeManifest: accepted.routeManifest,
+            };
+          },
+          transport: {
+            publish: async () => undefined,
+            find: findOnPeer,
+          },
+        });
+        const bundle = await service.lookup(canonicalAddress);
+        json(response, 200, { bundle });
         return true;
       }
 
