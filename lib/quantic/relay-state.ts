@@ -15,6 +15,13 @@ import {
   replaceFederationStateEntries,
   type FederationStateEntries,
 } from "../../standalone-relay/federation-state.ts";
+import {
+  discoveryPeerEntries,
+  normalizeDiscoveryPeerEntries,
+  replaceDiscoveryPeerEntries,
+  type DiscoveryPeer,
+  type DiscoveryPeerEntries,
+} from "../../standalone-relay/discovery-state.ts";
 
 type IdentityRecord = {
   handle: string;
@@ -75,12 +82,17 @@ type RelayPersistentStateV1 = {
   federation?: FederationStateEntries;
 };
 
-export type RelayPersistentState = Omit<RelayPersistentStateV1, "version"> &
+type RelayPersistentStateV2 = Omit<RelayPersistentStateV1, "version"> &
   StandaloneV11PersistentState & {
     version: 2;
     routeManifests: Array<[string, QuanticRouteManifest]>;
     federation: FederationStateEntries;
   };
+
+export type RelayPersistentState = Omit<RelayPersistentStateV2, "version"> & {
+  version: 3;
+  discoveryPeers: DiscoveryPeerEntries;
+};
 
 const MESSAGE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const SEND_WINDOW_MS = 60_000;
@@ -153,7 +165,7 @@ function isFiniteNumber(value: unknown): value is number {
 export function createEmptyRelayState(savedAt = new Date().toISOString()): RelayPersistentState {
   return {
     format: "quantic-relay-state",
-    version: 2,
+    version: 3,
     savedAt,
     identities: [],
     aliases: [],
@@ -167,15 +179,17 @@ export function createEmptyRelayState(savedAt = new Date().toISOString()): Relay
     consumedPreKeys: [],
     routeManifests: [],
     federation: emptyFederationState(),
+    discoveryPeers: [],
   };
 }
 
 export function exportRelayState(savedAt = new Date().toISOString()): RelayPersistentState {
   const state = relayState();
-  const protocol = exportStandaloneV11State(Date.parse(savedAt));
+  const savedAtMs = Date.parse(savedAt);
+  const protocol = exportStandaloneV11State(savedAtMs);
   return jsonClone({
     format: "quantic-relay-state" as const,
-    version: 2 as const,
+    version: 3 as const,
     savedAt,
     identities: [...state.identities.entries()],
     aliases: [...state.aliases.entries()].map(([key, values]) => [key, [...values]] as [string, string[]]),
@@ -186,14 +200,17 @@ export function exportRelayState(savedAt = new Date().toISOString()): RelayPersi
     sendWindows: [...state.sendWindows.entries()],
     ...protocol,
     routeManifests: routeManifestEntries(),
-    federation: federationStateEntries(),
+    federation: federationStateEntries(savedAtMs),
+    discoveryPeers: discoveryPeerEntries(savedAtMs),
   });
 }
 
 export function restoreRelayState(input: unknown, nowMs = Date.now()) {
   const record = requireObject(input, "État Quantic Relay");
   if (record.format !== "quantic-relay-state") throw new Error("Format Quantic Relay inconnu.");
-  if (record.version !== 1 && record.version !== 2) throw new Error("Version Quantic Relay inconnue.");
+  if (record.version !== 1 && record.version !== 2 && record.version !== 3) {
+    throw new Error("Version Quantic Relay inconnue.");
+  }
   if (typeof record.savedAt !== "string" || !Number.isFinite(Date.parse(record.savedAt))) {
     throw new Error("savedAt invalide.");
   }
@@ -231,22 +248,28 @@ export function restoreRelayState(input: unknown, nowMs = Date.now()) {
     })
     .filter(([, stamps]) => stamps.length > 0);
 
-  const protocolState: StandaloneV11PersistentState = record.version === 2
+  const protocolState: StandaloneV11PersistentState = record.version === 1
     ? {
-        manifests: requireEntries(record.manifests, "manifests"),
-        preKeyPools: requireEntries(record.preKeyPools, "preKeyPools"),
-        consumedPreKeys: requireEntries(record.consumedPreKeys, "consumedPreKeys"),
-      } as StandaloneV11PersistentState
-    : {
         manifests: [],
         preKeyPools: [],
         consumedPreKeys: [],
-      };
+      }
+    : {
+        manifests: requireEntries(record.manifests, "manifests"),
+        preKeyPools: requireEntries(record.preKeyPools, "preKeyPools"),
+        consumedPreKeys: requireEntries(record.consumedPreKeys, "consumedPreKeys"),
+      } as StandaloneV11PersistentState;
 
   const routeManifests = record.routeManifests === undefined
     ? []
     : requireEntries<QuanticRouteManifest>(record.routeManifests, "routeManifests");
   const federation = requireFederation(record.federation);
+  const discoveryPeers = record.version === 3
+    ? normalizeDiscoveryPeerEntries(
+        requireEntries<DiscoveryPeer>(record.discoveryPeers, "discoveryPeers") as DiscoveryPeerEntries,
+        nowMs,
+      )
+    : [];
 
   const next: RelayState = {
     identities: new Map(identities),
@@ -271,4 +294,5 @@ export function restoreRelayState(input: unknown, nowMs = Date.now()) {
   replaceRouteManifestEntries(routeManifests);
   replaceFederationStateEntries(federation);
   federationStateEntries(nowMs);
+  replaceDiscoveryPeerEntries(discoveryPeers, nowMs);
 }
