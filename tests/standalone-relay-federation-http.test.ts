@@ -276,7 +276,7 @@ test("destination relay accepts a sender-signed federation envelope without the 
   }
 });
 
-test("destination relay rejects a route that does not authorize itself", async () => {
+test("destination relay rejects a valid route that does not authorize itself", async () => {
   const originDataDir = await tempDir();
   const destinationDataDir = await tempDir();
   const originRelay = await startRelayServer({ host: "127.0.0.1", port: 0, dataDir: originDataDir });
@@ -287,14 +287,13 @@ test("destination relay rejects a route that does not authorize itself", async (
   const federationId = "fed-http-0000000000000002";
   try {
     await registerIdentityOnRelay(destinationRelay.url, bob, bobToken);
-    const destinationHello = await relayHello(destinationRelay.url, destinationRelay.relayId);
-    const route = signedRoute(bob, { ...destinationHello, relayId: "f".repeat(64) });
-    const envelope = signedEnvelope(alice, bob);
     const originHello = await relayHello(
       originRelay.url,
       originRelay.relayId,
       federationForwardNonce(federationId),
     );
+    const route = signedRoute(bob, originHello);
+    const envelope = signedEnvelope(alice, bob);
     const response = await fetch(`${destinationRelay.url}/api/quantic/federation/forward`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -314,8 +313,8 @@ test("destination relay rejects a route that does not authorize itself", async (
         previousRelayAttestation: originHello.p256Signature,
       }),
     });
-    assert.equal(response.status, 403);
     const body = await response.json() as { error: string };
+    assert.equal(response.status, 403, body.error);
     assert.match(body.error, /pas autorisé/i);
   } finally {
     await originRelay.close();
