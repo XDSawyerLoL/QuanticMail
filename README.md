@@ -21,7 +21,7 @@ QuanticMail does not use Gmail-style hosted mailboxes or SMTP as its core transp
 - **Durable local outbox:** encrypted deliveries remain local until delivery receipts arrive
 - **Identity recovery:** password-encrypted `.quantic-vault` for the root identity
 - **QR pairing:** 256-bit pairing secret in the URL fragment, HKDF-SHA-256 + AES-256-GCM package encryption, 10-minute rendezvous and one-shot package retrieval
-- **Directory and temporary relay:** Render
+- **Discovery and federation:** standalone Quantic relays can discover signed identity/route bundles through a Kademlia-style peer mesh; Render remains a usable public bootstrap/service endpoint but is not an identity authority
 - **Optional durable manifest registry:** GitHub `registry` branch when the Render service has a write token configured
 
 Private identity, device and one-time-prekey keys remain client-side. The relay sees routing metadata and ciphertext but does not receive readable message bodies or private cryptographic keys.
@@ -79,6 +79,31 @@ If no one-time prekey is available, QuanticMail uses the authorized device's sta
 A logical outgoing message has one stable message ID. Normal recipient deliveries and encrypted copies sent to the sender's other active devices carry that same logical ID.
 
 A sync copy is transported back to the sender's own canonical identity but retains the external logical recipient inside the encrypted payload. On receipt, it is validated and stored as an **outgoing** message. IndexedDB's message key makes repeated history imports/idempotent sync overwrite the same logical record instead of creating duplicates.
+
+## Standalone Quantic Relay and Discovery Mesh
+
+A standalone relay can be started without Render, GitHub, SMTP or a purchased domain:
+
+```bash
+npm run relay:start
+```
+
+Runtime variables:
+
+- `QUANTIC_RELAY_HOST`: bind address, default `127.0.0.1`
+- `QUANTIC_RELAY_PORT`: listen port, default `8787`
+- `QUANTIC_RELAY_DATA_DIR`: durable relay state directory, default `./data`
+- `QUANTIC_RELAY_BOOTSTRAP`: optional comma-separated relay origins such as `https://relay-a.example,https://relay-b.example`
+
+An empty `QUANTIC_RELAY_BOOTSTRAP` is valid and creates an isolated/private relay until peers are learned or configured. Bootstrap relays are only entry points: the relay performs a nonce-bound signed Federation hello, derives/verifies the peer `relayId` from its signing key and persists the peer in the normal atomic relay snapshot. A bootstrap endpoint does not sign user identities and is not a directory authority.
+
+Discovery uses namespaced 256-bit keys, XOR distance, bounded Kademlia-style buckets and bounded iterative lookup. Lookups can follow multiple peer paths. Every discovered Identity Manifest + Route Manifest bundle is cryptographically validated before it can enter trusted local state; older records and same-sequence forks are rejected against pinned state.
+
+`POST /api/quantic/discovery/publish` stores a valid bundle locally and replicates it only to the K closest known peers. Replicated copies carry `replicate:false`, so peers do not create unbounded broadcast loops. `POST /api/quantic/discovery/lookup` performs the multi-hop lookup and caches only a valid accepted result.
+
+The acceptance suite launches three independent relay processes with GitHub and Render bootstrap variables removed: relay A knows only C, C knows only B, Bob exists on B, and A discovers Bob through C before Federation delivers the encrypted message to B and returns Bob's delivery receipt to Alice. This proves the tested Discovery/Federation path does not require GitHub or Render once reachable mesh peers are available.
+
+This is not a global-consensus system: network partitions can temporarily expose different reachable records. Cryptographic signatures, monotonic sequences, rollback checks and fork rejection determine what a relay may accept; bootstrap nodes themselves are not trusted as identity authorities.
 
 ## Durable manifest registry
 
