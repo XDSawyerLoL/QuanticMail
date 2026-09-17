@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
-import { registerIdentity, RelayError } from "@/lib/quantic/relay";
+import { registerIdentityCompat } from "@/lib/quantic/register-compat";
+import { RelayError } from "@/lib/quantic/relay";
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const result = registerIdentity({
+    const result = registerIdentityCompat({
       handle: String(body.handle ?? ""),
       publicKey: body.publicKey ?? {},
       signingPublicKey: body.signingPublicKey ?? {},
