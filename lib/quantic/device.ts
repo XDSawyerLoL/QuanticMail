@@ -5,6 +5,12 @@ import {
   randomToken,
   signChallenge,
 } from "@/lib/quantic/crypto";
+import {
+  generateLocalPqcKeyMaterial,
+  publicPqcDeviceProposal,
+  verifyPqcDeviceProposal,
+  type PublicPqcDeviceProposal,
+} from "@/lib/quantic/device-pqc";
 import type {
   DeviceCertificate,
   DeviceCertificatePayload,
@@ -20,6 +26,7 @@ export type PublicDeviceRequest = {
   deviceLabel: string;
   devicePublicKey: JsonWebKey;
   deviceSigningPublicKey: JsonWebKey;
+  pqc?: PublicPqcDeviceProposal;
   createdAt: string;
 };
 
@@ -55,6 +62,22 @@ function publicPoint(key: JsonWebKey, label: string) {
     throw new Error(`${label} invalide.`);
   }
   return `P-256:${key.x}:${key.y}`;
+}
+
+function validPublicPqcProposal(value: unknown): value is PublicPqcDeviceProposal {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const record = value as Partial<PublicPqcDeviceProposal>;
+  return Boolean(
+    record.version === 1 &&
+      record.mlKemAlgorithm === "ML-KEM-768" &&
+      typeof record.mlKemPublicKeySpki === "string" &&
+      /^[A-Za-z0-9_-]+$/.test(record.mlKemPublicKeySpki) &&
+      record.mlDsaAlgorithm === "ML-DSA-65" &&
+      typeof record.mlDsaPublicKeySpki === "string" &&
+      /^[A-Za-z0-9_-]+$/.test(record.mlDsaPublicKeySpki) &&
+      typeof record.mlDsaSelfSignature === "string" &&
+      /^[A-Za-z0-9_-]+$/.test(record.mlDsaSelfSignature),
+  );
 }
 
 export async function deviceIdFromPublicKey(key: JsonWebKey) {
@@ -114,6 +137,10 @@ export async function createPendingDevice(
   const keys = await generateIdentityKeys();
   const deviceId = await deviceIdFromPublicKey(keys.publicKey);
   const createdAt = new Date().toISOString();
+  const pqc = await generateLocalPqcKeyMaterial();
+  const publicPqc = pqc
+    ? await publicPqcDeviceProposal(pqc, { canonicalAddress: canonical, deviceId, createdAt })
+    : undefined;
   const pending: LocalPendingDevice = {
     canonicalAddress: canonical,
     deviceId,
@@ -122,6 +149,7 @@ export async function createPendingDevice(
     privateKey: keys.privateKey,
     deviceSigningPublicKey: keys.signingPublicKey,
     deviceSigningPrivateKey: keys.signingPrivateKey,
+    pqc: pqc ?? undefined,
     authToken: randomToken(),
     createdAt,
   };
@@ -135,6 +163,7 @@ export async function createPendingDevice(
       deviceLabel: label,
       devicePublicKey: keys.publicKey,
       deviceSigningPublicKey: keys.signingPublicKey,
+      pqc: publicPqc,
       createdAt,
     },
   };
@@ -155,7 +184,8 @@ export function parseDeviceRequest(text: string): PublicDeviceRequest {
     typeof request.deviceLabel !== "string" ||
     !request.devicePublicKey ||
     !request.deviceSigningPublicKey ||
-    typeof request.createdAt !== "string"
+    typeof request.createdAt !== "string" ||
+    (request.pqc !== undefined && !validPublicPqcProposal(request.pqc))
   ) {
     throw new Error("Format de demande d’appareil non reconnu.");
   }
@@ -175,6 +205,16 @@ export async function createDeviceCertificate(
   const expectedDeviceId = await deviceIdFromPublicKey(request.devicePublicKey);
   if (expectedDeviceId !== request.deviceId) {
     throw new Error("L’identifiant cryptographique de l’appareil ne correspond pas à sa clé.");
+  }
+  if (
+    request.pqc &&
+    !(await verifyPqcDeviceProposal(request.pqc, {
+      canonicalAddress: request.canonicalAddress,
+      deviceId: request.deviceId,
+      createdAt: request.createdAt,
+    }))
+  ) {
+    throw new Error("Preuve ML-DSA de l’appareil invalide.");
   }
   const payload: DeviceCertificatePayload = {
     version: 1,
@@ -259,6 +299,7 @@ export async function installDeviceCertificate(
     deviceSigningPrivateKey: pending.deviceSigningPrivateKey,
     deviceCertificate: certificate,
     role: "secondary",
+    pqc: pending.pqc,
     authToken: pending.authToken,
     createdAt: pending.createdAt,
   };
