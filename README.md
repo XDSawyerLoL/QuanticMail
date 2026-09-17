@@ -21,7 +21,7 @@ QuanticMail does not use Gmail-style hosted mailboxes or SMTP as its core transp
 - **Durable local outbox:** encrypted deliveries remain local until delivery receipts arrive
 - **Identity recovery:** password-encrypted `.quantic-vault` for the root identity
 - **QR pairing:** 256-bit pairing secret in the URL fragment, HKDF-SHA-256 + AES-256-GCM package encryption, 10-minute rendezvous and one-shot package retrieval
-- **Discovery and federation:** standalone Quantic relays can discover signed identity/route bundles through a Kademlia-style peer mesh; Render remains a usable public bootstrap/service endpoint but is not an identity authority
+- **Discovery and federation:** standalone Quantic relays can discover signed identity/route bundles through a Kademlia-style peer mesh; this mesh is separate from the current Render-hosted Next web application
 - **Optional durable manifest registry:** GitHub `registry` branch when the Render service has a write token configured
 
 Private identity, device and one-time-prekey keys remain client-side. The relay sees routing metadata and ciphertext but does not receive readable message bodies or private cryptographic keys.
@@ -33,6 +33,8 @@ Private identity, device and one-time-prekey keys remain client-side. The relay 
 - **File-pairing fallback:** `https://quanticmail.onrender.com/devices/files`
 - **Identity Vault:** `https://quanticmail.onrender.com/vault`
 - **Network:** Quantic Network V1.1 alpha
+
+The current Render deployment runs the Next web application. It is not, by itself, a deployed public node of the standalone Discovery Mesh described below.
 
 ## V1.1 capabilities
 
