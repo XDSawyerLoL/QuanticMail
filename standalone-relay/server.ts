@@ -1,5 +1,6 @@
 import { createServer, type Server } from "node:http";
 
+import { retryPendingFederationReceipts } from "./federation-retry.ts";
 import { createRelayRequestHandler } from "./http.ts";
 import { loadOrCreateRelayIdentity } from "./identity.ts";
 import { RelayRuntime } from "./runtime.ts";
@@ -85,12 +86,30 @@ export async function startRelayServer(
   const actualPort = address.port;
   const url = `http://${urlHost(host)}:${actualPort}`;
   if (!publicEndpoint) publicEndpoint = url;
-  let closing: Promise<void> | null = null;
 
+  let retryTask: Promise<void> | null = null;
+  const runFederationRetry = () => {
+    if (retryTask) return retryTask;
+    retryTask = retryPendingFederationReceipts(runtime)
+      .catch(() => undefined)
+      .finally(() => {
+        retryTask = null;
+      });
+    return retryTask;
+  };
+  const retryTimer = setInterval(() => {
+    void runFederationRetry();
+  }, 1_000);
+  retryTimer.unref();
+  void runFederationRetry();
+
+  let closing: Promise<void> | null = null;
   const close = () => {
     if (!closing) {
       closing = (async () => {
+        clearInterval(retryTimer);
         await closeHttpServer(server);
+        if (retryTask) await retryTask;
         await runtime.flush();
       })();
     }
