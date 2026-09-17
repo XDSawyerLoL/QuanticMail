@@ -8,7 +8,7 @@ import { RelayError, type QuanticPublicKey, type RelayEnvelope } from "./relay.t
 
 const MAX_QUEUE = 500;
 
- type LocalIdentityRecord = {
+type LocalIdentityRecord = {
   canonicalAddress: string;
   publicKey: QuanticPublicKey;
   signingPublicKey: QuanticPublicKey;
@@ -20,10 +20,17 @@ type LocalDeviceRecord = {
   publicKey: QuanticPublicKey;
 };
 
+type QueuedFederatedEnvelope = RelayEnvelope & {
+  keyMode: QuanticPortableEnvelope["keyMode"];
+  cryptoSuite: string;
+  preKeyId?: string;
+  pqKemCiphertext?: string;
+};
+
 type LocalRelayState = {
   identities: Map<string, LocalIdentityRecord>;
   devices: Map<string, LocalDeviceRecord>;
-  queues: Map<string, RelayEnvelope[]>;
+  queues: Map<string, QueuedFederatedEnvelope[]>;
 };
 
 function relayState() {
@@ -129,13 +136,17 @@ export function enqueueFederatedEnvelope(input: {
     throw new RelayError("File d’attente de l’appareil destinataire saturée.", 507);
   }
 
-  const stored: RelayEnvelope = {
+  const stored: QueuedFederatedEnvelope = {
     id: randomUUID(),
     clientMessageId: envelope.clientMessageId,
     from: envelope.from,
     fromDeviceId: envelope.fromDeviceId,
     to: envelope.to,
     toDeviceId: envelope.toDeviceId,
+    keyMode: envelope.keyMode,
+    cryptoSuite: envelope.cryptoSuite,
+    ...(envelope.preKeyId ? { preKeyId: envelope.preKeyId } : {}),
+    ...(envelope.pqKemCiphertext ? { pqKemCiphertext: envelope.pqKemCiphertext } : {}),
     ciphertext: envelope.ciphertext,
     iv: envelope.iv,
     ephemeralPublicKey: envelope.classicalEphemeralPublicKey,

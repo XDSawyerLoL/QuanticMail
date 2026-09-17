@@ -1,3 +1,8 @@
+import type { QuanticCryptoProfileV2 } from "./crypto-profile-core.mjs";
+import {
+  cryptoProfileEntries,
+  replaceCryptoProfileEntries,
+} from "./crypto-profile-state.ts";
 import type { QuanticRouteManifest } from "./federation-types.ts";
 import type { DeliveryReceipt, QuanticPublicKey, RelayEnvelope } from "./relay.ts";
 import "./relay.ts";
@@ -72,13 +77,18 @@ type RelayPersistentStateV1 = {
   receipts: Array<[string, DeliveryReceipt[]]>;
   sendWindows: Array<[string, number[]]>;
   routeManifests?: Array<[string, QuanticRouteManifest]>;
+  cryptoProfiles?: Array<[string, QuanticCryptoProfileV2]>;
   federation?: FederationStateEntries;
 };
 
-export type RelayPersistentState = Omit<RelayPersistentStateV1, "version"> &
+export type RelayPersistentState = Omit<
+  RelayPersistentStateV1,
+  "version" | "routeManifests" | "cryptoProfiles" | "federation"
+> &
   StandaloneV11PersistentState & {
     version: 2;
     routeManifests: Array<[string, QuanticRouteManifest]>;
+    cryptoProfiles: Array<[string, QuanticCryptoProfileV2]>;
     federation: FederationStateEntries;
   };
 
@@ -166,6 +176,7 @@ export function createEmptyRelayState(savedAt = new Date().toISOString()): Relay
     preKeyPools: [],
     consumedPreKeys: [],
     routeManifests: [],
+    cryptoProfiles: [],
     federation: emptyFederationState(),
   };
 }
@@ -186,6 +197,7 @@ export function exportRelayState(savedAt = new Date().toISOString()): RelayPersi
     sendWindows: [...state.sendWindows.entries()],
     ...protocol,
     routeManifests: routeManifestEntries(),
+    cryptoProfiles: cryptoProfileEntries(),
     federation: federationStateEntries(),
   });
 }
@@ -246,6 +258,9 @@ export function restoreRelayState(input: unknown, nowMs = Date.now()) {
   const routeManifests = record.routeManifests === undefined
     ? []
     : requireEntries<QuanticRouteManifest>(record.routeManifests, "routeManifests");
+  const cryptoProfiles = record.cryptoProfiles === undefined
+    ? []
+    : requireEntries<QuanticCryptoProfileV2>(record.cryptoProfiles, "cryptoProfiles");
   const federation = requireFederation(record.federation);
 
   const next: RelayState = {
@@ -269,6 +284,7 @@ export function restoreRelayState(input: unknown, nowMs = Date.now()) {
   state.receipts = next.receipts;
   state.sendWindows = next.sendWindows;
   replaceRouteManifestEntries(routeManifests);
+  replaceCryptoProfileEntries(cryptoProfiles);
   replaceFederationStateEntries(federation);
   federationStateEntries(nowMs);
 }

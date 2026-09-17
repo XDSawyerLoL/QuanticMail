@@ -2,6 +2,11 @@ import assert from "node:assert/strict";
 import { generateKeyPairSync, sign } from "node:crypto";
 import test from "node:test";
 
+import type { QuanticCryptoProfileV2 } from "../lib/quantic/crypto-profile-core.mjs";
+import {
+  cryptoProfileEntries,
+  replaceCryptoProfileEntries,
+} from "../lib/quantic/crypto-profile-state.ts";
 import type { QuanticRouteManifest } from "../lib/quantic/federation-types.ts";
 import { createIdentityChallenge, registerIdentity } from "../lib/quantic/relay.ts";
 import {
@@ -46,6 +51,7 @@ test("empty relay state is explicit and versioned", () => {
   assert.deepEqual(snapshot.preKeyPools, []);
   assert.deepEqual(snapshot.consumedPreKeys, []);
   assert.deepEqual(snapshot.routeManifests, []);
+  assert.deepEqual(snapshot.cryptoProfiles, []);
   assert.deepEqual(snapshot.federation, emptyFederationState());
 });
 
@@ -85,6 +91,44 @@ test("route manifest cache round-trips through relay durable state", () => {
   assert.deepEqual(routeManifestEntries(), [[route.payload.canonicalAddress, route]]);
 });
 
+test("Crypto Profile public cache round-trips without private PQ material", () => {
+  const profile: QuanticCryptoProfileV2 = {
+    format: "quantic-crypto-profile",
+    version: 2,
+    payload: {
+      version: 2,
+      sequence: 3,
+      canonicalAddress: "bob~abcdef0123@quantic",
+      identitySigningPublicKey: { kty: "EC", crv: "P-256", x: "ix", y: "iy" },
+      identityManifestSequence: 2,
+      policy: "hybrid-required",
+      identityMlDsaAlgorithm: "ML-DSA-65",
+      identityMlDsaPublicKeySpki: "A".repeat(64),
+      devices: [{
+        deviceId: "d-abcdef0123",
+        mlKemAlgorithm: "ML-KEM-768",
+        mlKemPublicKeySpki: "B".repeat(64),
+        mlDsaAlgorithm: "ML-DSA-65",
+        mlDsaPublicKeySpki: "C".repeat(64),
+      }],
+      issuedAt: "2026-09-17T08:00:00.000Z",
+    },
+    signatures: {
+      p256: "dGVzdC1zaWduYXR1cmU=",
+      mlDsa65Self: "D".repeat(64),
+    },
+  };
+  replaceCryptoProfileEntries([[profile.payload.canonicalAddress, profile]]);
+
+  const snapshot = exportRelayState(emptySavedAt());
+  assert.deepEqual(snapshot.cryptoProfiles, [[profile.payload.canonicalAddress, profile]]);
+  assert.equal(JSON.stringify(snapshot).includes("privateKeyPkcs8"), false);
+
+  replaceCryptoProfileEntries([]);
+  restoreRelayState(JSON.parse(JSON.stringify(snapshot)));
+  assert.deepEqual(cryptoProfileEntries(), [[profile.payload.canonicalAddress, profile]]);
+});
+
 test("federation replay state round-trips through relay durable state", () => {
   restoreRelayState(createEmptyRelayState(emptySavedAt()));
   const federationId = "fed-state-000000000001";
@@ -106,13 +150,14 @@ test("federation replay state round-trips through relay durable state", () => {
   );
 });
 
-test("legacy version-1 relay snapshots without V1.2, route or federation state still restore", () => {
+test("legacy version-1 relay snapshots without V1.2, route, Crypto Profile or federation state still restore", () => {
   const state = createEmptyRelayState(emptySavedAt());
   const legacy: Record<string, unknown> = { ...state, version: 1 };
   delete legacy.manifests;
   delete legacy.preKeyPools;
   delete legacy.consumedPreKeys;
   delete legacy.routeManifests;
+  delete legacy.cryptoProfiles;
   delete legacy.federation;
 
   restoreRelayState(legacy);
@@ -121,6 +166,7 @@ test("legacy version-1 relay snapshots without V1.2, route or federation state s
   assert.deepEqual(restored.preKeyPools, []);
   assert.deepEqual(restored.consumedPreKeys, []);
   assert.deepEqual(restored.routeManifests, []);
+  assert.deepEqual(restored.cryptoProfiles, []);
   assert.deepEqual(restored.federation, emptyFederationState());
 });
 
