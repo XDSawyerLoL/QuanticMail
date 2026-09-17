@@ -6,6 +6,10 @@ import {
   signChallenge,
 } from "@/lib/quantic/crypto";
 import {
+  assertDeviceIdMatchesKey,
+  deviceIdForPublicKey,
+} from "@/lib/quantic/device-id-core.mjs";
+import {
   generateLocalPqcKeyMaterial,
   publicPqcDeviceProposal,
   verifyPqcDeviceProposal,
@@ -80,9 +84,8 @@ function validPublicPqcProposal(value: unknown): value is PublicPqcDeviceProposa
   );
 }
 
-export async function deviceIdFromPublicKey(key: JsonWebKey) {
-  const fingerprint = await fingerprintPublicKey(key);
-  return `d-${fingerprint}`;
+export async function deviceIdFromPublicKey(key: JsonWebKey, length: 10 | 32 = 32) {
+  return deviceIdForPublicKey(key, length);
 }
 
 export function deviceCertificateMessage(payload: DeviceCertificatePayload) {
@@ -135,7 +138,7 @@ export async function createPendingDevice(
   }
   const label = cleanLabel(deviceLabel);
   const keys = await generateIdentityKeys();
-  const deviceId = await deviceIdFromPublicKey(keys.publicKey);
+  const deviceId = await deviceIdFromPublicKey(keys.publicKey, 32);
   const createdAt = new Date().toISOString();
   const pqc = await generateLocalPqcKeyMaterial();
   const publicPqc = pqc
@@ -202,10 +205,7 @@ export async function createDeviceCertificate(
   if (request.canonicalAddress !== identity.canonicalAddress) {
     throw new Error("Cette demande vise une autre identité Quantic.");
   }
-  const expectedDeviceId = await deviceIdFromPublicKey(request.devicePublicKey);
-  if (expectedDeviceId !== request.deviceId) {
-    throw new Error("L’identifiant cryptographique de l’appareil ne correspond pas à sa clé.");
-  }
+  await assertDeviceIdMatchesKey(request.deviceId, request.devicePublicKey);
   if (
     request.pqc &&
     !(await verifyPqcDeviceProposal(request.pqc, {
@@ -271,6 +271,7 @@ export async function installDeviceCertificate(
   ) {
     throw new Error("Le certificat ne correspond pas à la demande créée sur cet appareil.");
   }
+  await assertDeviceIdMatchesKey(payload.deviceId, payload.devicePublicKey);
   const fingerprint = payload.fingerprint.length === 32
     ? await fingerprintPublicKeyStrong(payload.identitySigningPublicKey)
     : await fingerprintPublicKey(payload.identitySigningPublicKey);

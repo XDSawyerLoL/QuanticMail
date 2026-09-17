@@ -156,7 +156,8 @@ async function ensureLocalIdentity(local: LocalIdentity): Promise<LocalIdentity>
     throw new Error("L’adresse canonique locale est incohérente avec la clé de propriété.");
   }
 
-  const deviceId = local.deviceId ?? (await deviceIdFromPublicKey(local.publicKey));
+  const manifestRootDeviceId = local.manifest?.payload.devices.find((device) => device.kind === "root")?.deviceId;
+  const deviceId = local.deviceId ?? manifestRootDeviceId ?? (await deviceIdFromPublicKey(local.publicKey));
   const next: LocalIdentity = {
     ...local,
     address: `${local.handle}@quantic`,
@@ -481,7 +482,16 @@ export function QuanticNetworkV11App() {
       if (active !== local) setIdentity(active);
       if (!active.canonicalAddress || !active.deviceId) throw new Error("Identité multi-appareil incomplète.");
 
-      await publishIdentity(active);
+      const registration = await publishIdentity(active);
+      if (active.role !== "secondary" && registration.rootDeviceId && registration.rootDeviceId !== active.deviceId) {
+        const manifestRootDeviceId = active.manifest?.payload.devices.find((device) => device.kind === "root")?.deviceId;
+        if (manifestRootDeviceId && manifestRootDeviceId !== registration.rootDeviceId) {
+          throw new Error("Conflit entre le manifeste local et l’appareil racine enregistré.");
+        }
+        active = { ...active, deviceId: registration.rootDeviceId };
+        await saveLocalIdentity(active);
+        setIdentity(active);
+      }
       active = await syncOwnManifest(active);
       if (!active.canonicalAddress || !active.deviceId) throw new Error("Identité V1.1 incomplète après synchronisation.");
       await ensurePreKeyPool(active);
@@ -559,13 +569,23 @@ export function QuanticNetworkV11App() {
     void (async () => {
       try {
         const stored = await getLocalIdentity();
-        const local = stored ? await ensureLocalIdentity(stored) : null;
-        setIdentity(local);
+        let active = stored ? await ensureLocalIdentity(stored) : null;
+        setIdentity(active);
         await refreshLocal();
-        if (local) {
-          await publishIdentity(local);
-          const active = await syncOwnManifest(local);
+        if (active) {
+          const registration = await publishIdentity(active);
+          if (active.role !== "secondary" && registration.rootDeviceId && registration.rootDeviceId !== active.deviceId) {
+            const manifestRootDeviceId = active.manifest?.payload.devices.find((device) => device.kind === "root")?.deviceId;
+            if (manifestRootDeviceId && manifestRootDeviceId !== registration.rootDeviceId) {
+              throw new Error("Conflit entre le manifeste local et l’appareil racine enregistré.");
+            }
+            active = { ...active, deviceId: registration.rootDeviceId };
+            await saveLocalIdentity(active);
+            setIdentity(active);
+          }
+          active = await syncOwnManifest(active);
           await ensurePreKeyPool(active);
+          setIdentity(active);
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : "Impossible d’ouvrir le stockage local QuanticMail.");

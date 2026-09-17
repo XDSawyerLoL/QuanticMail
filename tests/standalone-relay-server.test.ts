@@ -35,7 +35,7 @@ test("standalone server binds a free port, serves health, and flushes state on c
       await fs.readFile(join(dataDir, "relay-state.json"), "utf8"),
     ) as Record<string, unknown>;
     assert.equal(durable.format, "quantic-relay-state");
-    assert.equal(durable.version, 1);
+    assert.equal(durable.version, 2);
   } finally {
     await fs.rm(dataDir, { recursive: true, force: true });
   }
@@ -64,7 +64,7 @@ test("close is idempotent and never performs a second concurrent shutdown", asyn
     const durable = JSON.parse(
       await fs.readFile(join(dataDir, "relay-state.json"), "utf8"),
     ) as Record<string, unknown>;
-    assert.equal(durable.version, 1);
+    assert.equal(durable.version, 2);
   } finally {
     await fs.rm(dataDir, { recursive: true, force: true });
   }
