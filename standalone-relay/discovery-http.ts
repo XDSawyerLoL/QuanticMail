@@ -1,5 +1,8 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 
+import type { QuanticCryptoProfileV2 } from "../lib/quantic/crypto-profile-core.mjs";
+import { acceptCryptoProfile, getCryptoProfile } from "../lib/quantic/crypto-profile-state.ts";
+import { verifyDiscoveryCryptoProfile } from "../lib/quantic/discovery-crypto-node.ts";
 import { discoveryKey, validateDiscoveryBundle } from "../lib/quantic/discovery-core.mjs";
 import type { QuanticRouteManifest } from "../lib/quantic/federation-types.ts";
 import type { QuanticIdentityManifest } from "../lib/quantic/manifest-types.ts";
@@ -93,25 +96,35 @@ function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
+function bundleFor(canonicalAddress: string): DiscoveryBundle | null {
+  const identityManifest = getStandaloneManifest(canonicalAddress);
+  const routeManifest = getRouteManifest(canonicalAddress);
+  if (!identityManifest || !routeManifest) return null;
+  const cryptoProfile = getCryptoProfile(canonicalAddress);
+  return clone({
+    identityManifest,
+    ...(cryptoProfile ? { cryptoProfile } : {}),
+    routeManifest,
+  });
+}
+
 function findLocalBundle(key: string): DiscoveryBundle | null {
-  for (const [canonicalAddress, identityManifest] of getStandaloneManifestStore()) {
-    const routeManifest = getRouteManifest(canonicalAddress);
-    if (!routeManifest) continue;
+  for (const [canonicalAddress] of getStandaloneManifestStore()) {
     if (
-      discoveryKey("identity", canonicalAddress) === key ||
-      discoveryKey("route", canonicalAddress) === key
+      discoveryKey("identity", canonicalAddress) !== key &&
+      discoveryKey("route", canonicalAddress) !== key &&
+      discoveryKey("crypto", canonicalAddress) !== key
     ) {
-      return clone({ identityManifest, routeManifest });
+      continue;
     }
+    const bundle = bundleFor(canonicalAddress);
+    if (bundle) return bundle;
   }
   return null;
 }
 
 function localBundle(canonicalAddress: string): DiscoveryBundle | null {
-  const identityManifest = getStandaloneManifest(canonicalAddress);
-  const routeManifest = getRouteManifest(canonicalAddress);
-  if (!identityManifest || !routeManifest) return null;
-  return clone({ identityManifest, routeManifest });
+  return bundleFor(canonicalAddress);
 }
 
 function nearestPeers(key: string, limit = MAX_DISCOVERY_PEERS): DiscoveryPeer[] {
@@ -133,6 +146,7 @@ function publishBundle(bundle: DiscoveryBundle) {
   const pinned = typeof canonicalAddress === "string"
     ? {
         identityManifest: getStandaloneManifest(canonicalAddress),
+        cryptoProfile: getCryptoProfile(canonicalAddress),
         routeManifest: getRouteManifest(canonicalAddress),
       }
     : {};
@@ -140,11 +154,14 @@ function publishBundle(bundle: DiscoveryBundle) {
   let accepted: {
     canonicalAddress: string;
     identityManifest: QuanticIdentityManifest;
-    cryptoProfile: unknown;
+    cryptoProfile: QuanticCryptoProfileV2 | null;
     routeManifest: QuanticRouteManifest;
   };
   try {
-    accepted = validateDiscoveryBundle(bundle, pinned, { nowMs: Date.now() });
+    accepted = validateDiscoveryBundle(bundle, pinned, {
+      nowMs: Date.now(),
+      verifyCryptoProfile: verifyDiscoveryCryptoProfile,
+    });
   } catch (error) {
     throw new DiscoveryHttpError(
       error instanceof Error ? error.message : "Bundle Discovery invalide.",
@@ -153,6 +170,9 @@ function publishBundle(bundle: DiscoveryBundle) {
   }
 
   publishStandaloneManifest(accepted.identityManifest);
+  if (accepted.cryptoProfile) {
+    acceptCryptoProfile(accepted.cryptoProfile, accepted.identityManifest);
+  }
   acceptRouteManifest(accepted.routeManifest, accepted.identityManifest);
   return accepted;
 }
@@ -234,7 +254,7 @@ export function createDiscoveryRequestHandler(
             localRelayId: options.localRelayId,
             peers: () => peerSnapshot,
             pinnedBundle: () => pinned,
-            acceptLocal: (bundle) => bundle,
+            acceptLocal: (candidate) => candidate,
             transport: {
               publish: publishOnPeer,
               find: findOnPeer,
@@ -251,6 +271,7 @@ export function createDiscoveryRequestHandler(
           accepted: true,
           canonicalAddress: accepted.canonicalAddress,
           identitySequence: accepted.identityManifest.payload.sequence,
+          ...(accepted.cryptoProfile ? { cryptoProfileSequence: accepted.cryptoProfile.payload.sequence } : {}),
           routeSequence: accepted.routeManifest.payload.sequence,
           replication,
         });
@@ -278,8 +299,8 @@ export function createDiscoveryRequestHandler(
           localRelayId: options.localRelayId,
           peers: () => peerSnapshot,
           pinnedBundle: () => pinned,
-          acceptLocal: async (bundle) => {
-            const accepted = await runtime.mutate(() => publishBundle(bundle));
+          acceptLocal: async (candidate) => {
+            const accepted = await runtime.mutate(() => publishBundle(candidate));
             return {
               identityManifest: accepted.identityManifest,
               ...(accepted.cryptoProfile ? { cryptoProfile: accepted.cryptoProfile } : {}),
