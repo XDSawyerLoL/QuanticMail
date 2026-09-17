@@ -20,6 +20,7 @@ function keyPair() {
   const pair = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
   return {
     publicKey: pair.publicKey.export({ format: "jwk" }),
+    publicKeyObject: pair.publicKey,
     privateKey: pair.privateKey,
   };
 }
@@ -42,6 +43,12 @@ function relayId(index: number) {
   return index.toString(16).padStart(64, "0");
 }
 
+function relayIdForKey(key: ReturnType<typeof generateKeyPairSync>["publicKey"]) {
+  return createHash("sha256")
+    .update(key.export({ type: "spki", format: "der" }))
+    .digest("hex");
+}
+
 function peer(index: number): DiscoveryPeer {
   return {
     relayId: relayId(index),
@@ -55,6 +62,7 @@ function peer(index: number): DiscoveryPeer {
 function bundleFactory(handle = "converge") {
   const owner = keyPair();
   const encryption = keyPair();
+  const routeRelay = keyPair();
   const fp = fingerprint(owner.publicKey);
   const canonicalAddress = `${handle}~${fp}@quantic`;
 
@@ -96,11 +104,11 @@ function bundleFactory(handle = "converge") {
       cryptoProfileSequence: null,
       cryptoProfileDigest: null,
       relays: [{
-        relayId: relayId(99),
+        relayId: relayIdForKey(routeRelay.publicKeyObject),
         endpoint,
         priority: 10,
         protocols: ["quantic-federation/1"],
-        classicalSigningPublicKey: owner.publicKey,
+        classicalSigningPublicKey: routeRelay.publicKey,
         expiresAt: "2026-10-17T00:00:00.000Z",
       }],
       issuedAt: "2026-09-17T00:00:00.000Z",
