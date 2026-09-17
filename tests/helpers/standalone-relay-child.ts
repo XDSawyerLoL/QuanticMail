@@ -3,9 +3,14 @@ import { startRelayServer } from "../../standalone-relay/server.ts";
 const dataDir = process.env.QUANTIC_TEST_RELAY_DATA_DIR;
 if (!dataDir) throw new Error("QUANTIC_TEST_RELAY_DATA_DIR requis.");
 
+const requestedPort = Number(process.env.QUANTIC_TEST_RELAY_PORT ?? "0");
+if (!Number.isInteger(requestedPort) || requestedPort < 0 || requestedPort > 65_535) {
+  throw new Error("QUANTIC_TEST_RELAY_PORT invalide.");
+}
+
 const relay = await startRelayServer({
   host: "127.0.0.1",
-  port: 0,
+  port: requestedPort,
   dataDir,
 });
 
