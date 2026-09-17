@@ -51,7 +51,7 @@ function signedBundle(handle = "bobmesh") {
   const fp = fingerprint(owner.publicKey);
   const canonicalAddress = `${handle}~${fp}@quantic`;
   const identityPayload = {
-    version: 1,
+    version: 1 as const,
     sequence: 3,
     canonicalAddress,
     handle,
@@ -63,15 +63,15 @@ function signedBundle(handle = "bobmesh") {
       label: `${handle} root`,
       publicKey: encryption.publicKey,
       deviceSigningPublicKey: owner.publicKey,
-      kind: "root",
+      kind: "root" as const,
       issuedAt: "2026-09-17T00:00:00.000Z",
     }],
     revocations: [],
     issuedAt: "2026-09-17T00:00:00.000Z",
   };
   const identityManifest = {
-    format: "quantic-identity-manifest",
-    version: 1,
+    format: "quantic-identity-manifest" as const,
+    version: 1 as const,
     payload: identityPayload,
     signature: sign("sha256", Buffer.from(canonicalManifestText(identityPayload)), {
       key: owner.privateKey,
@@ -79,7 +79,7 @@ function signedBundle(handle = "bobmesh") {
     }).toString("base64"),
   };
   const routePayload = {
-    version: 1,
+    version: 1 as const,
     sequence: 2,
     canonicalAddress,
     identitySigningPublicKey: owner.publicKey,
@@ -98,8 +98,8 @@ function signedBundle(handle = "bobmesh") {
     expiresAt: "2026-10-17T00:00:00.000Z",
   };
   const routeManifest = {
-    format: "quantic-route-manifest",
-    version: 1,
+    format: "quantic-route-manifest" as const,
+    version: 1 as const,
     payload: routePayload,
     signatures: {
       p256: sign("sha256", Buffer.from(canonicalRouteManifestText(routePayload)), {
