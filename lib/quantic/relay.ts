@@ -365,6 +365,20 @@ function authenticateDevice(locatorInput: string, authToken: string | null, requ
   return { identity, deviceId: matches[0] };
 }
 
+export function authenticateLocalDevice(
+  locatorInput: string,
+  authToken: string | null,
+  requestedDeviceId?: string | null,
+) {
+  const authenticated = authenticateDevice(locatorInput, authToken, requestedDeviceId);
+  return {
+    canonicalAddress: authenticated.identity.canonicalAddress,
+    deviceId: authenticated.deviceId,
+    publicKey: authenticated.identity.publicKey,
+    signingPublicKey: authenticated.identity.signingPublicKey,
+  };
+}
+
 function pruneQueue(key: string) {
   const queue = state.queues.get(key);
   if (!queue) return;
@@ -710,6 +724,36 @@ export function acknowledgeEnvelopes(
   if (next.length) state.queues.set(key, next);
   else state.queues.delete(key);
   return { acknowledged: acknowledged.length };
+}
+
+export function enqueueDeliveryReceipt(input: Omit<DeliveryReceipt, "id"> & { id?: string }) {
+  const sender = resolveRecord(input.from);
+  const senderDevice = findPublicDevice(sender, input.fromDeviceId);
+  const clientMessageId = ensureClientMessageId(input.clientMessageId);
+  if (sender.canonicalAddress !== input.from || senderDevice.deviceId !== input.fromDeviceId) {
+    throw new RelayError("Destinataire du reçu Quantic non hébergé localement.", 404);
+  }
+  if (typeof input.deliveredAt !== "string" || Number.isNaN(Date.parse(input.deliveredAt))) {
+    throw new RelayError("Date de reçu Quantic invalide.", 400);
+  }
+  const receiptKey = mailboxKey(sender.canonicalAddress, senderDevice.deviceId);
+  pruneReceipts(receiptKey);
+  const receipts = state.receipts.get(receiptKey) ?? [];
+  const existing = receipts.find((receipt) => receipt.clientMessageId === clientMessageId);
+  if (existing) return { id: existing.id, duplicate: true };
+  if (receipts.length >= MAX_RECEIPTS) throw new RelayError("File de reçus Quantic saturée.", 507);
+  const receipt: DeliveryReceipt = {
+    id: input.id ?? randomUUID(),
+    clientMessageId,
+    from: input.from,
+    fromDeviceId: input.fromDeviceId,
+    to: input.to,
+    toDeviceId: input.toDeviceId,
+    deliveredAt: input.deliveredAt,
+  };
+  receipts.push(receipt);
+  state.receipts.set(receiptKey, receipts);
+  return { id: receipt.id, duplicate: false };
 }
 
 export function pullReceipts(
