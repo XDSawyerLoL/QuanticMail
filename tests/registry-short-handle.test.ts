@@ -44,3 +44,10 @@ test("resolve API is wired to durable short-handle fallback", async () => {
   assert.match(source, /loadRegistryManifestsByHandle/);
   assert.match(source, /ambig/i);
 });
+
+test("mail client resolves recipients across configured relays and retries logical 404", async () => {
+  const source = await readFile(new URL("../components/quantic-network-v11-app.tsx", import.meta.url), "utf8");
+  assert.match(source, /relayFetchJson/);
+  assert.match(source, /getRelayEndpoints/);
+  assert.match(source, /retryStatuses:\s*\[404\]/);
+});
