@@ -1,3 +1,4 @@
+import type { QuanticCryptoProfileV2 } from "./crypto-profile-core.mjs";
 import type { QuanticRouteManifest } from "./federation-types.ts";
 import type { QuanticIdentityManifest } from "./manifest-types.ts";
 
@@ -13,21 +14,21 @@ export type DiscoveryRecord<T = unknown> = {
 
 export type DiscoveryPinnedState = {
   identityManifest?: QuanticIdentityManifest | null;
-  cryptoProfile?: unknown;
+  cryptoProfile?: QuanticCryptoProfileV2 | null;
   routeManifest?: QuanticRouteManifest | null;
 };
 
 export type DiscoveryBundle = {
   identityManifest: QuanticIdentityManifest;
-  cryptoProfile?: unknown;
+  cryptoProfile?: QuanticCryptoProfileV2;
   routeManifest: QuanticRouteManifest;
 };
 
 export type DiscoveryCryptoVerifier = (
-  profile: unknown,
+  profile: QuanticCryptoProfileV2,
   identityManifest: QuanticIdentityManifest,
-  pinnedProfile: unknown | null,
-) => unknown | { profile: unknown; digest: string };
+  pinnedProfile: QuanticCryptoProfileV2 | null,
+) => QuanticCryptoProfileV2 | { profile: QuanticCryptoProfileV2; digest: string };
 
 export function discoveryKey(kind: DiscoveryKind, canonicalAddress: string): string;
 
@@ -41,7 +42,7 @@ export function validateDiscoveryBundle(
 ): {
   canonicalAddress: string;
   identityManifest: QuanticIdentityManifest;
-  cryptoProfile: unknown | null;
+  cryptoProfile: QuanticCryptoProfileV2 | null;
   routeManifest: QuanticRouteManifest;
 };
 
