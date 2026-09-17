@@ -137,7 +137,7 @@ test("Crypto Profile update requires continuity from the previously pinned ML-DS
 
   const attacker = generateMlDsa65KeyPair();
   const missingContinuity = makeProfile(identity, 2, attacker, devicePq, null, "hybrid-required");
-  assert.throws(() => verifyCryptoProfile(missingContinuity, identity.manifest, previous), /continuity/i);
+  assert.throws(() => verifyCryptoProfile(missingContinuity, identity.manifest, previous), /continuit/i);
 });
 
 test("Crypto Profile state rejects rollback and same-sequence forks", { skip }, () => {
