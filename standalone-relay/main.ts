@@ -1,5 +1,6 @@
 import { resolve } from "node:path";
 
+import { parseRelayBootstrap } from "./discovery-bootstrap.ts";
 import { startRelayServer } from "./server.ts";
 
 export function parseRelayPort(value: string) {
@@ -14,7 +15,8 @@ async function main() {
   const host = process.env.QUANTIC_RELAY_HOST ?? "127.0.0.1";
   const port = parseRelayPort(process.env.QUANTIC_RELAY_PORT ?? "8787");
   const dataDir = process.env.QUANTIC_RELAY_DATA_DIR ?? "./data";
-  const relay = await startRelayServer({ host, port, dataDir });
+  const bootstrapEndpoints = parseRelayBootstrap(process.env.QUANTIC_RELAY_BOOTSTRAP);
+  const relay = await startRelayServer({ host, port, dataDir, bootstrapEndpoints });
 
   console.log(`Quantic Relay V1 écoute sur ${relay.url} — données: ${resolve(dataDir)}`);
 

@@ -1,3 +1,4 @@
+import { parseRelayBootstrap } from "../../standalone-relay/discovery-bootstrap.ts";
 import { startRelayServer } from "../../standalone-relay/server.ts";
 
 const dataDir = process.env.QUANTIC_TEST_RELAY_DATA_DIR;
@@ -12,6 +13,7 @@ const relay = await startRelayServer({
   host: "127.0.0.1",
   port: requestedPort,
   dataDir,
+  bootstrapEndpoints: parseRelayBootstrap(process.env.QUANTIC_TEST_RELAY_BOOTSTRAP),
 });
 
 process.send?.({
