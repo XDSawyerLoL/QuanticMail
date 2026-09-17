@@ -175,6 +175,16 @@ async function findOnPeer(peer: DiscoveryPeer, key: string) {
   };
 }
 
+async function publishOnPeer(peer: DiscoveryPeer, bundle: DiscoveryBundle) {
+  const response = await fetch(`${peer.endpoint}/api/quantic/discovery/publish`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ bundle, replicate: false }),
+    signal: AbortSignal.timeout(DISCOVERY_FETCH_TIMEOUT_MS),
+  });
+  if (!response.ok) throw new Error(`Réplication Discovery refusée par ${peer.endpoint} (${response.status}).`);
+}
+
 function statusFromError(error: unknown) {
   if (error instanceof DiscoveryHttpError) return error.status;
   if (error && typeof error === "object" && "status" in error) {
@@ -213,12 +223,36 @@ export function createDiscoveryRequestHandler(
         if (!body.bundle || typeof body.bundle !== "object") {
           throw new DiscoveryHttpError("Bundle Discovery signé requis.", 400);
         }
-        const accepted = await runtime.mutate(() => publishBundle(body.bundle as DiscoveryBundle));
+        const incomingBundle = body.bundle as DiscoveryBundle;
+        const accepted = await runtime.mutate(() => publishBundle(incomingBundle));
+        let replication = { attempted: 0, succeeded: 0, failed: 0 };
+        if (body.replicate !== false && options.localRelayId) {
+          const canonicalAddress = accepted.canonicalAddress;
+          const peerSnapshot = await runtime.read(() => discoveryPeerEntries().map(([, peer]) => peer));
+          const pinned = await runtime.read(() => localBundle(canonicalAddress));
+          const service = createDiscoveryService({
+            localRelayId: options.localRelayId,
+            peers: () => peerSnapshot,
+            pinnedBundle: () => pinned,
+            acceptLocal: (bundle) => bundle,
+            transport: {
+              publish: publishOnPeer,
+              find: findOnPeer,
+            },
+          });
+          const result = await service.replicate(incomingBundle);
+          replication = {
+            attempted: result.attempted,
+            succeeded: result.succeeded,
+            failed: result.failed,
+          };
+        }
         json(response, 201, {
           accepted: true,
           canonicalAddress: accepted.canonicalAddress,
           identitySequence: accepted.identityManifest.payload.sequence,
           routeSequence: accepted.routeManifest.payload.sequence,
+          replication,
         });
         return true;
       }
@@ -253,7 +287,7 @@ export function createDiscoveryRequestHandler(
             };
           },
           transport: {
-            publish: async () => undefined,
+            publish: publishOnPeer,
             find: findOnPeer,
           },
         });
