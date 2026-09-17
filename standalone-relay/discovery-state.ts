@@ -62,6 +62,21 @@ function shouldPrune(peer: DiscoveryPeer, nowMs: number) {
   return peer.failures >= FAILURE_PRUNE_THRESHOLD && Date.parse(peer.lastSeenAt) < nowMs - STALE_PEER_MS;
 }
 
+export function normalizeDiscoveryPeerEntries(entries: DiscoveryPeerEntries, nowMs = Date.now()): DiscoveryPeerEntries {
+  const next = new Map<string, DiscoveryPeer>();
+  for (const entry of entries) {
+    if (!Array.isArray(entry) || entry.length !== 2 || typeof entry[0] !== "string") {
+      throw new Error("Entrée Discovery invalide.");
+    }
+    const peer = validatePeer(entry[1]);
+    if (entry[0] !== peer.relayId) throw new Error("Clé Discovery incohérente avec relayId.");
+    if (!shouldPrune(peer, nowMs)) next.set(peer.relayId, clonePeer(peer));
+  }
+  return [...next.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([relayId, peer]) => [relayId, clonePeer(peer)] as [string, DiscoveryPeer]);
+}
+
 function prune(nowMs = Date.now()) {
   for (const [relayId, peer] of state.peers) {
     if (shouldPrune(peer, nowMs)) state.peers.delete(relayId);
@@ -86,14 +101,5 @@ export function discoveryPeerEntries(nowMs = Date.now()): DiscoveryPeerEntries {
 }
 
 export function replaceDiscoveryPeerEntries(entries: DiscoveryPeerEntries, nowMs = Date.now()) {
-  const next = new Map<string, DiscoveryPeer>();
-  for (const entry of entries) {
-    if (!Array.isArray(entry) || entry.length !== 2 || typeof entry[0] !== "string") {
-      throw new Error("Entrée Discovery invalide.");
-    }
-    const peer = validatePeer(entry[1]);
-    if (entry[0] !== peer.relayId) throw new Error("Clé Discovery incohérente avec relayId.");
-    if (!shouldPrune(peer, nowMs)) next.set(peer.relayId, clonePeer(peer));
-  }
-  state.peers = next;
+  state.peers = new Map(normalizeDiscoveryPeerEntries(entries, nowMs));
 }
