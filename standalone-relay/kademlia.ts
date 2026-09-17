@@ -23,7 +23,7 @@ function compareDistance(target: string, left: DiscoveryPeer, right: DiscoveryPe
 
 function bucketIndex(localRelayId: string, remoteRelayId: string) {
   const distance = xorDistance(localRelayId, remoteRelayId);
-  if (distance === 0n) return -1;
+  if (distance === BigInt(0)) return -1;
   return distance.toString(2).length - 1;
 }
 
