@@ -9,6 +9,7 @@ export async function POST(request: Request) {
       publicKey: body.publicKey ?? {},
       signingPublicKey: body.signingPublicKey ?? {},
       authToken: String(body.authToken ?? ""),
+      deviceId: typeof body.deviceId === "string" ? body.deviceId : undefined,
       challenge: typeof body.challenge === "string" ? body.challenge : undefined,
       signature: typeof body.signature === "string" ? body.signature : undefined,
     });

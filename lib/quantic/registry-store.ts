@@ -1,3 +1,4 @@
+import { registryCheckpointMessage } from "@/lib/quantic/registry-commit.mjs";
 import { registryFilePath } from "@/lib/quantic/registry-path.mjs";
 import { decideRegistryWrite } from "@/lib/quantic/registry-write-core.mjs";
 import type { QuanticIdentityManifest } from "@/lib/quantic/manifest-types";
@@ -102,7 +103,7 @@ export async function saveRegistryManifest(manifest: QuanticIdentityManifest) {
     }
 
     const body: Record<string, unknown> = {
-      message: `registry: checkpoint ${manifest.payload.canonicalAddress} #${manifest.payload.sequence}`,
+      message: registryCheckpointMessage(remote.path, manifest.payload.sequence),
       content: Buffer.from(JSON.stringify(manifest, null, 2), "utf8").toString("base64"),
       branch: current.branch,
     };
