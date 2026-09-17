@@ -16,6 +16,7 @@ async function main() {
   const port = parseRelayPort(process.env.PORT ?? process.env.QUANTIC_RELAY_PORT ?? "8787");
   const dataDir = process.env.QUANTIC_RELAY_DATA_DIR ?? "./data";
   const databaseUrl = process.env.QUANTIC_RELAY_DATABASE_URL ?? process.env.DATABASE_URL;
+  const identitySecret = process.env.QUANTIC_RELAY_IDENTITY_SECRET;
   const publicEndpoint = process.env.QUANTIC_RELAY_PUBLIC_ENDPOINT;
   const bootstrapEndpoints = parseRelayBootstrap(process.env.QUANTIC_RELAY_BOOTSTRAP);
   const relay = await startRelayServer({
@@ -23,6 +24,7 @@ async function main() {
     port,
     dataDir,
     databaseUrl,
+    identitySecret,
     publicEndpoint,
     bootstrapEndpoints,
   });

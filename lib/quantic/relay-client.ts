@@ -19,17 +19,6 @@ export const DURABLE_PUBLIC_RELAY: RelayEndpoint = {
   enabled: true,
 };
 
-export const DEFAULT_RELAY_ENDPOINTS: RelayEndpoint[] = [
-  DURABLE_PUBLIC_RELAY,
-  {
-    id: "quantic-bootstrap",
-    label: "Quantic bootstrap",
-    baseUrl: "",
-    priority: 100,
-    enabled: true,
-  },
-];
-
 export class RelayHttpError extends Error {
   readonly status: number;
   readonly relay: RelayEndpoint;
@@ -80,6 +69,60 @@ function sanitizeRelayEndpoint(value: RelayEndpoint, index: number): RelayEndpoi
     enabled: value.enabled !== false,
   };
 }
+
+export function parseDefaultRelayEndpoints(value?: string | null): RelayEndpoint[] {
+  if (!value?.trim()) return [];
+  const unique = new Set<string>();
+  const result: RelayEndpoint[] = [];
+  for (const candidate of value.split(",")) {
+    const baseUrl = normalizeRelayBaseUrl(candidate);
+    if (!baseUrl || unique.has(baseUrl)) continue;
+    unique.add(baseUrl);
+    const index = result.length;
+    result.push({
+      id: `quantic-seed-${index + 1}`,
+      label: `Quantic bootstrap ${index + 1}`,
+      baseUrl,
+      priority: 20 + index * 10,
+      enabled: true,
+    });
+  }
+  return result;
+}
+
+export function mergeDefaultRelayEndpoints(
+  configured: RelayEndpoint[],
+  builtIns: RelayEndpoint[] = [],
+): RelayEndpoint[] {
+  const seen = new Set<string>();
+  const result: RelayEndpoint[] = [];
+  for (const [index, input] of [...builtIns, ...configured].entries()) {
+    const relay = sanitizeRelayEndpoint(input, index);
+    const key = relay.baseUrl || `same-origin:${relay.id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(relay);
+  }
+  return result.sort((a, b) => a.priority - b.priority || a.id.localeCompare(b.id));
+}
+
+const ENVIRONMENT_BOOTSTRAPS = parseDefaultRelayEndpoints(
+  typeof process !== "undefined" ? process.env.NEXT_PUBLIC_QUANTIC_BOOTSTRAPS : undefined,
+);
+
+export const DEFAULT_RELAY_ENDPOINTS: RelayEndpoint[] = mergeDefaultRelayEndpoints(
+  ENVIRONMENT_BOOTSTRAPS,
+  [
+    DURABLE_PUBLIC_RELAY,
+    {
+      id: "quantic-bootstrap",
+      label: "Quantic bootstrap",
+      baseUrl: "",
+      priority: 100,
+      enabled: true,
+    },
+  ],
+);
 
 function migrateLegacyBootstrap(relays: RelayEndpoint[]) {
   const hasLegacyBootstrap = relays.some((relay) => relay.id === "quantic-bootstrap");
