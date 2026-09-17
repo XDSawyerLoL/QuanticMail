@@ -24,7 +24,7 @@ export type DiscoveryTransport = {
   find(
     peer: DiscoveryPeer,
     key: string,
-  ): Promise<{ bundle: DiscoveryBundle | null; peers: DiscoveryPeer[] }>;
+  ): Promise<{ bundle: DiscoveryBundle | null; bundles?: DiscoveryBundle[]; peers: DiscoveryPeer[] }>;
   findHandle?(
     peer: DiscoveryPeer,
     key: string,
@@ -204,13 +204,18 @@ export function createDiscoveryService(options: DiscoveryServiceOptions) {
       options.localRelayId,
       Math.max(config.k ?? 20, config.paths ?? 3),
     );
-    if (seeds.length === 0 || !options.transport.findHandle) return { status: "not-found" };
+    if (seeds.length === 0) return { status: "not-found" };
 
     const result = await iterativeFindRecord<DiscoveryBundle>(
       key,
       async (peer) => {
-        const response = await options.transport.findHandle!(peer, key, handle);
-        return { records: response.bundles, peers: response.peers };
+        if (options.transport.findHandle) {
+          const response = await options.transport.findHandle(peer, key, handle);
+          return { records: response.bundles, peers: response.peers };
+        }
+        const response = await options.transport.find(peer, key);
+        const bundles = response.bundles ?? (response.bundle ? [response.bundle] : []);
+        return { records: bundles, peers: response.peers };
       },
       {
         seeds,
