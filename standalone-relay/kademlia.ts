@@ -142,6 +142,7 @@ export class KBucketTable {
 
 type QueryReply<T> = {
   record?: T | null;
+  records?: T[];
   peers?: DiscoveryPeer[];
 };
 
@@ -152,6 +153,8 @@ type IterativeOptions<T> = {
   paths?: number;
   maxQueries?: number;
   k?: number;
+  maxRecords?: number;
+  collectAllRecords?: boolean;
   validateRecord?: (record: T) => boolean;
   selectRecord?: (records: T[]) => T | null;
 };
@@ -166,7 +169,8 @@ export async function iterativeFindRecord<T>(
   const paths = options.paths ?? 3;
   const maxQueries = options.maxQueries ?? 24;
   const k = options.k ?? 20;
-  for (const [label, value] of [["alpha", alpha], ["paths", paths], ["maxQueries", maxQueries], ["k", k]] as const) {
+  const maxRecords = options.maxRecords ?? 64;
+  for (const [label, value] of [["alpha", alpha], ["paths", paths], ["maxQueries", maxQueries], ["k", k], ["maxRecords", maxRecords]] as const) {
     if (!Number.isSafeInteger(value) || value < 1) throw new Error(`${label} Kademlia invalide.`);
   }
 
@@ -185,6 +189,11 @@ export async function iterativeFindRecord<T>(
   const queried = new Set<string>();
   const queriedOrder: string[] = [];
   const records: T[] = [];
+
+  const acceptRecord = (record: T) => {
+    if (records.length >= maxRecords) return;
+    if (!options.validateRecord || options.validateRecord(record)) records.push(record);
+  };
 
   while (queried.size < maxQueries) {
     const remainingIndependent = independentSeeds
@@ -233,23 +242,27 @@ export async function iterativeFindRecord<T>(
         }
       }
 
-      if (reply.record !== undefined && reply.record !== null) {
-        if (!options.validateRecord || options.validateRecord(reply.record)) records.push(reply.record);
-      }
+      if (reply.record !== undefined && reply.record !== null) acceptRecord(reply.record);
+      for (const record of Array.isArray(reply.records) ? reply.records : []) acceptRecord(record);
     }
 
-    if (records.length > 0) {
+    if (records.length > 0 && !options.collectAllRecords) {
       const record = options.selectRecord ? options.selectRecord(records) : records[0];
       return {
         record,
+        records: [...records],
         queried: [...queriedOrder],
         closestPeers: [...candidates.values()].sort((left, right) => compareDistance(key, left, right)).slice(0, k).map(clonePeer),
       };
     }
   }
 
+  const record = records.length > 0
+    ? (options.selectRecord ? options.selectRecord(records) : records[0])
+    : null;
   return {
-    record: null,
+    record,
+    records: [...records],
     queried: [...queriedOrder],
     closestPeers: [...candidates.values()].sort((left, right) => compareDistance(key, left, right)).slice(0, k).map(clonePeer),
   };
