@@ -173,20 +173,26 @@ export function createDiscoveryResolveRequestHandler(
           json(response, 200, resolvedFromManifest(local));
           return true;
         }
-      } else {
-        const handle = normalizeDiscoveryHandle(locator);
-        const localCandidates = await runtime.read(() => localShortHandleManifests(handle));
-        if (localCandidates.length > 1) {
-          json(response, 409, {
-            error: `${handle}@quantic est ambigu. Utilisez l’adresse canonique avec son empreinte.`,
-            canonicalAddresses: localCandidates.map((manifest) => manifest.payload.canonicalAddress).sort(),
-          });
-          return true;
-        }
-        if (localCandidates.length === 1) {
-          json(response, 200, resolvedFromManifest(localCandidates[0]));
-          return true;
-        }
+        // Preserve canonical-resolution semantics: callers that already know the
+        // cryptographic address use the explicit Discovery lookup endpoint when
+        // it is not cached locally. Automatic mesh lookup is reserved for the
+        // human short-handle alias that otherwise cannot identify a canonical key.
+        json(response, 404, { error: "Identité Quantic introuvable localement." });
+        return true;
+      }
+
+      const handle = normalizeDiscoveryHandle(locator);
+      const localCandidates = await runtime.read(() => localShortHandleManifests(handle));
+      if (localCandidates.length > 1) {
+        json(response, 409, {
+          error: `${handle}@quantic est ambigu. Utilisez l’adresse canonique avec son empreinte.`,
+          canonicalAddresses: localCandidates.map((manifest) => manifest.payload.canonicalAddress).sort(),
+        });
+        return true;
+      }
+      if (localCandidates.length === 1) {
+        json(response, 200, resolvedFromManifest(localCandidates[0]));
+        return true;
       }
 
       const peerSnapshot = await runtime.read(() => discoveryPeerEntries().map(([, peer]) => peer));
@@ -198,20 +204,10 @@ export function createDiscoveryResolveRequestHandler(
         transport: createTransport(),
       });
 
-      if (CANONICAL.test(locator)) {
-        const discovered = await service.lookup(locator);
-        if (!discovered) {
-          json(response, 404, { error: "Identité Quantic introuvable." });
-          return true;
-        }
-        json(response, 200, resolvedFromManifest(discovered.identityManifest));
-        return true;
-      }
-
       const result = await service.lookupHandle(locator);
       if (result.status === "ambiguous") {
         json(response, 409, {
-          error: `${normalizeDiscoveryHandle(locator)}@quantic est ambigu. Utilisez l’adresse canonique avec son empreinte.`,
+          error: `${handle}@quantic est ambigu. Utilisez l’adresse canonique avec son empreinte.`,
           canonicalAddresses: result.canonicalAddresses,
         });
         return true;
