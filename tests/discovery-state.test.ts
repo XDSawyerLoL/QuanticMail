@@ -89,7 +89,7 @@ test("legacy V2 snapshots restore with an empty Discovery peer table", async () 
   const { discoveryPeerEntries, replaceDiscoveryPeerEntries } = await discoveryState();
   const now = Date.parse("2026-09-17T09:00:00.000Z");
   const current = createEmptyRelayState(new Date(now).toISOString()) as Record<string, unknown>;
-  const legacyV2 = { ...current, version: 2 };
+  const legacyV2: Record<string, unknown> = { ...current, version: 2 };
   delete legacyV2.discoveryPeers;
 
   replaceDiscoveryPeerEntries([[RELAY_A, peer()]], now);
