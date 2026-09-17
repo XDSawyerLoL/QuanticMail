@@ -10,6 +10,7 @@ import {
   canonicalRouteManifestText,
 } from "../lib/quantic/federation-core.mjs";
 import { canonicalManifestText } from "../lib/quantic/manifest-core.mjs";
+import { federationForwardNonce } from "../standalone-relay/federation-client.ts";
 import { verifyRelayHello } from "../standalone-relay/identity.ts";
 import { startRelayServer } from "../standalone-relay/server.ts";
 
@@ -107,8 +108,7 @@ async function registerIdentityOnRelay(
   assert.equal(registerResponse.status, 201);
 }
 
-async function relayHello(relayUrl: string, relayId: string) {
-  const nonce = `nonce-${"a".repeat(24)}`;
+async function relayHello(relayUrl: string, relayId: string, nonce = `nonce-${"a".repeat(24)}`) {
   const response = await fetch(`${relayUrl}/api/quantic/federation/hello`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -217,34 +217,42 @@ test("federation hello rejects a weak nonce", async () => {
 });
 
 test("destination relay accepts a sender-signed federation envelope without the sender auth token", async () => {
-  const dataDir = await tempDir();
-  const relay = await startRelayServer({ host: "127.0.0.1", port: 0, dataDir });
+  const originDataDir = await tempDir();
+  const destinationDataDir = await tempDir();
+  const originRelay = await startRelayServer({ host: "127.0.0.1", port: 0, dataDir: originDataDir });
+  const destinationRelay = await startRelayServer({ host: "127.0.0.1", port: 0, dataDir: destinationDataDir });
   const bob = signedIdentity("bob");
   const alice = signedIdentity("alice");
   const bobToken = "bob-local-device-auth-token-000000000000000000000001";
+  const federationId = "fed-http-0000000000000001";
   try {
-    await registerIdentityOnRelay(relay.url, bob, bobToken);
-    const hello = await relayHello(relay.url, relay.relayId);
-    const route = signedRoute(bob, hello);
+    await registerIdentityOnRelay(destinationRelay.url, bob, bobToken);
+    const destinationHello = await relayHello(destinationRelay.url, destinationRelay.relayId);
+    const route = signedRoute(bob, destinationHello);
     const envelope = signedEnvelope(alice, bob);
+    const originHello = await relayHello(
+      originRelay.url,
+      originRelay.relayId,
+      federationForwardNonce(federationId),
+    );
 
-    const response = await fetch(`${relay.url}/api/quantic/federation/forward`, {
+    const response = await fetch(`${destinationRelay.url}/api/quantic/federation/forward`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         format: "quantic-federation-forward",
         version: 1,
-        federationId: "fed-http-0000000000000001",
-        originRelay: hello,
-        previousRelayId: "0".repeat(64),
+        federationId,
+        originRelay: originHello,
+        previousRelayId: originRelay.relayId,
         hopLimit: 4,
-        visitedRelayIds: [],
+        visitedRelayIds: [originRelay.relayId],
         expiresAt: "2026-09-18T00:10:00.000Z",
         senderIdentityManifest: alice.manifest,
         recipientIdentityManifest: bob.manifest,
         recipientRouteManifest: route,
         envelope,
-        previousRelayAttestation: "task-5-placeholder",
+        previousRelayAttestation: originHello.p256Signature,
       }),
     });
     assert.equal(response.status, 202);
@@ -252,7 +260,7 @@ test("destination relay accepts a sender-signed federation envelope without the 
     assert.equal(forwarded.duplicate, false);
 
     const pull = await fetch(
-      `${relay.url}/api/quantic/pull?handle=${encodeURIComponent(bob.canonicalAddress)}&deviceId=${encodeURIComponent(bob.deviceId)}`,
+      `${destinationRelay.url}/api/quantic/pull?handle=${encodeURIComponent(bob.canonicalAddress)}&deviceId=${encodeURIComponent(bob.deviceId)}`,
       { headers: { authorization: `Bearer ${bobToken}` } },
     );
     assert.equal(pull.status, 200);
@@ -261,44 +269,58 @@ test("destination relay accepts a sender-signed federation envelope without the 
     assert.equal(body.envelopes[0].clientMessageId, envelope.clientMessageId);
     assert.equal(body.envelopes[0].ciphertext, envelope.ciphertext);
   } finally {
-    await relay.close();
-    await fs.rm(dataDir, { recursive: true, force: true });
+    await originRelay.close();
+    await destinationRelay.close();
+    await fs.rm(originDataDir, { recursive: true, force: true });
+    await fs.rm(destinationDataDir, { recursive: true, force: true });
   }
 });
 
 test("destination relay rejects a route that does not authorize itself", async () => {
-  const dataDir = await tempDir();
-  const relay = await startRelayServer({ host: "127.0.0.1", port: 0, dataDir });
+  const originDataDir = await tempDir();
+  const destinationDataDir = await tempDir();
+  const originRelay = await startRelayServer({ host: "127.0.0.1", port: 0, dataDir: originDataDir });
+  const destinationRelay = await startRelayServer({ host: "127.0.0.1", port: 0, dataDir: destinationDataDir });
   const bob = signedIdentity("bobby");
   const alice = signedIdentity("alicia");
   const bobToken = "bob-route-local-auth-token-000000000000000000000001";
+  const federationId = "fed-http-0000000000000002";
   try {
-    await registerIdentityOnRelay(relay.url, bob, bobToken);
-    const hello = await relayHello(relay.url, relay.relayId);
-    const route = signedRoute(bob, { ...hello, relayId: "f".repeat(64) });
+    await registerIdentityOnRelay(destinationRelay.url, bob, bobToken);
+    const destinationHello = await relayHello(destinationRelay.url, destinationRelay.relayId);
+    const route = signedRoute(bob, { ...destinationHello, relayId: "f".repeat(64) });
     const envelope = signedEnvelope(alice, bob);
-    const response = await fetch(`${relay.url}/api/quantic/federation/forward`, {
+    const originHello = await relayHello(
+      originRelay.url,
+      originRelay.relayId,
+      federationForwardNonce(federationId),
+    );
+    const response = await fetch(`${destinationRelay.url}/api/quantic/federation/forward`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         format: "quantic-federation-forward",
         version: 1,
-        federationId: "fed-http-0000000000000002",
-        originRelay: hello,
-        previousRelayId: "0".repeat(64),
+        federationId,
+        originRelay: originHello,
+        previousRelayId: originRelay.relayId,
         hopLimit: 4,
-        visitedRelayIds: [],
+        visitedRelayIds: [originRelay.relayId],
         expiresAt: "2026-09-18T00:10:00.000Z",
         senderIdentityManifest: alice.manifest,
         recipientIdentityManifest: bob.manifest,
         recipientRouteManifest: route,
         envelope,
-        previousRelayAttestation: "task-5-placeholder",
+        previousRelayAttestation: originHello.p256Signature,
       }),
     });
-    assert.notEqual(response.status, 202);
+    assert.equal(response.status, 403);
+    const body = await response.json() as { error: string };
+    assert.match(body.error, /pas autorisé/i);
   } finally {
-    await relay.close();
-    await fs.rm(dataDir, { recursive: true, force: true });
+    await originRelay.close();
+    await destinationRelay.close();
+    await fs.rm(originDataDir, { recursive: true, force: true });
+    await fs.rm(destinationDataDir, { recursive: true, force: true });
   }
 });
