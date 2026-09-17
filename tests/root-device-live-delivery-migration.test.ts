@@ -8,6 +8,7 @@ import {
   pullEnvelopes,
   registerIdentity,
 } from "../lib/quantic/relay.ts";
+import { registerIdentityCompat } from "../lib/quantic/register-compat.ts";
 import { createEmptyRelayState, restoreRelayState } from "../lib/quantic/relay-state.ts";
 
 function keyMaterial() {
@@ -94,7 +95,7 @@ test("same root key can migrate strong id back to legacy id without losing queue
     authToken: bobToken,
   });
 
-  const migrated = registerIdentity({
+  const migrated = registerIdentityCompat({
     handle: "alice",
     publicKey: aliceKeys.publicKey,
     signingPublicKey: aliceKeys.signingPublicKey,
