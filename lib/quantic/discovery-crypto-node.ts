@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 import {
   canonicalCryptoProfileText,
+  mergeCryptoProfileState,
   type QuanticCryptoProfileV2,
 } from "./crypto-profile-core.mjs";
 import { verifyCryptoProfile } from "./crypto-profile-node.mjs";
@@ -12,7 +13,15 @@ export function verifyDiscoveryCryptoProfile(
   identityManifest: QuanticIdentityManifest,
   previousProfile: QuanticCryptoProfileV2 | null = null,
 ) {
-  const verified = verifyCryptoProfile(profile, identityManifest, previousProfile);
+  let continuityBase = previousProfile;
+  if (previousProfile) {
+    const merged = mergeCryptoProfileState(previousProfile, profile);
+    if (merged.payload.sequence === previousProfile.payload.sequence) {
+      continuityBase = null;
+    }
+  }
+
+  const verified = verifyCryptoProfile(profile, identityManifest, continuityBase);
   const digest = createHash("sha256")
     .update(canonicalCryptoProfileText(verified.payload), "utf8")
     .digest("hex");
