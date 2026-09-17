@@ -6,6 +6,11 @@ import {
   timingSafeEqual,
   verify,
 } from "node:crypto";
+import {
+  assertDeviceIdMatchesDigest,
+  deviceIdFromDigestHex,
+  isValidDeviceId,
+} from "./device-id-core.mjs";
 import { identityNamesForKey } from "./identity-names.mjs";
 
 export type QuanticPublicKey = JsonWebKey;
@@ -119,7 +124,6 @@ globalThis.__quanticRelayState = state;
 
 const HANDLE = /^[a-z0-9][a-z0-9._-]{2,31}$/;
 const FINGERPRINT = /^(?:[0-9a-f]{10}|[0-9a-f]{32})$/;
-const DEVICE_ID = /^d-[0-9a-f]{10}$/;
 const CLIENT_MESSAGE_ID = /^[a-zA-Z0-9._:-]{8,100}$/;
 const MAX_QUEUE = 500;
 const MAX_RECEIPTS = 500;
@@ -160,9 +164,24 @@ function validateSigningPublicKey(key: QuanticPublicKey) {
   }
 }
 
-function deviceIdForKey(key: QuanticPublicKey) {
+function deviceDigestForKey(key: QuanticPublicKey) {
   validateEncryptionPublicKey(key);
-  return `d-${createHash("sha256").update(`P-256:${key.x}:${key.y}`).digest("hex").slice(0, 10)}`;
+  return createHash("sha256").update(`P-256:${key.x}:${key.y}`).digest("hex");
+}
+
+function deviceIdForKey(key: QuanticPublicKey, length: 10 | 32) {
+  return deviceIdFromDigestHex(deviceDigestForKey(key), length);
+}
+
+function assertDeviceIdForKey(deviceId: string, key: QuanticPublicKey) {
+  try {
+    return assertDeviceIdMatchesDigest(deviceId, deviceDigestForKey(key));
+  } catch (error) {
+    throw new RelayError(
+      error instanceof Error ? error.message : "Identifiant cryptographique de l’appareil invalide.",
+      400,
+    );
+  }
 }
 
 function identityNames(
@@ -201,6 +220,21 @@ function deviceKey(canonicalAddress: string, deviceId: string) {
 
 function mailboxKey(canonicalAddress: string, deviceId: string) {
   return `${canonicalAddress}#${deviceId}`;
+}
+
+function existingRootDevice(identity: IdentityRecord) {
+  return [...state.devices.values()].find(
+    (device) =>
+      device.canonicalAddress === identity.canonicalAddress &&
+      device.kind === "root" &&
+      JSON.stringify(device.publicKey) === JSON.stringify(identity.publicKey),
+  ) ?? null;
+}
+
+function rootDeviceIdForIdentity(identity: IdentityRecord) {
+  const existing = existingRootDevice(identity);
+  if (existing) return existing.deviceId;
+  return deviceIdForKey(identity.publicKey, identity.fingerprint.length === 32 ? 32 : 10);
 }
 
 function resolveRecord(locatorInput: string) {
@@ -270,20 +304,23 @@ function verifyRawSignature(publicKey: QuanticPublicKey, text: string, signature
 }
 
 function publicDevices(identity: IdentityRecord) {
-  const rootDeviceId = deviceIdForKey(identity.publicKey);
+  const rootDeviceId = rootDeviceIdForIdentity(identity);
+  const rootRecord = state.devices.get(deviceKey(identity.canonicalAddress, rootDeviceId));
   const linked = [...state.devices.values()]
     .filter((device) => device.canonicalAddress === identity.canonicalAddress && device.kind === "linked")
     .map((device) => ({
       deviceId: device.deviceId,
       label: device.label,
       publicKey: device.publicKey,
+      deviceSigningPublicKey: device.deviceSigningPublicKey,
       kind: device.kind,
     }));
   return [
     {
       deviceId: rootDeviceId,
-      label: state.devices.get(deviceKey(identity.canonicalAddress, rootDeviceId))?.label ?? "Appareil principal",
+      label: rootRecord?.label ?? "Appareil principal",
       publicKey: identity.publicKey,
+      deviceSigningPublicKey: rootRecord?.deviceSigningPublicKey ?? identity.signingPublicKey,
       kind: "root" as const,
     },
     ...linked,
@@ -299,10 +336,10 @@ function findPublicDevice(identity: IdentityRecord, deviceId: string) {
 function authenticateDevice(locatorInput: string, authToken: string | null, requestedDeviceId?: string | null) {
   if (!authToken) throw new RelayError("Authentification Quantic invalide.", 401);
   const identity = resolveRecord(locatorInput);
-  const rootDeviceId = deviceIdForKey(identity.publicKey);
+  const rootDeviceId = rootDeviceIdForIdentity(identity);
 
   if (requestedDeviceId) {
-    if (!DEVICE_ID.test(requestedDeviceId)) throw new RelayError("Identifiant d’appareil invalide.", 400);
+    if (!isValidDeviceId(requestedDeviceId)) throw new RelayError("Identifiant d’appareil invalide.", 400);
     if (requestedDeviceId === rootDeviceId && tokenMatches(identity.authTokenHash, authToken)) {
       return { identity, deviceId: rootDeviceId };
     }
@@ -419,6 +456,7 @@ export function registerIdentity(input: {
   publicKey: QuanticPublicKey;
   signingPublicKey: QuanticPublicKey;
   authToken: string;
+  deviceId?: string;
   challenge?: string;
   signature?: string;
 }) {
@@ -426,6 +464,7 @@ export function registerIdentity(input: {
   validateEncryptionPublicKey(input.publicKey);
   validateSigningPublicKey(input.signingPublicKey);
   if (input.authToken.length < 40) throw new RelayError("Jeton d’appareil invalide.", 400);
+  if (input.deviceId) assertDeviceIdForKey(input.deviceId, input.publicKey);
 
   const names = identityNames(locator.handle, input.signingPublicKey, locator.fingerprint);
   const existing = state.identities.get(names.canonicalAddress);
@@ -462,17 +501,18 @@ export function registerIdentity(input: {
   state.identities.set(names.canonicalAddress, identity);
   addAlias(locator.handle, names.canonicalAddress);
 
-  const rootDeviceId = deviceIdForKey(input.publicKey);
+  const priorRoot = existingRootDevice(identity);
+  const rootDeviceId = priorRoot?.deviceId ?? input.deviceId ?? deviceIdForKey(input.publicKey, names.fingerprint.length === 32 ? 32 : 10);
   const existingRoot = state.devices.get(deviceKey(names.canonicalAddress, rootDeviceId));
   state.devices.set(deviceKey(names.canonicalAddress, rootDeviceId), {
     canonicalAddress: names.canonicalAddress,
     deviceId: rootDeviceId,
-    label: existingRoot?.label ?? "Appareil principal",
+    label: existingRoot?.label ?? priorRoot?.label ?? "Appareil principal",
     publicKey: input.publicKey,
     deviceSigningPublicKey: input.signingPublicKey,
     authTokenHash: tokenHash(input.authToken),
     kind: "root",
-    createdAt: existingRoot?.createdAt ?? now,
+    createdAt: existingRoot?.createdAt ?? priorRoot?.createdAt ?? now,
     updatedAt: now,
   });
 
@@ -512,10 +552,7 @@ export function registerAuthorizedDevice(input: {
   validateEncryptionPublicKey(payload.devicePublicKey);
   validateSigningPublicKey(payload.deviceSigningPublicKey);
   const names = identityNames(payload.handle, payload.identitySigningPublicKey, payload.fingerprint);
-  const calculatedDeviceId = deviceIdForKey(payload.devicePublicKey);
-  if (calculatedDeviceId !== payload.deviceId || !DEVICE_ID.test(payload.deviceId)) {
-    throw new RelayError("Identifiant cryptographique de l’appareil invalide.", 400);
-  }
+  assertDeviceIdForKey(payload.deviceId, payload.devicePublicKey);
   if (cleanDeviceLabel(payload.deviceLabel) !== payload.deviceLabel) {
     throw new RelayError("Nom d’appareil non canonique.", 400);
   }

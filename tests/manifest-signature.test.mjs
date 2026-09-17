@@ -15,18 +15,21 @@ function keyPair() {
   return generateKeyPairSync("ec", { namedCurve: "prime256v1" });
 }
 
-function fingerprint(publicJwk, length = 10) {
+function digest(publicJwk) {
   return createHash("sha256")
     .update(`P-256:${publicJwk.x}:${publicJwk.y}`)
-    .digest("hex")
-    .slice(0, length);
+    .digest("hex");
 }
 
-function deviceId(publicJwk) {
-  return `d-${fingerprint(publicJwk)}`;
+function fingerprint(publicJwk, length = 10) {
+  return digest(publicJwk).slice(0, length);
 }
 
-function makeSignedManifest(fingerprintLength = 10) {
+function deviceId(publicJwk, length = 10) {
+  return `d-${digest(publicJwk).slice(0, length)}`;
+}
+
+function makeSignedManifest(length = 10) {
   const rootSigning = keyPair();
   const identityEncryption = keyPair();
   const rootDeviceEncryption = keyPair();
@@ -36,7 +39,7 @@ function makeSignedManifest(fingerprintLength = 10) {
   const identityPublicKey = identityEncryption.publicKey.export({ format: "jwk" });
   const rootPublicKey = rootDeviceEncryption.publicKey.export({ format: "jwk" });
   const rootDeviceSigningPublicKey = rootDeviceSigning.publicKey.export({ format: "jwk" });
-  const fp = fingerprint(identitySigningPublicKey, fingerprintLength);
+  const fp = fingerprint(identitySigningPublicKey, length);
   const handle = "sansa";
 
   const payload = {
@@ -49,7 +52,7 @@ function makeSignedManifest(fingerprintLength = 10) {
     identitySigningPublicKey,
     devices: [
       {
-        deviceId: deviceId(rootPublicKey),
+        deviceId: deviceId(rootPublicKey, length),
         label: "PC principal",
         publicKey: rootPublicKey,
         deviceSigningPublicKey: rootDeviceSigningPublicKey,
@@ -77,13 +80,13 @@ function makeSignedManifest(fingerprintLength = 10) {
   };
 }
 
-test("valid root-signed manifest verifies", () => {
-  const { manifest } = makeSignedManifest();
+test("valid legacy root-signed manifest verifies", () => {
+  const { manifest } = makeSignedManifest(10);
   assert.equal(verifyManifestSignature(manifest), true);
   assert.doesNotThrow(() => assertVerifiedManifest(manifest));
 });
 
-test("valid V1.1 32-hex root-signed manifest verifies", () => {
+test("valid strong root-signed manifest verifies on Node", () => {
   const { manifest } = makeSignedManifest(32);
   assert.equal(verifyManifestSignature(manifest), true);
   assert.doesNotThrow(() => assertVerifiedManifest(manifest));

@@ -4,6 +4,7 @@ import {
   signChallenge,
 } from "@/lib/quantic/crypto";
 import { deviceIdFromPublicKey, verifyTextSignature } from "@/lib/quantic/device";
+import { assertDeviceIdMatchesKey } from "@/lib/quantic/device-id-core.mjs";
 import type { DeviceCertificate, LocalIdentity } from "@/lib/quantic/local-db";
 import { canonicalManifestText } from "@/lib/quantic/manifest-core.mjs";
 import type {
@@ -19,7 +20,8 @@ function samePoint(a: JsonWebKey, b: JsonWebKey) {
 
 async function rootDevice(identity: LocalIdentity): Promise<QuanticManifestDevice> {
   if (!identity.signingPublicKey) throw new Error("Clé publique de propriété Quantic absente.");
-  const deviceId = identity.deviceId ?? (await deviceIdFromPublicKey(identity.publicKey));
+  const idLength: 10 | 32 = identity.fingerprint?.length === 10 ? 10 : 32;
+  const deviceId = identity.deviceId ?? (await deviceIdFromPublicKey(identity.publicKey, idLength));
   return {
     deviceId,
     label: identity.deviceLabel ?? "Appareil principal",
@@ -75,8 +77,12 @@ export async function verifyManifestBrowser(manifest: QuanticIdentityManifest) {
   if (roots.length !== 1) return false;
   const revoked = new Set(payload.revocations.map((item) => item.deviceId));
   if (payload.devices.some((device) => revoked.has(device.deviceId))) return false;
-  for (const device of payload.devices) {
-    if ((await deviceIdFromPublicKey(device.publicKey)) !== device.deviceId) return false;
+  try {
+    for (const device of payload.devices) {
+      await assertDeviceIdMatchesKey(device.deviceId, device.publicKey);
+    }
+  } catch {
+    return false;
   }
   return verifyTextSignature(
     payload.identitySigningPublicKey,

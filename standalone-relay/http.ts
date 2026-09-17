@@ -8,6 +8,7 @@ import type {
   QuanticRouteManifest,
 } from "../lib/quantic/federation-types.ts";
 import type { QuanticIdentityManifest } from "../lib/quantic/manifest-types.ts";
+import type { SignedPreKeyRecord } from "../lib/quantic/prekey-core.mjs";
 import {
   acknowledgeEnvelopes,
   acknowledgeReceipts,
@@ -24,6 +25,15 @@ import {
   type QuanticPublicKey,
 } from "../lib/quantic/relay.ts";
 import { acceptRouteManifest } from "../lib/quantic/route-manifest-state.ts";
+import {
+  publishStandaloneManifest,
+  readStandaloneManifest,
+} from "../lib/quantic/standalone-manifest.ts";
+import {
+  claimStandalonePreKey,
+  publishStandalonePreKeys,
+  standalonePreKeyStatus,
+} from "../lib/quantic/standalone-prekeys.ts";
 import {
   federationForwardNonce,
   forwardToRoute,
@@ -264,6 +274,7 @@ export function createRelayRequestHandler(
           ok: true,
           protocol: "quantic-relay/1",
           service: "Quantic Network Relay",
+          capabilities: ["durable-state-v2", "signed-manifests", "one-time-prekeys"],
           ...(federation ? { relayId: federation.identity.relayId, federation: "quantic-federation/1" } : {}),
           time: new Date().toISOString(),
         });
@@ -530,6 +541,7 @@ export function createRelayRequestHandler(
             publicKey: (body.publicKey ?? {}) as QuanticPublicKey,
             signingPublicKey: (body.signingPublicKey ?? {}) as QuanticPublicKey,
             authToken: String(body.authToken ?? ""),
+            deviceId: typeof body.deviceId === "string" ? body.deviceId : undefined,
             challenge: typeof body.challenge === "string" ? body.challenge : undefined,
             signature: typeof body.signature === "string" ? body.signature : undefined,
           }),
@@ -541,7 +553,41 @@ export function createRelayRequestHandler(
       if (path === "/api/quantic/resolve") {
         if (method !== "GET") return methodNotAllowed(response);
         const handle = url.searchParams.get("handle") ?? "";
-        json(response, 200, await runtime.read(() => resolveIdentity(handle)));
+        const resolved = await runtime.read(() => resolveIdentity(handle));
+        const manifest = await runtime.read(() => readStandaloneManifest(resolved.canonicalAddress));
+        json(response, 200, manifest ? { ...resolved, manifest } : resolved);
+        return;
+      }
+
+      if (path === "/api/quantic/manifest") {
+        if (method === "GET") {
+          const canonical = url.searchParams.get("canonical") ?? url.searchParams.get("handle") ?? "";
+          if (!canonical) throw new RelayHttpRequestError("Adresse canonique Quantic requise.", 400);
+          const manifest = await runtime.read(() => readStandaloneManifest(canonical));
+          if (!manifest) throw new RelayHttpRequestError("Manifeste Quantic introuvable.", 404);
+          json(response, 200, { manifest });
+          return;
+        }
+        if (method === "POST") {
+          const body = await readJsonBody(request);
+          if (!body.manifest) throw new RelayHttpRequestError("Manifeste signé requis.", 400);
+          const manifest = await runtime.mutate(() =>
+            publishStandaloneManifest(body.manifest as QuanticIdentityManifest),
+          );
+          json(response, 200, { manifest, persisted: true, mode: "standalone" });
+          return;
+        }
+        return methodNotAllowed(response);
+      }
+
+      if (path === "/api/quantic/devices/revoke") {
+        if (method !== "POST") return methodNotAllowed(response);
+        const body = await readJsonBody(request);
+        if (!body.manifest) throw new RelayHttpRequestError("Manifeste signé requis.", 400);
+        const manifest = await runtime.mutate(() =>
+          publishStandaloneManifest(body.manifest as QuanticIdentityManifest),
+        );
+        json(response, 200, { manifest, persisted: true, mode: "standalone" });
         return;
       }
 
@@ -555,6 +601,56 @@ export function createRelayRequestHandler(
           }),
         );
         json(response, 201, result);
+        return;
+      }
+
+      if (path === "/api/quantic/prekeys/publish") {
+        if (method !== "POST") return methodNotAllowed(response);
+        const body = await readJsonBody(request);
+        const result = await runtime.mutate(() =>
+          publishStandalonePreKeys({
+            locator: String(body.handle ?? ""),
+            authToken: bearer(request),
+            deviceId: String(body.deviceId ?? ""),
+            records: Array.isArray(body.records) ? body.records as SignedPreKeyRecord[] : [],
+          }),
+        );
+        json(response, 200, result);
+        return;
+      }
+
+      if (path === "/api/quantic/prekeys/claim") {
+        if (method !== "POST") return methodNotAllowed(response);
+        const body = await readJsonBody(request);
+        const record = await runtime.mutate(() =>
+          claimStandalonePreKey({
+            senderLocator: String(body.from ?? ""),
+            senderAuthToken: bearer(request),
+            senderDeviceId: String(body.fromDeviceId ?? ""),
+            recipientCanonicalAddress: String(body.to ?? ""),
+            recipientDeviceId: String(body.toDeviceId ?? ""),
+          }),
+        );
+        if (!record) {
+          json(response, 404, { prekey: null });
+          return;
+        }
+        json(response, 200, { prekey: record });
+        return;
+      }
+
+      if (path === "/api/quantic/prekeys/status") {
+        if (method !== "GET") return methodNotAllowed(response);
+        const handle = url.searchParams.get("handle") ?? "";
+        const deviceId = url.searchParams.get("deviceId") ?? "";
+        const result = await runtime.mutate(() =>
+          standalonePreKeyStatus({
+            locator: handle,
+            authToken: bearer(request),
+            deviceId,
+          }),
+        );
+        json(response, 200, result);
         return;
       }
 
