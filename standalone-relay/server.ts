@@ -1,5 +1,6 @@
 import { createServer, type Server } from "node:http";
 
+import { createDirectSignalingRequestHandler } from "./direct-signaling.ts";
 import { bootstrapDiscoveryPeers } from "./discovery-bootstrap.ts";
 import { createDiscoveryHandleRequestHandler } from "./discovery-handle-http.ts";
 import { createDiscoveryRequestHandler } from "./discovery-http.ts";
@@ -17,6 +18,7 @@ export type RelayServerOptions = {
   port?: number;
   dataDir?: string;
   databaseUrl?: string;
+  identitySecret?: string;
   publicEndpoint?: string;
   bootstrapEndpoints?: string[];
 };
@@ -59,7 +61,9 @@ export async function startRelayServer(
 
   const databaseUrl = options.databaseUrl?.trim() || "";
   const postgresPersistence = databaseUrl
-    ? await createPostgresRelayPersistenceFromUrl(databaseUrl)
+    ? await createPostgresRelayPersistenceFromUrl(databaseUrl, {
+        identitySecret: options.identitySecret,
+      })
     : null;
   const relayIdentity = postgresPersistence
     ? await postgresPersistence.loadOrCreateIdentity()
@@ -78,16 +82,31 @@ export async function startRelayServer(
   });
   const discoveryHandleHandler = createDiscoveryHandleRequestHandler(runtime);
   const discoveryResolveHandler = createDiscoveryResolveRequestHandler(runtime, relayIdentity.relayId);
+  const directSignalingHandler = createDirectSignalingRequestHandler();
   const compatRegisterHandler = createCompatRegisterRequestHandler(runtime);
   const server = createServer((request, response) => {
     void (async () => {
       if (await compatRegisterHandler(request, response)) return;
+      if (await directSignalingHandler(request, response)) return;
       if (await discoveryHandleHandler(request, response)) return;
       if (await discoveryResolveHandler(request, response)) return;
       if (await discoveryHandler(request, response)) return;
       await relayHandler(request, response);
-    })();
+    })().catch((error: unknown) => {
+      if (!response.headersSent) {
+        response.statusCode = 500;
+        response.setHeader("Content-Type", "application/json; charset=utf-8");
+      }
+      if (!response.writableEnded) {
+        response.end(`${JSON.stringify({ error: "Erreur interne Quantic Relay." })}\n`);
+      }
+      console.error("Erreur HTTP Quantic Relay.", error);
+    });
   });
+  server.requestTimeout = 15_000;
+  server.headersTimeout = 10_000;
+  server.keepAliveTimeout = 5_000;
+  server.maxRequestsPerSocket = 256;
 
   try {
     await new Promise<void>((resolve, reject) => {
