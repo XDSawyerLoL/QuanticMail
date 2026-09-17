@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { generateKeyPairSync, sign } from "node:crypto";
 import test from "node:test";
 
+import type { QuanticRouteManifest } from "../lib/quantic/federation-types.ts";
 import { createIdentityChallenge, registerIdentity } from "../lib/quantic/relay.ts";
 import {
   createEmptyRelayState,
@@ -45,7 +46,7 @@ test("relay aliases round-trip through JSON without Set loss", () => {
 });
 
 test("route manifest cache round-trips through relay durable state", () => {
-  const route = {
+  const route: QuanticRouteManifest = {
     format: "quantic-route-manifest",
     version: 1,
     payload: {
