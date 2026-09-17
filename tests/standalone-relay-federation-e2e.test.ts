@@ -225,8 +225,9 @@ test("Alice on relay A sends an encrypted message to Bob on relay B and receives
         envelope,
       }),
     });
-    assert.equal(sendResponse.status, 202, await sendResponse.text());
-    const sent = await sendResponse.json() as { federationId: string; relayId: string; duplicate: boolean };
+    const sendBody = await sendResponse.text();
+    assert.equal(sendResponse.status, 202, sendBody);
+    const sent = JSON.parse(sendBody) as { federationId: string; relayId: string; duplicate: boolean };
     assert.equal(sent.relayId, relayB.relayId);
     assert.equal(sent.duplicate, false);
     assert.match(sent.federationId, /^fed-[0-9a-f]{32}$/);
