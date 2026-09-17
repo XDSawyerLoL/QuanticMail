@@ -105,7 +105,7 @@ test("same root key can migrate strong id back to legacy id without losing queue
 
   assert.equal(migrated.rootDeviceId, aliceIds.legacy);
   const pulled = pullEnvelopes(alice.canonicalAddress, aliceToken, aliceIds.legacy);
-  assert.equal(pulled.envelopes.length, 1);
-  assert.equal(pulled.envelopes[0].clientMessageId, "msg-root-migrate-001");
-  assert.equal(pulled.envelopes[0].toDeviceId, aliceIds.legacy);
+  assert.equal(pulled.length, 1);
+  assert.equal(pulled[0].clientMessageId, "msg-root-migrate-001");
+  assert.equal(pulled[0].toDeviceId, aliceIds.legacy);
 });
