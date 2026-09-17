@@ -99,6 +99,35 @@ function nearestPeers(key: string, peers: DiscoveryPeer[], localRelayId: string,
     .slice(0, limit);
 }
 
+function boundedReplicationPeers(
+  identityKey: string,
+  handleKey: string,
+  peers: DiscoveryPeer[],
+  localRelayId: string,
+  k: number,
+) {
+  const candidates = new Map<string, DiscoveryPeer>();
+  for (const peer of [
+    ...nearestPeers(identityKey, peers, localRelayId, k),
+    ...nearestPeers(handleKey, peers, localRelayId, k),
+  ]) {
+    candidates.set(peer.relayId, peer);
+  }
+  return [...candidates.values()]
+    .sort((left, right) => {
+      const leftIdentity = xorDistance(identityKey, left.relayId);
+      const leftHandle = xorDistance(handleKey, left.relayId);
+      const rightIdentity = xorDistance(identityKey, right.relayId);
+      const rightHandle = xorDistance(handleKey, right.relayId);
+      const leftScore = leftIdentity < leftHandle ? leftIdentity : leftHandle;
+      const rightScore = rightIdentity < rightHandle ? rightIdentity : rightHandle;
+      if (leftScore < rightScore) return -1;
+      if (leftScore > rightScore) return 1;
+      return left.relayId.localeCompare(right.relayId);
+    })
+    .slice(0, k);
+}
+
 function validateAgainstPinned(bundle: DiscoveryBundle, pinned: DiscoveryBundle | null) {
   return validateDiscoveryBundle(
     bundle,
@@ -123,14 +152,13 @@ export function createDiscoveryService(options: DiscoveryServiceOptions) {
 
     const identityKey = discoveryKey("identity", canonicalAddress);
     const handleKey = discoveryHandleKey(bundle.identityManifest.payload.handle);
-    const targetsById = new Map<string, DiscoveryPeer>();
-    for (const target of [
-      ...nearestPeers(identityKey, options.peers(), options.localRelayId, k),
-      ...nearestPeers(handleKey, options.peers(), options.localRelayId, k),
-    ]) {
-      targetsById.set(target.relayId, target);
-    }
-    const targets = [...targetsById.values()];
+    const targets = boundedReplicationPeers(
+      identityKey,
+      handleKey,
+      options.peers(),
+      options.localRelayId,
+      k,
+    );
     const results = await Promise.allSettled(
       targets.map((peer) => options.transport.publish(peer, accepted)),
     );
