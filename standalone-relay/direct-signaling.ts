@@ -27,12 +27,14 @@ type DirectSignalingOptions = {
   now?: () => number;
   ttlMs?: number;
   maxQueue?: number;
+  maxTotalSignals?: number;
   maxPayloadBytes?: number;
 };
 
 const MAX_REQUEST_BYTES = 96 * 1024;
 const DEFAULT_SIGNAL_TTL_MS = 60_000;
 const DEFAULT_MAX_QUEUE = 64;
+const DEFAULT_MAX_TOTAL_SIGNALS = 4_096;
 const DEFAULT_MAX_PAYLOAD_BYTES = 64 * 1024;
 const SIGNAL_TYPES = new Set<DirectSignalType>(["offer", "answer", "ice", "cancel", "receipt"]);
 
@@ -104,9 +106,13 @@ export function createDirectSignalingRequestHandler(options: DirectSignalingOpti
   const now = options.now ?? Date.now;
   const ttlMs = options.ttlMs ?? DEFAULT_SIGNAL_TTL_MS;
   const maxQueue = options.maxQueue ?? DEFAULT_MAX_QUEUE;
+  const maxTotalSignals = options.maxTotalSignals ?? DEFAULT_MAX_TOTAL_SIGNALS;
   const maxPayloadBytes = options.maxPayloadBytes ?? DEFAULT_MAX_PAYLOAD_BYTES;
   if (!Number.isSafeInteger(ttlMs) || ttlMs < 5_000 || ttlMs > 5 * 60_000) throw new Error("TTL direct invalide.");
   if (!Number.isSafeInteger(maxQueue) || maxQueue < 1 || maxQueue > 256) throw new Error("Capacité de signal direct invalide.");
+  if (!Number.isSafeInteger(maxTotalSignals) || maxTotalSignals < 1 || maxTotalSignals > 16_384) {
+    throw new Error("Capacité globale de signal direct invalide.");
+  }
   if (!Number.isSafeInteger(maxPayloadBytes) || maxPayloadBytes < 1_024 || maxPayloadBytes > 128 * 1024) {
     throw new Error("Taille de signal direct invalide.");
   }
@@ -123,6 +129,21 @@ export function createDirectSignalingRequestHandler(options: DirectSignalingOpti
     const presentUntil = presence.get(key);
     if (presentUntil !== undefined && presentUntil <= cutoff) presence.delete(key);
     return queue;
+  }
+
+  function pruneAll() {
+    const queueKeys = [...queues.keys()];
+    for (const key of queueKeys) prune(key);
+    const cutoff = now();
+    for (const [key, presentUntil] of presence) {
+      if (presentUntil <= cutoff) presence.delete(key);
+    }
+  }
+
+  function totalQueuedSignals() {
+    let total = 0;
+    for (const queue of queues.values()) total += queue.length;
+    return total;
   }
 
   function authenticateExact(locator: string, token: string | null, deviceId: string) {
@@ -185,8 +206,12 @@ export function createDirectSignalingRequestHandler(options: DirectSignalingOpti
         if (!to || !toDeviceId) throw new RelayError("Destination directe invalide.", 400);
         const encrypted = validateEncrypted(body.encrypted, maxPayloadBytes);
         const targetKey = deviceKey(to, toDeviceId);
-        const queue = prune(targetKey);
+        pruneAll();
+        const queue = queues.get(targetKey) ?? [];
         if (queue.length >= maxQueue) throw new RelayError("File de signalisation directe saturée.", 429);
+        if (totalQueuedSignals() >= maxTotalSignals) {
+          throw new RelayError("Capacité globale de signalisation directe saturée.", 429);
+        }
         const created = now();
         const signal: DirectSignalRecord = {
           id: randomUUID(),
