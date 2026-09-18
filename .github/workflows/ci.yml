@@ -17,6 +17,13 @@ jobs:
       - run: npm install
       - run: npm test
       - run: npm run build
+      - name: Build Hostinger static Mail surface
+        run: |
+          npm run build:hostinger
+          test -f out/index.html
+          test -f out/network/index.html
+          test -f out/vault/index.html
+          grep -q '/mail/_next/' out/index.html
       - run: npm run lint
       - name: Smoke standalone Quantic Relay CLI
         shell: bash

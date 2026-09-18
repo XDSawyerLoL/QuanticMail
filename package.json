@@ -1,6 +1,6 @@
 {
   "name": "quanticmail",
-  "version": "1.2.1",
+  "version": "1.3.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -9,7 +9,8 @@
     "start": "next start",
     "lint": "eslint .",
     "relay:start": "node --experimental-transform-types standalone-relay/main.ts",
-    "relay:dev": "node --watch --experimental-transform-types standalone-relay/main.ts"
+    "relay:dev": "node --watch --experimental-transform-types standalone-relay/main.ts",
+    "build:hostinger": "node scripts/build-hostinger-static.mjs"
   },
   "dependencies": {
     "next": "16.3.3",
