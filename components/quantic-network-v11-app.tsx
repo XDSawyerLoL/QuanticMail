@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { QuanticGlobalNav } from "@/components/quantic-global-nav";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -743,9 +742,7 @@ export function QuanticNetworkV11App() {
 
   if (!identity) {
     return (
-      <>
-        <QuanticGlobalNav />
-        <main className="qn-onboarding">
+      <main className="qn-onboarding">
         <section className="qn-card qn-onboarding-card">
           <div className="qn-mark">Q</div>
           <p className="qn-kicker">QUANTIC MAIL · V1.3</p>
@@ -764,14 +761,11 @@ export function QuanticNetworkV11App() {
           <p className="qn-footnote">V1.1 · identité 128 bits pour les nouveaux comptes · pairing QR · one-time prekeys · historique multi-appareil.</p>
         </section>
       </main>
-      </>
     );
   }
 
   return (
-    <>
-      <QuanticGlobalNav />
-      <main className="qn-app">
+    <main className="qn-app">
       <header className="qn-topbar">
         <div className="qn-brand"><span className="qn-mark small">Q</span><div><strong>Quantic Mail</strong><small>Quantic Network · client V1.3 · sync V1.1</small></div></div>
         <div className="qn-identity">
@@ -828,6 +822,5 @@ export function QuanticNetworkV11App() {
         </section>
       </div>
     </main>
-    </>
   );
 }
