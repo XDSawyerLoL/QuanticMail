@@ -17,4 +17,9 @@ assert.match(script,/cpSync|copyFileSync/);
 assert.match(script,/next/);
 assert.match(script,/out/);
 
+const publish=fs.readFileSync(".github/workflows/publish-hostinger-dist.yml","utf8");
+assert.match(publish,/https:\/\/quantic-hostinger-relay\.invalid/);
+assert.match(publish,/NEXT_PUBLIC_QUANTIC_BOOTSTRAPS/);
+assert.match(publish,/grep -R -q/);
+
 console.log(JSON.stringify({ok:true,contract:"hostinger-static-export"}));
