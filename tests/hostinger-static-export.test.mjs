@@ -8,7 +8,13 @@ assert.match(config,/basePath:\s*["']\/mail["']/);
 assert.match(config,/trailingSlash:\s*true/);
 
 const pkg=JSON.parse(fs.readFileSync("package.json","utf8"));
-assert.ok(pkg.scripts["build:hostinger"],"Hostinger build script must exist");
-assert.match(pkg.scripts["build:hostinger"],/QUANTIC_STATIC_EXPORT=1|cross-env/);
+assert.equal(pkg.version,"1.3.0");
+assert.equal(pkg.scripts["build:hostinger"],"node scripts/build-hostinger-static.mjs");
+
+const script=fs.readFileSync("scripts/build-hostinger-static.mjs","utf8");
+assert.match(script,/app[\\/]api|app",\s*"api"/);
+assert.match(script,/cpSync|copyFileSync/);
+assert.match(script,/next/);
+assert.match(script,/out/);
 
 console.log(JSON.stringify({ok:true,contract:"hostinger-static-export"}));
