@@ -308,3 +308,156 @@
   .qn-global-links a[href="/products/"]{display:none}
   .qn-global-links a.centre{display:none}
 }
+
+
+/* QuanticMail V1.3 mobile stability pass */
+html,body{max-width:100%;overflow-x:hidden}
+.qn-app,.qn-onboarding{width:100%;max-width:100%;overflow-x:hidden}
+.qn-grid,.qn-topbar,.qn-card,.qn-identity,.qn-brand{min-width:0}
+.qn-address,.qn-sync{max-width:100%}
+.qn-address{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.qn-local-note p,.qn-correspondent,.qn-body,.qn-device-row code,.qn-vault-address{overflow-wrap:anywhere;word-break:break-word}
+.qn-sidebar>button{min-width:0}
+.qn-sidebar>button span{margin-left:8px}
+.qn-global-nav{width:100%;max-width:100%;overflow:hidden}
+.qn-global-links{min-width:0}
+
+@media(max-width:760px){
+  .qn-global-nav{
+    min-height:56px;
+    padding:7px 8px;
+    gap:6px;
+    overflow:hidden;
+  }
+  .qn-global-brand{flex:0 0 34px;min-width:34px}
+  .qn-global-mark{width:26px;height:33px}
+  .qn-global-links{
+    flex:1 1 auto;
+    min-width:0;
+    overflow-x:auto;
+    overscroll-behavior-x:contain;
+    scroll-snap-type:x proximity;
+    -webkit-overflow-scrolling:touch;
+    white-space:nowrap;
+    gap:2px;
+    padding-bottom:2px;
+  }
+  .qn-global-links a{
+    flex:0 0 auto;
+    min-height:34px;
+    padding:0 8px;
+    font-size:.66rem;
+    scroll-snap-align:start;
+  }
+  .qn-global-links a[href$="/products/"],
+  .qn-global-links a[href$="/downloads/"]{display:none}
+  .qn-global-links a.centre{display:none}
+
+  .qn-topbar{
+    position:relative;
+    top:auto;
+    margin:8px;
+    padding:12px;
+    display:grid;
+    grid-template-columns:1fr;
+    gap:12px;
+    border-radius:16px;
+  }
+  .qn-brand{align-items:center;min-width:0}
+  .qn-brand div{min-width:0}
+  .qn-brand strong{font-size:1rem}
+  .qn-brand small{font-size:.72rem;line-height:1.4}
+  .qn-identity{
+    width:100%;
+    display:grid;
+    grid-template-columns:1fr;
+    gap:8px;
+    min-width:0;
+  }
+  .qn-address,.qn-sync{
+    width:100%;
+    min-width:0;
+    justify-content:flex-start;
+    text-align:left;
+    font-size:.78rem!important;
+    line-height:1.3;
+    padding:10px 11px!important;
+  }
+  .qn-sync{text-align:center}
+
+  .qn-grid{
+    display:grid;
+    grid-template-columns:minmax(0,1fr);
+    gap:10px;
+    width:100%;
+    max-width:100%;
+    padding:0 8px 84px;
+    margin:0;
+  }
+  .qn-sidebar,.qn-inbox,.qn-compose{
+    width:100%;
+    max-width:100%;
+    min-width:0;
+    min-height:auto;
+    padding:14px;
+    border-radius:16px;
+  }
+  .qn-sidebar{
+    display:grid;
+    grid-template-columns:repeat(3,minmax(0,1fr));
+    gap:8px;
+  }
+  .qn-sidebar>.qn-kicker,
+  .qn-sidebar>.qn-local-note{grid-column:1/-1}
+  .qn-sidebar>button{
+    width:100%;
+    min-width:0;
+    padding:10px 7px;
+    justify-content:center;
+    gap:4px;
+    font-size:.8rem;
+    text-align:center;
+  }
+  .qn-sidebar>button span{margin-left:0}
+  .qn-local-note{
+    margin-top:8px;
+    padding-top:14px;
+  }
+  .qn-local-note p{
+    margin:6px 0;
+    font-size:.72rem;
+    line-height:1.45;
+  }
+
+  .qn-inbox{overflow:visible}
+  .qn-section-head{align-items:center;gap:12px}
+  .qn-section-head h2{font-size:1.1rem}
+  .qn-message-list{max-height:none;padding-right:0}
+  .qn-message{padding:13px}
+  .qn-message h3{font-size:.95rem}
+  .qn-message-meta{align-items:flex-start}
+  .qn-message-meta time{white-space:nowrap}
+  .qn-body{font-size:.88rem}
+
+  .qn-compose form{margin-top:16px}
+  .qn-compose textarea{min-height:140px}
+  .qn-address-input{min-width:0}
+  .qn-address-input input{min-width:0}
+  .qn-address-input span{padding:0 10px;font-size:.76rem}
+
+  .qn-vault-fab{
+    right:10px;
+    max-width:calc(100vw - 20px);
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+  }
+}
+
+@media(max-width:420px){
+  .qn-global-links a{padding:0 7px;font-size:.64rem}
+  .qn-sidebar{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .qn-sidebar>button{font-size:.76rem;padding:9px 5px}
+  .qn-topbar{margin:6px}
+  .qn-grid{padding-left:6px;padding-right:6px}
+}
