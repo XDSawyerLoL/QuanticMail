@@ -1,3 +1,4 @@
+import { QuanticGlobalNav } from "@/components/quantic-global-nav";
 import { IdentityVaultApp } from "@/components/identity-vault-app";
 
 export const metadata = {
@@ -6,5 +7,5 @@ export const metadata = {
 };
 
 export default function VaultPage() {
-  return <IdentityVaultApp />;
+  return <><QuanticGlobalNav /><IdentityVaultApp /></>;
 }
