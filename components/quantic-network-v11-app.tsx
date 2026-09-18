@@ -844,5 +844,6 @@ export function QuanticNetworkV11App() {
         </section>
       </div>
     </main>
+    </>
   );
 }
