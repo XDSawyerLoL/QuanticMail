@@ -10,7 +10,7 @@
     "lint": "eslint .",
     "relay:start": "node --experimental-transform-types standalone-relay/main.ts",
     "relay:dev": "node --watch --experimental-transform-types standalone-relay/main.ts",
-    "build:hostinger": "cross-env QUANTIC_STATIC_EXPORT=1 next build"
+    "build:hostinger": "node scripts/build-hostinger-static.mjs"
   },
   "dependencies": {
     "next": "16.3.3",
@@ -28,7 +28,6 @@
     "@types/react-dom": "^19.0.0",
     "eslint": "^9.0.0",
     "eslint-config-next": "16.3.3",
-    "typescript": "^5.9.0",
-    "cross-env": "^10.0.0"
+    "typescript": "^5.9.0"
   }
 }
