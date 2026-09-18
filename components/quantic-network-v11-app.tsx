@@ -2,6 +2,24 @@
 
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+function QuanticGlobalNav() {
+  return (
+    <header className="qn-global-nav" aria-label="Navigation Quantic">
+      <a className="qn-global-brand" href="/">
+        <span className="qn-global-mark" aria-hidden="true" />
+        <span>QUANTIC</span>
+      </a>
+      <nav className="qn-global-links">
+        <a href="/vision/">Vision</a>
+        <a className="active" href="/mail/" aria-current="page">Mail</a>
+        <a href="/network/">Network</a>
+        <a href="/products/">Produits</a>
+        <a className="centre" href="/quantic/">Centre</a>
+      </nav>
+    </header>
+  );
+}
 import {
   decryptEnvelope,
   encryptForRecipient,
@@ -741,7 +759,9 @@ export function QuanticNetworkV11App() {
 
   if (!identity) {
     return (
-      <main className="qn-onboarding">
+      <>
+        <QuanticGlobalNav />
+        <main className="qn-onboarding">
         <section className="qn-card qn-onboarding-card">
           <div className="qn-mark">Q</div>
           <p className="qn-kicker">QUANTIC SILLAGE</p>
@@ -760,11 +780,14 @@ export function QuanticNetworkV11App() {
           <p className="qn-footnote">V1.1 · identité 128 bits pour les nouveaux comptes · pairing QR · one-time prekeys · historique multi-appareil.</p>
         </section>
       </main>
+      </>
     );
   }
 
   return (
-    <main className="qn-app">
+    <>
+      <QuanticGlobalNav />
+      <main className="qn-app">
       <header className="qn-topbar">
         <div className="qn-brand"><span className="qn-mark small">Q</span><div><strong>QuanticMail</strong><small>Quantic Network · V1.1 secure sync</small></div></div>
         <div className="qn-identity">
