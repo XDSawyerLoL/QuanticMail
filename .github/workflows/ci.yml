@@ -64,3 +64,22 @@ jobs:
         run: bash -n scripts/bootstrap-mail-vps.sh
       - name: Validate production mail compose
         run: MAIL_SERVER_HOSTNAME=mx.example.com docker compose -f docker-compose.production.yml config >/dev/null
+
+
+  node22-runtime-compat:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Import PQC runtime without Node 24 APIs
+        run: |
+          node --experimental-transform-types --input-type=module <<'NODE'
+          const runtime = await import('./lib/quantic/pqc-runtime-node.ts');
+          const capabilities = runtime.detectPqcCapabilities();
+          if (!capabilities || typeof capabilities.runtime !== 'string') {
+            throw new Error('PQC capability detection did not return a valid payload.');
+          }
+          console.log(JSON.stringify(capabilities));
+          NODE
