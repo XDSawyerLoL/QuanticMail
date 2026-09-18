@@ -10,7 +10,9 @@
     "lint": "eslint .",
     "relay:start": "node --experimental-transform-types standalone-relay/main.ts",
     "relay:dev": "node --watch --experimental-transform-types standalone-relay/main.ts",
-    "build:hostinger": "node scripts/build-hostinger-static.mjs"
+    "build:hostinger": "node scripts/build-hostinger-static.mjs",
+    "relay:hostinger": "node --experimental-transform-types standalone-relay/hostinger-main.ts",
+    "relay:smoke": "node scripts/smoke-hostinger-relay.mjs"
   },
   "dependencies": {
     "next": "16.3.3",
@@ -29,5 +31,8 @@
     "eslint": "^9.0.0",
     "eslint-config-next": "16.3.3",
     "typescript": "^5.9.0"
+  },
+  "engines": {
+    "node": "22.x"
   }
 }
