@@ -1,44 +1,37 @@
-import { cpSync, existsSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const require = createRequire(import.meta.url);
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const work = join(root, ".hostinger-static-build");
+const work = mkdtempSync(join(tmpdir(), "quanticmail-hostinger-"));
 const output = join(root, "out");
 const apiRoot = join(root, "app", "api");
-
-function shouldCopy(source) {
-  const rel = relative(apiRoot, source);
-  return rel.startsWith("..") || rel === "" ? source !== apiRoot : false;
-}
-
-rmSync(work, { recursive: true, force: true });
-mkdirSync(work, { recursive: true });
-
-const entries = [
-  "app",
-  "components",
-  "lib",
-  "public",
-  "instrumentation-client.ts",
-  "next.config.ts",
-  "next-env.d.ts",
-  "package.json",
-  "tsconfig.json",
+const excludedRoots = [
+  join(root, ".git"),
+  join(root, ".next"),
+  join(root, "node_modules"),
+  join(root, "out"),
 ];
 
+function isInside(parent, candidate) {
+  const rel = relative(parent, candidate);
+  return rel === "" || (!rel.startsWith("..") && !rel.startsWith("/"));
+}
+
+function shouldCopy(source) {
+  if (isInside(apiRoot, source)) return false;
+  return !excludedRoots.some((excluded) => isInside(excluded, source));
+}
+
 try {
-  for (const entry of entries) {
-    const source = join(root, entry);
-    if (!existsSync(source)) continue;
-    cpSync(source, join(work, entry), {
-      recursive: true,
-      filter: shouldCopy,
-    });
-  }
+  cpSync(root, work, {
+    recursive: true,
+    filter: shouldCopy,
+  });
 
   symlinkSync(join(root, "node_modules"), join(work, "node_modules"), "dir");
 
