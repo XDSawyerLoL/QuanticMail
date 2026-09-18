@@ -1,6 +1,6 @@
 import { cpSync, existsSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
 import { createRequire } from "node:module";
-import { dirname, join, relative, resolve, sep } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
