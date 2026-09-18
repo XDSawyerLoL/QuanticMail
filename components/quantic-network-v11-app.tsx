@@ -19,6 +19,12 @@ import { createInitialManifest, verifyManifestBrowser } from "@/lib/quantic/mani
 import type { QuanticIdentityManifest } from "@/lib/quantic/manifest-types";
 import { localMessageFromEnvelope } from "@/lib/quantic/message-core.mjs";
 import { shouldBootstrapRootManifest, shouldUseStaticFallbackForPreKeyError } from "@/lib/quantic/recovery-policy.mjs";
+import {
+  getRelayEndpoints,
+  relayFetchJson,
+  RelayHttpError,
+  type RelayEndpoint,
+} from "@/lib/quantic/relay-client";
 import { generateOneTimePreKey, publicPreKey, verifyPreKeySignature, type SignedPreKeyRecord } from "@/lib/quantic/prekey";
 import {
   deleteLocalPreKey,
@@ -100,11 +106,37 @@ class HttpError extends Error {
   }
 }
 
+function mailRelayCandidates(): RelayEndpoint[] {
+  const configured = getRelayEndpoints();
+  const sameOrigin: RelayEndpoint = {
+    id: "quantic-hostinger",
+    label: "Quantic Hostinger",
+    baseUrl: "",
+    priority: 5,
+    enabled: true,
+  };
+  const seen = new Set<string>(["same-origin"]);
+  const relays: RelayEndpoint[] = [sameOrigin];
+
+  for (const relay of configured) {
+    const key = relay.baseUrl || "same-origin";
+    if (seen.has(key)) continue;
+    seen.add(key);
+    relays.push(relay);
+  }
+  return relays;
+}
+
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, init);
-  const data = (await response.json().catch(() => ({}))) as T & { error?: string };
-  if (!response.ok) throw new HttpError(data.error ?? `Erreur ${response.status}`, response.status);
-  return data;
+  try {
+    const { data } = await relayFetchJson<T>(mailRelayCandidates(), url, init);
+    return data;
+  } catch (error) {
+    if (error instanceof RelayHttpError) {
+      throw new HttpError(error.message, error.status);
+    }
+    throw error;
+  }
 }
 
 function normalizeLocator(value: string) {

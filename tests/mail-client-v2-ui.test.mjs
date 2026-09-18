@@ -21,6 +21,9 @@ test("QuanticMail V2 keeps the mobile mail-client shell intact", async () => {
   }
 
   assert.ok(app.includes('useState<"all" | "in" | "out">("in")'), "Inbox must remain the default folder");
+  assert.ok(app.includes("relayFetchJson"), "Mail client must use relay failover instead of direct same-origin fetches");
+  assert.ok(app.includes('id: "quantic-hostinger"'), "Hostinger must remain the first relay candidate");
+  assert.ok(app.includes('priority: 5'), "Hostinger relay must be attempted before durable fallbacks");
 
   for (const rule of [
     "body:has(.qn-mail-app) .qn-global-nav{display:none!important}",
