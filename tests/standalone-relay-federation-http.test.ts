@@ -167,7 +167,7 @@ function signedEnvelope(
     iv: "aXYtbm9uY2U=",
     ciphertext: "ZmVkZXJhdGVkLWNpcGhlcnRleHQ=",
     createdAt: "2026-09-17T00:10:00.000Z",
-    expiresAt: "2026-09-18T00:10:00.000Z",
+    expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
     signatures: { p256Device: "placeholder" },
   };
   envelope.signatures.p256Device = sign(
@@ -247,7 +247,7 @@ test("destination relay accepts a sender-signed federation envelope without the 
         previousRelayId: originRelay.relayId,
         hopLimit: 4,
         visitedRelayIds: [originRelay.relayId],
-        expiresAt: "2026-09-18T00:10:00.000Z",
+        expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
         senderIdentityManifest: alice.manifest,
         recipientIdentityManifest: bob.manifest,
         recipientRouteManifest: route,
@@ -305,7 +305,7 @@ test("destination relay rejects a valid route that does not authorize itself", a
         previousRelayId: originRelay.relayId,
         hopLimit: 4,
         visitedRelayIds: [originRelay.relayId],
-        expiresAt: "2026-09-18T00:10:00.000Z",
+        expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
         senderIdentityManifest: alice.manifest,
         recipientIdentityManifest: bob.manifest,
         recipientRouteManifest: route,
