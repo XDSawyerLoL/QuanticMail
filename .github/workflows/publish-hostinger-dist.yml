@@ -33,7 +33,16 @@ jobs:
         with:
           node-version: '22'
       - run: npm install --ignore-scripts --no-audit --no-fund
-      - run: npm run build:hostinger
+      - name: Build Hostinger bundle with relay bootstrap sentinel
+        env:
+          NEXT_PUBLIC_QUANTIC_BOOTSTRAPS: https://quantic-hostinger-relay.invalid,https://quantic-network-relay-backup-production.up.railway.app
+        run: npm run build:hostinger
+
+      - name: Verify relay bootstrap sentinel is embedded
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -R -q --binary-files=without-match 'https://quantic-hostinger-relay.invalid' out/_next out/*.html
 
       - name: Publish prebuilt /mail bundle
         shell: bash
