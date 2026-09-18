@@ -17,6 +17,7 @@ import { selectEnvelopePrivateKey } from "@/lib/quantic/envelope-core.mjs";
 import { createInitialManifest, verifyManifestBrowser } from "@/lib/quantic/manifest";
 import type { QuanticIdentityManifest } from "@/lib/quantic/manifest-types";
 import { localMessageFromEnvelope } from "@/lib/quantic/message-core.mjs";
+import { shouldBootstrapRootManifest, shouldUseStaticFallbackForPreKeyError } from "@/lib/quantic/recovery-policy.mjs";
 import { generateOneTimePreKey, publicPreKey, verifyPreKeySignature, type SignedPreKeyRecord } from "@/lib/quantic/prekey";
 import {
   deleteLocalPreKey,
@@ -266,6 +267,13 @@ export function QuanticNetworkV11App() {
       setIdentity(next);
       return next;
     } catch (err) {
+      if (err instanceof HttpError && shouldBootstrapRootManifest(local.role, err.status)) {
+        if (!local.signingPrivateKey || !local.signingPublicKey || !local.deviceSigningPrivateKey || !local.deviceSigningPublicKey || !local.deviceId) {
+          throw new Error("Impossible de reconstruire le manifeste racine Quantic : clés locales incomplètes.");
+        }
+        const manifest = await createInitialManifest(local);
+        return publishManifest(local, manifest);
+      }
       if (err instanceof HttpError && err.status === 404) return local;
       throw err;
     }
@@ -414,7 +422,9 @@ export function QuanticNetworkV11App() {
       }
       return { publicKey: response.prekey.publicKey, keyMode: "one-time-prekey", preKeyId: response.prekey.preKeyId };
     } catch (err) {
-      if (err instanceof HttpError && err.status === 404) return { publicKey: device.publicKey, keyMode: "static-fallback" };
+      if (err instanceof HttpError && shouldUseStaticFallbackForPreKeyError(err.status, err.message)) {
+        return { publicKey: device.publicKey, keyMode: "static-fallback" };
+      }
       throw err;
     }
   }, []);
