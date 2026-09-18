@@ -227,7 +227,7 @@ export function QuanticNetworkV11App() {
   const [to, setTo] = useState("");
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
-  const [scope, setScope] = useState<"all" | "in" | "out">("all");
+  const [scope, setScope] = useState<"all" | "in" | "out">("in");
   const [busy, setBusy] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState("");
