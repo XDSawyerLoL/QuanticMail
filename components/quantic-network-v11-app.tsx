@@ -111,6 +111,48 @@ function normalizeLocator(value: string) {
   return value.trim().toLowerCase().replace(/@quantic$/i, "");
 }
 
+type MailIconName =
+  | "menu" | "search" | "sync" | "inbox" | "send" | "devices" | "vault"
+  | "network" | "compose" | "close" | "back" | "mail" | "chevron" | "copy";
+
+function MailIcon({ name, className = "" }: { name: MailIconName; className?: string }) {
+  const common = { width: 24, height: 24, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, className };
+  if (name === "menu") return <svg {...common}><path d="M4 7h16M4 12h16M4 17h16" /></svg>;
+  if (name === "search") return <svg {...common}><circle cx="10.8" cy="10.8" r="6.2" /><path d="m15.5 15.5 4.5 4.5" /></svg>;
+  if (name === "sync") return <svg {...common}><path d="M20 7h-5V2" /><path d="M20 7a8 8 0 1 0 1 8" /></svg>;
+  if (name === "inbox") return <svg {...common}><path d="M4 5h16l-1.5 14h-13L4 5Z" /><path d="M5 13h4l1.5 2h3L15 13h4" /></svg>;
+  if (name === "send") return <svg {...common}><path d="m3.5 4.5 17 7.5-17 7.5 3.2-7.5-3.2-7.5Z" /><path d="M6.7 12h8.8" /></svg>;
+  if (name === "devices") return <svg {...common}><rect x="7" y="2.5" width="10" height="19" rx="2" /><path d="M10 18.5h4" /></svg>;
+  if (name === "vault") return <svg {...common}><rect x="4" y="5" width="16" height="14" rx="2" /><path d="M8 5V3h8v2M8 11h8" /></svg>;
+  if (name === "network") return <svg {...common}><circle cx="12" cy="5" r="2.3" /><circle cx="5" cy="18" r="2.3" /><circle cx="19" cy="18" r="2.3" /><path d="m10.7 7-4.4 8.8M13.3 7l4.4 8.8M7.3 18h9.4" /></svg>;
+  if (name === "compose") return <svg {...common}><path d="M13.5 5.5 18.5 10.5 8 21H3v-5L13.5 5.5Z" /><path d="m12 7 5 5M15.5 3.5l5 5" /></svg>;
+  if (name === "close") return <svg {...common}><path d="m6 6 12 12M18 6 6 18" /></svg>;
+  if (name === "back") return <svg {...common}><path d="m15 5-7 7 7 7" /></svg>;
+  if (name === "mail") return <svg {...common}><rect x="3.5" y="5.5" width="17" height="13" rx="2" /><path d="m5 7 7 5 7-5" /></svg>;
+  if (name === "copy") return <svg {...common}><rect x="8" y="8" width="11" height="11" rx="2" /><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3" /></svg>;
+  return <svg {...common}><path d="m9 6 6 6-6 6" /></svg>;
+}
+
+function mailDisplayName(address: string) {
+  const raw = String(address || "").split("@")[0] || "Quantic";
+  return raw.split("~")[0] || raw;
+}
+
+function mailInitial(address: string) {
+  return mailDisplayName(address).slice(0, 1).toUpperCase() || "Q";
+}
+
+function formatMailDate(value: string) {
+  const date = new Date(value);
+  const now = new Date();
+  if (date.toDateString() === now.toDateString()) {
+    return date.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+  }
+  const diffDays = Math.floor((now.getTime() - date.getTime()) / 86_400_000);
+  if (diffDays < 6) return date.toLocaleDateString("fr-FR", { weekday: "short" }).replace(".", "");
+  return date.toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
+}
+
 function samePublicKey(a: JsonWebKey, b: JsonWebKey) {
   return a.kty === b.kty && a.crv === b.crv && a.x === b.x && a.y === b.y;
 }
@@ -185,11 +227,17 @@ export function QuanticNetworkV11App() {
   const [to, setTo] = useState("");
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
-  const [scope, setScope] = useState<"all" | "in" | "out">("all");
+  const [scope, setScope] = useState<"all" | "in" | "out">("in");
   const [busy, setBusy] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [composeOpen, setComposeOpen] = useState(false);
+  const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [focusTab, setFocusTab] = useState<"priority" | "other">("priority");
   const syncingRef = useRef(false);
 
   const refreshLocal = useCallback(async () => {
@@ -728,6 +776,7 @@ export function QuanticNetworkV11App() {
       setSubject("");
       setBody("");
       await refreshLocal();
+      setComposeOpen(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Envoi impossible.");
     } finally {
@@ -735,10 +784,34 @@ export function QuanticNetworkV11App() {
     }
   }
 
-  const visibleMessages = useMemo(
-    () => messages.filter((message) => scope === "all" || message.direction === scope),
-    [messages, scope],
+  const visibleMessages = useMemo(() => {
+    const base = messages
+      .filter((message) => scope === "all" || message.direction === scope)
+      .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+    const query = searchQuery.trim().toLowerCase();
+    return query
+      ? base.filter((message) =>
+          [message.subject, message.body, message.from, message.to].some((value) => String(value || "").toLowerCase().includes(query)),
+        )
+      : base;
+  }, [messages, scope, searchQuery]);
+
+  const focusedMessages = useMemo(() => {
+    if (scope !== "in" || visibleMessages.length === 0) return visibleMessages;
+    const newest = Date.parse(visibleMessages[0].createdAt);
+    const cutoff = newest - 7 * 86_400_000;
+    return focusTab === "priority"
+      ? visibleMessages.filter((message) => Date.parse(message.createdAt) >= cutoff)
+      : visibleMessages.filter((message) => Date.parse(message.createdAt) < cutoff);
+  }, [visibleMessages, focusTab, scope]);
+
+  const selectedMessage = useMemo(
+    () => messages.find((message) => message.id === selectedMessageId) ?? null,
+    [messages, selectedMessageId],
   );
+
+  const receivedCount = messages.filter((message) => message.direction === "in").length;
+  const sentCount = messages.filter((message) => message.direction === "out").length;
 
   if (!identity) {
     return (
@@ -765,62 +838,179 @@ export function QuanticNetworkV11App() {
   }
 
   return (
-    <main className="qn-app">
-      <header className="qn-topbar">
-        <div className="qn-brand"><span className="qn-mark small">Q</span><div><strong>Quantic Mail</strong><small>Quantic Network · client V1.3 · sync V1.1</small></div></div>
-        <div className="qn-identity">
-          <button className="qn-address" onClick={() => void navigator.clipboard.writeText(identity.address)} title="Copier le nom Quantic">{identity.address}</button>
-          {identity.canonicalAddress && <button className="qn-address" onClick={() => void navigator.clipboard.writeText(identity.canonicalAddress!)} title="Copier l’identité canonique">{identity.canonicalAddress}</button>}
-          <button className="qn-sync" onClick={() => void sync()} disabled={syncing}>{syncing ? "Synchro…" : "Synchroniser"}</button>
+    <main className="qn-mail-app">
+      <header className="qm-header">
+        <button className="qm-icon-btn qm-menu-btn" onClick={() => setDrawerOpen(true)} aria-label="Ouvrir les dossiers">
+          <MailIcon name="menu" />
+        </button>
+        <div className="qm-header-title">
+          <span className="qm-logo">Q</span>
+          <div>
+            <strong>{scope === "in" ? "Réception" : scope === "out" ? "Envoyés" : "Courrier"}</strong>
+            <small>{identity.address}</small>
+          </div>
+        </div>
+        <div className="qm-header-actions">
+          <button className={"qm-icon-btn " + (syncing ? "is-spinning" : "")} onClick={() => void sync()} disabled={syncing} aria-label="Synchroniser">
+            <MailIcon name="sync" />
+          </button>
+          <button className="qm-icon-btn" onClick={() => setSearchOpen((value) => !value)} aria-label="Rechercher">
+            <MailIcon name="search" />
+          </button>
         </div>
       </header>
 
-      <div className="qn-grid">
-        <aside className="qn-sidebar qn-card">
-          <p className="qn-kicker">BOÎTE LOCALE</p>
-          <button className={scope === "all" ? "active" : ""} onClick={() => setScope("all")}>Tous <span>{messages.length}</span></button>
-          <button className={scope === "in" ? "active" : ""} onClick={() => setScope("in")}>Reçus <span>{messages.filter((m) => m.direction === "in").length}</span></button>
-          <button className={scope === "out" ? "active" : ""} onClick={() => setScope("out")}>Envoyés <span>{messages.filter((m) => m.direction === "out").length}</span></button>
-          <div className="qn-local-note">
+      {searchOpen && (
+        <div className="qm-searchbar">
+          <MailIcon name="search" />
+          <input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Rechercher dans les messages" autoFocus />
+          {searchQuery && <button onClick={() => setSearchQuery("")} aria-label="Effacer"><MailIcon name="close" /></button>}
+        </div>
+      )}
+
+      {scope === "in" && (
+        <div className="qm-focus-tabs" aria-label="Filtrer la réception">
+          <button className={focusTab === "priority" ? "active" : ""} onClick={() => setFocusTab("priority")}>Prioritaires</button>
+          <button className={focusTab === "other" ? "active" : ""} onClick={() => setFocusTab("other")}>Autres</button>
+        </div>
+      )}
+
+      <div className="qm-shell">
+        <aside className={"qm-drawer " + (drawerOpen ? "open" : "")}>
+          <div className="qm-drawer-head">
+            <div className="qm-drawer-brand">
+              <span className="qm-logo large">Q</span>
+              <div><strong>Quantic Mail</strong><small>{identity.address}</small></div>
+            </div>
+            <button className="qm-icon-btn qm-drawer-close" onClick={() => setDrawerOpen(false)} aria-label="Fermer"><MailIcon name="close" /></button>
+          </div>
+
+          <nav className="qm-folders">
+            <p>Courrier</p>
+            <button className={scope === "in" ? "active" : ""} onClick={() => { setScope("in"); setDrawerOpen(false); setSelectedMessageId(null); }}>
+              <MailIcon name="inbox" /><span>Réception</span><b>{receivedCount}</b>
+            </button>
+            <button className={scope === "out" ? "active" : ""} onClick={() => { setScope("out"); setDrawerOpen(false); setSelectedMessageId(null); }}>
+              <MailIcon name="send" /><span>Envoyés</span><b>{sentCount}</b>
+            </button>
+            <button className={scope === "all" ? "active" : ""} onClick={() => { setScope("all"); setDrawerOpen(false); setSelectedMessageId(null); }}>
+              <MailIcon name="mail" /><span>Tous les messages</span><b>{messages.length}</b>
+            </button>
+          </nav>
+
+          <div className="qm-drawer-separator" />
+
+          <nav className="qm-folders qm-tools">
+            <p>Quantic</p>
+            <Link href="/devices" onClick={() => setDrawerOpen(false)}><MailIcon name="devices" /><span>Appareils</span><MailIcon name="chevron" /></Link>
+            <Link href="/vault" onClick={() => setDrawerOpen(false)}><MailIcon name="vault" /><span>Identity Vault</span><MailIcon name="chevron" /></Link>
+            <Link href="/network" onClick={() => setDrawerOpen(false)}><MailIcon name="network" /><span>Network</span><MailIcon name="chevron" /></Link>
+          </nav>
+
+          <div className="qm-drawer-identity">
             <strong>{identity.role === "secondary" ? "Appareil lié" : "Appareil maître"}</strong>
-            <p>{identity.deviceLabel ?? identity.deviceId}</p>
-            <p>{identity.deviceId}</p>
-            <p>{identity.manifest ? `Manifeste V1.1 #${identity.manifest.payload.sequence}` : "Manifeste en attente"}</p>
-            <p>{outboxCount ? `${outboxCount} livraison(s) chiffrée(s) en attente.` : "Aucune livraison en attente."}</p>
-            <Link className="qn-secondary-link" href="/devices">Gérer les appareils</Link>
+            <span>{identity.deviceLabel ?? "Appareil Quantic"}</span>
+            <small>{identity.manifest ? `Manifeste V1.1 #${identity.manifest.payload.sequence}` : "Manifeste en attente"}</small>
+            {outboxCount > 0 && <small>{outboxCount} livraison(s) chiffrée(s) en attente</small>}
           </div>
         </aside>
 
-        <section className="qn-card qn-inbox">
-          <div className="qn-section-head"><div><p className="qn-kicker">MESSAGES</p><h2>{scope === "in" ? "Reçus" : scope === "out" ? "Envoyés" : "Tous les messages"}</h2></div><span>{visibleMessages.length}</span></div>
-          <div className="qn-message-list">
-            {visibleMessages.length === 0 ? <div className="qn-empty">Aucun message local pour le moment.</div> : visibleMessages.map((message) => (
-              <article key={message.id} className="qn-message">
-                <div className="qn-message-meta"><span className={`qn-direction ${message.direction}`}>{message.direction === "in" ? "REÇU" : "ENVOYÉ"}</span><time>{new Date(message.createdAt).toLocaleString("fr-FR")}</time></div>
-                <h3>{message.subject}</h3>
-                <p className="qn-correspondent">{message.direction === "in" ? `De ${message.from}` : `À ${message.to}`}</p>
-                <p className="qn-body">{message.body}</p>
-              </article>
-            ))}
+        {drawerOpen && <button className="qm-backdrop" onClick={() => setDrawerOpen(false)} aria-label="Fermer le menu" />}
+
+        <section className="qm-list-panel">
+          <div className="qm-list-head">
+            <div><strong>{scope === "in" ? "Réception" : scope === "out" ? "Envoyés" : "Tous les messages"}</strong><small>{focusedMessages.length} message(s)</small></div>
+            <button className="qm-text-btn" onClick={() => void sync()} disabled={syncing}>{syncing ? "Synchronisation…" : "Actualiser"}</button>
+          </div>
+
+          <div className="qm-message-list">
+            {focusedMessages.length === 0 ? (
+              <div className="qm-empty">
+                <MailIcon name="mail" />
+                <strong>Aucun message ici</strong>
+                <span>{scope === "in" ? "Les nouveaux messages apparaîtront dans cette boîte." : "Aucun message pour ce filtre."}</span>
+              </div>
+            ) : focusedMessages.map((message) => {
+              const correspondent = message.direction === "in" ? message.from : message.to;
+              return (
+                <button key={message.id} className={"qm-message-row " + (selectedMessageId === message.id ? "selected" : "")} onClick={() => setSelectedMessageId(message.id)}>
+                  <span className={"qm-avatar " + (message.direction === "out" ? "out" : "")}>{mailInitial(correspondent)}</span>
+                  <span className="qm-message-copy">
+                    <span className="qm-message-line"><strong>{mailDisplayName(correspondent)}</strong><time>{formatMailDate(message.createdAt)}</time></span>
+                    <span className="qm-subject">{message.subject || "Sans objet"}</span>
+                    <span className="qm-preview">{message.body}</span>
+                  </span>
+                  {message.direction === "in" && <i className="qm-unread-dot" aria-hidden="true" />}
+                </button>
+              );
+            })}
           </div>
         </section>
 
-        <section className="qn-card qn-compose">
-          <p className="qn-kicker">NOUVEAU</p>
-          <h2>Message Quantic</h2>
-          <form onSubmit={sendMessage}>
-            <label>À</label>
-            <div className="qn-address-input compact"><input value={to} onChange={(e) => setTo(e.target.value)} placeholder="marie ou marie~empreinte" required /><span>@quantic</span></div>
-            <label>Objet</label>
-            <input value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="Sans objet" />
-            <label>Message</label>
-            <textarea value={body} onChange={(e) => setBody(e.target.value)} placeholder="Écrire…" rows={12} required />
-            <button disabled={busy}>{busy ? "Vérification et chiffrement…" : "Vérifier, chiffrer et envoyer"}</button>
-          </form>
-          {(error || notice) && <p className={error ? "qn-error" : "qn-notice"}>{error || notice}</p>}
-          <p className="qn-footnote">V1.1 vérifie le manifeste signé, réclame une one-time prekey quand elle existe et synchronise les messages envoyés vers tes autres appareils autorisés.</p>
+        <section className={"qm-reader " + (selectedMessage ? "open" : "")}>
+          {selectedMessage ? (
+            <>
+              <div className="qm-reader-head">
+                <button className="qm-icon-btn qm-reader-back" onClick={() => setSelectedMessageId(null)} aria-label="Retour"><MailIcon name="back" /></button>
+                <div>
+                  <strong>{selectedMessage.subject || "Sans objet"}</strong>
+                  <small>{formatMailDate(selectedMessage.createdAt)}</small>
+                </div>
+              </div>
+              <article className="qm-reader-body">
+                <div className="qm-reader-person">
+                  <span className="qm-avatar">{mailInitial(selectedMessage.direction === "in" ? selectedMessage.from : selectedMessage.to)}</span>
+                  <div>
+                    <strong>{mailDisplayName(selectedMessage.direction === "in" ? selectedMessage.from : selectedMessage.to)}</strong>
+                    <small>{selectedMessage.direction === "in" ? `De ${selectedMessage.from}` : `À ${selectedMessage.to}`}</small>
+                  </div>
+                </div>
+                <div className="qm-reader-message">{selectedMessage.body}</div>
+              </article>
+            </>
+          ) : (
+            <div className="qm-reader-placeholder">
+              <MailIcon name="mail" />
+              <strong>Sélectionnez un message</strong>
+              <span>Le contenu s’affichera ici.</span>
+            </div>
+          )}
         </section>
       </div>
+
+      <button className="qm-compose-fab" onClick={() => setComposeOpen(true)} aria-label="Nouveau message">
+        <MailIcon name="compose" />
+      </button>
+
+      <nav className="qm-bottom-nav" aria-label="Navigation QuanticMail">
+        <button className="active" onClick={() => { setScope("in"); setSelectedMessageId(null); }}><MailIcon name="mail" /><span>Courrier</span></button>
+        <Link href="/devices"><MailIcon name="devices" /><span>Appareils</span></Link>
+        <Link href="/vault"><MailIcon name="vault" /><span>Vault</span></Link>
+        <Link href="/network"><MailIcon name="network" /><span>Network</span></Link>
+      </nav>
+
+      {composeOpen && (
+        <div className="qm-compose-layer" role="dialog" aria-modal="true" aria-label="Nouveau message">
+          <button className="qm-compose-backdrop" onClick={() => setComposeOpen(false)} aria-label="Fermer" />
+          <section className="qm-compose-sheet">
+            <header>
+              <button className="qm-icon-btn" onClick={() => setComposeOpen(false)} aria-label="Fermer"><MailIcon name="close" /></button>
+              <strong>Nouveau message</strong>
+              <button className="qm-send-top" form="qm-compose-form" disabled={busy}>{busy ? "Envoi…" : "Envoyer"}</button>
+            </header>
+            <form id="qm-compose-form" onSubmit={sendMessage}>
+              <label>À</label>
+              <div className="qm-compose-address"><input value={to} onChange={(e) => setTo(e.target.value)} placeholder="nom" required /><span>@quantic</span></div>
+              <label>Objet</label>
+              <input value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="Sans objet" />
+              <label>Message</label>
+              <textarea value={body} onChange={(e) => setBody(e.target.value)} placeholder="Écrire votre message…" rows={10} required />
+              {(error || notice) && <p className={error ? "qn-error" : "qn-notice"}>{error || notice}</p>}
+              <p className="qm-compose-security">Chiffrement Quantic · manifeste signé · one-time prekey si disponible.</p>
+            </form>
+          </section>
+        </div>
+      )}
     </main>
   );
 }
