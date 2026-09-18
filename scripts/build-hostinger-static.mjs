@@ -36,7 +36,7 @@ try {
   symlinkSync(join(root, "node_modules"), join(work, "node_modules"), "dir");
 
   const nextBin = require.resolve("next/dist/bin/next");
-  const build = spawnSync(process.execPath, [nextBin, "build"], {
+  const build = spawnSync(process.execPath, [nextBin, "build", "--webpack"], {
     cwd: work,
     env: { ...process.env, QUANTIC_STATIC_EXPORT: "1" },
     stdio: "inherit",
