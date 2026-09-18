@@ -6,8 +6,9 @@ const app=fs.readFileSync("components/quantic-network-v11-app.tsx","utf8");
 const css=fs.readFileSync("app/quantic.css","utf8");
 
 assert.match(nav,/function QuanticGlobalNav/);
+assert.ok(nav.includes("mediumorchid-badger-314305.hostingersite.com"),"global nav must target the Hostinger portal root");
 for (const href of ["/vision/","/mail/","/network/","/products/","/quantic/"]) {
-  assert.ok(nav.includes(`href="${href}"`), `missing global link ${href}`);
+  assert.ok(nav.includes(href), `missing global link ${href}`);
 }
 assert.ok((app.match(/<QuanticGlobalNav \/>/g)||[]).length>=2,"global nav must appear before onboarding and mailbox surfaces");
 for (const path of [
