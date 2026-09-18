@@ -213,3 +213,98 @@
 @media(prefers-reduced-motion:reduce){
   .qn-app:after,.qn-onboarding:after{animation:none!important}
 }
+
+
+/* Global Quantic navigation — shared product language */
+.qn-global-nav{
+  position:sticky;
+  top:0;
+  z-index:80;
+  min-height:66px;
+  margin:0;
+  padding:10px 18px;
+  display:flex;
+  align-items:center;
+  gap:18px;
+  border-bottom:1px solid rgba(56,139,207,.22);
+  background:linear-gradient(135deg,rgba(2,9,19,.94),rgba(6,16,29,.88));
+  backdrop-filter:blur(24px) saturate(145%);
+  box-shadow:0 16px 55px rgba(0,0,0,.22);
+}
+.qn-global-brand{
+  display:flex;
+  align-items:center;
+  gap:12px;
+  color:#fff;
+  text-decoration:none;
+  font-weight:850;
+  font-size:.88rem;
+  letter-spacing:.15em;
+  white-space:nowrap;
+}
+.qn-global-mark{
+  width:30px;
+  height:38px;
+  position:relative;
+  flex:0 0 auto;
+  filter:drop-shadow(0 0 14px rgba(55,156,255,.42));
+}
+.qn-global-mark:before{
+  content:"";
+  position:absolute;
+  inset:0;
+  clip-path:polygon(50% 100%,0 0,100% 0);
+  background:linear-gradient(180deg,#20d8ff 0%,#148cff 51%,#9b5cff 100%);
+}
+.qn-global-mark:after{
+  content:"";
+  position:absolute;
+  width:8px;
+  height:8px;
+  left:9px;
+  top:9px;
+  border:3px solid #fff;
+  border-radius:50%;
+  box-shadow:0 0 14px #63cfff;
+}
+.qn-global-links{
+  margin-left:auto;
+  display:flex;
+  align-items:center;
+  gap:3px;
+}
+.qn-global-links a{
+  min-height:40px;
+  padding:0 13px;
+  display:inline-flex;
+  align-items:center;
+  border-radius:12px;
+  color:#9fb2c7;
+  text-decoration:none;
+  font-size:.79rem;
+  font-weight:700;
+  transition:color .3s var(--qn-ease),background .3s var(--qn-ease),transform .3s var(--qn-ease);
+}
+.qn-global-links a:hover,
+.qn-global-links a:focus-visible,
+.qn-global-links a.active{
+  color:#fff;
+  background:linear-gradient(135deg,rgba(20,140,255,.12),rgba(155,92,255,.09));
+}
+.qn-global-links a:hover{transform:translateY(-1px)}
+.qn-global-links a.centre{
+  border:1px solid rgba(255,199,77,.28);
+  color:#ffe19c;
+  background:linear-gradient(135deg,rgba(93,61,7,.18),rgba(30,25,50,.28));
+}
+.qn-onboarding{min-height:calc(100vh - 66px)}
+.qn-app{min-height:calc(100vh - 66px)}
+@media(max-width:760px){
+  .qn-global-nav{padding:8px 10px;gap:8px}
+  .qn-global-brand span:last-child{display:none}
+  .qn-global-links{overflow-x:auto;scrollbar-width:none}
+  .qn-global-links::-webkit-scrollbar{display:none}
+  .qn-global-links a{padding:0 9px;font-size:.68rem;min-height:36px}
+  .qn-global-links a[href="/products/"]{display:none}
+  .qn-global-links a.centre{display:none}
+}

@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { QuanticGlobalNav } from "@/components/quantic-global-nav";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+
 import {
   decryptEnvelope,
   encryptForRecipient,
@@ -741,10 +743,12 @@ export function QuanticNetworkV11App() {
 
   if (!identity) {
     return (
-      <main className="qn-onboarding">
+      <>
+        <QuanticGlobalNav />
+        <main className="qn-onboarding">
         <section className="qn-card qn-onboarding-card">
           <div className="qn-mark">Q</div>
-          <p className="qn-kicker">QUANTIC SILLAGE</p>
+          <p className="qn-kicker">QUANTIC MAIL · V1.3</p>
           <h1>Crée ton identité Quantic.</h1>
           <p className="qn-lead">Un nom humain, une identité cryptographique forte, un manifeste signé et des clés de message à usage unique.</p>
           <form onSubmit={createIdentity} className="qn-create-form">
@@ -760,13 +764,16 @@ export function QuanticNetworkV11App() {
           <p className="qn-footnote">V1.1 · identité 128 bits pour les nouveaux comptes · pairing QR · one-time prekeys · historique multi-appareil.</p>
         </section>
       </main>
+      </>
     );
   }
 
   return (
-    <main className="qn-app">
+    <>
+      <QuanticGlobalNav />
+      <main className="qn-app">
       <header className="qn-topbar">
-        <div className="qn-brand"><span className="qn-mark small">Q</span><div><strong>QuanticMail</strong><small>Quantic Network · V1.1 secure sync</small></div></div>
+        <div className="qn-brand"><span className="qn-mark small">Q</span><div><strong>Quantic Mail</strong><small>Quantic Network · client V1.3 · sync V1.1</small></div></div>
         <div className="qn-identity">
           <button className="qn-address" onClick={() => void navigator.clipboard.writeText(identity.address)} title="Copier le nom Quantic">{identity.address}</button>
           {identity.canonicalAddress && <button className="qn-address" onClick={() => void navigator.clipboard.writeText(identity.canonicalAddress!)} title="Copier l’identité canonique">{identity.canonicalAddress}</button>}
@@ -821,5 +828,6 @@ export function QuanticNetworkV11App() {
         </section>
       </div>
     </main>
+    </>
   );
 }
