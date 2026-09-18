@@ -1,13 +1,12 @@
 import {
   createPrivateKey,
   createPublicKey,
-  decapsulate,
-  encapsulate,
   generateKeyPairSync,
   sign,
   verify,
   type KeyObject,
 } from "node:crypto";
+import * as nodeCrypto from "node:crypto";
 
 import type {
   MlKemEncapsulation,
@@ -39,6 +38,18 @@ function importPrivateKey(pkcs8: string) {
   return createPrivateKey({ key: decodeDer(pkcs8), format: "der", type: "pkcs8" });
 }
 
+type EncapsulateResult = {
+  sharedKey: Uint8Array;
+  ciphertext: Uint8Array;
+};
+type EncapsulateFn = (key: KeyObject) => EncapsulateResult;
+type DecapsulateFn = (key: KeyObject, ciphertext: Uint8Array) => Uint8Array;
+
+const optionalPqcCrypto = nodeCrypto as unknown as {
+  encapsulate?: EncapsulateFn;
+  decapsulate?: DecapsulateFn;
+};
+
 let cachedCapabilities: PqcCapabilities | null = null;
 
 export function detectPqcCapabilities(): PqcCapabilities {
@@ -49,7 +60,10 @@ export function detectPqcCapabilities(): PqcCapabilities {
 
   try {
     const pair = generateKeyPairSync("ml-kem-768");
-    mlKem768 = pair.publicKey.asymmetricKeyType === "ml-kem-768";
+    mlKem768 =
+      pair.publicKey.asymmetricKeyType === "ml-kem-768" &&
+      typeof optionalPqcCrypto.encapsulate === "function" &&
+      typeof optionalPqcCrypto.decapsulate === "function";
   } catch {
     mlKem768 = false;
   }
@@ -95,6 +109,8 @@ export function mlKemEncapsulate(publicKeySpki: string): MlKemEncapsulation {
   if (publicKey.asymmetricKeyType !== "ml-kem-768") {
     throw new Error("La clé publique n’est pas une clé ML-KEM-768.");
   }
+  const encapsulate = optionalPqcCrypto.encapsulate;
+  if (!encapsulate) throw new Error("ML-KEM-768 n’est pas disponible dans ce runtime Node.");
   const result = encapsulate(publicKey);
   return {
     sharedSecret: Buffer.from(result.sharedKey),
@@ -108,6 +124,8 @@ export function mlKemDecapsulate(privateKeyPkcs8: string, ciphertext: string): B
   if (privateKey.asymmetricKeyType !== "ml-kem-768") {
     throw new Error("La clé privée n’est pas une clé ML-KEM-768.");
   }
+  const decapsulate = optionalPqcCrypto.decapsulate;
+  if (!decapsulate) throw new Error("ML-KEM-768 n’est pas disponible dans ce runtime Node.");
   return Buffer.from(decapsulate(privateKey, decodeDer(ciphertext)));
 }
 
