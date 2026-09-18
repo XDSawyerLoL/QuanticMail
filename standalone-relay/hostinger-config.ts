@@ -1,7 +1,11 @@
 import { parseRelayBootstrap } from "./discovery-bootstrap.ts";
-import { parseRelayPort } from "./main.ts";
-
 type RelayEnv = Record<string,string|undefined>;
+
+function parsePort(value:string){
+  const port=Number(value);
+  if(!Number.isInteger(port)||port<1||port>65535) throw new Error("Le port Quantic Relay doit être un entier entre 1 et 65535.");
+  return port;
+}
 
 function required(env: RelayEnv,key: string){
   const value=env[key]?.trim();
@@ -43,7 +47,7 @@ export function hostingerRelayConfig(env: RelayEnv=process.env){
 
   return {
     host:"0.0.0.0",
-    port:parseRelayPort(env.PORT ?? env.QUANTIC_RELAY_PORT ?? "8787"),
+    port:parsePort(env.PORT ?? env.QUANTIC_RELAY_PORT ?? "8787"),
     dataDir:env.QUANTIC_RELAY_DATA_DIR ?? "./data",
     databaseUrl,
     identitySecret,
