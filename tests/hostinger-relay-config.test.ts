@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { hostingerRelayConfig } from "../standalone-relay/hostinger-config.ts";
 
-const base={
+const base: Record<string,string>={
   PORT:"8080",
   QUANTIC_RELAY_DATABASE_URL:"postgresql://user:pass@example.invalid/db",
   QUANTIC_RELAY_IDENTITY_SECRET:"x".repeat(48),
