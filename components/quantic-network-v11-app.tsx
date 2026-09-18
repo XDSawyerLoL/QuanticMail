@@ -797,8 +797,9 @@ export function QuanticNetworkV11App() {
   }, [messages, scope, searchQuery]);
 
   const focusedMessages = useMemo(() => {
-    if (scope !== "in") return visibleMessages;
-    const cutoff = Date.now() - 7 * 86_400_000;
+    if (scope !== "in" || visibleMessages.length === 0) return visibleMessages;
+    const newest = Date.parse(visibleMessages[0].createdAt);
+    const cutoff = newest - 7 * 86_400_000;
     return focusTab === "priority"
       ? visibleMessages.filter((message) => Date.parse(message.createdAt) >= cutoff)
       : visibleMessages.filter((message) => Date.parse(message.createdAt) < cutoff);
