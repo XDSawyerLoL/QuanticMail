@@ -15,7 +15,7 @@
     "relay:hostinger": "node --experimental-transform-types standalone-relay/hostinger-main.ts",
     "relay:smoke": "node scripts/smoke-hostinger-relay.mjs",
     "desktop:start": "electron .",
-    "desktop:dist": "electron-builder --win nsis"
+    "desktop:dist": "electron-builder --win nsis --publish never"
   },
   "dependencies": {
     "next": "16.3.3",
