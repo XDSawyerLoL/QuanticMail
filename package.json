@@ -2,6 +2,7 @@
   "name": "quanticmail",
   "version": "1.3.0",
   "private": true,
+  "main": "desktop/main.cjs",
   "scripts": {
     "dev": "next dev",
     "test": "node --experimental-transform-types --test tests/*.test.mjs tests/*.test.ts",
@@ -12,7 +13,9 @@
     "relay:dev": "node --watch --experimental-transform-types standalone-relay/main.ts",
     "build:hostinger": "node scripts/build-hostinger-static.mjs",
     "relay:hostinger": "node --experimental-transform-types standalone-relay/hostinger-main.ts",
-    "relay:smoke": "node scripts/smoke-hostinger-relay.mjs"
+    "relay:smoke": "node scripts/smoke-hostinger-relay.mjs",
+    "desktop:start": "electron .",
+    "desktop:dist": "electron-builder --win nsis"
   },
   "dependencies": {
     "next": "16.3.3",
@@ -29,9 +32,39 @@
     "@types/qrcode": "^1.5.6",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "electron": "^38.0.0",
+    "electron-builder": "^26.0.0",
     "eslint": "^9.0.0",
     "eslint-config-next": "16.3.3",
     "typescript": "^5.9.0"
+  },
+  "build": {
+    "appId": "com.quanticsillage.quanticmail",
+    "productName": "QuanticMail",
+    "directories": {
+      "output": "desktop-dist"
+    },
+    "files": [
+      "desktop/**/*",
+      "package.json"
+    ],
+    "asar": true,
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "artifactName": "QuanticMail-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "QuanticMail"
+    }
   },
   "engines": {
     "node": "22.x"
