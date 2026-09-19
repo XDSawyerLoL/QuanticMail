@@ -1,0 +1,39 @@
+name: QuanticMail Desktop Release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "desktop/**"
+      - "package.json"
+      - ".github/workflows/desktop-release.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm install
+      - name: Build Windows installer
+        run: npm run desktop:dist
+      - name: Publish GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "quanticmail-desktop-v1.3.0"
+          $asset = "desktop-dist/QuanticMail-Setup-1.3.0.exe"
+          gh release view $tag 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag --title "QuanticMail Desktop 1.3.0" --notes "Application Windows officielle QuanticMail. Le client ouvre QuanticMail dans une fenêtre dédiée et conserve la session locale du poste."
+          }
+          gh release upload $tag $asset --clobber
