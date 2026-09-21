@@ -9,6 +9,7 @@ import { retryPendingFederationReceipts } from "./federation-retry.ts";
 import { createRelayRequestHandler } from "./http.ts";
 import { loadOrCreateRelayIdentity } from "./identity.ts";
 import { createPostgresRelayPersistenceFromUrl } from "./postgres-storage.ts";
+import { createPulseStateRequestHandler } from "./pulse-state.ts";
 import { createCompatRegisterRequestHandler } from "./register-compat-http.ts";
 import { RelayRuntime } from "./runtime.ts";
 import { createFileRelayStateStore } from "./storage.ts";
@@ -84,8 +85,12 @@ export async function startRelayServer(
   const discoveryResolveHandler = createDiscoveryResolveRequestHandler(runtime, relayIdentity.relayId);
   const directSignalingHandler = createDirectSignalingRequestHandler();
   const compatRegisterHandler = createCompatRegisterRequestHandler(runtime);
+  const pulseState = databaseUrl
+    ? await createPulseStateRequestHandler(databaseUrl, process.env.QUANTIC_PULSE_STORE_TOKEN ?? "")
+    : null;
   const server = createServer((request, response) => {
     void (async () => {
+      if (pulseState && await pulseState.handler(request, response)) return;
       if (await compatRegisterHandler(request, response)) return;
       if (await directSignalingHandler(request, response)) return;
       if (await discoveryHandleHandler(request, response)) return;
@@ -168,6 +173,7 @@ export async function startRelayServer(
         await closeHttpServer(server);
         if (retryTask) await retryTask;
         await runtime.flush();
+        await pulseState?.close();
         await postgresPersistence?.close();
       })();
     }
