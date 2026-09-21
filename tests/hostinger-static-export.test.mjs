@@ -8,7 +8,7 @@ assert.match(config,/basePath:\s*["']\/mail["']/);
 assert.match(config,/trailingSlash:\s*true/);
 
 const pkg=JSON.parse(fs.readFileSync("package.json","utf8"));
-assert.equal(pkg.version,"1.3.0");
+assert.equal(pkg.version,"1.3.1");
 assert.equal(pkg.scripts["build:hostinger"],"node scripts/build-hostinger-static.mjs");
 
 const script=fs.readFileSync("scripts/build-hostinger-static.mjs","utf8");
