@@ -37,7 +37,7 @@ export class QuanticMailAuraBridge {
   async register(publicEndpoint = "") {
     if (!this.enabled) return false;
     try {
-      await post("/api/aura/products/register", {
+      await post("/api/aura/everywhere/register", {
         id: "quantic-mail",
         name: "Quantic Mail",
         objective: "Communication privée, réseau Quantic et messagerie chiffrée.",
@@ -46,10 +46,12 @@ export class QuanticMailAuraBridge {
         criticality: 0.9,
         state: "online",
         capabilities: ["mail", "private-messaging", "identity", "devices", "relay"],
-        writable_by_aura: true,
-        modification_policy: "branch-test-canary-promote",
-        bridge_version: BRIDGE_VERSION,
-        runtime: {
+        permissions: ["observe", "propose-change", "test", "canary"],
+        surfaces: ["mail", "relay", "identity", "devices"],
+        metadata: {
+          writable_by_aura: true,
+          modification_policy: "branch-test-canary-promote",
+          bridge_version: BRIDGE_VERSION,
           transport: "quantic-relay",
           content_exposure: "none-by-default",
         },
@@ -67,7 +69,7 @@ export class QuanticMailAuraBridge {
   ) {
     if (!this.enabled) return false;
     try {
-      await post("/api/aura/products/quantic-mail/observe", {
+      await post("/api/aura/everywhere/quantic-mail/observe", {
         state,
         detail,
         metadata: {
@@ -85,7 +87,7 @@ export class QuanticMailAuraBridge {
   async event(type: string, payload: Json = {}) {
     if (!this.enabled) return false;
     try {
-      await post("/api/aura/products/quantic-mail/event", {
+      await post("/api/aura/everywhere/quantic-mail/event", {
         type,
         payload: {
           ...payload,
@@ -105,7 +107,7 @@ export class QuanticMailAuraBridge {
       void this.observe("online", "Quantic Relay actif.", {
         public_endpoint: publicEndpoint,
       });
-    }, 300_000);
+    }, 120_000);
     this.heartbeat.unref?.();
   }
 
