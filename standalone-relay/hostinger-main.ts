@@ -2,15 +2,19 @@ import { resolve } from "node:path";
 
 import { hostingerRelayConfig } from "./hostinger-config.ts";
 import { startRelayServer } from "./server.ts";
+import { quanticMailAuraBridge } from "./aura-bridge.ts";
 
 async function main(){
   const config=hostingerRelayConfig(process.env);
   const relay=await startRelayServer(config);
   console.log(`Quantic Relay Hostinger écoute sur ${relay.url} — persistance: PostgreSQL — endpoint public: ${config.publicEndpoint}`);
+  quanticMailAuraBridge.startHeartbeat(config.publicEndpoint ?? relay.url);
 
   let shutdown: Promise<void>|null=null;
   const beginShutdown=()=>{
     if(!shutdown){
+      quanticMailAuraBridge.stop();
+      void quanticMailAuraBridge.observe("offline","Arrêt propre de Quantic Relay Hostinger.");
       shutdown=relay.close().catch((error:unknown)=>{
         console.error("Échec de l'arrêt propre de Quantic Relay Hostinger.",error);
         process.exitCode=1;
