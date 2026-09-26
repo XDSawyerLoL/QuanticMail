@@ -2,6 +2,7 @@ import { resolve } from "node:path";
 
 import { parseRelayBootstrap } from "./discovery-bootstrap.ts";
 import { startRelayServer } from "./server.ts";
+import { quanticMailAuraBridge } from "./aura-bridge.ts";
 
 export function parseRelayPort(value: string) {
   const port = Number(value);
@@ -31,10 +32,13 @@ async function main() {
 
   const persistence = databaseUrl ? "PostgreSQL" : resolve(dataDir);
   console.log(`Quantic Relay V1 écoute sur ${relay.url} — persistance: ${persistence}`);
+  quanticMailAuraBridge.startHeartbeat(publicEndpoint ?? relay.url);
 
   let shutdown: Promise<void> | null = null;
   const beginShutdown = () => {
     if (!shutdown) {
+      quanticMailAuraBridge.stop();
+      void quanticMailAuraBridge.observe("offline", "Arrêt propre de Quantic Relay.");
       shutdown = relay.close().catch((error: unknown) => {
         console.error("Échec de l'arrêt propre de Quantic Relay.", error);
         process.exitCode = 1;
