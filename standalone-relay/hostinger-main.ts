@@ -13,6 +13,8 @@ async function main(){
   let shutdown: Promise<void>|null=null;
   const beginShutdown=()=>{
     if(!shutdown){
+      quanticMailAuraBridge.stop();
+      void quanticMailAuraBridge.observe("offline","Arrêt propre de Quantic Relay Hostinger.");
       shutdown=relay.close().catch((error:unknown)=>{
         console.error("Échec de l'arrêt propre de Quantic Relay Hostinger.",error);
         process.exitCode=1;
