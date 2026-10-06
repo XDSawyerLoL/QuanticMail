@@ -14,6 +14,9 @@ import {
 
 type ManifestResponse = { manifest?: QuanticIdentityManifest; error?: string };
 
+const IDENTITY_GATE_ENABLED =
+  process.env.NEXT_PUBLIC_QUANTIC_IDENTITY_GATE_ENABLED === "true";
+
 function manifestRelayCandidates(): RelayEndpoint[] {
   const sameOrigin: RelayEndpoint = {
     id: "quantic-hostinger",
@@ -70,6 +73,10 @@ export function QuanticManifestGate({ children }: { children: ReactNode }) {
   const [error, setError] = useState("");
 
   useEffect(() => {
+    if (!IDENTITY_GATE_ENABLED) {
+      setReady(true);
+      return;
+    }
     void (async () => {
       try {
         const local = await getLocalIdentity();
@@ -110,6 +117,10 @@ export function QuanticManifestGate({ children }: { children: ReactNode }) {
       }
     })();
   }, []);
+
+  if (!IDENTITY_GATE_ENABLED) {
+    return <>{children}</>;
+  }
 
   if (error) {
     return (
