@@ -438,7 +438,7 @@ export function createIdentityChallenge(input: {
   validateEncryptionPublicKey(input.publicKey);
   validateSigningPublicKey(input.signingPublicKey);
   const names = identityNames(locator.handle, input.signingPublicKey, locator.fingerprint);
-  const challenge = randomBytes(32).toString("base64url");
+  const challenge = randomBytes(32).toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
   state.challenges.set(names.canonicalAddress, {
     challenge,
     handle: locator.handle,
