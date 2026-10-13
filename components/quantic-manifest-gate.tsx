@@ -69,14 +69,11 @@ async function republishVerifiedManifest(manifest: QuanticIdentityManifest) {
 }
 
 export function QuanticManifestGate({ children }: { children: ReactNode }) {
-  const [ready, setReady] = useState(false);
+  const [ready, setReady] = useState(!IDENTITY_GATE_ENABLED);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    if (!IDENTITY_GATE_ENABLED) {
-      setReady(true);
-      return;
-    }
+    if (!IDENTITY_GATE_ENABLED) return;
     void (async () => {
       try {
         const local = await getLocalIdentity();
