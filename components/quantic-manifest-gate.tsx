@@ -127,7 +127,12 @@ export function QuanticManifestGate({ children }: { children: ReactNode }) {
           <p className="qn-kicker">QUANTIC SILLAGE</p>
           <h1>Synchronisation de sécurité bloquée.</h1>
           <p className="qn-error">{error}</p>
-          <p className="qn-footnote">Aucun manifeste local n’a été republié. Vérifie le registre avant de continuer.</p>
+          <p className="qn-footnote">Votre boîte reste protégée. Aucune clé privée ni aucun manifeste non vérifié ne sera accepté.</p>
+          <div className="qm-manifest-recovery" style={{display:"flex",gap:12,flexWrap:"wrap",marginTop:16}}>
+            <button type="button" onClick={() => window.location.reload()} style={{padding:"12px 18px",borderRadius:12,border:"1px solid #87b6ef",background:"#1a4d96",color:"#fff",cursor:"pointer"}}>Réessayer l’accès</button>
+            <a href="/network" style={{padding:"12px 18px",borderRadius:12,border:"1px solid #6582bb",color:"#d2e9ff"}}>Contrôler le relais</a>
+            <a href="/vault" style={{padding:"12px 18px",borderRadius:12,border:"1px solid #6582bb",color:"#d2e9ff"}}>Vérifier mon coffre</a>
+          </div>
         </section>
       </main>
     );
