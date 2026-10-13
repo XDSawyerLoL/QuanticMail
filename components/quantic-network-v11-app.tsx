@@ -847,23 +847,37 @@ export function QuanticNetworkV11App() {
 
   if (!identity) {
     return (
-      <main className="qn-onboarding">
-        <section className="qn-card qn-onboarding-card">
-          <div className="qn-mark">Q</div>
-          <p className="qn-kicker">QUANTIC MAIL · V1.3</p>
-          <h1>Crée ton identité Quantic.</h1>
-          <p className="qn-lead">Un nom humain, une identité cryptographique forte, un manifeste signé et des clés de message à usage unique.</p>
-          <form onSubmit={createIdentity} className="qn-create-form">
-            <label htmlFor="handle">Ton adresse</label>
-            <div className="qn-address-input">
-              <input id="handle" value={handle} onChange={(e) => setHandle(e.target.value)} placeholder="sansa" autoComplete="off" />
-              <span>@quantic</span>
-            </div>
-            <button disabled={busy}>{busy ? "Création…" : "Créer mon identité V1.1"}</button>
-          </form>
-          <Link className="qn-secondary-link" href="/devices">Lier cet appareil par QR</Link>
-          {error && <p className="qn-error">{error}</p>}
-          <p className="qn-footnote">V1.1 · identité 128 bits pour les nouveaux comptes · pairing QR · one-time prekeys · historique multi-appareil.</p>
+      <main className="qn-onboarding qm-entry-page">
+        <section className="qn-card qn-onboarding-card qm-entry-card">
+          <div className="qm-entry-mark"><span className="qn-mark">Q</span><span className="qn-kicker">QUANTIC MAIL · ACCÈS SÉCURISÉ</span></div>
+          <h1>Retrouvez votre boîte Mail.</h1>
+          <p className="qn-lead">Quantic ID protège votre accès. Pour lire vos anciens messages sur cet appareil, QuanticMail doit aussi retrouver les clés de votre boîte.</p>
+          <div className="qm-entry-options">
+            <Link className="qm-entry-option qm-entry-option-primary" href="/devices">
+              <span className="qm-entry-option-icon">▦</span>
+              <span><strong>Lier cet appareil par QR</strong><small>Vous avez déjà accès à votre boîte sur un autre appareil.</small></span>
+              <span aria-hidden="true">↗</span>
+            </Link>
+            <Link className="qm-entry-option" href="/vault">
+              <span className="qm-entry-option-icon">◇</span>
+              <span><strong>Restaurer mon coffre</strong><small>Vous avez sauvegardé votre identité QuanticMail dans un fichier chiffré.</small></span>
+              <span aria-hidden="true">↗</span>
+            </Link>
+          </div>
+          <details className="qm-entry-new">
+            <summary>Je n’ai jamais utilisé QuanticMail · créer une boîte</summary>
+            <p className="qn-footnote">Cette opération génère une nouvelle identité et de nouvelles clés. Elle ne récupère pas les messages d’un compte existant.</p>
+            <form onSubmit={createIdentity} className="qn-create-form">
+              <label htmlFor="handle">Identifiant de votre nouvelle boîte</label>
+              <div className="qn-address-input">
+                <input id="handle" value={handle} onChange={(e) => setHandle(e.target.value)} placeholder="Votre pseudo" autoComplete="off" />
+                <span>@quantic</span>
+              </div>
+              <button disabled={busy}>{busy ? "Création…" : "Créer une nouvelle boîte"}</button>
+            </form>
+          </details>
+          {error && <p className="qn-error" role="alert">{error}</p>}
+          <div className="qm-entry-footer"><span>🔒 Clés privées conservées sur vos appareils</span><Link href="/network">État du réseau</Link></div>
         </section>
       </main>
     );
