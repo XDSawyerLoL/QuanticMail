@@ -49,7 +49,7 @@ function bytesToBase64url(value: ArrayBuffer | ArrayBufferView) {
   const bytes = value instanceof ArrayBuffer
     ? new Uint8Array(value)
     : new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
-  if (typeof Buffer !== "undefined") return Buffer.from(bytes).toString("base64url");
+  if (typeof Buffer !== "undefined" && typeof window === "undefined") return Buffer.from(bytes).toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
@@ -57,7 +57,7 @@ function bytesToBase64url(value: ArrayBuffer | ArrayBufferView) {
 
 function base64urlToBytes(value: string) {
   if (!/^[A-Za-z0-9_-]+$/.test(value)) throw new Error("Valeur base64url PQ invalide.");
-  if (typeof Buffer !== "undefined") return new Uint8Array(Buffer.from(value, "base64url"));
+  if (typeof Buffer !== "undefined" && typeof window === "undefined") return new Uint8Array(Buffer.from(value.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - value.length % 4) % 4), "base64"));
   const padded = value.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((value.length + 3) % 4);
   const binary = atob(padded);
   const bytes = new Uint8Array(binary.length);
