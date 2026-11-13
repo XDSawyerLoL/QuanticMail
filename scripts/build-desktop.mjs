@@ -11,7 +11,7 @@ if (icon.status !== 0) process.exit(icon.status || 1);
 
 const exportBuild = spawnSync(process.execPath, ["scripts/build-hostinger-static.mjs"], {
   stdio: "inherit",
-  env: { ...process.env, NEXT_PUBLIC_QUANTIC_BOOTSTRAPS: "", NEXT_PUBLIC_QUANTIC_IDENTITY_GATE_ENABLED: "true" }
+  env: { ...process.env, NEXT_PUBLIC_QUANTIC_BOOTSTRAPS: "", NEXT_PUBLIC_QUANTIC_IDENTITY_GATE_ENABLED: "true", NEXT_PUBLIC_QUANTIC_DESKTOP: "true" }
 });
 if (exportBuild.status !== 0) process.exit(exportBuild.status || 1);
 if (!existsSync(resolve(exported, "index.html"))) {
