@@ -850,26 +850,27 @@ export function QuanticNetworkV11App() {
       <main className="qn-onboarding qm-entry-page">
         <section className="qn-card qn-onboarding-card qm-entry-card">
           <div className="qm-entry-mark"><span className="qn-mark">Q</span><span className="qn-kicker">QUANTIC MAIL · ACCÈS SÉCURISÉ</span></div>
-          <h1>Retrouvez votre boîte Mail.</h1>
-          <p className="qn-lead">Votre identité repose sur des clés cryptographiques. Pas besoin d'un mot de passe de connexion.</p>
+          <h1>{process.env.NEXT_PUBLIC_QUANTIC_DESKTOP === "true" ? "Quantic ID reconnu. Ta boîte reste à relier." : "Retrouvez votre boîte Mail."}</h1>
+          <p className="qn-lead">{process.env.NEXT_PUBLIC_QUANTIC_DESKTOP === "true"
+            ? "Ton Identity Vault est bien déverrouillé. Ce logiciel Windows n'a pas encore les clés nécessaires pour ouvrir ta boîte existante. Il faut autoriser ce PC une seule fois depuis l'ancien navigateur, sans mot de passe."
+            : "Votre identité repose sur des clés cryptographiques. Aucun mot de passe de connexion n'est nécessaire."}</p>
           {process.env.NEXT_PUBLIC_QUANTIC_DESKTOP === "true" ? (
             <>
               <p className="qn-notice" role="status">
-                <strong>Déjà utilisateur de Quantic Mail ?</strong> Pour retrouver votre identité dans cette application Windows, associez ce PC à l'appareil maître. Le jumelage par fichiers signés fonctionne même si les deux applications n'utilisent pas le même relais. Aucun mot de passe n'est nécessaire.
+                <strong>Quantic ID et boîte mail sont deux clés différentes.</strong> Ta connexion Quantic ID est reconnue ; nous ne devons pas prétendre que cela transfère automatiquement les clés privées de ta boîte.
               </p>
               <div className="qm-entry-options">
                 <Link className="qm-entry-option qm-entry-option-primary" href="/devices/files">
                   <span className="qm-entry-option-icon">▦</span>
-                  <span><strong>Associer ce PC sans mot de passe</strong><small>Créer une demande locale, la faire signer depuis la boîte d'origine, puis installer le certificat.</small></span>
+                  <span><strong>Relier ma boîte à cet ordinateur</strong><small>Une seule autorisation depuis Quantic Mail dans l'ancien navigateur.</small></span>
                   <span aria-hidden="true">↗</span>
                 </Link>
-                <Link className="qm-entry-option" href="/vault">
-                  <span className="qm-entry-option-icon">◇</span>
-                  <span><strong>Utiliser une sauvegarde chiffrée (facultatif)</strong><small>Seulement si vous possédez déjà un fichier .quantic-vault et le mot de passe choisi pour cette sauvegarde.</small></span>
-                  <span aria-hidden="true">↗</span>
-                </Link>
+                <details className="qm-entry-new">
+                  <summary>Autre méthode : j'ai déjà une sauvegarde .quantic-vault</summary>
+                  <Link className="qn-secondary-link" href="/vault">Importer ma sauvegarde chiffrée</Link>
+                </details>
               </div>
-              <p className="qn-footnote">Le certificat autorise le PC avec de nouvelles clés : la clé maîtresse privée reste dans l'ancien navigateur. La liaison ne transfère pas automatiquement l'historique des messages. Un relais réseau commun ou fédéré reste nécessaire pour recevoir les messages à distance.</p>
+              <p className="qn-footnote">Cette première association ne copie pas la clé maîtresse et ne récupère pas automatiquement l'historique. Les relais distants devront ensuite être joignables pour recevoir du courrier.</p>
             </>
           ) : (
             <div className="qm-entry-options">
