@@ -11,7 +11,7 @@ L'application n'utilise **aucun site Hostinger pour afficher Quantic Mail**.
 - Identity Vault accessible dans l'application. Importer le coffre `.quantic-vault` ou associer l'appareil comme appareil secondaire : l'identité stockée dans le navigateur web n'est PAS copiée implicitement.
 
 ## Installation
-Dans le dépôt GitHub, ouvrez **Actions > QuanticMail - installateur Windows local** puis téléchargez l'artefact `quanticmail-windows-local` d'une exécution réussie. Utiliser le fichier `QuanticMail-Setup-1.3.6.exe` publié directement dans les **Releases** GitHub (aucun ZIP nécessaire).
+Dans le dépôt GitHub, ouvrez **Actions > QuanticMail - installateur Windows local** puis téléchargez l'artefact `quanticmail-windows-local` d'une exécution réussie. Utiliser le fichier `QuanticMail-Setup-1.3.7.exe` publié directement dans les **Releases** GitHub (aucun ZIP nécessaire).
 
 ## Compilation Windows
 Sur Windows x64 avec Node.js 22 :
@@ -44,7 +44,7 @@ Version alpha, non auditée. L'installateur généré automatiquement est **non 
 Ce parcours ne requiert pas de mot de passe. Il ne synchronise pas automatiquement l'historique ni les relais distants. Si l'identité est reconnue mais les messages du correspondant n'arrivent pas, contrôler la connectivité réseau séparément.
 
 
-## Quantic ID réellement reconnu dans Windows (v1.3.6)
+## Quantic ID réellement reconnu dans Windows (v1.3.7)
 
 - Identity Vault est un programme distinct de QuanticMail. Il expose son état sur `http://127.0.0.1:47621/v1/status` et signe une preuve à la demande sur `/v1/assert`.
 - L'application Windows vérifie cryptographiquement la preuve locale (Ed25519 ou P-256 QHK/1), sans mots de passe ni copie de clés privées, avant d'afficher la boîte.
@@ -53,7 +53,7 @@ Ce parcours ne requiert pas de mot de passe. Il ne synchronise pas automatiqueme
 - Si le Quantic ID est verrouillé/absent, un message explicite s'affiche au lieu d'une demande de mot de passe de coffre.
 
 
-## Compte unique Quantic ID (v1.3.6)
+## Compte unique Quantic ID (v1.3.7)
 
 L'identité personnelle Quantic ID (`qid_...`) est le **seul compte de connexion** du logiciel Windows. Les clés d'appareil de messagerie restent distinctes des clés de signature d'Identity Vault : c'est une séparation cryptographique, pas un second compte utilisateur.
 
@@ -64,7 +64,7 @@ L'identité personnelle Quantic ID (`qid_...`) est le **seul compte de connexion
 - Le coffre `.quantic-vault` chiffré avec mot de passe reste une **sauvegarde facultative**, jamais un mot de passe de connexion Quantic ID.
 - Limite actuelle : cette association du compte QID au stockage local ne constitue pas encore un annuaire mondial de boîtes piloté par QID ni une migration transparente des clés depuis d'autres navigateurs. L'authentification centrale par QID sur les relais distants et une liaison directe navigateur → Windows devront être traitées séparément.
 
-## Correction envoi / authentification appareil (v1.3.6)
+## Correction envoi / authentification appareil (v1.3.7)
 
 - Symptôme : « Authentification de l'appareil Quantic invalide » lors de l'envoi, malgré Quantic ID déverrouillé.
 - Cause corrigée : les anciennes versions pouvaient enregistrer la racine côté relais en `d-<10 hex>` alors que le navigateur et le manifeste signé utilisaient `d-<32 hex>`. Le relais refusait ensuite le jeton d'appareil présenté avec l'identifiant différent.
@@ -72,3 +72,12 @@ L'identité personnelle Quantic ID (`qid_...`) est le **seul compte de connexion
 - L'envoi vérifie la réponse de l'enregistrement **avant** de récupérer une préclé et de transmettre le message. En cas de non-acceptation par tous les relais, la fenêtre d'envoi et le contenu du brouillon restent affichés ; le message chiffré est gardé dans la file locale.
 - Le test d'installation `scripts/smoke-desktop.mjs` démarre un vrai relais de test, reproduit le rejet d'appareil en ancien format, réenregistre en 32 caractères, vérifie un envoi HTTP 202 et une relève HTTP 200 ; aucune clé ni donnée utilisateur n'est utilisée.
 - Ne pas confondre acceptation **locale** par un relais avec livraison au correspondant via Internet : la fédération et la découverte de la boîte distante restent à vérifier séparément. Ne jamais promettre une livraison distante sur la seule base d'un HTTP 202 local.
+
+## Correctif « Synchronisation de sécurité bloquée – 403 » (v1.3.7)
+
+- Quantic ID affiché « actif » signifie que le coffre local est authentifié. Cela ne prouve pas qu'un autre relais possède déjà le manifeste de sécurité signé de cette boîte.
+- Ancien défaut : l'interface tentait `GET /api/quantic/manifest` en local. Sur 404 local (aucun manifeste pour le nouveau relais), elle essayait ensuite le relais Render. Le 403 de ce service externe apparaissait comme un blocage de toute la synchronisation de sécurité Windows.
+- Nouveau comportement : en application Windows, **seul le relais embarqué `127.0.0.1:18787/api/quantic/manifest`** sert d'autorité de synchronisation du manifeste local. 404 local signifie « manifeste absent » et permet d'y publier une copie **déjà signée et vérifiée**. Aucun 403/404 local n'entraîne de repli vers Render ou Hostinger.
+- Une erreur 401 ou 403 venant **réellement du relais local** reste bloquante, avec un message distinguant sa source ; l'application ne désactive jamais la vérification cryptographique.
+- Tests : sélection unique du relais embarqué, absence de fallback externe après 404, échec fermé après 403, manifeste signé publié et lu en 200, fausse signature refusée en 401. Le test utilise un relais temporaire avec des clés jetables, jamais les données de l'utilisateur.
+- Limite : la synchronisation d'un manifeste dans le relais local n'assure pas la communication avec un correspondant hébergé sur un relais distant. Le réseau inter-relais reste un sujet indépendant.
