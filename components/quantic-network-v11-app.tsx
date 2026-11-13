@@ -851,16 +851,21 @@ export function QuanticNetworkV11App() {
         <section className="qn-card qn-onboarding-card qm-entry-card">
           <div className="qm-entry-mark"><span className="qn-mark">Q</span><span className="qn-kicker">QUANTIC MAIL · ACCÈS SÉCURISÉ</span></div>
           <h1>Retrouvez votre boîte Mail.</h1>
-          <p className="qn-lead">Quantic ID protège votre accès. Pour lire vos anciens messages sur cet appareil, QuanticMail doit aussi retrouver les clés de votre boîte.</p>
+          <p className="qn-lead">Quantic ID protège votre accès. Pour retrouver votre identité sur cet appareil, importez ses clés depuis votre coffre chiffré ou associez cet appareil au poste principal.</p>
+          {process.env.NEXT_PUBLIC_QUANTIC_DESKTOP === "true" && (
+            <p className="qn-notice" role="status">
+              <strong>Première ouverture sur Windows :</strong> votre identité créée sur le site web n'est pas détectée automatiquement. Ouvrez QuanticMail dans votre ancien navigateur, exportez votre fichier <code>.quantic-vault</code> depuis Identity Vault, puis cliquez sur « Restaurer mon coffre » ci-dessous. Le coffre ne transfère pas l'historique des messages.
+            </p>
+          )}
           <div className="qm-entry-options">
-            <Link className="qm-entry-option qm-entry-option-primary" href="/devices">
-              <span className="qm-entry-option-icon">▦</span>
-              <span><strong>Lier cet appareil par QR</strong><small>Vous avez déjà accès à votre boîte sur un autre appareil.</small></span>
+            <Link className="qm-entry-option qm-entry-option-primary" href="/vault">
+              <span className="qm-entry-option-icon">◇</span>
+              <span><strong>Restaurer mon coffre</strong><small>Importez vos clés existantes depuis un fichier .quantic-vault chiffré.</small></span>
               <span aria-hidden="true">↗</span>
             </Link>
-            <Link className="qm-entry-option" href="/vault">
-              <span className="qm-entry-option-icon">◇</span>
-              <span><strong>Restaurer mon coffre</strong><small>Vous avez sauvegardé votre identité QuanticMail dans un fichier chiffré.</small></span>
+            <Link className="qm-entry-option" href="/devices">
+              <span className="qm-entry-option-icon">▦</span>
+              <span><strong>Lier cet appareil par QR</strong><small>Disponible si les deux appareils peuvent joindre le même relais de jumelage.</small></span>
               <span aria-hidden="true">↗</span>
             </Link>
           </div>
