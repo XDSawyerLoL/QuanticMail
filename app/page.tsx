@@ -1,10 +1,11 @@
 import Link from "next/link";
+import { QuanticIdDesktopGate } from "@/components/quantic-id-desktop-gate";
 import { QuanticManifestGate } from "@/components/quantic-manifest-gate";
 import { QuanticNetworkV11App } from "@/components/quantic-network-v11-app";
 
 export default function Home() {
   return (
-    <>
+    <QuanticIdDesktopGate>
       <QuanticManifestGate>
         <QuanticNetworkV11App />
       </QuanticManifestGate>
@@ -19,6 +20,6 @@ export default function Home() {
       <Link className="qn-vault-fab" href="/vault" title="Sauvegarder ou restaurer mon identité Quantic">
         Identity Vault
       </Link>
-    </>
+    </QuanticIdDesktopGate>
   );
 }
