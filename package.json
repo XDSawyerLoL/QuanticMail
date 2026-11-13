@@ -15,7 +15,8 @@
     "relay:hostinger": "node --experimental-transform-types standalone-relay/hostinger-main.ts",
     "relay:smoke": "node scripts/smoke-hostinger-relay.mjs",
     "desktop:start": "electron .",
-    "desktop:dist": "electron-builder --win nsis --publish never"
+    "desktop:dist": "npm run desktop:bundle && electron-builder --win nsis --publish never",
+    "desktop:bundle": "node scripts/build-desktop.mjs"
   },
   "dependencies": {
     "next": "16.3.3",
@@ -36,7 +37,8 @@
     "electron-builder": "^26.0.0",
     "eslint": "^9.0.0",
     "eslint-config-next": "16.3.3",
-    "typescript": "^5.9.0"
+    "typescript": "^5.9.0",
+    "esbuild": "^0.25.0"
   },
   "build": {
     "appId": "com.quanticsillage.quanticmail",
@@ -59,7 +61,7 @@
         }
       ],
       "artifactName": "QuanticMail-Setup-${version}.${ext}",
-      "icon": "desktop/assets/quantic-mail-mark.svg"
+      "icon": "desktop/assets/quantic-mail.ico"
     },
     "nsis": {
       "oneClick": false,
