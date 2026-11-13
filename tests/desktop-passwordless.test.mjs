@@ -13,7 +13,7 @@ test("Windows launches the signed, passwordless device pairing as its primary on
   assert.ok(desktopStart >= 0);
   assert.ok(signedPairing > desktopStart);
   assert.ok(optionalVault > signedPairing);
-  assert.match(onboarding, /Associer ce PC sans mot de passe/);
+  assert.match(onboarding, /Relier ma boîte à cet ordinateur/);
 });
 
 test("vault password is labeled optional and is not the Quantic account password", () => {
