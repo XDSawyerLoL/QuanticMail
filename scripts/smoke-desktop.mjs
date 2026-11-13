@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { createRequire } from "node:module";
+import { smokeDeviceAuthentication } from "./desktop-auth-smoke.mjs";
 
 const require = createRequire(import.meta.url);
 const { startLocalServer, MAIL_PORT, RELAY_PORT } = require("../desktop/local-server.cjs");
@@ -59,7 +60,11 @@ try {
   const routed = await healthy(`http://127.0.0.1:${MAIL_PORT}/api/quantic/health`);
   if (!routed.relayId) throw new Error("Identifiant de relais manquant.");
 
-  console.log("OK : interface locale, relais local et API intégrée vérifiés.");
+  // Covers exactly the legacy root-device mismatch seen when users send
+  // from Windows 1.3.5. This test uses disposable keys and a test relay.
+  await smokeDeviceAuthentication(`http://127.0.0.1:${MAIL_PORT}`);
+
+  console.log("OK : interface locale, relais local, migration et envoi authentifié vérifiés.");
 } finally {
   if (server) await new Promise((resolve) => server.close(resolve));
   child.kill();
