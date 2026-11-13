@@ -10,6 +10,7 @@ on:
       - "scripts/build-desktop.mjs"
       - "scripts/build-hostinger-static.mjs"
       - "scripts/generate-desktop-icon.mjs"
+      - "scripts/smoke-desktop.mjs"
       - "tests/desktop-*.test.mjs"
       - "package.json"
       - ".github/workflows/windows-desktop.yml"
