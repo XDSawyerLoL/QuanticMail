@@ -33,7 +33,7 @@ try {
     filter: shouldCopy,
   });
 
-  symlinkSync(join(root, "node_modules"), join(work, "node_modules"), "dir");
+  symlinkSync(join(root, "node_modules"), join(work, "node_modules"), process.platform === "win32" ? "junction" : "dir");
 
   const nextBin = require.resolve("next/dist/bin/next");
   const build = spawnSync(process.execPath, [nextBin, "build", "--webpack"], {
