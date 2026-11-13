@@ -11,6 +11,7 @@ on:
       - "scripts/build-hostinger-static.mjs"
       - "scripts/generate-desktop-icon.mjs"
       - "scripts/smoke-desktop.mjs"
+      - "scripts/desktop-auth-smoke.mjs"
       - "tests/desktop-*.test.mjs"
       - "package.json"
       - "components/**"
@@ -41,14 +42,14 @@ jobs:
       - name: Controler la presence de l'installateur
         shell: pwsh
         run: |
-          if (-not (Test-Path desktop-dist/QuanticMail-Setup-1.3.5.exe)) {
+          if (-not (Test-Path desktop-dist/QuanticMail-Setup-1.3.6.exe)) {
             throw "Installateur Quantic Mail introuvable"
           }
       - name: Publier l'installateur Windows
         uses: actions/upload-artifact@v4
         with:
           name: quanticmail-windows-local
-          path: desktop-dist/QuanticMail-Setup-1.3.5.exe
+          path: desktop-dist/QuanticMail-Setup-1.3.6.exe
           if-no-files-found: error
           retention-days: 14
 
@@ -72,9 +73,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          exe="release/QuanticMail-Setup-1.3.5.exe"
+          exe="release/QuanticMail-Setup-1.3.6.exe"
           test -s "$exe"
-          tag="v1.3.5-windows-local-preview.1"
+          tag="v1.3.6-windows-local-preview.1"
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$tag" "$exe" --clobber --repo "$GITHUB_REPOSITORY"
           else
@@ -82,7 +83,7 @@ jobs:
               --repo "$GITHUB_REPOSITORY" \
               --target "$RELEASE_TARGET" \
               --prerelease \
-              --title "Quantic Mail 1.3.5 Windows local (préversion)" \
-              --notes "Installateur Windows direct au format .exe. Interface et relais locaux, aucune page Hostinger nécessaire. Version alpha non signée : compte unique Quantic ID avec association persistante de boîte locale et contrôle de propriétaire, sans second mot de passe. Sauvegardez néanmoins vos données existantes. L'acheminement entre deux PC derrière des box distinctes sans relais public reste à valider."
+              --title "Quantic Mail 1.3.6 Windows local (préversion)" \
+              --notes "Installateur Windows direct au format .exe. Interface et relais locaux, aucune page Hostinger nécessaire. Version alpha non signée : identifiant d'appareil 32 caractères enregistré et migré sans perte de la boîte, test réel envoi local et contrôle Quantic ID. Sauvegardez néanmoins vos données existantes. L'acheminement entre deux PC derrière des box distinctes sans relais public reste à valider."
           fi
           gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets,url
