@@ -34,21 +34,56 @@ function resolveStaticPath(root, urlPath) {
   return htmlFallback;
 }
 
+// Allow only loopback hostnames, with the exact listener port. Chromium may
+// canonicalize the loopback host as localhost rather than 127.0.0.1 on Windows.
+function approvedHost(host, port) {
+  if (typeof host !== "string") return false;
+  const normalized = host.toLowerCase();
+  return normalized === `127.0.0.1:${port}` || normalized === `localhost:${port}`;
+}
+
+function approvedOrigin(origin, host) {
+  if (origin === undefined) return true;
+  if (typeof origin !== "string" || typeof host !== "string") return false;
+  // Do not trust "null", file://, a similar hostname, or a different port.
+  try {
+    const parsed = new URL(origin);
+    return parsed.origin === `http://${host.toLowerCase()}`;
+  } catch { return false; }
+}
+
+function rejectLocalRequest(response, reason) {
+  // Explicit JSON prevents all three gateway rejections from being
+  // misidentified as a cryptographic manifest failure ("Erreur 403").
+  const messages = {
+    host: "Quantic Mail Windows : hôte local non autorisé (port ou nom différent).",
+    origin: "Quantic Mail Windows : origine de la requête différente de l'application.",
+    crossSite: "Quantic Mail Windows : requête intersite bloquée par le serveur local."
+  };
+  response.writeHead(403, {
+    "content-type": "application/json; charset=utf-8",
+    "cache-control": "no-store",
+    "x-content-type-options": "nosniff",
+    "x-quantic-local-guard": reason
+  });
+  response.end(JSON.stringify({ error: messages[reason] || "Requête locale refusée.", code: `LOCAL_GATEWAY_${reason.toUpperCase()}` }));
+}
+
 function startLocalServer({ staticRoot, port = MAIL_PORT, relayPort = RELAY_PORT }) {
   const root = resolve(staticRoot);
   const server = createServer((incoming, outgoing) => {
     const host = incoming.headers.host;
-    if (host !== `127.0.0.1:${port}`) {
-      outgoing.writeHead(403).end();
+    if (!approvedHost(host, port)) {
+      rejectLocalRequest(outgoing, "host");
       return;
     }
     const origin = incoming.headers.origin;
-    if (origin && origin !== `http://127.0.0.1:${port}`) {
-      outgoing.writeHead(403).end();
+    if (!approvedOrigin(origin, host)) {
+      rejectLocalRequest(outgoing, "origin");
       return;
     }
     if (incoming.headers["sec-fetch-site"] === "cross-site") {
-      outgoing.writeHead(403).end();
+      rejectLocalRequest(outgoing, "crossSite");
       return;
     }
     let path;
@@ -110,4 +145,4 @@ function startLocalServer({ staticRoot, port = MAIL_PORT, relayPort = RELAY_PORT
   });
 }
 
-module.exports = { MAIL_PORT, RELAY_PORT, LOCAL_MAIL_URL, resolveStaticPath, startLocalServer };
+module.exports = { MAIL_PORT, RELAY_PORT, LOCAL_MAIL_URL, approvedHost, approvedOrigin, resolveStaticPath, startLocalServer };
