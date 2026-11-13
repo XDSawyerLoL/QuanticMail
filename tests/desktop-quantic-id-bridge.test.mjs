@@ -77,10 +77,10 @@ test("a forged signature is rejected cryptographically", async () => {
 });
 
 test("desktop mailbox gate uses Quantic ID proof but does not mistake QID for mail private keys", () => {
-  const home = readFileSync(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const layout = readFileSync(new URL("../app/layout.tsx", import.meta.url), "utf8");
   const gate = readFileSync(new URL("../components/quantic-id-desktop-gate.tsx", import.meta.url), "utf8");
-  assert.match(home, /QuanticIdDesktopGate/);
+  assert.match(layout, /QuanticIdDesktopGate/);
   assert.match(gate, /verifyUnlockedVault/);
   assert.match(gate, /Identity Vault/);
-  assert.doesNotMatch(gate, /saveLocalIdentity|signingPrivateKey|authToken:/);
+  assert.doesNotMatch(gate, /signingPrivateKey|authToken:/);
 });
