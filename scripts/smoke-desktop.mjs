@@ -60,6 +60,46 @@ try {
   const routed = await healthy(`http://127.0.0.1:${MAIL_PORT}/api/quantic/health`);
   if (!routed.relayId) throw new Error("Identifiant de relais manquant.");
 
+  // Exercise real Chromium-style headers through the Windows gateway,
+  // rather than only Node fetch requests which normally omit Origin.
+  const localHeaders = {
+    origin: `http://127.0.0.1:${MAIL_PORT}`,
+    "sec-fetch-site": "same-origin",
+  };
+  const manifestMissing = await fetch(
+    `http://127.0.0.1:${MAIL_PORT}/api/quantic/manifest?handle=smokeauth~aaaaaaaaaa@quantic`,
+    { headers: localHeaders },
+  );
+  if (manifestMissing.status !== 404 || manifestMissing.headers.has("x-quantic-local-guard")) {
+    throw new Error(`Le GET manifeste navigateur devrait atteindre le relais (404), reçu HTTP ${manifestMissing.status}.`);
+  }
+  const postManifest = await fetch(
+    `http://127.0.0.1:${MAIL_PORT}/api/quantic/manifest`,
+    { method: "POST", headers: { ...localHeaders, "content-type": "application/json" },
+      body: JSON.stringify({ manifest: null }) },
+  );
+  if (postManifest.status !== 400 || postManifest.headers.has("x-quantic-local-guard")) {
+    throw new Error(`Le POST manifeste navigateur devrait atteindre le relais (400), reçu HTTP ${postManifest.status}.`);
+  }
+  const invalidOrigin = await fetch(
+    `http://127.0.0.1:${MAIL_PORT}/api/quantic/health`,
+    { headers: { origin: "http://evil.example:18787" } },
+  );
+  if (invalidOrigin.status !== 403 || invalidOrigin.headers.get("x-quantic-local-guard") !== "origin") {
+    throw new Error("La protection d'origine locale ne rejette pas correctement un site externe.");
+  }
+  const invalidBody = await invalidOrigin.json();
+  if (!invalidBody.error?.includes("origine")) {
+    throw new Error("Le refus d'origine devrait afficher un diagnostic JSON explicite.");
+  }
+  const hostileFetch = await fetch(
+    `http://127.0.0.1:${MAIL_PORT}/api/quantic/health`,
+    { headers: { "sec-fetch-site": "cross-site" } },
+  );
+  if (hostileFetch.status !== 403 || hostileFetch.headers.get("x-quantic-local-guard") !== "crossSite") {
+    throw new Error("La protection du serveur local laisse passer une requête cross-site.");
+  }
+
   // Covers exactly the legacy root-device mismatch seen when users send
   // from Windows 1.3.5. This test uses disposable keys and a test relay.
   await smokeDeviceAuthentication(`http://127.0.0.1:${MAIL_PORT}`);
