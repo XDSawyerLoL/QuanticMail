@@ -43,14 +43,14 @@ jobs:
       - name: Controler la presence de l'installateur
         shell: pwsh
         run: |
-          if (-not (Test-Path desktop-dist/QuanticMail-Setup-1.3.7.exe)) {
+          if (-not (Test-Path desktop-dist/QuanticMail-Setup-1.3.8.exe)) {
             throw "Installateur Quantic Mail introuvable"
           }
       - name: Publier l'installateur Windows
         uses: actions/upload-artifact@v4
         with:
           name: quanticmail-windows-local
-          path: desktop-dist/QuanticMail-Setup-1.3.7.exe
+          path: desktop-dist/QuanticMail-Setup-1.3.8.exe
           if-no-files-found: error
           retention-days: 14
 
@@ -74,9 +74,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          exe="release/QuanticMail-Setup-1.3.7.exe"
+          exe="release/QuanticMail-Setup-1.3.8.exe"
           test -s "$exe"
-          tag="v1.3.7-windows-local-preview.1"
+          tag="v1.3.8-windows-local-preview.1"
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$tag" "$exe" --clobber --repo "$GITHUB_REPOSITORY"
           else
@@ -84,7 +84,7 @@ jobs:
               --repo "$GITHUB_REPOSITORY" \
               --target "$RELEASE_TARGET" \
               --prerelease \
-              --title "Quantic Mail 1.3.7 Windows local (préversion)" \
-              --notes "Installateur Windows direct au format .exe. Interface et relais locaux, aucune page Hostinger nécessaire. Version alpha non signée : synchronisation de manifeste signée auprès du relais Windows uniquement, sans 403 de relais externe après 404 local ; validation signature et envoi testés. Sauvegardez néanmoins vos données existantes. L'acheminement entre deux PC derrière des box distinctes sans relais public reste à valider."
+              --title "Quantic Mail 1.3.8 Windows local (préversion)" \
+              --notes "Installateur Windows direct au format .exe. Interface et relais locaux, aucune page Hostinger nécessaire. Version alpha non signée : passerelle Windows diagnostique ses refus HTTP 403 et accepte les origines localhost autorisées, sans désactiver la sécurité ni toucher aux clés. Sauvegardez néanmoins vos données existantes. L'acheminement entre deux PC derrière des box distinctes sans relais public reste à valider."
           fi
           gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets,url
