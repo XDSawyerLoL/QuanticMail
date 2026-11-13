@@ -14,6 +14,7 @@ import {
   signChallenge,
 } from "@/lib/quantic/crypto";
 import { deviceIdFromPublicKey } from "@/lib/quantic/device";
+import { readVaultStatus, verifyUnlockedVault } from "@/lib/quantic/vault-bridge.mjs";
 import { selectEnvelopePrivateKey } from "@/lib/quantic/envelope-core.mjs";
 import { createInitialManifest, verifyManifestBrowser } from "@/lib/quantic/manifest";
 import type { QuanticIdentityManifest } from "@/lib/quantic/manifest-types";
@@ -306,6 +307,10 @@ export function QuanticNetworkV11App() {
       handle: locator,
       publicKey: local.publicKey,
       signingPublicKey: local.signingPublicKey,
+      // Preserve the exact root device ID used by the signed manifest and
+      // the browser's encrypted outbox. The standalone relay's compatibility
+      // handler safely migrates legacy 10-hex device IDs to this 32-hex ID.
+      deviceId: local.deviceId ?? (await deviceIdFromPublicKey(local.publicKey)),
       authToken: local.authToken,
     };
     try {
@@ -721,6 +726,12 @@ export function QuanticNetworkV11App() {
         authToken: randomToken(),
         createdAt: new Date().toISOString(),
       };
+      // A freshly created mailbox belongs to the Quantic ID already authenticated
+      // by the desktop shell. Never create a second account or password.
+      if (process.env.NEXT_PUBLIC_QUANTIC_DESKTOP === "true") {
+        const verified = await verifyUnlockedVault(await readVaultStatus());
+        local = { ...local, quanticIdKeyId: verified.keyId, quanticIdBoundAt: new Date().toISOString() };
+      }
       await publishIdentity(local);
       const manifest = await createInitialManifest(local);
       local = await publishManifest(local, manifest);
@@ -743,6 +754,14 @@ export function QuanticNetworkV11App() {
     setNotice("");
     try {
       let active = await ensureLocalIdentity(identity);
+      // A mailbox that was created by a previous Windows build may have
+      // a relay-side 10-hex root ID while the local manifest uses 32 hex.
+      // Re-register with the explicit ID *before* claiming recipient prekeys
+      // or sending so the relay can authenticate this device correctly.
+      const registration = await publishIdentity(active);
+      if (active.role !== "secondary" && registration.rootDeviceId && registration.rootDeviceId !== active.deviceId) {
+        throw new Error("L'identifiant d'appareil enregistré ne correspond pas à celui de la boîte. L'envoi est suspendu pour protéger tes clés.");
+      }
       active = await syncOwnManifest(active);
       setIdentity(active);
       const recipient = normalizeLocator(to);
@@ -801,6 +820,12 @@ export function QuanticNetworkV11App() {
         })) syncSubmitted += 1;
       }
 
+      // A 0/N result means the ciphertext was queued locally, NOT sent.
+      // Never clear the compose draft or claim delivery in that case.
+      if (normalSubmitted === 0) {
+        await refreshLocal();
+        throw new Error("Envoi non confirmé : aucun relais n'a accepté le message chiffré. Le message reste dans la file locale ; le brouillon est conservé.");
+      }
       const normalText = `${normalSubmitted}/${resolved.devices.length} livraison(s)`;
       const syncText = ownDevices.length ? ` · ${syncSubmitted}/${ownDevices.length} copie(s) historique` : "";
       setNotice(`${normalText}${syncText} pour ${resolved.address}.`);
@@ -850,34 +875,56 @@ export function QuanticNetworkV11App() {
       <main className="qn-onboarding qm-entry-page">
         <section className="qn-card qn-onboarding-card qm-entry-card">
           <div className="qm-entry-mark"><span className="qn-mark">Q</span><span className="qn-kicker">QUANTIC MAIL · ACCÈS SÉCURISÉ</span></div>
-          <h1>Retrouvez votre boîte Mail.</h1>
-          <p className="qn-lead">Quantic ID protège votre accès. Pour lire vos anciens messages sur cet appareil, QuanticMail doit aussi retrouver les clés de votre boîte.</p>
-          <div className="qm-entry-options">
-            <Link className="qm-entry-option qm-entry-option-primary" href="/devices">
-              <span className="qm-entry-option-icon">▦</span>
-              <span><strong>Lier cet appareil par QR</strong><small>Vous avez déjà accès à votre boîte sur un autre appareil.</small></span>
-              <span aria-hidden="true">↗</span>
-            </Link>
-            <Link className="qm-entry-option" href="/vault">
-              <span className="qm-entry-option-icon">◇</span>
-              <span><strong>Restaurer mon coffre</strong><small>Vous avez sauvegardé votre identité QuanticMail dans un fichier chiffré.</small></span>
-              <span aria-hidden="true">↗</span>
-            </Link>
-          </div>
+          <h1>{process.env.NEXT_PUBLIC_QUANTIC_DESKTOP === "true" ? "Quantic ID connecté." : "Retrouvez votre boîte Mail."}</h1>
+          <p className="qn-lead">{process.env.NEXT_PUBLIC_QUANTIC_DESKTOP === "true"
+            ? "Ton compte Quantic est reconnu. Si tu utilisais déjà Quantic Mail dans ton navigateur, il faut simplement autoriser cette installation Windows à lire ta boîte chiffrée existante. Aucun autre compte ni mot de passe n'est nécessaire."
+            : "Votre identité repose sur des clés cryptographiques. Aucun mot de passe de connexion n'est nécessaire."}</p>
+          {process.env.NEXT_PUBLIC_QUANTIC_DESKTOP === "true" ? (
+            <>
+              <p className="qn-notice" role="status">
+                <strong>Un seul compte : Quantic ID.</strong> Ta boîte mail est une fonction de ce compte. Son chiffrement reste privé à chaque appareil, donc les messages précédents nécessitent une autorisation depuis le navigateur où ils sont déjà accessibles.
+              </p>
+              <div className="qm-entry-options">
+                <Link className="qm-entry-option qm-entry-option-primary" href="/devices/files">
+                  <span className="qm-entry-option-icon">▦</span>
+                  <span><strong>Retrouver ma boîte existante</strong><small>Autoriser ce PC depuis Quantic Mail dans mon navigateur actuel, sans mot de passe.</small></span>
+                  <span aria-hidden="true">↗</span>
+                </Link>
+                <details className="qm-entry-new">
+                  <summary>Autre méthode : j'ai déjà une sauvegarde .quantic-vault</summary>
+                  <Link className="qn-secondary-link" href="/vault">Importer ma sauvegarde chiffrée</Link>
+                </details>
+              </div>
+              <p className="qn-footnote">Cette première association ne copie pas la clé maîtresse et ne récupère pas automatiquement l'historique. Les relais distants devront ensuite être joignables pour recevoir du courrier.</p>
+            </>
+          ) : (
+            <div className="qm-entry-options">
+              <Link className="qm-entry-option qm-entry-option-primary" href="/devices">
+                <span className="qm-entry-option-icon">▦</span>
+                <span><strong>Lier cet appareil par QR</strong><small>Autoriser un nouvel appareil avec l'identité existante.</small></span>
+                <span aria-hidden="true">↗</span>
+              </Link>
+              <Link className="qm-entry-option" href="/vault">
+                <span className="qm-entry-option-icon">◇</span>
+                <span><strong>Restaurer une sauvegarde chiffrée</strong><small>Facultatif : seulement si vous possédez déjà un coffre .quantic-vault.</small></span>
+                <span aria-hidden="true">↗</span>
+              </Link>
+            </div>
+          )}
           <details className="qm-entry-new">
-            <summary>Je n’ai jamais utilisé QuanticMail · créer une boîte</summary>
-            <p className="qn-footnote">Cette opération génère une nouvelle identité et de nouvelles clés. Elle ne récupère pas les messages d’un compte existant.</p>
+            <summary>Je n'ai aucune boîte existante · activer une nouvelle boîte pour mon Quantic ID</summary>
+            <p className="qn-footnote">Uniquement si tu n'as jamais utilisé Quantic Mail : une nouvelle boîte chiffrée sera rattachée à ton Quantic ID. Cette opération ne récupère pas les messages d'une ancienne boîte.</p>
             <form onSubmit={createIdentity} className="qn-create-form">
               <label htmlFor="handle">Identifiant de votre nouvelle boîte</label>
               <div className="qn-address-input">
                 <input id="handle" value={handle} onChange={(e) => setHandle(e.target.value)} placeholder="Votre pseudo" autoComplete="off" />
                 <span>@quantic</span>
               </div>
-              <button disabled={busy}>{busy ? "Création…" : "Créer une nouvelle boîte"}</button>
+              <button disabled={busy}>{busy ? "Activation…" : "Activer ma nouvelle boîte Quantic"}</button>
             </form>
           </details>
           {error && <p className="qn-error" role="alert">{error}</p>}
-          <div className="qm-entry-footer"><span>🔒 Clés privées conservées sur vos appareils</span><Link href="/network">État du réseau</Link></div>
+          <div className="qm-entry-footer"><span>Clés privées conservées sur vos appareils</span><Link href="/diagnostic">Diagnostiquer la détection</Link></div>
         </section>
       </main>
     );
@@ -951,6 +998,7 @@ export function QuanticNetworkV11App() {
             <Link href="/devices" onClick={() => setDrawerOpen(false)}><MailIcon name="devices" /><span>Appareils</span><MailIcon name="chevron" /></Link>
             <Link href="/vault" onClick={() => setDrawerOpen(false)}><MailIcon name="vault" /><span>Identity Vault</span><MailIcon name="chevron" /></Link>
             <Link href="/network" onClick={() => setDrawerOpen(false)}><MailIcon name="network" /><span>Network</span><MailIcon name="chevron" /></Link>
+            <Link href="/diagnostic" onClick={() => setDrawerOpen(false)}><MailIcon name="network" /><span>Diagnostic</span><MailIcon name="chevron" /></Link>
           </nav>
 
           <div className="qm-drawer-identity">

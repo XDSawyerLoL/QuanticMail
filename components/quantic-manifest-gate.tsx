@@ -4,12 +4,12 @@ import { ReactNode, useEffect, useState } from "react";
 import { getLocalIdentity, saveLocalIdentity } from "@/lib/quantic/local-db";
 import { verifyManifestBrowser } from "@/lib/quantic/manifest";
 import { decideManifestSync } from "@/lib/quantic/manifest-sync-core.mjs";
+import { manifestRelayPolicy } from "@/lib/quantic/manifest-relay-policy.mjs";
 import type { QuanticIdentityManifest } from "@/lib/quantic/manifest-types";
 import {
   getRelayEndpoints,
   relayFetchJson,
   RelayHttpError,
-  type RelayEndpoint,
 } from "@/lib/quantic/relay-client";
 
 type ManifestResponse = { manifest?: QuanticIdentityManifest; error?: string };
@@ -17,33 +17,25 @@ type ManifestResponse = { manifest?: QuanticIdentityManifest; error?: string };
 const IDENTITY_GATE_ENABLED =
   process.env.NEXT_PUBLIC_QUANTIC_IDENTITY_GATE_ENABLED === "true";
 
-function manifestRelayCandidates(): RelayEndpoint[] {
-  const sameOrigin: RelayEndpoint = {
-    id: "quantic-hostinger",
-    label: "Quantic Hostinger",
-    baseUrl: "",
-    priority: 5,
-    enabled: true,
-  };
-  const configured = getRelayEndpoints();
-  const seen = new Set<string>(["same-origin"]);
-  const result: RelayEndpoint[] = [sameOrigin];
-  for (const relay of configured) {
-    const key = relay.baseUrl || "same-origin";
-    if (seen.has(key)) continue;
-    seen.add(key);
-    result.push(relay);
-  }
-  return result;
+const DESKTOP_LOCAL_MANIFEST = process.env.NEXT_PUBLIC_QUANTIC_DESKTOP === "true";
+
+function manifestRelays() {
+  return manifestRelayPolicy({
+    desktop: DESKTOP_LOCAL_MANIFEST,
+    // Do not read user-configured public relays in the Windows local manifest
+    // trust path. Their 403/404 responses are unrelated to the embedded relay.
+    configured: DESKTOP_LOCAL_MANIFEST ? [] : getRelayEndpoints(),
+  });
 }
 
 async function readRemoteManifest(canonicalAddress: string) {
   try {
+    const { relays, retryStatuses } = manifestRelays();
     const { data } = await relayFetchJson<ManifestResponse>(
-      manifestRelayCandidates(),
+      relays,
       `/api/quantic/manifest?handle=${encodeURIComponent(canonicalAddress)}`,
       { cache: "no-store" },
-      { retryStatuses: [403, 404] },
+      { retryStatuses },
     );
     return data.manifest ?? null;
   } catch (error) {
@@ -53,8 +45,9 @@ async function readRemoteManifest(canonicalAddress: string) {
 }
 
 async function republishVerifiedManifest(manifest: QuanticIdentityManifest) {
+  const { relays, retryStatuses } = manifestRelays();
   const { data } = await relayFetchJson<ManifestResponse>(
-    manifestRelayCandidates(),
+    relays,
     "/api/quantic/manifest",
     {
       method: "POST",
@@ -62,7 +55,7 @@ async function republishVerifiedManifest(manifest: QuanticIdentityManifest) {
       body: JSON.stringify({ manifest }),
       cache: "no-store",
     },
-    { retryStatuses: [403, 404] },
+    { retryStatuses },
   );
   if (!data.manifest) throw new Error("Le relais Quantic n’a pas confirmé le manifeste.");
   return data.manifest;
@@ -99,8 +92,8 @@ export function QuanticManifestGate({ children }: { children: ReactNode }) {
         if (decision.action === "adopt-remote" && decision.manifest) {
           await saveLocalIdentity({ ...local, manifest: decision.manifest });
         } else if (decision.action === "publish-local" && decision.manifest) {
-          // Only a manifest already verified locally is republished. A 401/403
-          // from every trusted relay still fails closed before reaching this path.
+          // Publish only a verified signed manifest, never to a remote
+          // fallback in Windows. HTTP 401/403 always fails closed.
           const published = await republishVerifiedManifest(decision.manifest);
           if (!(await verifyManifestBrowser(published))) {
             throw new Error("Le manifeste Quantic republié a une signature invalide.");
@@ -110,7 +103,16 @@ export function QuanticManifestGate({ children }: { children: ReactNode }) {
         }
         setReady(true);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Vérification du manifeste Quantic impossible.");
+        if (DESKTOP_LOCAL_MANIFEST && err instanceof RelayHttpError && (err.status === 401 || err.status === 403)) {
+          const gatewayRefusal = err.status === 403 && (
+            err.message.startsWith("Quantic Mail Windows :") || err.message === "Erreur 403"
+          );
+          setError(gatewayRefusal
+            ? `Le serveur Windows a bloqué la communication avec le relais local (HTTP 403). Ce refus ne prouve pas que le manifeste est invalide. Détail : ${err.message}. Ferme Quantic Mail complètement puis rouvre-le.`
+            : `Le relais local Windows refuse le manifeste signé (HTTP ${err.status}). Aucune clé n'a été modifiée. Détail : ${err.message}`);
+        } else {
+          setError(err instanceof Error ? err.message : "Vérification du manifeste Quantic impossible.");
+        }
       }
     })();
   }, []);
