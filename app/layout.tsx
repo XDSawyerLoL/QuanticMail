@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import "./quantic.css";
 import { QuanticGlobalNav } from "@/components/quantic-global-nav";
+import { QuanticIdDesktopGate } from "@/components/quantic-id-desktop-gate";
 
 export const metadata: Metadata = {
   title: "QuanticMail — Quantic Network",
@@ -11,7 +12,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="fr">
-      <body><QuanticGlobalNav />{children}</body>
+      <body><QuanticIdDesktopGate><QuanticGlobalNav />{children}</QuanticIdDesktopGate></body>
     </html>
   );
 }
