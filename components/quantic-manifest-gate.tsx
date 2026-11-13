@@ -104,7 +104,12 @@ export function QuanticManifestGate({ children }: { children: ReactNode }) {
         setReady(true);
       } catch (err) {
         if (DESKTOP_LOCAL_MANIFEST && err instanceof RelayHttpError && (err.status === 401 || err.status === 403)) {
-          setError(`Le relais local Windows refuse le manifeste signé (HTTP ${err.status}). Aucune clé n'a été modifiée. Détail : ${err.message}`);
+          const gatewayRefusal = err.status === 403 && (
+            err.message.startsWith("Quantic Mail Windows :") || err.message === "Erreur 403"
+          );
+          setError(gatewayRefusal
+            ? `Le serveur Windows a bloqué la communication avec le relais local (HTTP 403). Ce refus ne prouve pas que le manifeste est invalide. Détail : ${err.message}. Ferme Quantic Mail complètement puis rouvre-le.`
+            : `Le relais local Windows refuse le manifeste signé (HTTP ${err.status}). Aucune clé n'a été modifiée. Détail : ${err.message}`);
         } else {
           setError(err instanceof Error ? err.message : "Vérification du manifeste Quantic impossible.");
         }
