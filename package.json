@@ -1,6 +1,6 @@
 {
   "name": "quanticmail",
-  "version": "1.3.3",
+  "version": "1.3.4",
   "private": true,
   "main": "desktop/main.cjs",
   "scripts": {
@@ -18,7 +18,8 @@
     "desktop:dist": "npm run desktop:bundle && npm run desktop:smoke && npm run desktop:installer",
     "desktop:bundle": "node scripts/build-desktop.mjs",
     "desktop:smoke": "node scripts/smoke-desktop.mjs",
-    "desktop:installer": "electron-builder --win nsis --publish never"
+    "desktop:installer": "electron-builder --win nsis --publish never",
+    "desktop:bridge-tests": "node --test tests/desktop-quantic-id-bridge.test.mjs"
   },
   "dependencies": {
     "next": "16.3.3",
