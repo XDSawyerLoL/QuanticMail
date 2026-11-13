@@ -4,7 +4,7 @@ import { createRequire } from "node:module";
 import { resolve } from "node:path";
 
 const require = createRequire(import.meta.url);
-const { resolveStaticPath, LOCAL_MAIL_URL } = require("../desktop/local-server.cjs");
+const { resolveStaticPath, LOCAL_MAIL_URL, approvedHost, approvedOrigin } = require("../desktop/local-server.cjs");
 const { isMailUrl } = require("../desktop/navigation.cjs");
 
 test("l'app locale ne dépend ni de Hostinger ni de Render", () => {
@@ -20,4 +20,25 @@ test("le serveur local refuse les chemins hors de son répertoire", () => {
   assert.equal(resolveStaticPath(root, "/mail/../private"), null);
   assert.equal(resolveStaticPath(root, "/mail/%2e%2e/%2e%2e/private"), null);
   assert.equal(resolveStaticPath(root, "/api/quantic/health"), null);
+});
+
+
+test("le serveur Windows autorise les deux formes de boucle locale à son port exact", () => {
+  assert.equal(approvedHost("127.0.0.1:18787", 18787), true);
+  assert.equal(approvedHost("localhost:18787", 18787), true);
+  assert.equal(approvedHost("LOCALHOST:18787", 18787), true);
+  assert.equal(approvedHost("127.0.0.1:18788", 18787), false);
+  assert.equal(approvedHost("attacker.localhost:18787", 18787), false);
+  assert.equal(approvedHost("quanticmail.example:18787", 18787), false);
+});
+
+test("l'origine HTTP doit correspondre exactement à l'hôte et au port local", () => {
+  assert.equal(approvedOrigin(undefined, "127.0.0.1:18787"), true);
+  assert.equal(approvedOrigin("http://127.0.0.1:18787", "127.0.0.1:18787"), true);
+  assert.equal(approvedOrigin("http://localhost:18787", "localhost:18787"), true);
+  assert.equal(approvedOrigin("HTTP://LOCALHOST:18787", "localhost:18787"), true);
+  assert.equal(approvedOrigin("null", "127.0.0.1:18787"), false);
+  assert.equal(approvedOrigin("http://localhost:18787", "127.0.0.1:18787"), false);
+  assert.equal(approvedOrigin("https://127.0.0.1:18787", "127.0.0.1:18787"), false);
+  assert.equal(approvedOrigin("http://evil.example:18787", "127.0.0.1:18787"), false);
 });
