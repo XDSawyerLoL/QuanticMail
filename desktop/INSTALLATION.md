@@ -11,7 +11,7 @@ L'application n'utilise **aucun site Hostinger pour afficher Quantic Mail**.
 - Identity Vault accessible dans l'application. Importer le coffre `.quantic-vault` ou associer l'appareil comme appareil secondaire : l'identité stockée dans le navigateur web n'est PAS copiée implicitement.
 
 ## Installation
-Dans le dépôt GitHub, ouvrez **Actions > QuanticMail - installateur Windows local** puis téléchargez l'artefact `quanticmail-windows-local` d'une exécution réussie. Extraire le ZIP et lancer `QuanticMail-Setup-1.3.3.exe`.
+Dans le dépôt GitHub, ouvrez **Actions > QuanticMail - installateur Windows local** puis téléchargez l'artefact `quanticmail-windows-local` d'une exécution réussie. Extraire le ZIP et lancer `QuanticMail-Setup-1.3.4.exe`.
 
 ## Compilation Windows
 Sur Windows x64 avec Node.js 22 :
@@ -42,3 +42,12 @@ Version alpha, non auditée. L'installateur généré automatiquement est **non 
 4. Dans Windows, importer le fichier `.quantic-device-cert`. La nouvelle installation utilise des clés d'appareil différentes, autorisées par une signature du compte maître.
 
 Ce parcours ne requiert pas de mot de passe. Il ne synchronise pas automatiquement l'historique ni les relais distants. Si l'identité est reconnue mais les messages du correspondant n'arrivent pas, contrôler la connectivité réseau séparément.
+
+
+## Quantic ID réellement reconnu dans Windows (v1.3.4)
+
+- Identity Vault est un programme distinct de QuanticMail. Il expose son état sur `http://127.0.0.1:47621/v1/status` et signe une preuve à la demande sur `/v1/assert`.
+- L'application Windows vérifie cryptographiquement la preuve locale (Ed25519 ou P-256 QHK/1), sans mots de passe ni copie de clés privées, avant d'afficher la boîte.
+- Une identité Quantic ID `qid_...` n'est **pas** une identité cryptographique de messagerie `nom~empreinte@quantic`. Une session Quantic ID déverrouillée ne reconstitue pas à elle seule une boîte chiffrée existante dans un autre profil navigateur.
+- Si la boîte existe uniquement dans un autre navigateur, l'écran dit « Quantic ID reconnu. Ta boîte reste à relier » et propose l'association par demande/certificat signé. Une autorisation par l'ancien appareil reste nécessaire ; l'ancien navigateur doit être conservé jusqu'à la liaison.
+- Si le Quantic ID est verrouillé/absent, un message explicite s'affiche au lieu d'une demande de mot de passe de coffre.
