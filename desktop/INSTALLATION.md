@@ -11,7 +11,7 @@ L'application n'utilise **aucun site Hostinger pour afficher Quantic Mail**.
 - Identity Vault accessible dans l'application. Importer le coffre `.quantic-vault` ou associer l'appareil comme appareil secondaire : l'identité stockée dans le navigateur web n'est PAS copiée implicitement.
 
 ## Installation
-Dans le dépôt GitHub, ouvrez **Actions > QuanticMail - installateur Windows local** puis téléchargez l'artefact `quanticmail-windows-local` d'une exécution réussie. Utiliser le fichier `QuanticMail-Setup-1.3.5.exe` publié directement dans les **Releases** GitHub (aucun ZIP nécessaire).
+Dans le dépôt GitHub, ouvrez **Actions > QuanticMail - installateur Windows local** puis téléchargez l'artefact `quanticmail-windows-local` d'une exécution réussie. Utiliser le fichier `QuanticMail-Setup-1.3.6.exe` publié directement dans les **Releases** GitHub (aucun ZIP nécessaire).
 
 ## Compilation Windows
 Sur Windows x64 avec Node.js 22 :
@@ -44,7 +44,7 @@ Version alpha, non auditée. L'installateur généré automatiquement est **non 
 Ce parcours ne requiert pas de mot de passe. Il ne synchronise pas automatiquement l'historique ni les relais distants. Si l'identité est reconnue mais les messages du correspondant n'arrivent pas, contrôler la connectivité réseau séparément.
 
 
-## Quantic ID réellement reconnu dans Windows (v1.3.5)
+## Quantic ID réellement reconnu dans Windows (v1.3.6)
 
 - Identity Vault est un programme distinct de QuanticMail. Il expose son état sur `http://127.0.0.1:47621/v1/status` et signe une preuve à la demande sur `/v1/assert`.
 - L'application Windows vérifie cryptographiquement la preuve locale (Ed25519 ou P-256 QHK/1), sans mots de passe ni copie de clés privées, avant d'afficher la boîte.
@@ -53,7 +53,7 @@ Ce parcours ne requiert pas de mot de passe. Il ne synchronise pas automatiqueme
 - Si le Quantic ID est verrouillé/absent, un message explicite s'affiche au lieu d'une demande de mot de passe de coffre.
 
 
-## Compte unique Quantic ID (v1.3.5)
+## Compte unique Quantic ID (v1.3.6)
 
 L'identité personnelle Quantic ID (`qid_...`) est le **seul compte de connexion** du logiciel Windows. Les clés d'appareil de messagerie restent distinctes des clés de signature d'Identity Vault : c'est une séparation cryptographique, pas un second compte utilisateur.
 
@@ -63,3 +63,12 @@ L'identité personnelle Quantic ID (`qid_...`) est le **seul compte de connexion
 - Une boîte préexistante dans le navigateur possède des clés privées chiffrantes **qu'Identity Vault ne contient pas**. Sans elles, il est impossible de déchiffrer les messages historiques. L'association avec le Quantic ID ne peut pas fabriquer ces clés : la liaison signée par l'ancien appareil reste indispensable pour migrer sans perte.
 - Le coffre `.quantic-vault` chiffré avec mot de passe reste une **sauvegarde facultative**, jamais un mot de passe de connexion Quantic ID.
 - Limite actuelle : cette association du compte QID au stockage local ne constitue pas encore un annuaire mondial de boîtes piloté par QID ni une migration transparente des clés depuis d'autres navigateurs. L'authentification centrale par QID sur les relais distants et une liaison directe navigateur → Windows devront être traitées séparément.
+
+## Correction envoi / authentification appareil (v1.3.6)
+
+- Symptôme : « Authentification de l'appareil Quantic invalide » lors de l'envoi, malgré Quantic ID déverrouillé.
+- Cause corrigée : les anciennes versions pouvaient enregistrer la racine côté relais en `d-<10 hex>` alors que le navigateur et le manifeste signé utilisaient `d-<32 hex>`. Le relais refusait ensuite le jeton d'appareil présenté avec l'identifiant différent.
+- L'enregistrement de la racine envoie maintenant son `deviceId` local exact. Le relais embarqué migre de façon compatible les files d'attente et reçus de l'ancien ID vers le nouveau, avec les mêmes clés et le même jeton ; aucune restauration, recréation de boîte ou suppression de messages n'est requise.
+- L'envoi vérifie la réponse de l'enregistrement **avant** de récupérer une préclé et de transmettre le message. En cas de non-acceptation par tous les relais, la fenêtre d'envoi et le contenu du brouillon restent affichés ; le message chiffré est gardé dans la file locale.
+- Le test d'installation `scripts/smoke-desktop.mjs` démarre un vrai relais de test, reproduit le rejet d'appareil en ancien format, réenregistre en 32 caractères, vérifie un envoi HTTP 202 et une relève HTTP 200 ; aucune clé ni donnée utilisateur n'est utilisée.
+- Ne pas confondre acceptation **locale** par un relais avec livraison au correspondant via Internet : la fédération et la découverte de la boîte distante restent à vérifier séparément. Ne jamais promettre une livraison distante sur la seule base d'un HTTP 202 local.
