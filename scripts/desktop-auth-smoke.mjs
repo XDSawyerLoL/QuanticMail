@@ -3,6 +3,7 @@
 // user's vault, message history or production relay.
 import assert from "node:assert/strict";
 import { createHash, generateKeyPairSync, randomBytes, randomUUID, sign } from "node:crypto";
+import { canonicalManifestText } from "../lib/quantic/manifest-core.mjs";
 
 const digest = (key) => createHash("sha256").update(`P-256:${key.x}:${key.y}`).digest("hex");
 
@@ -71,6 +72,48 @@ export async function smokeDeviceAuthentication(apiOrigin) {
   assert.equal(repaired.response.status, 201,
     `Migration du relais impossible: ${JSON.stringify(repaired.result)}`);
   assert.equal(repaired.result.rootDeviceId, deviceId);
+
+  // A clean standalone relay legitimately has no manifest for this address.
+  // This must be a local 404, never a reason to consult an unrelated public
+  // relay that can return 403 and lock the Windows security synchronization.
+  const missingManifest = await json(
+    `${apiOrigin}/api/quantic/manifest?handle=${encodeURIComponent(canonicalAddress)}`
+  );
+  assert.equal(missingManifest.response.status, 404,
+    `Manifeste initialement absent attendu: ${JSON.stringify(missingManifest.result)}`);
+  const issuedAt = new Date().toISOString();
+  const payload = {
+    version: 1, sequence: 1, canonicalAddress,
+    handle: "desktopauth", fingerprint: digest(signingPublicKey).slice(0, 32),
+    identityPublicKey: publicKey, identitySigningPublicKey: signingPublicKey,
+    devices: [{
+      deviceId, label: "Appareil principal", publicKey,
+      deviceSigningPublicKey: signingPublicKey, kind: "root", issuedAt,
+    }],
+    revocations: [], issuedAt,
+  };
+  const manifest = {
+    format: "quantic-identity-manifest", version: 1, payload,
+    signature: sign("sha256", Buffer.from(canonicalManifestText(payload)), {
+      key: signing.privateKey, dsaEncoding: "ieee-p1363"
+    }).toString("base64"),
+  };
+  const forgedManifest = await json(`${apiOrigin}/api/quantic/manifest`, {
+    method: "POST", body: { manifest: { ...manifest, signature: "AAAA" } },
+  });
+  assert.equal(forgedManifest.response.status, 401,
+    "Un manifeste falsifié ne doit jamais être accepté par le relais local.");
+  const publishedManifest = await json(`${apiOrigin}/api/quantic/manifest`, {
+    method: "POST", body: { manifest },
+  });
+  assert.equal(publishedManifest.response.status, 200,
+    `Publication locale du manifeste signé impossible: ${JSON.stringify(publishedManifest.result)}`);
+  const loadedManifest = await json(
+    `${apiOrigin}/api/quantic/manifest?handle=${encodeURIComponent(canonicalAddress)}`
+  );
+  assert.equal(loadedManifest.response.status, 200,
+    `Relève locale du manifeste signé impossible: ${JSON.stringify(loadedManifest.result)}`);
+  assert.equal(loadedManifest.result.manifest?.payload?.canonicalAddress, canonicalAddress);
 
   const queued = await json(`${apiOrigin}/api/quantic/send`, {
     method: "POST", token: authToken, body: envelope,
