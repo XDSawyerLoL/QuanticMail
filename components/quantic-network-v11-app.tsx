@@ -14,6 +14,7 @@ import {
   signChallenge,
 } from "@/lib/quantic/crypto";
 import { deviceIdFromPublicKey } from "@/lib/quantic/device";
+import { readVaultStatus, verifyUnlockedVault } from "@/lib/quantic/vault-bridge.mjs";
 import { selectEnvelopePrivateKey } from "@/lib/quantic/envelope-core.mjs";
 import { createInitialManifest, verifyManifestBrowser } from "@/lib/quantic/manifest";
 import type { QuanticIdentityManifest } from "@/lib/quantic/manifest-types";
@@ -721,6 +722,12 @@ export function QuanticNetworkV11App() {
         authToken: randomToken(),
         createdAt: new Date().toISOString(),
       };
+      // A freshly created mailbox belongs to the Quantic ID already authenticated
+      // by the desktop shell. Never create a second account or password.
+      if (process.env.NEXT_PUBLIC_QUANTIC_DESKTOP === "true") {
+        const verified = await verifyUnlockedVault(await readVaultStatus());
+        local = { ...local, quanticIdKeyId: verified.keyId, quanticIdBoundAt: new Date().toISOString() };
+      }
       await publishIdentity(local);
       const manifest = await createInitialManifest(local);
       local = await publishManifest(local, manifest);
@@ -850,19 +857,19 @@ export function QuanticNetworkV11App() {
       <main className="qn-onboarding qm-entry-page">
         <section className="qn-card qn-onboarding-card qm-entry-card">
           <div className="qm-entry-mark"><span className="qn-mark">Q</span><span className="qn-kicker">QUANTIC MAIL · ACCÈS SÉCURISÉ</span></div>
-          <h1>{process.env.NEXT_PUBLIC_QUANTIC_DESKTOP === "true" ? "Quantic ID reconnu. Ta boîte reste à relier." : "Retrouvez votre boîte Mail."}</h1>
+          <h1>{process.env.NEXT_PUBLIC_QUANTIC_DESKTOP === "true" ? "Quantic ID connecté." : "Retrouvez votre boîte Mail."}</h1>
           <p className="qn-lead">{process.env.NEXT_PUBLIC_QUANTIC_DESKTOP === "true"
-            ? "Ton Identity Vault est bien déverrouillé. Ce logiciel Windows n'a pas encore les clés nécessaires pour ouvrir ta boîte existante. Il faut autoriser ce PC une seule fois depuis l'ancien navigateur, sans mot de passe."
+            ? "Ton compte Quantic est reconnu. Si tu utilisais déjà Quantic Mail dans ton navigateur, il faut simplement autoriser cette installation Windows à lire ta boîte chiffrée existante. Aucun autre compte ni mot de passe n'est nécessaire."
             : "Votre identité repose sur des clés cryptographiques. Aucun mot de passe de connexion n'est nécessaire."}</p>
           {process.env.NEXT_PUBLIC_QUANTIC_DESKTOP === "true" ? (
             <>
               <p className="qn-notice" role="status">
-                <strong>Quantic ID et boîte mail sont deux clés différentes.</strong> Ta connexion Quantic ID est reconnue ; nous ne devons pas prétendre que cela transfère automatiquement les clés privées de ta boîte.
+                <strong>Un seul compte : Quantic ID.</strong> Ta boîte mail est une fonction de ce compte. Son chiffrement reste privé à chaque appareil, donc les messages précédents nécessitent une autorisation depuis le navigateur où ils sont déjà accessibles.
               </p>
               <div className="qm-entry-options">
                 <Link className="qm-entry-option qm-entry-option-primary" href="/devices/files">
                   <span className="qm-entry-option-icon">▦</span>
-                  <span><strong>Relier ma boîte à cet ordinateur</strong><small>Une seule autorisation depuis Quantic Mail dans l'ancien navigateur.</small></span>
+                  <span><strong>Retrouver ma boîte existante</strong><small>Autoriser ce PC depuis Quantic Mail dans mon navigateur actuel, sans mot de passe.</small></span>
                   <span aria-hidden="true">↗</span>
                 </Link>
                 <details className="qm-entry-new">
@@ -887,15 +894,15 @@ export function QuanticNetworkV11App() {
             </div>
           )}
           <details className="qm-entry-new">
-            <summary>Je n’ai jamais utilisé QuanticMail · créer une boîte</summary>
-            <p className="qn-footnote">Cette opération génère une nouvelle identité et de nouvelles clés. Elle ne récupère pas les messages d’un compte existant.</p>
+            <summary>Je n'ai aucune boîte existante · activer une nouvelle boîte pour mon Quantic ID</summary>
+            <p className="qn-footnote">Uniquement si tu n'as jamais utilisé Quantic Mail : une nouvelle boîte chiffrée sera rattachée à ton Quantic ID. Cette opération ne récupère pas les messages d'une ancienne boîte.</p>
             <form onSubmit={createIdentity} className="qn-create-form">
               <label htmlFor="handle">Identifiant de votre nouvelle boîte</label>
               <div className="qn-address-input">
                 <input id="handle" value={handle} onChange={(e) => setHandle(e.target.value)} placeholder="Votre pseudo" autoComplete="off" />
                 <span>@quantic</span>
               </div>
-              <button disabled={busy}>{busy ? "Création…" : "Créer une nouvelle boîte"}</button>
+              <button disabled={busy}>{busy ? "Activation…" : "Activer ma nouvelle boîte Quantic"}</button>
             </form>
           </details>
           {error && <p className="qn-error" role="alert">{error}</p>}
