@@ -11,7 +11,7 @@ L'application n'utilise **aucun site Hostinger pour afficher Quantic Mail**.
 - Identity Vault accessible dans l'application. Importer le coffre `.quantic-vault` ou associer l'appareil comme appareil secondaire : l'identité stockée dans le navigateur web n'est PAS copiée implicitement.
 
 ## Installation
-Dans le dépôt GitHub, ouvrez **Actions > QuanticMail - installateur Windows local** puis téléchargez l'artefact `quanticmail-windows-local` d'une exécution réussie. Extraire le ZIP et lancer `QuanticMail-Setup-1.3.1.exe`.
+Dans le dépôt GitHub, ouvrez **Actions > QuanticMail - installateur Windows local** puis téléchargez l'artefact `quanticmail-windows-local` d'une exécution réussie. Extraire le ZIP et lancer `QuanticMail-Setup-1.3.3.exe`.
 
 ## Compilation Windows
 Sur Windows x64 avec Node.js 22 :
@@ -33,3 +33,12 @@ L'interface et le relais fonctionnent entièrement sur le poste. Le fonctionneme
 
 ## Sécurité et limites
 Version alpha, non auditée. L'installateur généré automatiquement est **non signé** et peut déclencher SmartScreen. Pas de migration silencieuse du profil navigateur ni des clés privées. Les ports locaux sont fixes pour conserver le même stockage de profil entre les lancements.
+
+## Première connexion sans mot de passe
+
+1. Dans Windows, ouvrir **Associer ce PC sans mot de passe** puis indiquer l'adresse canonique figurant sur le site Quantic Mail originel (rubrique **Appareils**).
+2. Télécharger le fichier `.quantic-device-request` créé sur ce PC : il ne contient pas la clé privée du compte maître.
+3. Dans le navigateur original où l'identité fonctionne déjà, ouvrir **Appareils > Pairing par fichiers** et sélectionner la demande. L'appareil maître signe le certificat.
+4. Dans Windows, importer le fichier `.quantic-device-cert`. La nouvelle installation utilise des clés d'appareil différentes, autorisées par une signature du compte maître.
+
+Ce parcours ne requiert pas de mot de passe. Il ne synchronise pas automatiquement l'historique ni les relais distants. Si l'identité est reconnue mais les messages du correspondant n'arrivent pas, contrôler la connectivité réseau séparément.
