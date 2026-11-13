@@ -307,6 +307,10 @@ export function QuanticNetworkV11App() {
       handle: locator,
       publicKey: local.publicKey,
       signingPublicKey: local.signingPublicKey,
+      // Preserve the exact root device ID used by the signed manifest and
+      // the browser's encrypted outbox. The standalone relay's compatibility
+      // handler safely migrates legacy 10-hex device IDs to this 32-hex ID.
+      deviceId: local.deviceId ?? (await deviceIdFromPublicKey(local.publicKey)),
       authToken: local.authToken,
     };
     try {
@@ -750,6 +754,14 @@ export function QuanticNetworkV11App() {
     setNotice("");
     try {
       let active = await ensureLocalIdentity(identity);
+      // A mailbox that was created by a previous Windows build may have
+      // a relay-side 10-hex root ID while the local manifest uses 32 hex.
+      // Re-register with the explicit ID *before* claiming recipient prekeys
+      // or sending so the relay can authenticate this device correctly.
+      const registration = await publishIdentity(active);
+      if (active.role !== "secondary" && registration.rootDeviceId && registration.rootDeviceId !== active.deviceId) {
+        throw new Error("L'identifiant d'appareil enregistré ne correspond pas à celui de la boîte. L'envoi est suspendu pour protéger tes clés.");
+      }
       active = await syncOwnManifest(active);
       setIdentity(active);
       const recipient = normalizeLocator(to);
@@ -808,6 +820,12 @@ export function QuanticNetworkV11App() {
         })) syncSubmitted += 1;
       }
 
+      // A 0/N result means the ciphertext was queued locally, NOT sent.
+      // Never clear the compose draft or claim delivery in that case.
+      if (normalSubmitted === 0) {
+        await refreshLocal();
+        throw new Error("Envoi non confirmé : aucun relais n'a accepté le message chiffré. Le message reste dans la file locale ; le brouillon est conservé.");
+      }
       const normalText = `${normalSubmitted}/${resolved.devices.length} livraison(s)`;
       const syncText = ownDevices.length ? ` · ${syncSubmitted}/${ownDevices.length} copie(s) historique` : "";
       setNotice(`${normalText}${syncText} pour ${resolved.address}.`);
