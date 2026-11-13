@@ -851,24 +851,40 @@ export function QuanticNetworkV11App() {
         <section className="qn-card qn-onboarding-card qm-entry-card">
           <div className="qm-entry-mark"><span className="qn-mark">Q</span><span className="qn-kicker">QUANTIC MAIL · ACCÈS SÉCURISÉ</span></div>
           <h1>Retrouvez votre boîte Mail.</h1>
-          <p className="qn-lead">Quantic ID protège votre accès. Pour retrouver votre identité sur cet appareil, importez ses clés depuis votre coffre chiffré ou associez cet appareil au poste principal.</p>
-          {process.env.NEXT_PUBLIC_QUANTIC_DESKTOP === "true" && (
-            <p className="qn-notice" role="status">
-              <strong>Première ouverture sur Windows :</strong> votre identité créée sur le site web n'est pas détectée automatiquement. Ouvrez QuanticMail dans votre ancien navigateur, exportez votre fichier <code>.quantic-vault</code> depuis Identity Vault, puis cliquez sur « Restaurer mon coffre » ci-dessous. Le coffre ne transfère pas l'historique des messages.
-            </p>
+          <p className="qn-lead">Votre identité repose sur des clés cryptographiques. Pas besoin d'un mot de passe de connexion.</p>
+          {process.env.NEXT_PUBLIC_QUANTIC_DESKTOP === "true" ? (
+            <>
+              <p className="qn-notice" role="status">
+                <strong>Déjà utilisateur de Quantic Mail ?</strong> Pour retrouver votre identité dans cette application Windows, associez ce PC à l'appareil maître. Le jumelage par fichiers signés fonctionne même si les deux applications n'utilisent pas le même relais. Aucun mot de passe n'est nécessaire.
+              </p>
+              <div className="qm-entry-options">
+                <Link className="qm-entry-option qm-entry-option-primary" href="/devices/files">
+                  <span className="qm-entry-option-icon">▦</span>
+                  <span><strong>Associer ce PC sans mot de passe</strong><small>Créer une demande locale, la faire signer depuis la boîte d'origine, puis installer le certificat.</small></span>
+                  <span aria-hidden="true">↗</span>
+                </Link>
+                <Link className="qm-entry-option" href="/vault">
+                  <span className="qm-entry-option-icon">◇</span>
+                  <span><strong>Utiliser une sauvegarde chiffrée (facultatif)</strong><small>Seulement si vous possédez déjà un fichier .quantic-vault et le mot de passe choisi pour cette sauvegarde.</small></span>
+                  <span aria-hidden="true">↗</span>
+                </Link>
+              </div>
+              <p className="qn-footnote">Le certificat autorise le PC avec de nouvelles clés : la clé maîtresse privée reste dans l'ancien navigateur. La liaison ne transfère pas automatiquement l'historique des messages. Un relais réseau commun ou fédéré reste nécessaire pour recevoir les messages à distance.</p>
+            </>
+          ) : (
+            <div className="qm-entry-options">
+              <Link className="qm-entry-option qm-entry-option-primary" href="/devices">
+                <span className="qm-entry-option-icon">▦</span>
+                <span><strong>Lier cet appareil par QR</strong><small>Autoriser un nouvel appareil avec l'identité existante.</small></span>
+                <span aria-hidden="true">↗</span>
+              </Link>
+              <Link className="qm-entry-option" href="/vault">
+                <span className="qm-entry-option-icon">◇</span>
+                <span><strong>Restaurer une sauvegarde chiffrée</strong><small>Facultatif : seulement si vous possédez déjà un coffre .quantic-vault.</small></span>
+                <span aria-hidden="true">↗</span>
+              </Link>
+            </div>
           )}
-          <div className="qm-entry-options">
-            <Link className="qm-entry-option qm-entry-option-primary" href="/vault">
-              <span className="qm-entry-option-icon">◇</span>
-              <span><strong>Restaurer mon coffre</strong><small>Importez vos clés existantes depuis un fichier .quantic-vault chiffré.</small></span>
-              <span aria-hidden="true">↗</span>
-            </Link>
-            <Link className="qm-entry-option" href="/devices">
-              <span className="qm-entry-option-icon">▦</span>
-              <span><strong>Lier cet appareil par QR</strong><small>Disponible si les deux appareils peuvent joindre le même relais de jumelage.</small></span>
-              <span aria-hidden="true">↗</span>
-            </Link>
-          </div>
           <details className="qm-entry-new">
             <summary>Je n’ai jamais utilisé QuanticMail · créer une boîte</summary>
             <p className="qn-footnote">Cette opération génère une nouvelle identité et de nouvelles clés. Elle ne récupère pas les messages d’un compte existant.</p>
