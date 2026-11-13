@@ -11,7 +11,7 @@ L'application n'utilise **aucun site Hostinger pour afficher Quantic Mail**.
 - Identity Vault accessible dans l'application. Importer le coffre `.quantic-vault` ou associer l'appareil comme appareil secondaire : l'identité stockée dans le navigateur web n'est PAS copiée implicitement.
 
 ## Installation
-Dans le dépôt GitHub, ouvrez **Actions > QuanticMail - installateur Windows local** puis téléchargez l'artefact `quanticmail-windows-local` d'une exécution réussie. Extraire le ZIP et lancer `QuanticMail-Setup-1.3.4.exe`.
+Dans le dépôt GitHub, ouvrez **Actions > QuanticMail - installateur Windows local** puis téléchargez l'artefact `quanticmail-windows-local` d'une exécution réussie. Utiliser le fichier `QuanticMail-Setup-1.3.5.exe` publié directement dans les **Releases** GitHub (aucun ZIP nécessaire).
 
 ## Compilation Windows
 Sur Windows x64 avec Node.js 22 :
@@ -36,7 +36,7 @@ Version alpha, non auditée. L'installateur généré automatiquement est **non 
 
 ## Première connexion sans mot de passe
 
-1. Dans Windows, ouvrir **Associer ce PC sans mot de passe** puis indiquer l'adresse canonique figurant sur le site Quantic Mail originel (rubrique **Appareils**).
+1. Dans Windows, ouvrir **Retrouver ma boîte existante** puis indiquer l'adresse canonique figurant sur le site Quantic Mail originel (rubrique **Appareils**).
 2. Télécharger le fichier `.quantic-device-request` créé sur ce PC : il ne contient pas la clé privée du compte maître.
 3. Dans le navigateur original où l'identité fonctionne déjà, ouvrir **Appareils > Pairing par fichiers** et sélectionner la demande. L'appareil maître signe le certificat.
 4. Dans Windows, importer le fichier `.quantic-device-cert`. La nouvelle installation utilise des clés d'appareil différentes, autorisées par une signature du compte maître.
@@ -44,10 +44,22 @@ Version alpha, non auditée. L'installateur généré automatiquement est **non 
 Ce parcours ne requiert pas de mot de passe. Il ne synchronise pas automatiquement l'historique ni les relais distants. Si l'identité est reconnue mais les messages du correspondant n'arrivent pas, contrôler la connectivité réseau séparément.
 
 
-## Quantic ID réellement reconnu dans Windows (v1.3.4)
+## Quantic ID réellement reconnu dans Windows (v1.3.5)
 
 - Identity Vault est un programme distinct de QuanticMail. Il expose son état sur `http://127.0.0.1:47621/v1/status` et signe une preuve à la demande sur `/v1/assert`.
 - L'application Windows vérifie cryptographiquement la preuve locale (Ed25519 ou P-256 QHK/1), sans mots de passe ni copie de clés privées, avant d'afficher la boîte.
 - Une identité Quantic ID `qid_...` n'est **pas** une identité cryptographique de messagerie `nom~empreinte@quantic`. Une session Quantic ID déverrouillée ne reconstitue pas à elle seule une boîte chiffrée existante dans un autre profil navigateur.
 - Si la boîte existe uniquement dans un autre navigateur, l'écran dit « Quantic ID reconnu. Ta boîte reste à relier » et propose l'association par demande/certificat signé. Une autorisation par l'ancien appareil reste nécessaire ; l'ancien navigateur doit être conservé jusqu'à la liaison.
 - Si le Quantic ID est verrouillé/absent, un message explicite s'affiche au lieu d'une demande de mot de passe de coffre.
+
+
+## Compte unique Quantic ID (v1.3.5)
+
+L'identité personnelle Quantic ID (`qid_...`) est le **seul compte de connexion** du logiciel Windows. Les clés d'appareil de messagerie restent distinctes des clés de signature d'Identity Vault : c'est une séparation cryptographique, pas un second compte utilisateur.
+
+- Après preuve cryptographique locale et installation des clés de mail, l'application propose une **association explicite une seule fois** entre le `qid_...` vérifié et l'identité `@quantic` locale.
+- L'association est enregistrée dans la base locale et vérifiée lors de chaque ouverture, y compris sur les pages Appareils et Identity Vault. Un autre Quantic ID déverrouillé ne donne pas accès à la boîte associée au premier.
+- Une nouvelle boîte créée volontairement depuis Windows, pour un Quantic ID qui n'a **aucune** boîte existante, est immédiatement associée au QID vérifié. Cela ne transforme pas ni ne remplace une boîte web existante.
+- Une boîte préexistante dans le navigateur possède des clés privées chiffrantes **qu'Identity Vault ne contient pas**. Sans elles, il est impossible de déchiffrer les messages historiques. L'association avec le Quantic ID ne peut pas fabriquer ces clés : la liaison signée par l'ancien appareil reste indispensable pour migrer sans perte.
+- Le coffre `.quantic-vault` chiffré avec mot de passe reste une **sauvegarde facultative**, jamais un mot de passe de connexion Quantic ID.
+- Limite actuelle : cette association du compte QID au stockage local ne constitue pas encore un annuaire mondial de boîtes piloté par QID ni une migration transparente des clés depuis d'autres navigateurs. L'authentification centrale par QID sur les relais distants et une liaison directe navigateur → Windows devront être traitées séparément.
