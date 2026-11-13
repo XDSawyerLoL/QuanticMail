@@ -14,7 +14,9 @@ on:
       - "tests/desktop-*.test.mjs"
       - "package.json"
       - "components/**"
-      - "app/diagnostic/**"
+      - "app/**"
+      - "lib/quantic/local-db.ts"
+      - "lib/quantic/quantic-id-mail-binding.*"
       - ".github/workflows/windows-desktop.yml"
   pull_request:
     branches: [main]
@@ -33,20 +35,20 @@ jobs:
       - name: Installer les dependances
         run: npm install --no-audit --no-fund
       - name: Tester la navigation et le serveur local
-        run: node --test tests/desktop-navigation.test.mjs tests/desktop-local.test.mjs tests/desktop-passwordless.test.mjs tests/desktop-quantic-id-bridge.test.mjs
+        run: node --test tests/desktop-navigation.test.mjs tests/desktop-local.test.mjs tests/desktop-passwordless.test.mjs tests/desktop-quantic-id-bridge.test.mjs tests/desktop-quantic-id-mail-binding.test.mjs
       - name: Compiler l'application Windows et son relais embarque
         run: npm run desktop:dist
       - name: Controler la presence de l'installateur
         shell: pwsh
         run: |
-          if (-not (Test-Path desktop-dist/QuanticMail-Setup-1.3.4.exe)) {
+          if (-not (Test-Path desktop-dist/QuanticMail-Setup-1.3.5.exe)) {
             throw "Installateur Quantic Mail introuvable"
           }
       - name: Publier l'installateur Windows
         uses: actions/upload-artifact@v4
         with:
           name: quanticmail-windows-local
-          path: desktop-dist/QuanticMail-Setup-1.3.4.exe
+          path: desktop-dist/QuanticMail-Setup-1.3.5.exe
           if-no-files-found: error
           retention-days: 14
 
@@ -70,9 +72,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          exe="release/QuanticMail-Setup-1.3.4.exe"
+          exe="release/QuanticMail-Setup-1.3.5.exe"
           test -s "$exe"
-          tag="v1.3.4-windows-local-preview.1"
+          tag="v1.3.5-windows-local-preview.1"
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$tag" "$exe" --clobber --repo "$GITHUB_REPOSITORY"
           else
@@ -80,7 +82,7 @@ jobs:
               --repo "$GITHUB_REPOSITORY" \
               --target "$RELEASE_TARGET" \
               --prerelease \
-              --title "Quantic Mail 1.3.4 Windows local (préversion)" \
-              --notes "Installateur Windows direct au format .exe. Interface et relais locaux, aucune page Hostinger nécessaire. Version alpha non signée : association passwordless par certificat signé sans export de coffre obligatoire. Sauvegardez néanmoins vos données existantes. L'acheminement entre deux PC derrière des box distinctes sans relais public reste à valider."
+              --title "Quantic Mail 1.3.5 Windows local (préversion)" \
+              --notes "Installateur Windows direct au format .exe. Interface et relais locaux, aucune page Hostinger nécessaire. Version alpha non signée : compte unique Quantic ID avec association persistante de boîte locale et contrôle de propriétaire, sans second mot de passe. Sauvegardez néanmoins vos données existantes. L'acheminement entre deux PC derrière des box distinctes sans relais public reste à valider."
           fi
           gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets,url
