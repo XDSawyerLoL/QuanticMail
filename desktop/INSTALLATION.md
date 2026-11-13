@@ -1,30 +1,35 @@
-# Quantic Mail pour Windows
+# Quantic Mail — édition Windows locale
 
-Cette version installe Quantic Mail comme application Windows 64 bits : fenêtre dédiée, raccourci Bureau, menu Démarrer et désinstallation via Windows.
+L'application n'utilise **aucun site Hostinger pour afficher Quantic Mail**.
 
-## Pour installer (sans Node.js)
+## Architecture
+- Fenêtre native Electron.
+- Interface Quantic Mail exportée et embarquée dans l'installateur.
+- Serveur local HTTP sur `127.0.0.1:18787`, non exposé au réseau.
+- Relais Quantic autonome sur `127.0.0.1:18788` avec état dans le profil Windows.
+- Messages, contacts et clés privées conservés dans le profil local IndexedDB.
+- Identity Vault accessible dans l'application. Importer le coffre `.quantic-vault` ou associer l'appareil comme appareil secondaire : l'identité stockée dans le navigateur web n'est PAS copiée implicitement.
 
-1. Ouvrir l'onglet **Actions** du dépôt GitHub et sélectionner **Installer Windows QuanticMail**.
-2. Ouvrir la dernière exécution réussie ; télécharger l'artefact **quanticmail-windows-installer**.
-3. Extraire le ZIP puis lancer `QuanticMail-Setup-1.3.1.exe`.
-4. Dans Quantic Mail, utiliser **Identity Vault** pour importer le coffre `.quantic-vault` chiffré, ou associer ce poste comme nouvel appareil depuis le dispositif maître.
+## Installation
+Dans le dépôt GitHub, ouvrez **Actions > QuanticMail - installateur Windows local** puis téléchargez l'artefact `quanticmail-windows-local` d'une exécution réussie. Extraire le ZIP et lancer `QuanticMail-Setup-1.3.1.exe`.
 
-**Important :** l'installation ne récupère pas automatiquement le coffre ou les messages stockés dans IndexedDB du navigateur, car les profils navigateur et Electron sont séparés. Exporter le coffre depuis l'ordinateur d'origine AVANT de réinitialiser quoi que ce soit. Ne jamais transmettre ce fichier ou son mot de passe à un tiers.
-
-## Pour compiler soi-même
-
-Avec Node.js 22 sur Windows :
+## Compilation Windows
+Sur Windows x64 avec Node.js 22 :
 
 ```powershell
 npm install
 npm run desktop:dist
 ```
 
-L'installateur est généré dans `desktop-dist/`. L'icône Windows est construite localement par `scripts/generate-desktop-icon.mjs` sans dépendance supplémentaire.
+Le fichier final est dans `desktop-dist/`.
 
-## Limites actuelles
+## Réseau réel, sans Hostinger
+L'interface et le relais fonctionnent entièrement sur le poste. Le fonctionnement du courrier entre plusieurs machines dépend de la capacité de joindre un autre relais Quantic. Le relais local est limité volontairement à 127.0.0.1 (pas d'ouverture de port automatique).
 
-- Cette première édition est un client de bureau sécurisé de la surface Quantic Mail hébergée sur Hostinger. Elle **a besoin d'une connexion Internet** pour charger l'interface ; elle ne contient pas encore le moteur de relais ni un serveur local embarqué.
-- Les clés et les messages gérés par le navigateur Electron sont distincts de ceux du navigateur web. La restauration/association est volontaire pour éviter toute copie implicite de clés privées.
-- L'installateur CI est **non signé**. Windows SmartScreen peut demander une vérification de réputation. À terme, une signature de code éditeur est recommandée.
-- Les communications entre identités Quantic peuvent se passer de SMTP/DNS, mais l'interface hébergée et les relais distants utilisent encore HTTPS/DNS pour leur accès initial.
+- Sans relais partagé accessible ni connexion P2P, deux PC derrière deux box Internet ne peuvent pas se découvrir ni échanger automatiquement.
+- Pour une fédération réellement indépendante, configurer des pairs Quantic accessibles (idéalement HTTPS avec TLS) et l'amorçage réseau correspondant.
+- La configuration actuelle de la Web App conserve un relais public Render de secours. Cette édition Windows ne passe pas par Hostinger, mais un relais Render peut être contacté si les réglages réseau utilisateurs le permettent. Ce n'est pas une promesse de P2P sans infrastructure.
+- Une messagerie complètement hors ligne ne peut pas transmettre de courriers à distance ; le réseau est requis pour les échanges, pas pour l'interface embarquée.
+
+## Sécurité et limites
+Version alpha, non auditée. L'installateur généré automatiquement est **non signé** et peut déclencher SmartScreen. Pas de migration silencieuse du profil navigateur ni des clés privées. Les ports locaux sont fixes pour conserver le même stockage de profil entre les lancements.
