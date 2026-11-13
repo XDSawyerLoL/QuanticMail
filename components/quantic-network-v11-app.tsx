@@ -882,7 +882,7 @@ export function QuanticNetworkV11App() {
             </form>
           </details>
           {error && <p className="qn-error" role="alert">{error}</p>}
-          <div className="qm-entry-footer"><span>🔒 Clés privées conservées sur vos appareils</span><Link href="/network">État du réseau</Link></div>
+          <div className="qm-entry-footer"><span>Clés privées conservées sur vos appareils</span><Link href="/diagnostic">Diagnostiquer la détection</Link></div>
         </section>
       </main>
     );
@@ -956,6 +956,7 @@ export function QuanticNetworkV11App() {
             <Link href="/devices" onClick={() => setDrawerOpen(false)}><MailIcon name="devices" /><span>Appareils</span><MailIcon name="chevron" /></Link>
             <Link href="/vault" onClick={() => setDrawerOpen(false)}><MailIcon name="vault" /><span>Identity Vault</span><MailIcon name="chevron" /></Link>
             <Link href="/network" onClick={() => setDrawerOpen(false)}><MailIcon name="network" /><span>Network</span><MailIcon name="chevron" /></Link>
+            <Link href="/diagnostic" onClick={() => setDrawerOpen(false)}><MailIcon name="network" /><span>Diagnostic</span><MailIcon name="chevron" /></Link>
           </nav>
 
           <div className="qm-drawer-identity">
