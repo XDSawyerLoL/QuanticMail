@@ -13,6 +13,10 @@ import {
   mergeRouteManifestState,
 } from "../lib/quantic/route-manifest-node.mjs";
 
+// Generate valid signed fixtures relative to test execution time; keep production expiry checks strict.
+const FIXTURE_ISSUED_AT = new Date(Date.now() - 60_000).toISOString();
+const FIXTURE_EXPIRES_AT = new Date(Date.now() + 30 * 24 * 60 * 60_000).toISOString();
+
 function keys() {
   const pair = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
   return {
@@ -54,10 +58,10 @@ function signedIdentity() {
       publicKey: encryption.publicKey,
       deviceSigningPublicKey: owner.publicKey,
       kind: "root",
-      issuedAt: "2026-09-17T00:00:00.000Z",
+      issuedAt: FIXTURE_ISSUED_AT,
     }],
     revocations: [],
-    issuedAt: "2026-09-17T00:00:00.000Z",
+    issuedAt: FIXTURE_ISSUED_AT,
   };
   const signature = sign("sha256", Buffer.from(canonicalManifestText(payload)), {
     key: owner.privateKey,
@@ -86,10 +90,10 @@ function signedRoute(identity, sequence = 1, endpoint = "https://relay.example")
       priority: 10,
       protocols: ["quantic-federation/1"],
       classicalSigningPublicKey: relayPublic,
-      expiresAt: "2026-10-17T00:00:00.000Z",
+      expiresAt: FIXTURE_EXPIRES_AT,
     }],
-    issuedAt: "2026-09-17T00:00:00.000Z",
-    expiresAt: "2026-10-17T00:00:00.000Z",
+    issuedAt: FIXTURE_ISSUED_AT,
+    expiresAt: FIXTURE_EXPIRES_AT,
   };
   const signature = sign("sha256", Buffer.from(canonicalRouteManifestText(payload)), {
     key: identity.owner.privateKey,
@@ -107,6 +111,19 @@ test("valid route manifest verifies against the signed identity manifest", () =>
   const identity = signedIdentity();
   const route = signedRoute(identity);
   assert.equal(assertVerifiedRouteManifest(route, identity.manifest).payload.sequence, 1);
+});
+
+test("route verification rejects an expired manifest even with a valid signature", () => {
+  const identity = signedIdentity();
+  const route = signedRoute(identity);
+  route.payload.issuedAt = new Date(Date.now() - 2 * 24 * 60 * 60_000).toISOString();
+  route.payload.expiresAt = new Date(Date.now() - 24 * 60 * 60_000).toISOString();
+  route.payload.relays[0].expiresAt = route.payload.expiresAt;
+  route.signatures.p256 = sign("sha256", Buffer.from(canonicalRouteManifestText(route.payload)), {
+    key: identity.owner.privateKey,
+    dsaEncoding: "ieee-p1363",
+  }).toString("base64");
+  assert.throws(() => assertVerifiedRouteManifest(route, identity.manifest), /expir/i);
 });
 
 test("route verification rejects endpoint/key relayId mismatch", () => {

@@ -11,6 +11,11 @@ import { canonicalRouteManifestText } from "../lib/quantic/federation-core.mjs";
 import { createDiscoveryService, type DiscoveryBundle } from "../standalone-relay/discovery-service.ts";
 import type { DiscoveryPeer } from "../standalone-relay/discovery-state.ts";
 
+// Generate valid signed fixtures relative to test execution time; keep production expiry checks strict.
+const FIXTURE_ISSUED_AT = new Date(Date.now() - 60_000).toISOString();
+const FIXTURE_EXPIRES_AT = new Date(Date.now() + 30 * 24 * 60 * 60_000).toISOString();
+const FIXTURE_LAST_SEEN_AT = new Date().toISOString();
+
 function keys() {
   const pair = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
   return {
@@ -60,10 +65,10 @@ function signedBundle(handle: string): DiscoveryBundle {
       publicKey: encryption.publicKey,
       deviceSigningPublicKey: owner.publicKey,
       kind: "root" as const,
-      issuedAt: "2026-09-17T00:00:00.000Z",
+      issuedAt: FIXTURE_ISSUED_AT,
     }],
     revocations: [],
-    issuedAt: "2026-09-17T00:00:00.000Z",
+    issuedAt: FIXTURE_ISSUED_AT,
   };
   const identityManifest = {
     format: "quantic-identity-manifest" as const,
@@ -88,10 +93,10 @@ function signedBundle(handle: string): DiscoveryBundle {
       priority: 10,
       protocols: ["quantic-federation/1"],
       classicalSigningPublicKey: relay.publicKey,
-      expiresAt: "2026-10-17T00:00:00.000Z",
+      expiresAt: FIXTURE_EXPIRES_AT,
     }],
-    issuedAt: "2026-09-17T00:00:00.000Z",
-    expiresAt: "2026-10-17T00:00:00.000Z",
+    issuedAt: FIXTURE_ISSUED_AT,
+    expiresAt: FIXTURE_EXPIRES_AT,
   };
   const routeManifest = {
     format: "quantic-route-manifest" as const,
@@ -111,7 +116,7 @@ function peer(hex: string, endpoint: string): DiscoveryPeer {
   return {
     relayId: hex.repeat(64),
     endpoint,
-    lastSeenAt: "2026-09-17T12:00:00.000Z",
+    lastSeenAt: FIXTURE_LAST_SEEN_AT,
     failures: 0,
     bucketIndex: 0,
   };
