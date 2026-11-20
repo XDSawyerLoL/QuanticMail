@@ -425,8 +425,9 @@ export async function listAvailableLocalPreKeys(now = Date.now()): Promise<Local
     request.onsuccess = () => resolve(request.result as LocalPreKey[]);
     request.onerror = () => reject(request.error);
   });
-  const candidates = stored.filter((item) => item.state === "unused" && Date.parse(item.expiresAt) > now);
-  const unsealed = await Promise.all(candidates.map((item) => decodeRecord<LocalPreKey>(
+  // Migrate *all* old prekeys, including claimed or expired ones. Otherwise
+  // stale private JWKs remain on disk indefinitely without app-level sealing.
+  const unsealed = await Promise.all(stored.map((item) => decodeRecord<LocalPreKey>(
     item, "prekeys", item.preKeyId,
     { preKeyId: item.preKeyId, expiresAt: item.expiresAt, state: item.state },
   )));
