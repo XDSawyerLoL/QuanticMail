@@ -1,10 +1,14 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 "use strict";
 const { join } = require("node:path");
+const { randomBytes } = require("node:crypto");
 const { app, BrowserWindow, shell, utilityProcess } = require("electron");
 const { MAIL_URL, isMailUrl, isSafeExternal } = require("./navigation.cjs");
 const { startLocalServer, RELAY_PORT } = require("./local-server.cjs");
 
+// This secret is held only by the Electron main process and its local relay worker.
+// It is never added to a renderer URL, a static asset, or an IPC response.
+const relayAccessToken = randomBytes(32).toString("hex");
 let relayProcess = null;
 let localServer = null;
 let mainWindow = null;
@@ -25,6 +29,7 @@ function waitForLocalRelay() {
         ...process.env,
         QUANTIC_RELAY_DATA_DIR: join(app.getPath("userData"), "relay"),
         QUANTIC_LOCAL_RELAY_PORT: String(RELAY_PORT),
+        QUANTIC_DESKTOP_RELAY_TOKEN: relayAccessToken,
         AURA_CLOUD_URL: "",
         AURA_ALLOW_LEGACY_PRODUCT_ADMIN_TOKEN: "false",
         AURA_QUANTIC_MAIL_TOKEN: "",
@@ -98,7 +103,7 @@ app.whenReady().then(async () => {
   app.setAppUserModelId("com.quanticsillage.quanticmail");
   try {
     await waitForLocalRelay();
-    const local = await startLocalServer({ staticRoot: join(__dirname, "bundle", "mail") });
+    const local = await startLocalServer({ staticRoot: join(__dirname, "bundle", "mail"), relayToken: relayAccessToken });
     localServer = local.server;
     createWindow(local.url);
   } catch (error) {

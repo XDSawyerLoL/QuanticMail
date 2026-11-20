@@ -69,7 +69,12 @@ function rejectLocalRequest(response, reason) {
   response.end(JSON.stringify({ error: messages[reason] || "Requête locale refusée.", code: `LOCAL_GATEWAY_${reason.toUpperCase()}` }));
 }
 
-function startLocalServer({ staticRoot, port = MAIL_PORT, relayPort = RELAY_PORT }) {
+function startLocalServer({ staticRoot, port = MAIL_PORT, relayPort = RELAY_PORT, relayToken }) {
+  // Fail closed: the public-facing loopback gateway must never expose an
+  // unauthenticated desktop relay on its second loopback port.
+  if (typeof relayToken !== "string" || !/^[0-9a-f]{64}$/.test(relayToken)) {
+    throw new Error("Jeton interne du relais Quantic manquant ou invalide.");
+  }
   const root = resolve(staticRoot);
   const server = createServer((incoming, outgoing) => {
     const host = incoming.headers.host;
@@ -96,7 +101,9 @@ function startLocalServer({ staticRoot, port = MAIL_PORT, relayPort = RELAY_PORT
         port: relayPort,
         path: incoming.url,
         method: incoming.method,
-        headers: { ...incoming.headers, host: `127.0.0.1:${relayPort}` },
+        // Ignore any caller-supplied internal-token header. Only the gateway
+        // injects the token when forwarding an already validated local request.
+        headers: { ...incoming.headers, host: `127.0.0.1:${relayPort}`, "x-quantic-desktop-relay-token": relayToken },
         timeout: 15000
       }, (res) => {
         outgoing.writeHead(res.statusCode || 502, res.headers);

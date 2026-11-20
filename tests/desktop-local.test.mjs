@@ -4,7 +4,7 @@ import { createRequire } from "node:module";
 import { resolve } from "node:path";
 
 const require = createRequire(import.meta.url);
-const { resolveStaticPath, LOCAL_MAIL_URL, approvedHost, approvedOrigin } = require("../desktop/local-server.cjs");
+const { resolveStaticPath, LOCAL_MAIL_URL, approvedHost, approvedOrigin, startLocalServer } = require("../desktop/local-server.cjs");
 const { isMailUrl } = require("../desktop/navigation.cjs");
 
 test("l'app locale ne dépend ni de Hostinger ni de Render", () => {
@@ -41,4 +41,10 @@ test("l'origine HTTP doit correspondre exactement à l'hôte et au port local", 
   assert.equal(approvedOrigin("http://localhost:18787", "127.0.0.1:18787"), false);
   assert.equal(approvedOrigin("https://127.0.0.1:18787", "127.0.0.1:18787"), false);
   assert.equal(approvedOrigin("http://evil.example:18787", "127.0.0.1:18787"), false);
+});
+
+// A local gateway without its private relay token must fail before listening.
+test("le serveur local refuse un démarrage sans secret de relais", () => {
+  assert.throws(() => startLocalServer({ staticRoot: resolve("/fake/quantic") }), /Jeton interne/);
+  assert.throws(() => startLocalServer({ staticRoot: resolve("/fake/quantic"), relayToken: "0".repeat(16) }), /Jeton interne/);
 });

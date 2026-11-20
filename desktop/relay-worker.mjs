@@ -7,10 +7,16 @@ let relay;
 
 async function main() {
   if (!dataDir) throw new Error("Dossier de données de relais absent.");
+  // Never start an unauthenticated desktop relay, even if called outside Electron.
+  const accessToken = process.env.QUANTIC_DESKTOP_RELAY_TOKEN;
+  if (!accessToken || !/^[0-9a-f]{64}$/.test(accessToken)) {
+    throw new Error("Jeton de session du relais Windows absent ou invalide.");
+  }
   relay = await startRelayServer({
     host: "127.0.0.1",
     port: Number(process.env.QUANTIC_LOCAL_RELAY_PORT || 18788),
     dataDir,
+    localAccessToken: accessToken,
     bootstrapEndpoints: parseRelayBootstrap(process.env.QUANTIC_RELAY_BOOTSTRAP || "")
   });
   parent?.postMessage({ type: "ready", port: relay.port, relayId: relay.relayId });

@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -11,12 +12,14 @@ const { startLocalServer, MAIL_PORT, RELAY_PORT } = require("../desktop/local-se
 const relayPath = resolve("desktop/bundle/relay-worker.cjs");
 const staticRoot = resolve("desktop/bundle/mail");
 const relayData = mkdtempSync(join(tmpdir(), "quantic-desktop-smoke-"));
+const relayToken = randomBytes(32).toString("hex");
 
 const child = spawn(process.execPath, [relayPath], {
   env: {
     ...process.env,
     QUANTIC_RELAY_DATA_DIR: relayData,
     QUANTIC_LOCAL_RELAY_PORT: String(RELAY_PORT),
+    QUANTIC_DESKTOP_RELAY_TOKEN: relayToken,
     QUANTIC_RELAY_BOOTSTRAP: "",
     AURA_QUANTIC_MAIL_TOKEN: "",
     AURA_IDENTITY_VAULT_TOKEN: ""
@@ -29,8 +32,8 @@ child.stdout.on("data", (data) => { output += data.toString(); });
 child.stderr.on("data", (data) => { output += data.toString(); });
 let server;
 
-async function healthy(url) {
-  const response = await fetch(url);
+async function healthy(url, headers) {
+  const response = await fetch(url, { headers });
   if (!response.ok) throw new Error("HTTP " + response.status);
   const data = await response.json();
   if (data.ok !== true || data.protocol !== "quantic-relay/1") throw new Error("Relais Quantic invalide");
@@ -42,7 +45,7 @@ try {
   for (let attempt = 0; attempt < 60; attempt++) {
     if (child.exitCode !== null) throw new Error("Le relais local a quitté : " + output);
     try {
-      await healthy(`http://127.0.0.1:${RELAY_PORT}/api/quantic/health`);
+      await healthy(`http://127.0.0.1:${RELAY_PORT}/api/quantic/health`, { "x-quantic-desktop-relay-token": relayToken });
       ready = true;
       break;
     } catch {
@@ -51,7 +54,14 @@ try {
   }
   if (!ready) throw new Error("Le relais local ne démarre pas.\n" + output);
 
-  const app = await startLocalServer({ staticRoot, port: MAIL_PORT, relayPort: RELAY_PORT });
+  const directUrl = `http://127.0.0.1:${RELAY_PORT}/api/quantic/health`;
+  const denied = await fetch(directUrl);
+  if (denied.status !== 403 || (await denied.json()).code !== "LOCAL_RELAY_AUTH_REQUIRED") {
+    throw new Error("Le port du relais doit refuser les accès directs sans jeton.");
+  }
+  const forged = await fetch(directUrl, { headers: { "x-quantic-desktop-relay-token": "0".repeat(64) } });
+  if (forged.status !== 403) throw new Error("Le relais accepte un jeton interne falsifié.");
+  const app = await startLocalServer({ staticRoot, port: MAIL_PORT, relayPort: RELAY_PORT, relayToken });
   server = app.server;
   const response = await fetch(app.url);
   if (response.status !== 200) throw new Error("Interface locale : HTTP " + response.status);
@@ -104,7 +114,7 @@ try {
   // from Windows 1.3.5. This test uses disposable keys and a test relay.
   await smokeDeviceAuthentication(`http://127.0.0.1:${MAIL_PORT}`);
 
-  console.log("OK : interface locale, relais local, migration et envoi authentifié vérifiés.");
+  console.log("OK : passerelle protégée, refus directs 403, interface locale, migration et envoi authentifié vérifiés.");
 } finally {
   if (server) await new Promise((resolve) => server.close(resolve));
   child.kill();

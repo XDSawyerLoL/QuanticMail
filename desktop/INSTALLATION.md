@@ -32,6 +32,8 @@ L'interface et le relais fonctionnent entièrement sur le poste. Le fonctionneme
 - Une messagerie complètement hors ligne ne peut pas transmettre de courriers à distance ; le réseau est requis pour les échanges, pas pour l'interface embarquée.
 
 ## Sécurité et limites
+Le relais Windows sur `127.0.0.1:18788` exige un jeton aléatoire de session de 256 bits. Seule la passerelle `127.0.0.1:18787`, après validation Host/Origin/Fetch Metadata, ajoute ce jeton lors du transfert. Une page web ne peut pas appeler directement le relais sans cette preuve. Ce contrôle ne protège pas contre un logiciel malveillant ayant déjà compromis le compte Windows ou le processus Electron.
+
 Version alpha, non auditée. L'installateur généré automatiquement est **non signé** et peut déclencher SmartScreen. Pas de migration silencieuse du profil navigateur ni des clés privées. Les ports locaux sont fixes pour conserver le même stockage de profil entre les lancements.
 
 ## Première connexion sans mot de passe
