@@ -14,6 +14,10 @@ import { federationForwardNonce } from "../standalone-relay/federation-client.ts
 import { verifyRelayHello } from "../standalone-relay/identity.ts";
 import { startRelayServer } from "../standalone-relay/server.ts";
 
+// Generate valid signed fixtures relative to test execution time; keep production expiry checks strict.
+const FIXTURE_ISSUED_AT = new Date(Date.now() - 60_000).toISOString();
+const FIXTURE_EXPIRES_AT = new Date(Date.now() + 30 * 24 * 60 * 60_000).toISOString();
+
 async function tempDir() {
   return fs.mkdtemp(join(tmpdir(), "quantic-relay-federation-http-"));
 }
@@ -55,10 +59,10 @@ function signedIdentity(handle: string) {
       publicKey: encryptionPublic,
       deviceSigningPublicKey: ownerPublic,
       kind: "root" as const,
-      issuedAt: "2026-09-17T00:00:00.000Z",
+      issuedAt: FIXTURE_ISSUED_AT,
     }],
     revocations: [],
-    issuedAt: "2026-09-17T00:00:00.000Z",
+    issuedAt: FIXTURE_ISSUED_AT,
   };
   const signature = sign("sha256", Buffer.from(canonicalManifestText(payload), "utf8"), {
     key: owner.privateKey,
@@ -136,10 +140,10 @@ function signedRoute(
       priority: 10,
       protocols: ["quantic-federation/1"],
       classicalSigningPublicKey: relay.classicalSigningPublicKey,
-      expiresAt: "2026-10-17T00:00:00.000Z",
+      expiresAt: FIXTURE_EXPIRES_AT,
     }],
-    issuedAt: "2026-09-17T00:00:00.000Z",
-    expiresAt: "2026-10-17T00:00:00.000Z",
+    issuedAt: FIXTURE_ISSUED_AT,
+    expiresAt: FIXTURE_EXPIRES_AT,
   };
   const p256 = sign("sha256", Buffer.from(canonicalRouteManifestText(payload), "utf8"), {
     key: recipient.owner.privateKey,
@@ -166,7 +170,7 @@ function signedEnvelope(
     classicalEphemeralPublicKey: publicJwk(ephemeral),
     iv: "aXYtbm9uY2U=",
     ciphertext: "ZmVkZXJhdGVkLWNpcGhlcnRleHQ=",
-    createdAt: "2026-09-17T00:10:00.000Z",
+    createdAt: new Date(Date.now() - 60_000).toISOString(),
     expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
     signatures: { p256Device: "placeholder" },
   };

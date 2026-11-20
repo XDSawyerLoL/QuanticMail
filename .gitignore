@@ -8,3 +8,7 @@ out
 .DS_Store
 .vercel
 coverage
+
+desktop/bundle/
+desktop/assets/*.ico
+desktop-dist/

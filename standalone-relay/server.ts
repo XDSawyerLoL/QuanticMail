@@ -1,4 +1,5 @@
 import { createServer, type Server } from "node:http";
+import { timingSafeEqual } from "node:crypto";
 
 import { createDirectSignalingRequestHandler } from "./direct-signaling.ts";
 import { bootstrapDiscoveryPeers } from "./discovery-bootstrap.ts";
@@ -22,6 +23,8 @@ export type RelayServerOptions = {
   identitySecret?: string;
   publicEndpoint?: string;
   bootstrapEndpoints?: string[];
+  // For the Windows embedded relay only. Other relay deployments remain unchanged.
+  localAccessToken?: string;
 };
 
 export type RunningRelayServer = {
@@ -59,6 +62,11 @@ export async function startRelayServer(
   const port = options.port ?? 8787;
   const dataDir = options.dataDir ?? "./data";
   validateServerPort(port);
+  const token = options.localAccessToken;
+  if (token !== undefined && (host !== "127.0.0.1" || !/^[0-9a-f]{64}$/.test(token))) {
+    throw new Error("Jeton interne Quantic invalide ou relais non local.");
+  }
+  const expectedAccessToken = token ? Buffer.from(token, "ascii") : null;
 
   const databaseUrl = options.databaseUrl?.trim() || "";
   const postgresPersistence = databaseUrl
@@ -89,6 +97,21 @@ export async function startRelayServer(
     ? await createPulseStateRequestHandler(databaseUrl, process.env.QUANTIC_PULSE_STORE_TOKEN ?? "")
     : null;
   const server = createServer((request, response) => {
+    // A website may reach loopback addresses even when a server only binds to
+    // 127.0.0.1. Protect the worker itself, not just the Electron HTTP gateway.
+    if (expectedAccessToken) {
+      const header = request.headers["x-quantic-desktop-relay-token"];
+      const candidate = typeof header === "string" ? Buffer.from(header, "utf8") : Buffer.alloc(0);
+      if (candidate.length !== expectedAccessToken.length || !timingSafeEqual(candidate, expectedAccessToken)) {
+        response.writeHead(403, {
+          "Content-Type": "application/json; charset=utf-8",
+          "Cache-Control": "no-store",
+          "X-Content-Type-Options": "nosniff",
+        });
+        response.end(`${JSON.stringify({ error: "Accès au relais Quantic local non autorisé.", code: "LOCAL_RELAY_AUTH_REQUIRED" })}\n`);
+        return;
+      }
+    }
     void (async () => {
       if (pulseState && await pulseState.handler(request, response)) return;
       if (await compatRegisterHandler(request, response)) return;

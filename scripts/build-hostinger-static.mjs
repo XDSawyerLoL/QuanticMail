@@ -1,13 +1,14 @@
 import { cpSync, existsSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { createRequire } from "node:module";
-import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const require = createRequire(import.meta.url);
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const work = mkdtempSync(join(tmpdir(), "quanticmail-hostinger-"));
+// Keep the temporary project on the same drive as node_modules on Windows.
+// Next/Webpack cannot resolve cross-drive relative module paths.
+const work = mkdtempSync(join(dirname(root), ".quanticmail-static-"));
 const output = join(root, "out");
 const apiRoot = join(root, "app", "api");
 const excludedRoots = [
@@ -33,7 +34,7 @@ try {
     filter: shouldCopy,
   });
 
-  symlinkSync(join(root, "node_modules"), join(work, "node_modules"), "dir");
+  symlinkSync(join(root, "node_modules"), join(work, "node_modules"), process.platform === "win32" ? "junction" : "dir");
 
   const nextBin = require.resolve("next/dist/bin/next");
   const build = spawnSync(process.execPath, [nextBin, "build", "--webpack"], {

@@ -44,6 +44,9 @@ export type LocalIdentity = {
   pqc?: LocalPqcKeyMaterial;
   authToken: string;
   createdAt: string;
+  /** Quantic ID master account bound after a successful local Identity Vault proof. */
+  quanticIdKeyId?: string;
+  quanticIdBoundAt?: string;
 };
 
 export type LocalMessage = {
