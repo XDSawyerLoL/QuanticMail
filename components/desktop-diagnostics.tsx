@@ -52,7 +52,11 @@ export function DesktopDiagnostics() {
     }
   }, []);
 
-  useEffect(() => { void check(); }, [check]);
+  useEffect(() => {
+    let active = true;
+    queueMicrotask(() => { if (active) void check(); });
+    return () => { active = false; };
+  }, [check]);
 
   return (
     <main className="qn-onboarding qn-vault-page">
@@ -60,8 +64,8 @@ export function DesktopDiagnostics() {
         <div className="qn-vault-head">
           <div>
             <p className="qn-kicker">QUANTIC MAIL WINDOWS · DIAGNOSTIC LOCAL</p>
-            <h1>Vérification de l'identité et du relais</h1>
-            <p className="qn-lead">Seules des informations de statut sont affichées. Aucune clé privée, aucun mot de passe ni contenu de message n'est transmis.</p>
+            <h1>Vérification de l&apos;identité et du relais</h1>
+            <p className="qn-lead">Seules des informations de statut sont affichées. Aucune clé privée, aucun mot de passe ni contenu de message n&apos;est transmis.</p>
           </div>
           <Link className="qn-back-link" href="/">Retour à la messagerie</Link>
         </div>
@@ -74,7 +78,7 @@ export function DesktopDiagnostics() {
               <h2>{report.identity}</h2>
               <p className="qn-footnote">Statut : {report.identityRole}</p>
               {report.identityRole === "non configurée" && (
-                <p className="qn-notice">L'identité utilisée sur le site web n'est pas automatiquement présente dans l'application. Exportez votre .quantic-vault depuis le navigateur d'origine, puis restaurez-le ici. Ne créez pas une nouvelle identité avec le même pseudo.</p>
+                <p className="qn-notice">L&apos;identité utilisée sur le site web n&apos;est pas automatiquement présente dans l&apos;application. Exportez votre .quantic-vault depuis le navigateur d&apos;origine, puis restaurez-le ici. Ne créez pas une nouvelle identité avec le même pseudo.</p>
               )}
               <Link href="/vault">Ouvrir Identity Vault</Link>
             </section>

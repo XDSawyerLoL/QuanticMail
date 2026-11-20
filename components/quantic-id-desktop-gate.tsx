@@ -91,9 +91,10 @@ export function QuanticIdDesktopGate({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!IS_WINDOWS_DESKTOP) return;
-    void check();
+    let active = true;
+    queueMicrotask(() => { if (active) void check(); });
     const timer = window.setInterval(() => void check(), 12_000);
-    return () => window.clearInterval(timer);
+    return () => { active = false; window.clearInterval(timer); };
   }, [check, pathname]);
 
   if (!IS_WINDOWS_DESKTOP || state.kind === "verified") return <>{children}</>;
@@ -115,7 +116,7 @@ export function QuanticIdDesktopGate({ children }: { children: ReactNode }) {
         ) : state.kind === "locked" ? (
           <>
             <h1>Quantic ID verrouillé</h1>
-            <p className="qn-lead">Déverrouille Identity Vault. C'est ton unique identification pour les produits Quantic.</p>
+            <p className="qn-lead">Déverrouille Identity Vault. C&apos;est ton unique identification pour les produits Quantic.</p>
           </>
         ) : state.kind === "confirm" ? (
           <>
@@ -126,7 +127,7 @@ export function QuanticIdDesktopGate({ children }: { children: ReactNode }) {
         ) : state.kind === "unbound" ? (
           <>
             <h1>Relier cette boîte à Quantic ID</h1>
-            <p className="qn-lead">Une boîte existe déjà sur ce PC : <strong>{state.mailboxAddress}</strong>. Elle n'est pas encore associée à ton Quantic ID.</p>
+            <p className="qn-lead">Une boîte existe déjà sur ce PC : <strong>{state.mailboxAddress}</strong>. Elle n&apos;est pas encore associée à ton Quantic ID.</p>
             <p className="qn-notice">Confirme une seule fois cette association. Ensuite, déverrouiller ton Quantic ID suffira pour retrouver cette boîte. Aucune nouvelle adresse ni aucun nouveau mot de passe ne seront créés.</p>
             <button type="button" disabled={binding} onClick={() => void confirmBinding()}>{binding ? "Association…" : "Associer cette boîte à mon Quantic ID"}</button>
           </>
@@ -138,8 +139,8 @@ export function QuanticIdDesktopGate({ children }: { children: ReactNode }) {
           </>
         ) : (
           <>
-            <h1>Quantic ID n'a pas pu être vérifié</h1>
-            <p className="qn-lead">La signature d'Identity Vault doit être vérifiée localement pour ouvrir la boîte.</p>
+            <h1>Quantic ID n&apos;a pas pu être vérifié</h1>
+            <p className="qn-lead">La signature d&apos;Identity Vault doit être vérifiée localement pour ouvrir la boîte.</p>
             <p className="qn-error" role="alert">{state.error}</p>
           </>
         )}

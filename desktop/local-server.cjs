@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports -- Electron desktop uses CommonJS. */
 "use strict";
 const { createServer, request: httpRequest } = require("node:http");
 const { createReadStream, statSync } = require("node:fs");

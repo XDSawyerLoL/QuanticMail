@@ -439,7 +439,7 @@ export function DevicesV1App() {
               <p className="qn-kicker">ÉTAPE 2</p>
               <h2>Installer le certificat signé</h2>
               {process.env.NEXT_PUBLIC_QUANTIC_DESKTOP === "true" && (
-                <p className="qn-notice">2. Dans votre navigateur d'origine, ouvrez Quantic Mail → Appareils → Pairing par fichiers, et faites signer votre demande par l'appareil maître. 3. Revenez ici et importez le fichier <code>.quantic-device-cert</code> obtenu. Aucun mot de passe de compte ou de coffre n'est demandé.</p>
+                <p className="qn-notice">2. Dans votre navigateur d&apos;origine, ouvrez Quantic Mail → Appareils → Pairing par fichiers, et faites signer votre demande par l&apos;appareil maître. 3. Revenez ici et importez le fichier <code>.quantic-device-cert</code> obtenu. Aucun mot de passe de compte ou de coffre n&apos;est demandé.</p>
               )}
               <p className="qn-footnote">L’appareil maître signe la demande et ajoute cet appareil à son manifeste V1 avant de produire le certificat.</p>
               <form className="qn-vault-form" onSubmit={installCertificate}>

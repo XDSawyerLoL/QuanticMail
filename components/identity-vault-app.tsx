@@ -139,14 +139,14 @@ export function IdentityVaultApp() {
               <section className="qn-vault-section">
                 <p className="qn-kicker">SANS MOT DE PASSE</p>
                 <h2>Associer cet ordinateur</h2>
-                <p className="qn-footnote">Aucun mot de passe de compte ou de coffre n'est nécessaire. Depuis Quantic Mail dans votre navigateur d'origine, signez la demande de ce PC. Le certificat permet de reprendre la même identité avec des clés propres à Windows.</p>
+                <p className="qn-footnote">Aucun mot de passe de compte ou de coffre n&apos;est nécessaire. Depuis Quantic Mail dans votre navigateur d&apos;origine, signez la demande de ce PC. Le certificat permet de reprendre la même identité avec des clés propres à Windows.</p>
                 <Link className="qn-secondary-link" href="/devices/files">Associer mon PC par certificat signé</Link>
               </section>
             )}
             <section className="qn-vault-section">
-              <p className="qn-kicker">RESTAURATION D'UNE SAUVEGARDE (FACULTATIF)</p>
+              <p className="qn-kicker">{"RESTAURATION D'UNE SAUVEGARDE (FACULTATIF)"}</p>
               <h2>Importer un ancien coffre .quantic-vault</h2>
-              <p className="qn-footnote">Cette option concerne exclusivement les sauvegardes chiffrées dont vous avez défini un mot de passe lors de l'export. Il ne s'agit pas d'un mot de passe Quantic Mail. Si vous n'avez jamais créé de coffre, choisissez l'association sans mot de passe ci-dessus.</p>
+              <p className="qn-footnote">{"Cette option concerne exclusivement les sauvegardes chiffrées dont vous avez défini un mot de passe lors de l'export. Il ne s'agit pas d'un mot de passe Quantic Mail. Si vous n'avez jamais créé de coffre, choisissez l'association sans mot de passe ci-dessus."}</p>
               <form className="qn-vault-form" onSubmit={restoreVault}>
                 <label htmlFor="vault-file">Fichier du coffre</label>
                 <input id="vault-file" type="file" accept=".quantic-vault,application/json" onChange={(e) => setRestoreFile(e.target.files?.[0] ?? null)} required />

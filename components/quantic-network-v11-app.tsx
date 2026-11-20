@@ -891,17 +891,17 @@ export function QuanticNetworkV11App() {
                   <span aria-hidden="true">↗</span>
                 </Link>
                 <details className="qm-entry-new">
-                  <summary>Autre méthode : j'ai déjà une sauvegarde .quantic-vault</summary>
+                  <summary>Autre méthode : j&apos;ai déjà une sauvegarde .quantic-vault</summary>
                   <Link className="qn-secondary-link" href="/vault">Importer ma sauvegarde chiffrée</Link>
                 </details>
               </div>
-              <p className="qn-footnote">Cette première association ne copie pas la clé maîtresse et ne récupère pas automatiquement l'historique. Les relais distants devront ensuite être joignables pour recevoir du courrier.</p>
+              <p className="qn-footnote">Cette première association ne copie pas la clé maîtresse et ne récupère pas automatiquement l&apos;historique. Les relais distants devront ensuite être joignables pour recevoir du courrier.</p>
             </>
           ) : (
             <div className="qm-entry-options">
               <Link className="qm-entry-option qm-entry-option-primary" href="/devices">
                 <span className="qm-entry-option-icon">▦</span>
-                <span><strong>Lier cet appareil par QR</strong><small>Autoriser un nouvel appareil avec l'identité existante.</small></span>
+                <span><strong>Lier cet appareil par QR</strong><small>Autoriser un nouvel appareil avec l&apos;identité existante.</small></span>
                 <span aria-hidden="true">↗</span>
               </Link>
               <Link className="qm-entry-option" href="/vault">
@@ -912,8 +912,8 @@ export function QuanticNetworkV11App() {
             </div>
           )}
           <details className="qm-entry-new">
-            <summary>Je n'ai aucune boîte existante · activer une nouvelle boîte pour mon Quantic ID</summary>
-            <p className="qn-footnote">Uniquement si tu n'as jamais utilisé Quantic Mail : une nouvelle boîte chiffrée sera rattachée à ton Quantic ID. Cette opération ne récupère pas les messages d'une ancienne boîte.</p>
+            <summary>Je n&apos;ai aucune boîte existante · activer une nouvelle boîte pour mon Quantic ID</summary>
+            <p className="qn-footnote">Uniquement si tu n&apos;as jamais utilisé Quantic Mail : une nouvelle boîte chiffrée sera rattachée à ton Quantic ID. Cette opération ne récupère pas les messages d&apos;une ancienne boîte.</p>
             <form onSubmit={createIdentity} className="qn-create-form">
               <label htmlFor="handle">Identifiant de votre nouvelle boîte</label>
               <div className="qn-address-input">
