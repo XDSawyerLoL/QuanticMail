@@ -2,7 +2,7 @@
 "use strict";
 const { join } = require("node:path");
 const { randomBytes } = require("node:crypto");
-const { app, BrowserWindow, shell, utilityProcess } = require("electron");
+const { app, BrowserWindow, shell, utilityProcess, ipcMain, safeStorage } = require("electron");
 const { MAIL_URL, isMailUrl, isSafeExternal } = require("./navigation.cjs");
 const { startLocalServer, RELAY_PORT } = require("./local-server.cjs");
 
@@ -12,6 +12,35 @@ const relayAccessToken = randomBytes(32).toString("hex");
 let relayProcess = null;
 let localServer = null;
 let mainWindow = null;
+
+// Renderer access is restricted to the exact trusted top-level Mail frame.
+function verifySecretStorageCaller(event) {
+  if (process.platform !== "win32" || !mainWindow || event.sender !== mainWindow.webContents ||
+      event.senderFrame !== mainWindow.webContents.mainFrame ||
+      !isMailUrl(event.senderFrame.url)) {
+    throw new Error("Accès au coffre Windows refusé.");
+  }
+  if (!safeStorage.isEncryptionAvailable()) throw new Error("Protection Windows indisponible.");
+}
+function validateSecretInput(value, maxBytes = 4 * 1024 * 1024) {
+  if (typeof value !== "string" || value.length === 0 ||
+      Buffer.byteLength(value, "utf8") > maxBytes) {
+    throw new Error("Entrée du coffre Windows invalide ou trop volumineuse.");
+  }
+  return value;
+}
+ipcMain.handle("quantic-native:seal", (event, plaintext) => {
+  verifySecretStorageCaller(event);
+  return safeStorage.encryptString(validateSecretInput(plaintext)).toString("base64");
+});
+ipcMain.handle("quantic-native:unseal", (event, ciphertext) => {
+  verifySecretStorageCaller(event);
+  const encoded = validateSecretInput(ciphertext, 8 * 1024 * 1024);
+  if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded)) {
+    throw new Error("Enveloppe Windows invalide.");
+  }
+  return safeStorage.decryptString(Buffer.from(encoded, "base64"));
+});
 
 function openExternalIfSafe(url) {
   if (!isSafeExternal(url)) return;
@@ -75,6 +104,7 @@ function createWindow(url = MAIL_URL) {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      preload: join(__dirname, "preload.cjs"),
       webSecurity: true,
       allowRunningInsecureContent: false,
       spellcheck: true

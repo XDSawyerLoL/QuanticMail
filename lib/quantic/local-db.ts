@@ -3,6 +3,11 @@ import {
   type LocalPqcKeyMaterial,
 } from "@/lib/quantic/device-pqc";
 import type { QuanticIdentityManifest } from "@/lib/quantic/manifest-types";
+import {
+  isNativeSealedRecord,
+  sealNativeRecord,
+  unsealNativeRecord,
+} from "@/lib/quantic/native-sealed-storage.mjs";
 
 export type DeviceCertificatePayload = {
   version: 1;
@@ -125,6 +130,75 @@ export type LocalPreKey = {
 const DB_NAME = "quanticmail-local";
 const DB_VERSION = 6;
 
+// Windows desktop persists ciphertext instead of exportable private JWKs and
+// authorization tokens. The web edition is deliberately left unchanged.
+type ProtectionBridge = {
+  seal(plaintext: string): Promise<string>;
+  unseal(ciphertext: string): Promise<string>;
+};
+declare global {
+  interface Window {
+    quanticNativeProtection?: ProtectionBridge;
+  }
+}
+type SensitiveStoreName = "identity" | "pairing" | "prekeys";
+type ProtectedIndex = { preKeyId?: string; expiresAt?: string; state?: string };
+
+function desktopProtection(): ProtectionBridge | null {
+  if (process.env.NEXT_PUBLIC_QUANTIC_DESKTOP !== "true") return null;
+  if (typeof window === "undefined") throw new Error("Coffre Windows indisponible.");
+  const bridge = window.quanticNativeProtection;
+  // Never downgrade silently to cleartext when the native bridge is absent.
+  if (!bridge || typeof bridge.seal !== "function" || typeof bridge.unseal !== "function") {
+    throw new Error("Coffre Windows inaccessible : enregistrement des clés refusé.");
+  }
+  return bridge;
+}
+
+async function protectRecord<T>(value: T, index: ProtectedIndex = {}) {
+  return sealNativeRecord(value, desktopProtection(), index);
+}
+
+async function migrateLegacyRecord(
+  storeName: SensitiveStoreName,
+  key: string,
+  legacy: unknown,
+  index: ProtectedIndex,
+  bridge: ProtectionBridge,
+) {
+  // Seal first. Never delete or overwrite a legacy record if sealing fails.
+  const encrypted = await sealNativeRecord(legacy, bridge, index);
+  const db = await openDb();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(storeName, "readwrite");
+    const store = tx.objectStore(storeName);
+    const request = store.get(key);
+    request.onsuccess = () => {
+      // Avoid overwriting a newer identity/secret written by another operation.
+      if (JSON.stringify(request.result) !== JSON.stringify(legacy)) return;
+      if (storeName === "prekeys") store.put(encrypted);
+      else store.put(encrypted, key);
+    };
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error || new Error("Migration du coffre interrompue."));
+  });
+}
+
+async function decodeRecord<T>(
+  stored: unknown,
+  storeName: SensitiveStoreName,
+  key: string,
+  index: ProtectedIndex = {},
+): Promise<T> {
+  const bridge = desktopProtection();
+  const result = await unsealNativeRecord(stored, bridge);
+  if (bridge && !isNativeSealedRecord(stored)) {
+    await migrateLegacyRecord(storeName, key, stored, index, bridge);
+  }
+  return result as T;
+}
+
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
@@ -155,12 +229,13 @@ function openDb(): Promise<IDBDatabase> {
 
 export async function getLocalIdentity(): Promise<LocalIdentity | null> {
   const db = await openDb();
-  return new Promise((resolve, reject) => {
+  const stored = await new Promise<unknown>((resolve, reject) => {
     const tx = db.transaction("identity", "readonly");
     const request = tx.objectStore("identity").get("current");
-    request.onsuccess = () => resolve((request.result as LocalIdentity | undefined) ?? null);
+    request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
   });
+  return stored == null ? null : decodeRecord<LocalIdentity>(stored, "identity", "current");
 }
 
 export async function saveLocalIdentity(identity: LocalIdentity) {
@@ -169,10 +244,11 @@ export async function saveLocalIdentity(identity: LocalIdentity) {
     ...identity,
     pqc: pqc ?? undefined,
   };
+  const encrypted = await protectRecord(next);
   const db = await openDb();
   return new Promise<void>((resolve, reject) => {
     const tx = db.transaction("identity", "readwrite");
-    tx.objectStore("identity").put(next, "current");
+    tx.objectStore("identity").put(encrypted, "current");
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
@@ -282,19 +358,21 @@ export async function deleteOutboxItem(id: string) {
 
 export async function getPendingDevice(): Promise<LocalPendingDevice | null> {
   const db = await openDb();
-  return new Promise((resolve, reject) => {
+  const stored = await new Promise<unknown>((resolve, reject) => {
     const tx = db.transaction("pairing", "readonly");
     const request = tx.objectStore("pairing").get("pending-device");
-    request.onsuccess = () => resolve((request.result as LocalPendingDevice | undefined) ?? null);
+    request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
   });
+  return stored == null ? null : decodeRecord<LocalPendingDevice>(stored, "pairing", "pending-device");
 }
 
 export async function savePendingDevice(device: LocalPendingDevice) {
+  const encrypted = await protectRecord(device);
   const db = await openDb();
   return new Promise<void>((resolve, reject) => {
     const tx = db.transaction("pairing", "readwrite");
-    tx.objectStore("pairing").put(device, "pending-device");
+    tx.objectStore("pairing").put(encrypted, "pending-device");
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
@@ -312,11 +390,14 @@ export async function clearPendingDevice() {
 
 export async function saveLocalPreKeys(prekeys: LocalPreKey[]) {
   if (!prekeys.length) return;
+  const encrypted = await Promise.all(prekeys.map((item) => protectRecord(item, {
+    preKeyId: item.preKeyId, expiresAt: item.expiresAt, state: item.state,
+  })));
   const db = await openDb();
   return new Promise<void>((resolve, reject) => {
     const tx = db.transaction("prekeys", "readwrite");
     const store = tx.objectStore("prekeys");
-    for (const prekey of prekeys) store.put(prekey);
+    for (const prekey of encrypted) store.put(prekey);
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
@@ -324,26 +405,33 @@ export async function saveLocalPreKeys(prekeys: LocalPreKey[]) {
 
 export async function getLocalPreKey(preKeyId: string): Promise<LocalPreKey | null> {
   const db = await openDb();
-  return new Promise((resolve, reject) => {
+  const stored = await new Promise<unknown>((resolve, reject) => {
     const tx = db.transaction("prekeys", "readonly");
     const request = tx.objectStore("prekeys").get(preKeyId);
-    request.onsuccess = () => resolve((request.result as LocalPreKey | undefined) ?? null);
+    request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
   });
+  return stored == null ? null : decodeRecord<LocalPreKey>(
+    stored, "prekeys", preKeyId,
+    { preKeyId, expiresAt: (stored as LocalPreKey).expiresAt, state: (stored as LocalPreKey).state },
+  );
 }
 
 export async function listAvailableLocalPreKeys(now = Date.now()): Promise<LocalPreKey[]> {
   const db = await openDb();
-  return new Promise((resolve, reject) => {
+  const stored = await new Promise<LocalPreKey[]>((resolve, reject) => {
     const tx = db.transaction("prekeys", "readonly");
     const request = tx.objectStore("prekeys").getAll();
-    request.onsuccess = () => {
-      resolve((request.result as LocalPreKey[]).filter(
-        (item) => item.state === "unused" && Date.parse(item.expiresAt) > now,
-      ));
-    };
+    request.onsuccess = () => resolve(request.result as LocalPreKey[]);
     request.onerror = () => reject(request.error);
   });
+  const candidates = stored.filter((item) => item.state === "unused" && Date.parse(item.expiresAt) > now);
+  const unsealed = await Promise.all(candidates.map((item) => decodeRecord<LocalPreKey>(
+    item, "prekeys", item.preKeyId,
+    { preKeyId: item.preKeyId, expiresAt: item.expiresAt, state: item.state },
+  )));
+  // Cryptographically authenticated contents, not the public index, decide availability.
+  return unsealed.filter((item) => item.state === "unused" && Date.parse(item.expiresAt) > now);
 }
 
 export async function countAvailableLocalPreKeys(now = Date.now()) {
