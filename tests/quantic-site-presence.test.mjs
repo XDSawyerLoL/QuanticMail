@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash, generateKeyPairSync, sign } from 'node:crypto';
 import {
-  createQuanticSitePresence, createQuanticSiteProofVerifier,
+  createQuanticSitePresence,
 } from '../lib/quantic-id/site-presence.mjs';
 
 let time = Date.parse('2026-11-20T12:00:00Z');
