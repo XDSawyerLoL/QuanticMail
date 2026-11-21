@@ -11,9 +11,10 @@ $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
 $vault = Join-Path $root "bin\Vault-PQ-lab.exe"
 $pacer = Join-Path $root "bin\Scattering-Pacer.exe"
-$node = (Get-Command node.exe -CommandType Application -ErrorAction Stop).Source
+$node = Join-Path $root "runtime\node.exe"
+if (-not (Test-Path -LiteralPath $node -PathType Leaf)) { throw "Bundled Node runtime missing." }
 $version = (& $node --version)
-if ($LASTEXITCODE -ne 0 -or $version -notmatch '^v24\.') { throw "Node.js 24 required." }
+if ($LASTEXITCODE -ne 0 -or $version -notmatch '^v24\.') { throw "Bundled Node.js 24 runtime required." }
 if ($Operation -eq "ProbeLoopback") {
  & $node (Join-Path $root "scripts\scattering-physical-probe.mjs") loopback $pacer 5
  exit $LASTEXITCODE

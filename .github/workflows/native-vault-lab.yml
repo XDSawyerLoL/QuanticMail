@@ -109,12 +109,14 @@ jobs:
         run: node --test tests/native-windows-desktop.test.mjs tests/native-vault-controller.test.mjs tests/native-windows-mail-flow.test.mjs
       - name: Stage isolated portable Windows laboratory
         shell: msys2 {0}
-        run: bash scripts/package-windows-pq-lab.sh "$RUNNER_TEMP/Vault-PQ-provider-lab.exe" "$RUNNER_TEMP/QuanticMail-Windows-PQ-Lab" "$RUNNER_TEMP/Scattering-Pacer.exe"
+        run: |
+          set -euo pipefail
+          bash scripts/package-windows-pq-lab.sh "$RUNNER_TEMP/Vault-PQ-provider-lab.exe" "$RUNNER_TEMP/QuanticMail-Windows-PQ-Lab" "$RUNNER_TEMP/Scattering-Pacer.exe" "$(cygpath -w "$(command -v node.exe)")"
       - name: Windows native Scattering mailbox loopback using packaged binaries
         shell: pwsh
         run: |
           $dir = Join-Path $env:RUNNER_TEMP "QuanticMail-Windows-PQ-Lab"
-          $node = (Get-Command node.exe -CommandType Application).Source
+          $node = "$dir\runtime\node.exe"
           $env:QUANTIC_WINDOWS_VAULT_TEST = "$dir\bin\Vault-PQ-lab.exe"
           $env:QUANTIC_SCATTERING_NATIVE_TEST = "$dir\bin\Scattering-Pacer.exe"
           $env:PATH = "$dir\bin;$env:SystemRoot\System32"
@@ -132,9 +134,9 @@ jobs:
             $provider | Write-Output
           } finally { $env:PATH = $originalPath }
           $env:QV_PACKAGE = $dir
-          node --experimental-transform-types --input-type=module -e "import {pathToFileURL} from 'node:url'; import {join} from 'node:path'; import {generateKeyPairSync} from 'node:crypto'; generateKeyPairSync('ml-kem-768'); generateKeyPairSync('ml-dsa-65'); await import(pathToFileURL(join(process.env.QV_PACKAGE,'desktop','native-windows-desktop.mjs')).href); await import(pathToFileURL(join(process.env.QV_PACKAGE,'lib','quantic','native-identity-bridge.mjs')).href);"
+          & "$dir\runtime\node.exe" --experimental-transform-types --input-type=module -e "import {pathToFileURL} from 'node:url'; import {join} from 'node:path'; import {generateKeyPairSync} from 'node:crypto'; generateKeyPairSync('ml-kem-768'); generateKeyPairSync('ml-dsa-65'); await import(pathToFileURL(join(process.env.QV_PACKAGE,'desktop','native-windows-desktop.mjs')).href); await import(pathToFileURL(join(process.env.QV_PACKAGE,'lib','quantic','native-identity-bridge.mjs')).href); await import(pathToFileURL(join(process.env.QV_PACKAGE,'lib','quantic','migration-proof-node.mjs')).href); await import(pathToFileURL(join(process.env.QV_PACKAGE,'desktop','native-windows-mail-flow.mjs')).href);"
           if ($LASTEXITCODE -ne 0) { throw "Packaged Node bridge failed" }
-          node "$dir\scripts\scattering-physical-probe.mjs" loopback "$dir\bin\Scattering-Pacer.exe" 5
+          & "$dir\runtime\node.exe" "$dir\scripts\scattering-physical-probe.mjs" loopback "$dir\bin\Scattering-Pacer.exe" 5
           if ($LASTEXITCODE -ne 0) { throw "Packaged pacer loopback failed" }
           Get-Content "$dir\SHA256SUMS.txt"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
