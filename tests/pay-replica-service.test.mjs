@@ -9,6 +9,7 @@ import {join,resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {openRoundChain} from '../lib/quantic/pay-round-chain-store.mjs';
 import {createPayReplicaCarrier} from '../lib/quantic/pay-replica-carrier.mjs';
+import {synchronizePayReplica} from '../lib/quantic/pay-replica-sync.mjs';
 import {startNativeScatteringLink} from './helpers/native-scattering-link.mjs';
 const script=fileURLToPath(new URL('../scripts/serve-pay-replica-lab.mjs',import.meta.url));
 const sha=b=>createHash('sha256').update(b).digest('hex');
@@ -55,15 +56,16 @@ for(const native of [false,true])test('permanent replica processes advance succe
    const n={file,p,token};nodes.push(n);execFileSync(process.execPath,[script,'provision',file],{stdio:'ignore'});await start(n);
   }
   await renew();await stop(nodes[3]);
-  const first=await settle(ids[0],ids[1],7500,[0,1,2]);
+  await settle(ids[0],ids[1],7500,[0,1,2]);
   await start(nodes[3]);await renew();
   assert.equal((await clients[3].status()).sequence,0);
-  await clients[3].learn(first);
+  const sync=i=>synchronizePayReplica({network:chain.snapshot().network,targetPin:config.witnesses[i].pin,target:clients[i],peers:[0,1].map(j=>({authorityPin:config.witnesses[j].pin,client:clients[j]})),maxSteps:1});
+  assert.equal((await sync(3)).applied,1);
   assert.equal((await clients[3].status()).root,chain.snapshot().root);
   await stop(nodes[2]);
-  const second=await settle(ids[1],ids[2],7000,[0,1,3]);
+  await settle(ids[1],ids[2],7000,[0,1,3]);
   await start(nodes[2]);await renew();
-  await clients[2].learn(second);
+  assert.equal((await sync(2)).applied,1);
   const states=await Promise.all(clients.map(c=>c.status()));
   for(const s of states){assert.equal(s.sequence,2);assert.equal(s.root,chain.snapshot().root);assert.deepEqual(s.balances,{'demo-alice':2500,'demo-bob':500,'demo-shop':7000});assert.equal(s.totalCents,10000);}
  }finally{chain?.close();await Promise.all(links.map(x=>x.close()));await Promise.all(nodes.map(stop));rmSync(root,{recursive:true,force:true});}

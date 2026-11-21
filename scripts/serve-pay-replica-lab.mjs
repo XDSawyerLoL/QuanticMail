@@ -5,7 +5,7 @@ import {createPrivateKey,timingSafeEqual} from 'node:crypto';
 import {lstatSync,realpathSync,openSync,readFileSync,closeSync,fstatSync,constants} from 'node:fs';
 import {isAbsolute} from 'node:path';
 import {openPayRoundReplica} from '../lib/quantic/pay-round-replica.mjs';
-import {createRoundUpload} from '../lib/quantic/pay-round-transfer.mjs';
+import {createRoundUpload,createRoundDownload} from '../lib/quantic/pay-round-transfer.mjs';
 import {createRoundCirculationLab} from '../lib/quantic/pay-circulation-lab.mjs';
 const check=v=>{if(!v)throw Error('Pay witness refused');};
 function privateRead(path,max){
@@ -36,6 +36,7 @@ async function main(){
  const auth=Buffer.from('Bearer '+c.token);delete c.token;
  let busy=false;
  const upload=createRoundUpload({validate:payload=>check(exact(payload,['op','input'])&&['prepare','learn'].includes(payload.op))});
+ const download=createRoundDownload({readRecord:height=>store.record(height)});
  function dispatch(op,input){
   if(op==='status'){check(input===null);return store.status();}
   if(op==='admit')return store.admit(input);
@@ -59,12 +60,14 @@ async function main(){
    const body=JSON.parse(new TextDecoder('utf8',{fatal:true}).decode(Buffer.concat(chunks,n)));
    check(body?.simulationOnly===true);
    check(exact(body,['simulationOnly','scope','input'])&&body.scope===network);
-   const action={'/api/quantic/pay-replica-lab/v1/status':'status','/api/quantic/pay-replica-lab/v1/admit':'admit','/api/quantic/pay-replica-lab/v1/prepare':'prepare','/api/quantic/pay-replica-lab/v1/change-view':'changeView','/api/quantic/pay-replica-lab/v1/commit':'commit','/api/quantic/pay-replica-lab/v1/learn':'learn','/api/quantic/pay-replica-lab/v1/upload-begin':'uploadBegin','/api/quantic/pay-replica-lab/v1/upload-chunk':'uploadChunk','/api/quantic/pay-replica-lab/v1/upload-finish':'uploadFinish'}[req.url];
-   if(!['status','admit','prepare','changeView','commit','learn','uploadBegin','uploadChunk','uploadFinish'].includes(action)){send(404,{});return;}
+   const action={'/api/quantic/pay-replica-lab/v1/status':'status','/api/quantic/pay-replica-lab/v1/admit':'admit','/api/quantic/pay-replica-lab/v1/prepare':'prepare','/api/quantic/pay-replica-lab/v1/change-view':'changeView','/api/quantic/pay-replica-lab/v1/commit':'commit','/api/quantic/pay-replica-lab/v1/learn':'learn','/api/quantic/pay-replica-lab/v1/upload-begin':'uploadBegin','/api/quantic/pay-replica-lab/v1/upload-chunk':'uploadChunk','/api/quantic/pay-replica-lab/v1/upload-finish':'uploadFinish','/api/quantic/pay-replica-lab/v1/record-begin':'recordBegin','/api/quantic/pay-replica-lab/v1/record-chunk':'recordChunk'}[req.url];
+   if(!['status','admit','prepare','changeView','commit','learn','uploadBegin','uploadChunk','uploadFinish','recordBegin','recordChunk'].includes(action)){send(404,{});return;}
    let output;
    if(action==='uploadBegin')output=upload.begin(body.input);
    else if(action==='uploadChunk')output=upload.chunk(body.input);
    else if(action==='uploadFinish'){const payload=upload.finish(body.input);output=dispatch(payload.op,payload.input);}
+   else if(action==='recordBegin')output=download.begin(body.input);
+   else if(action==='recordChunk')output=download.chunk(body.input);
    else output=dispatch(action,body.input);
    const reply={simulationOnly:true,scope:network,output,realPaymentAuthorized:false};
    check(Buffer.byteLength(JSON.stringify(reply))<=32768);
@@ -77,7 +80,7 @@ async function main(){
  catch(e){store.close();throw e;}
  console.log('READY PAY REPLICA LAB '+c.port);
  let stopping=false;
- function stop(){if(stopping)return;stopping=true;server.closeAllConnections();server.close(()=>{auth.fill(0);upload.clear();store.close();});}
+ function stop(){if(stopping)return;stopping=true;server.closeAllConnections();server.close(()=>{auth.fill(0);upload.clear();download.clear();store.close();});}
  process.once('SIGTERM',stop);process.once('SIGINT',stop);
 }
 main().catch(()=>{console.error('Pay round witness laboratory refused');process.exitCode=1;});
