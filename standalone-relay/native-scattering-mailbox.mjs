@@ -8,7 +8,7 @@ import {createServer,request} from 'node:http';
 import {cellKey} from '../labs/quantic-native/scattering/scattering-cell.mjs';
 import {reliableCellStream} from '../labs/quantic-native/scattering/scattering-reliable-lab.mjs';
 const MAX=32768,FRAME=65536,OPS=16;
-const profiles=Object.freeze({mailbox:Object.freeze({base:'/api/quantic/native/v1/',ops:Object.freeze(['send','pull','ack','recover'])}), 'pay-lab':Object.freeze({base:'/api/quantic/pay-lab/v1/',ops:Object.freeze(['checkpoint','submit'])})});
+const profiles=Object.freeze({mailbox:Object.freeze({base:'/api/quantic/native/v1/',ops:Object.freeze(['send','pull','ack','recover'])}), 'pay-lab':Object.freeze({base:'/api/quantic/pay-lab/v1/',ops:Object.freeze(['checkpoint','submit'])}), 'pay-round-lab':Object.freeze({base:'/api/quantic/pay-round-lab/v1/',ops:Object.freeze(['status','prepare','change-view','commit','learn'])})});
 const check=x=>{if(!x)throw Error('Scattering mailbox lab refused');};
 const port=(v,zero=false)=>Number.isInteger(v)&&v>=(zero?0:1)&&v<=65535;
 const tokenOK=v=>typeof v==='string'&&/^[A-Za-z0-9._~-]{40,256}$/.test(v);
@@ -49,7 +49,7 @@ export async function startScatteringMailboxEndpoint(c,{windowsBootstrap,profile
   guard=await reserveWindowsScattering(c,windowsBootstrap);
  }else{await reserve(c);}
  const secret=Buffer.from(c.secretHex,'hex'),epoch=Buffer.from(c.epochHex,'hex');
- const domainSecret=profile==='pay-lab'?Buffer.from(hkdfSync('sha256',secret,epoch,Buffer.from('quantic-pay-lab-scattering/v1'),32)):secret;
+ const domainSecret=profile==='mailbox'?secret:Buffer.from(hkdfSync('sha256',secret,epoch,Buffer.from('quantic-'+profile+'-scattering/v1'),32));
  const ab=cellKey(domainSecret,epoch,'a-b'),ba=cellKey(domainSecret,epoch,'b-a');domainSecret.fill(0);secret.fill(0);epoch.fill(0);
  let cells,server,stopped=false,upstream,pending,busy=false,next=1,input=Buffer.alloc(0),relayResponse,waitingNext=false;
  const udp=createSocket('udp4');
