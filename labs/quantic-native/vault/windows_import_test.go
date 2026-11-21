@@ -32,3 +32,19 @@ func TestWindowsLabImport(t *testing.T){
  old:=filepath.Join(t.TempDir(),"old");if e=winCreatePrivateDirectory(old);e!=nil{t.Fatal(e)}
  if winImportLabFile(old,"desktop.json",hexHash(fixture),fixture)==nil{t.Fatal("old vault accepted")}
 }
+
+func TestWindowsAutoController(t *testing.T){
+ dir:=filepath.Join(t.TempDir(),"auto")
+ q,addr:=strings.Repeat("a",64),"alice~"+strings.Repeat("b",32)+"@quantic"
+ pw,pq:=[]byte("synthetic classical fixture password"),[]byte("different synthetic PQ fixture password")
+ res,e:=winProvisionAutoController(dir,q,addr,pw,pq);if e!=nil{t.Fatal(e)}
+ b,e:=winReadPrivate(filepath.Join(dir,"controller.pem"),4096);if e!=nil{t.Fatal(e)};defer clear(b)
+ p,_:=pem.Decode(b);if p==nil{t.Fatal("PEM missing")};defer clear(p.Bytes)
+ key,e:=x509.ParsePKCS8PrivateKey(p.Bytes);if e!=nil{t.Fatal(e)}
+ priv,ok:=key.(ed25519.PrivateKey);if !ok{t.Fatal("wrong controller type")};defer clear(priv)
+ pub:=priv.Public().(ed25519.PublicKey)
+ if b64.EncodeToString(pub)!=res["controllerPublic"]{t.Fatal("public mismatch")}
+ m,e:=winReadPrivate(filepath.Join(dir,"lab-provisioned"),64);if e!=nil||string(m)!=hexHash(pub){t.Fatal("marker mismatch")}
+ j,e:=winOpenReplay(filepath.Join(dir,"journal.log"),res["signingPin"],res["encryptionPin"],hexHash(pub));if e!=nil{t.Fatal(e)};j.close()
+ if _,e=winProvisionAutoController(dir,q,addr,pw,pq);e==nil{t.Fatal("overwrite accepted")}
+}

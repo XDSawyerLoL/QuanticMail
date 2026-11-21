@@ -4,6 +4,9 @@ package main
 
 import(
  "crypto/elliptic"
+ "crypto/ed25519"
+ "crypto/x509"
+ "encoding/pem"
  "crypto/rand"
  "encoding/json"
  "os"
@@ -14,6 +17,18 @@ import(
 // Existing directories/identities cannot be overwritten; partial directories
 // are retained and must never be reused as successfully provisioned.
 func winProvisionVault(dir,app,quorum,addr string,pw,pqPassword []byte)(map[string]string,error){
+ return winProvisionVaultLocal(dir,app,quorum,addr,pw,pqPassword,nil)
+}
+func winProvisionAutoController(dir,quorum,addr string,pw,pqPassword []byte)(map[string]string,error){
+ pub,key,e:=ed25519.GenerateKey(rand.Reader);if e!=nil{return nil,e};defer clear(key)
+ der,e:=x509.MarshalPKCS8PrivateKey(key);if e!=nil{return nil,e};defer clear(der)
+ data:=pem.EncodeToMemory(&pem.Block{Type:"PRIVATE KEY",Bytes:der});defer clear(data)
+ result,e:=winProvisionVaultLocal(dir,b64.EncodeToString(pub),quorum,addr,pw,pqPassword,data)
+ if e!=nil{return nil,e}
+ result["controllerPublic"]=b64.EncodeToString(pub)
+ return result,nil
+}
+func winProvisionVaultLocal(dir,app,quorum,addr string,pw,pqPassword,controller []byte)(map[string]string,error){
  if !hashRE.MatchString(quorum)||!strongAddr.MatchString(addr)||!validPortablePassword(pw)||!validPortablePassword(pqPassword)||equalSecret(pw,pqPassword){return nil,portableRefusal}
  pub,e:=appPublic(app);if e!=nil{return nil,e}
  if _,_,e=winPathParts(dir);e!=nil{return nil,e}
@@ -32,6 +47,7 @@ func winProvisionVault(dir,app,quorum,addr string,pw,pqPassword []byte)(map[stri
  if e=winInitReplay(filepath.Join(dir,"journal.log"),s,a,hexHash(pub));e!=nil{return nil,e}
  var receipt [32]byte;if _,e=rand.Read(receipt[:]);e!=nil{return nil,e};defer clear(receipt[:])
  if e=winWritePrivate(filepath.Join(dir,"receipt.key"),receipt[:]);e!=nil{return nil,e}
+ if len(controller)>0{if e=winWritePrivate(filepath.Join(dir,"controller.pem"),controller);e!=nil{return nil,e}}
  if e=winWritePrivate(filepath.Join(dir,"lab-provisioned"),[]byte(hexHash(pub)));e!=nil{return nil,e}
  return map[string]string{"backend":"windows-software-pq-storage-lab","address":addr,"deviceId":device,"signingPin":s,"encryptionPin":a,"kemPin":p.kemPin,"dsaPin":p.dsaPin,"signing":b64.EncodeToString(elliptic.Marshal(elliptic.P256(),k.signing.X,k.signing.Y)),"encryption":b64.EncodeToString(point),"kemPublic":b64.EncodeToString(p.kemPub),"dsaPublic":b64.EncodeToString(p.dsaPub),"status":"local-provision-only-not-enrolled"},nil
 }
@@ -40,6 +56,15 @@ func windowsVaultCLI(args []string)(bool,error){
  if handled,e:=winScatteringCLI(args);handled{return true,e}
  if handled,e:=winClientIO(args);handled{return true,e}
  if len(args)>1&&args[1]=="--broker-windows-pq-quorum-lab"{return true,winBroker(args)}
+ if len(args)>1&&args[1]=="--provision-windows-controller-lab"{
+  if len(args)!=5||!hashRE.MatchString(args[3])||!strongAddr.MatchString(args[4]){return true,portableRefusal}
+  if !winApprove("Create NEW synthetic Windows vault and local controller; no real account enrollment."){return true,portableRefusal}
+  pw,e:=winConfirmSecret("New classical laboratory passphrase: ");if e!=nil{return true,e};defer clear(pw)
+  pq,e:=winConfirmSecret("Different post-quantum laboratory passphrase: ");if e!=nil{return true,e};defer clear(pq)
+  result,e:=winProvisionAutoController(args[2],args[3],args[4],pw,pq)
+  if e!=nil{return true,e}
+  return true,json.NewEncoder(os.Stdout).Encode(result)
+ }
  if len(args)<2||args[1]!="--provision-windows-pq-storage-lab"{return false,nil}
  if len(args)!=6||!hashRE.MatchString(args[4])||!strongAddr.MatchString(args[5]){return true,portableRefusal}
  if _,e:=appPublic(args[3]);e!=nil{return true,e}

@@ -45,6 +45,11 @@ if ($Operation -in @("Dashboard","DashboardCheck")) {
 }
 if (-not $PrivateDirectory) { throw "PrivateDirectory required." }
 if ($Operation -eq "Provision") {
+ if (-not $ControllerPublicKey) {
+  if ($QuorumPin -notmatch '^[a-f0-9]{64}$' -or $CanonicalAddress -notmatch '^[a-z0-9][a-z0-9._-]{2,31}~[a-f0-9]{32}@quantic$') { throw "Independent public identity parameters required." }
+  & $vault --provision-windows-controller-lab $PrivateDirectory $QuorumPin $CanonicalAddress
+  exit $LASTEXITCODE
+ }
  if ($ControllerPublicKey -notmatch '^[A-Za-z0-9_-]{43}$' -or $QuorumPin -notmatch '^[a-f0-9]{64}$' -or $CanonicalAddress -notmatch '^[a-z0-9][a-z0-9._-]{2,31}~[a-f0-9]{32}@quantic$') { throw "Independently provisioned synthetic identity parameters required." }
  & $vault --provision-windows-pq-storage-lab $PrivateDirectory $ControllerPublicKey $QuorumPin $CanonicalAddress
  exit $LASTEXITCODE

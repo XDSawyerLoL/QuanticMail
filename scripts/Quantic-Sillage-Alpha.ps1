@@ -125,10 +125,9 @@ try {
   $operationArgs=$script:selectedArguments
   if ($script:selectedAction -eq "Provision") {
    Write-Host "Coffre de test uniquement. Les valeurs suivantes sont publiques et doivent provenir d'une preparation independante."
-   $app=Read-Host "Cle publique Ed25519 du controleur"
    $quorum=Read-Host "Empreinte SHA256 du quorum"
    $address=Read-Host "Adresse canonique de test"
-   $operationArgs+=@("-ControllerPublicKey",$app,"-QuorumPin",$quorum,"-CanonicalAddress",$address)
+   $operationArgs+=@("-QuorumPin",$quorum,"-CanonicalAddress",$address)
   }
   Write-Host ""
   Write-Host "Quantic Sillage - operation locale. Les validations du coffre restent obligatoires."
