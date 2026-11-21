@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
-const { app, BrowserWindow, shell } = require("electron");
+const { app, BrowserWindow, shell, dialog } = require("electron");
 
 const { MAIL_ORIGIN, navigationTarget } = require("./navigation-policy.cjs");
 
@@ -56,7 +56,20 @@ function createWindow() {
   win.loadURL(MAIL_ORIGIN);
 }
 
-app.whenReady().then(() => {
+const nativeLab=process.argv.includes("--native-vault-lab");
+app.whenReady().then(async () => {
+  if(nativeLab){
+    try{
+      if(process.platform!=="linux"||!process.stderr.isTTY){
+        await dialog.showMessageBox({type:"error",message:"Le coffre natif expérimental nécessite Linux et un terminal actif."});
+        app.exit(1);return;
+      }
+      const {runNativeDesktop}=await import("./native-vault-desktop.mjs");
+      const result=await runNativeDesktop(dialog);
+      app.exit(result==="failed"?1:0);
+    }catch{app.exit(1);}
+    return; // Never create or load the remote window in this mode.
+  }
   app.setAppUserModelId("com.quanticsillage.quanticmail");
   createWindow();
   app.on("activate", () => {
