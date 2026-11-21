@@ -38,8 +38,8 @@ class FixedFeed:
         finally:c.close()
 
 class ScheduledRegistry:
-    def __init__(self,feed,pin,identity,connection,allow_pq=False,dual_feed=False):
-        self.feed=feed;self.pin=pin;self.identity=identity;self.connection=connection;self.allow_pq=allow_pq;self.dual_feed=dual_feed
+    def __init__(self,feed,pin,identity,connection,allow_pq=False,dual_feed=False,contact_feed=False):
+        self.feed=feed;self.pin=pin;self.identity=identity;self.connection=connection;self.allow_pq=allow_pq;self.dual_feed=dual_feed;self.contact_feed=contact_feed
         self.lock=threading.Lock();self.snapshot=None;self.stop=threading.Event()
         self.thread=threading.Thread(target=self.run,daemon=True)
     def start(self):self.thread.start()
@@ -57,8 +57,9 @@ class ScheduledRegistry:
         started=time.monotonic()
         try:
             raw=self.feed.fetch()
-            signature=None
-            if self.dual_feed:raw,signature=raw
+            signature=None;contact=None
+            if self.contact_feed:raw,signature,contact=raw
+            elif self.dual_feed:raw,signature=raw
             p=rl.decode(raw,self.pin,self.identity)
             c=self.connection()
             try:
@@ -70,6 +71,12 @@ class ScheduledRegistry:
                     import dual_proof_feed as dpf
                     dpf.stage(c,self.identity,p,signature)
                 result=rl.apply(c,self.identity,p,allow_pq=self.allow_pq)
+                if self.contact_feed:
+                    import contact_permission as cp
+                    if contact is not None:
+                        cp.stage(c,self.identity,contact)
+                        result['contactPayload']=cp.digest(cp.canonical(contact['payload']))
+                        result['contactId']=contact['payload']['contactId']
                 rl.fresh(p)
                 if time.monotonic()-started>=MAX_AGE:raise ValueError('slow refresh')
                 c.commit()
@@ -114,3 +121,16 @@ class ScheduledRegistry:
         wire=dict(sequence=st[0],classicalRoot=enc(key.public_bytes(serialization.Encoding.DER,serialization.PublicFormat.SubjectPublicKeyInfo)),pqRoot=enc(r[1]),classicalSignature=grant['signature'],pqSignature=enc(st[2]))
         self.vote(c,identity,expected)
         return wire
+
+    def contact_vote(self,c,identity,expected,contact,commitment):
+        import contact_permission as cp
+        # All contact permissions in this mode must be present in the current
+        # scheduled snapshot, not merely present in a previously populated DB.
+        vote=self.vote(c,identity,expected)
+        if self.contact_feed:
+            with self.lock:s=self.snapshot
+            if s is None or s[1].get('contactId')!=contact:raise ValueError('no current contact snapshot')
+            d=c.execute('SELECT payload_digest FROM contact_permission WHERE id=? AND contact=?',(identity,contact)).fetchone()
+            if not d or d[0]!=s[1].get('contactPayload'):raise ValueError('contact snapshot diverged')
+        vote['contactCommitment']=cp.require(c,identity,contact,commitment)
+        return vote

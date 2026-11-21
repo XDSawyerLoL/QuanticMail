@@ -49,6 +49,8 @@ def serve(args):
     scheduled=bool(args.scheduled_registry)
     compact=bool(args.compact_registry)
     dual_feed=bool(args.dual_proof_feed)
+    contact_feed=bool(args.contact_proof_feed)
+    if contact_feed and not dual_feed:raise ValueError('contact feed requires dual feed')
     if dual_feed and not compact:raise ValueError("dual proof feed requires compact mode")
     if compact and not scheduled:raise ValueError("compact requires scheduled mode")
     if scheduled and not args.registry_url:raise ValueError("scheduled feed required")
@@ -81,13 +83,18 @@ def serve(args):
         if has_dual and not dual_feed:raise ValueError("dual proof feed mode required")
         if dual_feed and not has_dual:
             c.execute("CREATE TABLE dual_feed_policy (version INTEGER NOT NULL CHECK(version=1))");c.execute("INSERT INTO dual_feed_policy VALUES (1)")
+        has_contacts=bool(c.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='contact_feed_policy'").fetchone())
+        if has_contacts and not contact_feed:raise ValueError('contact feed mode required')
+        if contact_feed and not has_contacts:
+            c.execute('CREATE TABLE contact_feed_policy (version INTEGER NOT NULL CHECK(version=1))');c.execute('INSERT INTO contact_feed_policy VALUES (1)')
         if bound and c.execute('SELECT id FROM signed_manifest').fetchall()!=[(rows[0][0],)]: raise ValueError('invalid binding')
         if len(rows)!=1 or not valid_hash(rows[0][0]) or not valid_hash(rows[0][2]) or not 0<=rows[0][1]<=CAP: raise ValueError('invalid checkpoint DB')
     worker=None
     if scheduled:
         from dual_proof_feed import DualProofFeed
-        feed=(DualProofFeed if dual_feed else cr.CompactFeed if compact else sr.FixedFeed)(args.registry_url,args.feed_pin,args.feed_ca,args.feed_cert,args.feed_key)
-        worker=sr.ScheduledRegistry(feed,args.registry_pin,rows[0][0],lambda:connection(args.db),allow_pq=compact,dual_feed=dual_feed)
+        from contact_proof_feed import ContactFeed
+        feed=(ContactFeed if contact_feed else DualProofFeed if dual_feed else cr.CompactFeed if compact else sr.FixedFeed)(args.registry_url,args.feed_pin,args.feed_ca,args.feed_cert,args.feed_key)
+        worker=sr.ScheduledRegistry(feed,args.registry_pin,rows[0][0],lambda:connection(args.db),allow_pq=compact,dual_feed=dual_feed,contact_feed=contact_feed)
         worker.start()
     class Handler(http.server.BaseHTTPRequestHandler):
         def log_message(self,*_): pass
@@ -131,8 +138,7 @@ def serve(args):
                     if scheduled:vote=worker.vote(c,p['id'],p.get('pqBinding'))
                     if 'contactId' in p:
                         if not p.get('pqBinding') or not vote:raise ValueError('PQ contact policy required')
-                        import contact_permission as cp
-                        vote['contactCommitment']=cp.require(c,p['id'],p['contactId'],p['contactCommitment'])
+                        vote=worker.contact_vote(c,p['id'],p.get('pqBinding'),p['contactId'],p['contactCommitment'])
                     if self.path=='/compact-proof':vote=worker.public_proof(c,p['id'],p.get('pqBinding'))
                     c.commit()
                 finally:c.close()
@@ -152,6 +158,7 @@ if __name__=='__main__':
     a.add_argument('--scheduled-registry',action='store_true')
     a.add_argument('--compact-registry',action='store_true')
     a.add_argument('--dual-proof-feed',action='store_true')
+    a.add_argument('--contact-proof-feed',action='store_true')
     for name in ['feed-pin','feed-ca','feed-cert','feed-key']:a.add_argument('--'+name)
     m=s.add_parser('init-manifest');m.add_argument('db');m.add_argument('id');m.add_argument('binding');m.add_argument('manifest')
     u=s.add_parser('publish-manifest');u.add_argument('db');u.add_argument('id');u.add_argument('manifest')

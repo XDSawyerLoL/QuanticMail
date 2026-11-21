@@ -31,6 +31,8 @@ def stage(c,identity,lease,signature):
     dual.stage(c,identity,json.loads(row[0]),json.loads(row[1]),grant,signature)
 
 class DualProofFeed(FixedFeed):
+    response_size=RESPONSE_SIZE
+    unpack_frame=staticmethod(unpack)
     def __init__(self,*args):
         super().__init__(*args);self.conn=None
     def close(self):
@@ -44,7 +46,7 @@ class DualProofFeed(FixedFeed):
             if c.sock is None or hashlib.sha256(c.sock.getpeercert(binary_form=True)).hexdigest()!=self.pin:raise ValueError('feed TLS pin mismatch')
             c.request('POST','/lease',body=bytes(REQUEST_SIZE),headers={'Content-Type':'application/octet-stream','Connection':'keep-alive'})
             r=c.getresponse()
-            if r.status!=200 or r.getheader('Content-Length')!=str(RESPONSE_SIZE) or r.getheader('Transfer-Encoding') or r.will_close:raise ValueError('dual feed required')
-            return unpack(r.read(RESPONSE_SIZE+1))
+            if r.status!=200 or r.getheader('Content-Length')!=str(self.response_size) or r.getheader('Transfer-Encoding') or r.will_close:raise ValueError('dual feed required')
+            return self.unpack_frame(r.read(self.response_size+1))
         except Exception:
             self.close();raise

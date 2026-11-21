@@ -69,9 +69,31 @@ class PQ(Compact):
    sig=subprocess.check_output(['openssl','pkeyutl','-sign','-rawin','-inkey',str(rootfile),'-in',str(msgfile)])
    rootfile.unlink()
    grant=dict(payload=payload,classicalSignature=base64.b64encode(r.to_bytes(32,'big')+s.to_bytes(32,'big')).decode(),pqSignature=base64.b64encode(sig).decode())
-   for i in indices:
-    with closing(sqlite3.connect(self.nodes[i]['db'])) as conn,conn:
-     conn.execute('BEGIN IMMEDIATE');cp.stage(conn,self.id,grant)
+   if self.contact_feed:
+    # The fixture is an authority publisher, never writes the witness contact DB.
+    # Renew signed own lease alongside contact proof to keep test TTL bounded.
+    for i in indices:
+     original,own_sig,*_=self.feeds[i]
+     outer=json.loads(original);lease=json.loads(base64.b64decode(outer['payload']))
+     lease.update(issued=time.time_ns()//1000000,expires=time.time_ns()//1000000+30000)
+     encoded=json.dumps(lease,separators=(',',':')).encode()
+     data=json.dumps(dict(payload=base64.b64encode(encoded).decode(),signature=base64.b64encode(self.registry_key.sign(b'quantic-registry-lease-lab/v1\0'+encoded)).decode())).encode()
+     self.feeds[i]=(data,own_sig,grant)
+    end=time.monotonic()+12
+    while time.monotonic()<end:
+     good=True
+     for i in indices:
+      with closing(sqlite3.connect(self.nodes[i]['db'])) as conn:
+       table=conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='contact_permission'").fetchone()
+       row=conn.execute('SELECT seq,denied FROM contact_permission WHERE id=? AND contact=?',(self.id,cid)).fetchone() if table else None
+       good &= row==(seq,int(not active))
+     if good:time.sleep(.35);break
+     time.sleep(.1)
+    else:self.fail('scheduled contact proof did not reach witnesses')
+   else:
+    for i in indices:
+     with closing(sqlite3.connect(self.nodes[i]['db'])) as conn,conn:
+      conn.execute('BEGIN IMMEDIATE');cp.stage(conn,self.id,grant)
    return grant
   initial_permission=permission(1,True,range(4))
   args.extend([self.rootpin,self.localproof,directory])

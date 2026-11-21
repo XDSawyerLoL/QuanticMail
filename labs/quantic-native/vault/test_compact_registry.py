@@ -8,6 +8,7 @@ from scheduled_registry import REQUEST_SIZE
 HERE=pathlib.Path(__file__).resolve().parent
 class Compact(FreshRegistry):
     dual_feed=False
+    contact_feed=False
     response_size=RESPONSE_SIZE
     def frame(self,i):return pack_lease(self.feeds[i])
     provision_mode='--provision-software-compact-manifest-quorum-lab'
@@ -39,7 +40,7 @@ class Compact(FreshRegistry):
             if out.strip():
                 stats=json.loads(out.strip().splitlines()[-1])["stats"];print("feed_carrier",i,json.dumps(stats),flush=True);self.assertEqual(stats["wrongSize"],0)
     def start(self,i):
-        n=self.nodes[i];d=n['d'];f,pins=self.feed_certs[i];n['proc']=subprocess.Popen([sys.executable,str(HERE/'anchor_server.py'),'serve',str(n['db']),'--port','0','--cert',str(d/'server.pem'),'--key',str(d/'server.key'),'--ca',str(d/'ca.pem'),'--client-pin',n['pins']['client'],'--manifest-required','--registry-url',f'https://localhost:{self.feed_bridges[i].port}/lease','--registry-pin',self.registry_pin,'--scheduled-registry','--compact-registry','--feed-pin',pins['server'],'--feed-ca',str(f/'ca.pem'),'--feed-cert',str(f/'client.pem'),'--feed-key',str(f/'client.key')]+(['--dual-proof-feed'] if self.dual_feed else []),stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+        n=self.nodes[i];d=n['d'];f,pins=self.feed_certs[i];n['proc']=subprocess.Popen([sys.executable,str(HERE/'anchor_server.py'),'serve',str(n['db']),'--port','0','--cert',str(d/'server.pem'),'--key',str(d/'server.key'),'--ca',str(d/'ca.pem'),'--client-pin',n['pins']['client'],'--manifest-required','--registry-url',f'https://localhost:{self.feed_bridges[i].port}/lease','--registry-pin',self.registry_pin,'--scheduled-registry','--compact-registry','--feed-pin',pins['server'],'--feed-ca',str(f/'ca.pem'),'--feed-cert',str(f/'client.pem'),'--feed-key',str(f/'client.key')]+(['--dual-proof-feed'] if self.dual_feed else [])+(['--contact-proof-feed'] if self.contact_feed else []),stdout=subprocess.PIPE,stderr=subprocess.PIPE)
         line=n['proc'].stdout.readline();assert line,n['proc'].stderr.read();n['port']=json.loads(line)['port'];n['direct_port']=n['port'];n['bridge']=subprocess.Popen(['node',str(BRIDGE),str(n['port']),'--synthetic-loopback-only'],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True);n['port']=json.loads(n['bridge'].stdout.readline())['port']
     def wait_lease(self,m,ids=range(4)):
         end=time.monotonic()+15

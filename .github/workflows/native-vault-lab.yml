@@ -57,7 +57,7 @@ jobs:
         run: |
           node --test vault/tests/*.test.mjs scattering/compact-pacing.test.mjs scattering/dual-proof-pacing.test.mjs
           cd vault
-          python3 -m unittest test_pq_dual_unit test_schedule_unit test_dual_proof_feed -v
+          python3 -m unittest test_pq_dual_unit test_schedule_unit test_dual_proof_feed test_contact_proof_feed -v
       - name: Real local dual-authority network and PQ-only revocation
         working-directory: labs/quantic-native/vault
         run: timeout 180s python3 -u test_pq_dual_network.py

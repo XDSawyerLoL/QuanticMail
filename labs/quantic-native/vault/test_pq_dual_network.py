@@ -5,12 +5,14 @@ from test_pq_quorum import PQ
 import pq_dual_authority as dual
 import pq_profile as pp
 import dual_proof_feed as dpf
+import contact_proof_feed as cpf
 class DualNetwork(PQ):
  dual_feed=True
- response_size=dpf.RESPONSE_SIZE
+ contact_feed=True
+ response_size=cpf.RESPONSE_SIZE
  def frame(self,i):
   raw=self.feeds[i]
-  return dpf.pack(*raw) if isinstance(raw,tuple) else dpf.pack(raw)
+  return cpf.pack(*raw) if isinstance(raw,tuple) else cpf.pack(raw)
  def setUp(self):
   super().setUp()
   self.pqroot=subprocess.check_output([dual.OPENSSL,'genpkey','-algorithm','ML-DSA-65']);pub=subprocess.check_output([dual.OPENSSL,'pkey','-pubout','-outform','DER'],input=self.pqroot);self.rootpin=dual.sha(pub);self.pqrootpub=pub
@@ -31,7 +33,8 @@ class DualNetwork(PQ):
    self.localproof=self.local/'dual-proof.json'
    wire=dict(sequence=grant['payload']['sequence'],classicalRoot=base64.b64encode(self.root.public_key().public_bytes(serialization.Encoding.DER,serialization.PublicFormat.SubjectPublicKeyInfo)).decode(),pqRoot=base64.b64encode(self.pqrootpub).decode(),classicalSignature=grant['signature'],pqSignature=base64.b64encode(sig).decode())
    self.localproof.write_text(json.dumps(wire));self.localproof.chmod(0o600)
-  for i in indices:self.feeds[i]=(data,sig)
+  for i in indices:
+   old=self.feeds[i];self.feeds[i]=(data,sig,old[2] if isinstance(old,tuple) and len(old)==3 else None)
  def wait_profile(self,sequence,denied,indices=range(4)):
   super().wait_profile(sequence,denied,indices)
   for i in indices:

@@ -46,4 +46,6 @@ if __name__=='__main__':
     with open(v.grant,'rb') as f:raw=f.read(16385)
     if len(raw)>16384:raise ValueError('grant too large')
     with closing(connection(v.db)) as c,c:
-        c.execute('BEGIN IMMEDIATE');stage(c,v.identity,json.loads(raw))
+        c.execute('BEGIN IMMEDIATE')
+        if c.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='contact_feed_policy'").fetchone():raise ValueError('scheduled contact feed required')
+        stage(c,v.identity,json.loads(raw))
