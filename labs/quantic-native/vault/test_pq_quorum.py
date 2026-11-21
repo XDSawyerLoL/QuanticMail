@@ -39,6 +39,11 @@ class PQ(Compact):
   print('signed PQ grant persisted at four witnesses',flush=True)
   legacy=LocalProcess(self.args);self.addCleanup(legacy.close);legacy.prompt(b' : ',PASSWORD,True);self.assertNotEqual(legacy.p.wait(timeout=12),0);self.assertEqual(legacy.p.stdout.read(),b'');print('classic quorum startup rejected after PQ authorization',flush=True)
   args=['--broker-software-pq-quorum-lab',*self.args[1:],side,addr,dev,pins['kemPin'],pins['dsaPin']]
+  no_pin=LocalProcess(args);self.addCleanup(no_pin.close);self.assertNotEqual(no_pin.p.wait(timeout=8),0);self.assertEqual(no_pin.p.stdout.read(),b'')
+  if not hasattr(self,'rootpin'):
+   print('mono-authority startup refused; dual-mode network test required',flush=True);return
+  args.append(self.rootpin)
+  wrong=LocalProcess(args[:-1]+['0'*64]);self.addCleanup(wrong.close);wrong.prompt(b' : ',PASSWORD,True);wrong.prompt(b' : ',PASSWORD,True);self.assertNotEqual(wrong.p.wait(timeout=12),0);self.assertEqual(wrong.p.stdout.read(),b'');print('incorrect independent ML-DSA root pin refused',flush=True)
   a=Controller(args,self.appkey);self.addCleanup(a.child.close);a.child.prompt(b' : ',PASSWORD,True);a.child.prompt(b' : ',PASSWORD,True);a.nonce=unb64(a.child.reply()['session']);p=a.q('public');pub=a.q('pq-public-lab');self.assertEqual(pub['pqKem'],pins['kemPublic']);self.assertEqual(pub['pqDsa'],pins['dsaPublic'])
   self.assertFalse(a.q('mail-open-static-lab')['ok']);self.assertFalse(a.q('export')['ok'])
   def envelope():

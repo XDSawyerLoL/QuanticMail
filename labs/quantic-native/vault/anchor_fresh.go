@@ -26,6 +26,11 @@ type freshQuorum struct {
 	pqBinding       string
 	profileSequence int64
 	profileDigest   string
+	dualRootPin    string
+	pqAddress      string
+	pqDevice       string
+	pqKemPin       string
+	pqDsaPin       string
 }
 
 func (a *remoteAnchor) fresh(op string, p anchorRequest, scheduled, compact bool) (manifestVote, error) {
@@ -79,6 +84,12 @@ func (q *freshQuorum) accept(votes []manifestVote, now int64) error {
 			}
 		} else if v.PQBinding != "" || v.ProfileSequence != 0 || v.ProfileDigest != "" {
 			continue
+		}
+		if q.dualRootPin != "" {
+			expected, err := q.expectedDualDigest(v.ProfileSequence)
+			if err != nil || v.ProfileDigest != expected {
+				continue
+			}
 		}
 		counts[version{v.Sequence, v.Digest, v.ProfileSequence, v.ProfileDigest}]++
 	}

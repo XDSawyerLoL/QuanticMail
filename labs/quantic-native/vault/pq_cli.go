@@ -49,8 +49,11 @@ func pqCLI(args []string) (bool, error) {
 		}
 		return true, json.NewEncoder(os.Stdout).Encode(map[string]string{"kemPin": p.kemPin, "dsaPin": p.dsaPin, "kemPublic": b64.EncodeToString(p.kemPub), "dsaPublic": b64.EncodeToString(p.dsaPub)})
 	}
-	if len(args) == 13 && args[1] == "--broker-software-pq-quorum-lab" {
-		// normal compact arguments plus sidecar, address, device, two independent PQ pins.
+	if len(args) > 1 && args[1] == "--broker-software-pq-quorum-lab" {
+		if len(args) != 14 || !hashRE.MatchString(args[13]) {
+			return true, portableRefusal
+		}
+		// Compact arguments plus sidecar, address, device, two PQ pins, independent dual root pin.
 		q, e := newQuorumAnchor(args[7])
 		if e != nil {
 			return true, e
@@ -92,6 +95,8 @@ func pqCLI(args []string) (bool, error) {
 			return true, e
 		}
 		defer pq.close()
+		a.dualRootPin, a.pqAddress, a.pqDevice = args[13], pq.address, pq.device
+		a.pqKemPin, a.pqDsaPin = pq.kemPin, pq.dsaPin
 		a.pqBinding = hexHash([]byte("quantic-pq-key-binding-lab/v1\x00" + pq.address + "\x00" + pq.device + "\x00" + pq.kemPin + pq.dsaPin))
 		info, e := os.Lstat(args[6])
 		if e != nil || !info.Mode().IsRegular() || !privatePortableFile(info) {
