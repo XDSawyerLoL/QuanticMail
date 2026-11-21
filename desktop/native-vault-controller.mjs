@@ -112,20 +112,20 @@ export async function connectNativeVault({binary,binarySha256,vault,journal,quor
       let mailBusy=false;
       async function exclusive(fn){check(!mailBusy&&!closed,'native session unavailable');mailBusy=true;try{return await fn();}catch(e){fail();throw e;}finally{mailBusy=false;}}
       return Object.freeze({
-        async openHybrid(record){return exclusive(async()=>{
+        async openHybrid(record,{recover=false}={}){return exclusive(async()=>{
           const c=record?.context;
           check(c?.to===pqMode.address&&c.toDeviceId===pqMode.deviceId,'wrong recipient');
           verified(record,await peers(c));
-          const r=await call({op:'mail-open-hybrid-lab',pqContext:c,pqEnvelope:record.envelope,senderAuth:record.senderAuth});
+          const r=await call({op:'mail-open-hybrid-lab',pqContext:c,pqEnvelope:record.envelope,senderAuth:record.senderAuth,...(recover===true?{recover:true}:{})});
           const plain=b64(r.message,1,8192);
           try{verified(record,await peers(c));return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(plain));}finally{plain.fill(0);}
         });},
-        async sealHybrid(context,payload){return exclusive(async()=>{
+        async sealHybrid(context,payload,{recover=false}={}){return exclusive(async()=>{
           check(context?.from===pqMode.address&&context.fromDeviceId===pqMode.deviceId,'wrong sender');
           const raw=Buffer.from(JSON.stringify(payload));check(raw.length>=1&&raw.length<=8192,'invalid message size');
           try{
             await peers(context);
-            const r=await call({op:'mail-seal-hybrid-lab',pqContext:context,message:raw.toString('base64url')});
+            const r=await call({op:'mail-seal-hybrid-lab',pqContext:context,message:raw.toString('base64url'),...(recover===true?{recover:true}:{})});
             const record={format:'quantic-native-mail',version:1,context,envelope:r.pqEnvelope,senderAuth:r.senderAuth};
             verified(record,await peers(context));return record;
           }finally{raw.fill(0);}

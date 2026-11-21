@@ -145,7 +145,8 @@ class PQ(Compact):
   self.assertEqual(self.counts(),[0]*4)
   print('unsigned, altered-signature, altered-ciphertext and unknown-sender messages refused before consent',flush=True)
   a.request('mail-open-hybrid-lab',pqContext=ctx,pqEnvelope=env,senderAuth=auth);a.child.prompt(b'[taper OUI] : ',b'NON');self.assertFalse(a.child.reply()['ok'])
-  a.request('mail-open-hybrid-lab',pqContext=ctx,pqEnvelope=env,senderAuth=authenticate(ctx,env));a.child.prompt(b'[taper OUI] : ',b'OUI');self.assertEqual(json.loads(unb64(a.child.reply()['message'])),{'body':'synthetic PQ'});self.assertEqual(self.counts(),[1]*4)
+  a.request('mail-open-hybrid-lab',pqContext=ctx,pqEnvelope=env,senderAuth=auth);a.child.prompt(b'[taper OUI] : ',b'OUI');self.assertEqual(json.loads(unb64(a.child.reply()['message'])),{'body':'synthetic PQ'});self.assertEqual(self.counts(),[1]*4)
+  a.request('mail-open-hybrid-lab',pqContext=ctx,pqEnvelope=env,senderAuth=auth,recover=True);a.child.prompt(b'[taper OUI] : ',b'OUI');self.assertEqual(json.loads(unb64(a.child.reply()['message'])),{'body':'synthetic PQ'});self.assertEqual(self.counts(),[1]*4)
   self.assertFalse(a.q('mail-open-hybrid-lab',pqContext=ctx,pqEnvelope=env,senderAuth=auth)['ok']);self.assertFalse(a.q('mail-open-hybrid-lab',pqContext={**ctx,'toDeviceId':'d-'+'0'*32},pqEnvelope=env,senderAuth=auth)['ok'])
   ch=os.urandom(32);a.request('pq-proof-lab',pqChallenge=b64(ch));a.child.prompt(b'[taper OUI] : ',b'OUI');proof=a.child.reply();self.assertTrue(proof['ok']);self.assertEqual(self.counts(),[2]*4)
   dsa=self.local/'dsa.der';dsa.write_bytes(unb64(pub['pqDsa']));sig=self.local/'sig';sig.write_bytes(unb64(proof['pqProof']));data=self.local/'msg';data.write_bytes(('quantic-pq-device-proof-lab/v1\0'+addr+'\0'+dev+'\0'+pins['kemPin']+pins['dsaPin']).encode()+ch);subprocess.run(['openssl','pkeyutl','-verify','-pubin','-inkey',str(dsa),'-keyform','DER','-rawin','-in',str(data),'-sigfile',str(sig)],check=True,capture_output=True)
@@ -155,6 +156,8 @@ class PQ(Compact):
   self.assertFalse(a.q('mail-seal-hybrid-lab',pqContext={**outctx,'toDeviceId':'d-'+'0'*32},message=b64(body))['ok'])
   a.request('mail-seal-hybrid-lab',pqContext=outctx,message=b64(body));a.child.prompt(b'[taper OUI] : ',b'NON');self.assertFalse(a.child.reply()['ok'])
   a.request('mail-seal-hybrid-lab',pqContext=outctx,message=b64(body));a.child.prompt(b'[taper OUI] : ',b'OUI');out=a.child.reply();self.assertTrue(out['ok']);self.assertEqual(self.counts(),[3]*4)
+  a.request('mail-seal-hybrid-lab',pqContext=outctx,message=b64(body),recover=True);a.child.prompt(b'[taper OUI] : ',b'OUI');self.assertEqual(a.child.reply(),out);self.assertEqual(self.counts(),[3]*4)
+  a.request('mail-seal-hybrid-lab',pqContext=outctx,message=b64(b'{"changed":true}'),recover=True);a.child.prompt(b'[taper OUI] : ',b'OUI');self.assertFalse(a.child.reply()['ok'])
   env=out['pqEnvelope'];sa=out['senderAuth'];j=env['classicalEphemeralPublicKey']
   transcript=json.dumps(['quantic-mail-sender-auth-lab/v1',outctx['clientMessageId'],addr,dev,from_addr,from_dev,env['cryptoSuite'],env['keyMode'],j['kty'],j['crv'],j['x'],j['y'],env['pqKemCiphertext'],env['iv'],env['ciphertext']],separators=(',',':')).encode()
   from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
@@ -168,7 +171,9 @@ class PQ(Compact):
   self.assertEqual(AESGCM(ak).decrypt(unb64(env['iv']),unb64(env['ciphertext']),(t+'\nquantic-aes-gcm-aad-v1').encode()),body)
   self.assertFalse(a.q('mail-seal-hybrid-lab',pqContext=outctx,message=b64(b'{"changed":true}'))['ok'])
   print('native outgoing encryption and both signatures independently verified, denied and replayed sends refused',flush=True)
+  print('explicit native recovery returned identical committed bytes without consuming another journal entry',flush=True)
   permission(2,False,(0,1,2))
+  a.request('mail-seal-hybrid-lab',pqContext=outctx,message=b64(body),recover=True);a.child.prompt(b'[taper OUI] : ',b'OUI');self.assertFalse(a.child.reply()['ok'])
   for i in range(3):
    with closing(sqlite3.connect(self.nodes[i]['db'])) as conn,conn:
     with self.assertRaises(ValueError):cp.stage(conn,self.id,initial_permission)

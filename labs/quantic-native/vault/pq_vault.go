@@ -20,6 +20,7 @@ type pqKeys struct {
 	kem, dsa                        pqKey
 	address, device, kemPin, dsaPin string
 	kemPub, dsaPub                  []byte
+	recovery cipher.AEAD
 }
 
 func (p *pqKeys) close() { p.kem.close(); p.dsa.close() }
@@ -32,7 +33,7 @@ func pqMake(k, d pqKey, addr, device string) (*pqKeys, error) {
 	if e != nil {
 		return nil, e
 	}
-	return &pqKeys{k, d, addr, device, hexHash(kp), hexHash(dp), kp, dp}, nil
+	return &pqKeys{k, d, addr, device, hexHash(kp), hexHash(dp), kp, dp, nil}, nil
 }
 
 var strongDevice = regexp.MustCompile(`^d-[0-9a-f]{32}$`)
@@ -164,6 +165,10 @@ func pqRead(path, magic string, pw []byte, addr, device, kpin, dpin string) (*pq
 		p.close()
 		return nil, portableRefusal
 	}
+	// Independent key domain derived from password and sidecar salt.
+	salt:=sha256.Sum256(append([]byte("quantic-result-recovery-lab/v1\x00"+magic),b[h:h+16]...))
+	p.recovery,e=portableAEAD(pw,salt[:16])
+	if e!=nil{p.close();return nil,e}
 	return p, nil
 }
 

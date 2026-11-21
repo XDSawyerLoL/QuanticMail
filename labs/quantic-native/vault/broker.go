@@ -55,6 +55,7 @@ type packet struct {
 	Ciphertext string `json:"ciphertext"`
 }
 type request struct {
+	Recover bool `json:"recover,omitempty"`
 	SenderAuth *senderAuth `json:"senderAuth,omitempty"`
 	PQContext   *pqContext    `json:"pqContext,omitempty"`
 	PQEnvelope  *pqEnvelope   `json:"pqEnvelope,omitempty"`
@@ -244,6 +245,7 @@ func serveGuardedPQ(s signer, key agreementKey, backend string, in io.Reader, ou
 			}
 			continue
 		}
+		if q.Recover&&(pq==nil||(q.Op!="mail-seal-hybrid-lab"&&q.Op!="mail-open-hybrid-lab")){if e=enc.Encode(fail);e!=nil{return e};continue}
 		switch q.Op {
 		case "pq-public-lab":
 			if pq != nil {
@@ -274,16 +276,27 @@ func serveGuardedPQ(s signer, key agreementKey, backend string, in io.Reader, ou
 			if _,err:=recipientKey(recipient);err!=nil{break}
 			plain,err:=decode(q.Message,1,maxPlain);if err!=nil{break}
 			h:=replayID("mail-outgoing-id-v1",[]byte(c.From+"\x00"+c.FromDeviceID+"\x00"+c.ClientMessageID))
-			if already(h)||!json.Valid(plain){clear(plain);break}
+			if (!q.Recover&&already(h))||!json.Valid(plain){clear(plain);break}
 			if !approve("Envoi hybride de laboratoire vers "+c.To+" / "+c.ToDeviceID+" / contenu SHA256 "+hexHash(plain)){clear(plain);break}
 			if recipient.Expires<=time.Now().UnixMilli(){clear(plain);break}
 			if !journal.beginContact(recipient){clear(plain);break}
-			v,auth,err:=pq.sealOutgoing(s,c,recipient,plain);clear(plain)
+			reqHash:=recoveryRequest(q)
+			var result reply
+			if q.Recover {
+				clear(plain)
+				result,err=pq.readResult(journal,h,reqHash)
+				if err==nil&&(result.HybridEnvelope==nil||result.SenderAuth==nil||result.Message!=nil){err=portableRefusal}
+			} else {
+				var v pqEnvelope;var auth senderAuth
+				v,auth,err=pq.sealOutgoing(s,c,recipient,plain);clear(plain)
+				if err==nil{result=reply{OK:true,HybridEnvelope:&v,SenderAuth:&auth};err=pq.saveResult(journal,h,reqHash,result)}
+			}
 			if err!=nil{journal.endContact();break}
-			err=consume(h);journal.endContact()
+			if !journal.seen[h]{err=consume(h)}
+			journal.endContact()
 			if err!=nil{return err}
 			if recipient.Expires<=time.Now().UnixMilli(){return portableRefusal}
-			r=reply{OK:true,HybridEnvelope:&v,SenderAuth:&auth}
+			r=result
 		case "mail-open-hybrid-lab":
 			if pq == nil || journal == nil || q.PQContext == nil || q.PQEnvelope == nil {
 				break
@@ -295,15 +308,28 @@ func serveGuardedPQ(s signer, key agreementKey, backend string, in io.Reader, ou
 			v := q.PQEnvelope
 			if !senders.verify(*q.PQContext,*v,q.SenderAuth,time.Now().UnixMilli()){break}
 			h := replayID("mail-hybrid-v1", []byte(ctx+"\x00"+v.Ephemeral.X+":"+v.Ephemeral.Y+":"+v.KEM+":"+v.IV+":"+v.Ciphertext))
-			if !already(h) && approve("Déchiffrement hybride de laboratoire, expéditeur connu : "+q.PQContext.From+" / "+q.PQContext.FromDeviceID+" / "+hex.EncodeToString(h[:])) {
+			if (q.Recover||!already(h)) && approve("Déchiffrement hybride de laboratoire, expéditeur connu : "+q.PQContext.From+" / "+q.PQContext.FromDeviceID+" / "+hex.EncodeToString(h[:])) {
 				contact,valid:=senders.contact(*q.PQContext,time.Now().UnixMilli());if !valid||!journal.beginContact(contact){break}
-				if plain, err := pq.open(key, *q.PQContext, *v); err == nil {
-					err=consume(h);journal.endContact()
-					if err!=nil{clear(plain);return err}
-					if contact.Expires<=time.Now().UnixMilli(){clear(plain);return portableRefusal}
-					msg := b64.EncodeToString(plain)
-					clear(plain)
-					r = reply{OK: true, Message: &msg}
+				reqHash:=recoveryRequest(q)
+				var result reply
+				if q.Recover {
+					result,err=pq.readResult(journal,h,reqHash)
+					if err==nil&&(result.Message==nil||result.HybridEnvelope!=nil||result.SenderAuth!=nil){err=portableRefusal}
+				} else {
+					var plain []byte
+					plain,err=pq.open(key,*q.PQContext,*v)
+					if err==nil{
+						msg:=b64.EncodeToString(plain);clear(plain)
+						result=reply{OK:true,Message:&msg}
+						err=pq.saveResult(journal,h,reqHash,result)
+					}
+				}
+				if err==nil{
+					if !journal.seen[h]{err=consume(h)}
+					journal.endContact()
+					if err!=nil{return err}
+					if contact.Expires<=time.Now().UnixMilli(){return portableRefusal}
+					r=result
 				}
 				journal.endContact()
 			}
