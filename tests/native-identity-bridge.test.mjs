@@ -49,3 +49,29 @@ test('legacy routes reject fields that would silently discard cryptographic sema
  assert.equal(hasUnsupportedNativeFields({from:'a',ciphertext:'x',iv:'y',ephemeralPublicKey:{}}),false);
  for(const k of ['senderAuth','pqEnvelope','cryptoSuite','keyMode','signatures','context','version','preKeyId'])assert.equal(hasUnsupportedNativeFields({[k]:null}),true);
 });
+
+import {issueCheckpoint,verifyCheckpointQuorum} from '../lib/quantic/native-checkpoint-authority.mjs';
+test('independent authority quorum reads durable schema, pins both roots and refuses stale or conflicting votes',()=>{
+ const a=fixture('authorityalice');
+ const state={format:'quantic-relay-state',version:3,savedAt:new Date(now).toISOString(),manifests:[[a.checkpoint.address,a.bundle.manifest]],cryptoProfiles:[[a.checkpoint.address,a.bundle.profile]]};
+ const policy=[{...a.checkpoint,active:true}];
+ const request={address:a.checkpoint.address,deviceId:a.checkpoint.deviceId,nonce:randomBytes(32).toString('hex'),expires:now+10000};
+ const keys=Array.from({length:4},()=>generateKeyPairSync('ed25519'));
+ const trusted=keys.map(k=>({pin:sha(spki(k)),publicKey:spki(k).toString('base64url')}));
+ const vote=k=>issueCheckpoint({state,policy,request,privateKey:k.privateKey,now});
+ const votes=keys.map(k=>vote(k).attestation);
+ const cp=verifyCheckpointQuorum(votes.slice(0,3),trusted,request,now);
+ assert.equal(bindNativeContact(a.bundle,cp,now).deviceId,a.checkpoint.deviceId);
+ assert.throws(()=>verifyCheckpointQuorum(votes.slice(0,2),trusted,request,now));
+ assert.throws(()=>verifyCheckpointQuorum([votes[0],votes[0],votes[1]],trusted,request,now));
+ assert.throws(()=>verifyCheckpointQuorum(votes,[trusted[0],trusted[0],trusted[1],trusted[2]],request,now));
+ assert.throws(()=>verifyCheckpointQuorum(votes,trusted,{...request,nonce:'0'.repeat(64)},now));
+ assert.throws(()=>verifyCheckpointQuorum(votes,trusted,request,request.expires));
+ const bad=structuredClone(votes);bad[0].payload.profileDigest='f'.repeat(64);bad[1].payload.manifestSequence=2;
+ assert.throws(()=>verifyCheckpointQuorum(bad,trusted,request,now));
+ const issue=(s=state,p=policy)=>issueCheckpoint({state:s,policy:p,request,privateKey:keys[0].privateKey,now});
+ for(const s of [{...state,savedAt:new Date(now-30000).toISOString()},{...state,manifests:[]},{...state,cryptoProfiles:[]}])assert.throws(()=>issue(s));
+ assert.throws(()=>issue(state,[{...policy[0],active:false}]));
+ assert.throws(()=>issue(state,[{...policy[0],profileSequence:2}]));
+ assert.throws(()=>issue(state,[{...policy[0],pqRootPin:'0'.repeat(64)}]));
+});
