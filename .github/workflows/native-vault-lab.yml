@@ -2,10 +2,10 @@ name: Native Vault laboratory
 on:
   pull_request:
     branches: [main]
-    paths: ['labs/quantic-native/**', 'desktop/**', 'lib/quantic/**', 'scripts/native-vault-windows-local.mjs', 'scripts/package-windows-pq-lab.sh', 'scripts/scattering-physical-probe.mjs', 'scripts/Start-Windows-PQ-Lab.ps1', 'tests/native-windows-desktop.test.mjs', 'tests/native-windows-mail-flow.test.mjs', 'tests/native-scattering-mailbox.test.mjs', 'standalone-relay/native-scattering-mailbox.mjs', 'scripts/serve-native-scattering-windows.mjs', 'scripts/native-vault-windows-mailbox.mjs', '.github/workflows/native-vault-lab.yml']
+    paths: ['labs/quantic-native/**', 'desktop/**', 'lib/quantic/**', 'scripts/native-vault-windows-local.mjs', 'scripts/package-windows-pq-lab.sh', 'scripts/scattering-physical-probe.mjs', 'scripts/Start-Windows-PQ-Lab.ps1', 'scripts/Test-Windows-PQ-Package.ps1', 'tests/native-windows-desktop.test.mjs', 'tests/native-windows-mail-flow.test.mjs', 'tests/native-scattering-mailbox.test.mjs', 'standalone-relay/native-scattering-mailbox.mjs', 'scripts/serve-native-scattering-windows.mjs', 'scripts/native-vault-windows-mailbox.mjs', '.github/workflows/native-vault-lab.yml']
   push:
     branches: [main, "feat/**"]
-    paths: ['labs/quantic-native/**', 'desktop/**', 'lib/quantic/**', 'scripts/native-vault-windows-local.mjs', 'scripts/package-windows-pq-lab.sh', 'scripts/scattering-physical-probe.mjs', 'scripts/Start-Windows-PQ-Lab.ps1', 'tests/native-windows-desktop.test.mjs', 'tests/native-windows-mail-flow.test.mjs', 'tests/native-scattering-mailbox.test.mjs', 'standalone-relay/native-scattering-mailbox.mjs', 'scripts/serve-native-scattering-windows.mjs', 'scripts/native-vault-windows-mailbox.mjs', '.github/workflows/native-vault-lab.yml']
+    paths: ['labs/quantic-native/**', 'desktop/**', 'lib/quantic/**', 'scripts/native-vault-windows-local.mjs', 'scripts/package-windows-pq-lab.sh', 'scripts/scattering-physical-probe.mjs', 'scripts/Start-Windows-PQ-Lab.ps1', 'scripts/Test-Windows-PQ-Package.ps1', 'tests/native-windows-desktop.test.mjs', 'tests/native-windows-mail-flow.test.mjs', 'tests/native-scattering-mailbox.test.mjs', 'standalone-relay/native-scattering-mailbox.mjs', 'scripts/serve-native-scattering-windows.mjs', 'scripts/native-vault-windows-mailbox.mjs', '.github/workflows/native-vault-lab.yml']
 permissions:
   contents: read
 jobs:
@@ -112,6 +112,29 @@ jobs:
         run: |
           set -euo pipefail
           bash scripts/package-windows-pq-lab.sh "$RUNNER_TEMP/Vault-PQ-provider-lab.exe" "$RUNNER_TEMP/QuanticMail-Windows-PQ-Lab" "$RUNNER_TEMP/Scattering-Pacer.exe" "$(cygpath -w "$(command -v node.exe)")"
+      - name: Verify complete package and detect tampering before execution
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP "QuanticMail-Windows-PQ-Lab"
+          $pin = (Get-FileHash -LiteralPath "$dir\SHA256SUMS.txt" -Algorithm SHA256).Hash
+          & ./scripts/Test-Windows-PQ-Package.ps1 -PackageDirectory $dir -ExpectedManifestSha256 $pin
+          $bad = Join-Path $dir "unexpected.dll"
+          try {
+            [IO.File]::WriteAllText($bad,"synthetic")
+            $rejected=$false
+            try { & ./scripts/Test-Windows-PQ-Package.ps1 -PackageDirectory $dir -ExpectedManifestSha256 $pin } catch { $rejected=$true }
+            if (-not $rejected) { throw "Extra DLL accepted" }
+          } finally { Remove-Item -LiteralPath $bad -Force }
+          $file=Join-Path $dir "README.md"
+          $original=[IO.File]::ReadAllBytes($file)
+          try {
+            [IO.File]::AppendAllText($file,"synthetic tampering")
+            $rejected=$false
+            try { & ./scripts/Test-Windows-PQ-Package.ps1 -PackageDirectory $dir -ExpectedManifestSha256 $pin } catch { $rejected=$true }
+            if (-not $rejected) { throw "Changed file accepted" }
+          } finally { [IO.File]::WriteAllBytes($file,$original) }
+          & ./scripts/Test-Windows-PQ-Package.ps1 -PackageDirectory $dir -ExpectedManifestSha256 $pin
+          "Package manifest SHA256 (CI provenance only): $pin"
       - name: Windows native Scattering mailbox loopback using packaged binaries
         shell: pwsh
         run: |

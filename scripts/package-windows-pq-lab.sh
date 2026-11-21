@@ -31,7 +31,7 @@ test "$changed" == 0
 cp desktop/native-*.mjs "$dst/desktop/"
 cp lib/quantic/*.mjs lib/quantic/pqc-runtime-node.ts lib/quantic/pqc-runtime.ts lib/quantic/migration-archive.ts "$dst/lib/quantic/"
 cp scripts/native-vault-windows-local.mjs scripts/scattering-physical-probe.mjs "$dst/scripts/"
-cp scripts/Start-Windows-PQ-Lab.ps1 "$dst/"
+cp scripts/Start-Windows-PQ-Lab.ps1 scripts/Test-Windows-PQ-Package.ps1 "$dst/"
 mkdir -p "$dst/standalone-relay" "$dst/labs/quantic-native/scattering"
 cp standalone-relay/native-scattering-mailbox.mjs "$dst/standalone-relay/"
 cp labs/quantic-native/scattering/scattering-{cell,reliable-lab}.mjs "$dst/labs/quantic-native/scattering/"
