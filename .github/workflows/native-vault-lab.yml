@@ -107,6 +107,9 @@ jobs:
           node-version: 24.8.0
       - name: Windows trusted client workflow regressions
         run: node --test tests/native-windows-desktop.test.mjs tests/native-vault-controller.test.mjs
+      - name: Windows native Scattering mailbox loopback
+        shell: msys2 {0}
+        run: QUANTIC_WINDOWS_VAULT_TEST="$RUNNER_TEMP/Vault-PQ-provider-lab.exe" QUANTIC_SCATTERING_NATIVE_TEST="$RUNNER_TEMP/Scattering-Pacer.exe" node --test tests/native-scattering-mailbox.test.mjs
       - name: Stage isolated portable Windows laboratory
         shell: msys2 {0}
         run: bash scripts/package-windows-pq-lab.sh "$RUNNER_TEMP/Vault-PQ-provider-lab.exe" "$RUNNER_TEMP/QuanticMail-Windows-PQ-Lab" "$RUNNER_TEMP/Scattering-Pacer.exe"

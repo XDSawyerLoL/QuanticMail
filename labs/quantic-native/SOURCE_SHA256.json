@@ -108,6 +108,6 @@
   "vault/windows_broker.go": "67ba65ee80f832ae8b61b5e602de335d2c9f47cc085974435e5c558e79ac1ba4",
   "vault/windows_recovery_test.go": "ebb7f0681edefe56b42c50b87bf6ef21e8924efd501f95c76093565dbf68da49",
   "vault/windows_client_io.go": "b0bff5273b3834cd8c85abca2c208b4ea28102cee4c27e4cc21eb04ee8e9c738",
-  "vault/windows_scattering.go": "087d18f1c7182e2088f74bb67a5d48b9bb746e9366208bd512f74662ab8be606",
-  "vault/windows_scattering_test.go": "a28e922095f81e8efc403dbd0358ff8425057f6d00911071b7ec2a41ea906c23"
+  "vault/windows_scattering.go": "b0eb6c596fb98a35495ee05796c8762307a422630dbd1cc81a49c9d9c674fcc6",
+  "vault/windows_scattering_test.go": "2d75178a12d390852f33b6f8a35883a5476e1791751613e75d9dd7209c6e78d5"
 }
