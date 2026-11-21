@@ -1,7 +1,7 @@
 # Explicit laboratory launcher. No installation or production login.
 [CmdletBinding()]
 param(
- [Parameter(Mandatory=$true)][ValidateSet("Providers","Open","RecoverOpen","Seal","RecoverSeal","ProbeLoopback","Send","Receive","RecoverReceive","ConfirmReceipt","StartBridge","Provision","Dashboard","DashboardCheck")][string]$Operation,
+ [Parameter(Mandatory=$true)][ValidateSet("Providers","Open","RecoverOpen","Seal","RecoverSeal","ProbeLoopback","Send","Receive","RecoverReceive","ConfirmReceipt","StartBridge","Provision","Dashboard","DashboardCheck","MigrationCheck")][string]$Operation,
  [Parameter(Mandatory=$true)][ValidatePattern('^[a-fA-F0-9]{64}$')][string]$ExpectedManifestSha256,
  [string]$TrustedBinarySha256,
  [string]$PrivateDirectory,
@@ -9,7 +9,8 @@ param(
  [string]$OutputFile,
  [string]$ControllerPublicKey,
  [string]$QuorumPin,
- [string]$CanonicalAddress
+ [string]$CanonicalAddress,
+ [string]$TrustedRootPin
 )
 $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
@@ -41,6 +42,11 @@ if ($Operation -in @("Dashboard","DashboardCheck")) {
  $uiArgs = @("-NoProfile","-STA","-File",$ui,"-ExpectedManifestSha256",$ExpectedManifestSha256,"-TrustedBinarySha256",$TrustedBinarySha256)
  if ($Operation -eq "DashboardCheck") { $uiArgs += "-SelfTest" }
  & $shell @uiArgs
+ exit $LASTEXITCODE
+}
+if ($Operation -eq "MigrationCheck") {
+ if ($TrustedRootPin -notmatch '^[a-f0-9]{64}$' -or $CanonicalAddress -notmatch '^[a-z0-9][a-z0-9._-]{2,31}~(?:[a-f0-9]{10}|[a-f0-9]{32})@quantic$' -or $InputFile -notmatch '^[A-Za-z]:\\[^\r\n]+\.qma$') { throw "Archive and independent public identity pin required." }
+ & $node --experimental-transform-types (Join-Path $root "scripts\verify-migration-local.mjs") $InputFile $CanonicalAddress $TrustedRootPin
  exit $LASTEXITCODE
 }
 if (-not $PrivateDirectory) { throw "PrivateDirectory required." }

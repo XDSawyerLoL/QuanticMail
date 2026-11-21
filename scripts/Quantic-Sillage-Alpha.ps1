@@ -25,7 +25,8 @@ $actions=@(
  @{Id="Provision";Title="Creer un coffre de test";Hint="Parametres publics independants requis. Ne cree pas de compte distant.";Scope=$true},
  @{Id="StartBridge";Title="Demarrer le pont Scattering";Hint="Dossier de transport distinct deja configure ; pacer et sink separes requis.";Scope=$true},
  @{Id="Providers";Title="Verifier la cryptographie";Hint="Diagnostic du fournisseur cryptographique natif."},
- @{Id="ProbeLoopback";Title="Tester le transport local";Hint="Diagnostic UDP local, sans compte ni reseau distant."}
+ @{Id="ProbeLoopback";Title="Tester le transport local";Hint="Diagnostic UDP local, sans compte ni reseau distant."},
+ @{Id="MigrationCheck";Title="Verifier une sauvegarde de migration";Hint="Controle hors ligne des anciennes cles. Aucun transfert ou effacement."}
 )
 function New-OperationArguments($Action,[string]$Directory,[string]$InputName,[string]$OutputName) {
  $a=@("-Operation",$Action.Id,"-ExpectedManifestSha256",$ExpectedManifestSha256,"-TrustedBinarySha256",$TrustedBinarySha256.ToLowerInvariant())
@@ -106,7 +107,7 @@ $run.Add_Click({
 $choice.SelectedIndex=0
 if ($SelfTest) {
  try {
-  if($choice.Items.Count -ne 12 -or -not $inputName.Enabled -or -not $outputName.Enabled){throw "Dashboard initialization failed"}
+  if($choice.Items.Count -ne 13 -or -not $inputName.Enabled -or -not $outputName.Enabled){throw "Dashboard initialization failed"}
   $a=New-OperationArguments $actions[0] "C:\Quantic Lab\vault" "draft-test.json" "wire-test.json"
   if($a -notcontains "C:\Quantic Lab\vault\draft-test.json" -or $a -notcontains "C:\Quantic Lab\vault\wire-test.json"){throw "Wrong arguments"}
   $rejected=$false
@@ -128,6 +129,17 @@ try {
    $quorum=Read-Host "Empreinte SHA256 du quorum"
    $address=Read-Host "Adresse canonique de test"
    $operationArgs+=@("-QuorumPin",$quorum,"-CanonicalAddress",$address)
+  }
+  if ($script:selectedAction -eq "MigrationCheck") {
+   $picker=New-Object Windows.Forms.OpenFileDialog
+   $picker.Filter="Archive Quantic (*.qma)|*.qma"
+   try {
+    if ($picker.ShowDialog() -ne [Windows.Forms.DialogResult]::OK) { continue }
+    $archive=$picker.FileName
+   }finally{$picker.Dispose()}
+   $address=Read-Host "Adresse canonique historique"
+   $pin=Read-Host "Empreinte SHA256 independante de la cle de propriete historique"
+   $operationArgs+=@("-InputFile",$archive,"-CanonicalAddress",$address,"-TrustedRootPin",$pin)
   }
   Write-Host ""
   Write-Host "Quantic Sillage - operation locale. Les validations du coffre restent obligatoires."
