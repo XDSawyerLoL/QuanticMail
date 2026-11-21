@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+set -euo pipefail
+src="$(cygpath -u "$1")"
+dst="$(cygpath -u "$2")"
+test -f "$src"
+test ! -e "$dst"
+mkdir -p "$dst/bin" "$dst/desktop" "$dst/lib/quantic" "$dst/scripts" "$dst/licenses"
+cp "$src" "$dst/bin/Vault-PQ-lab.exe"
+# Copy Windows non-system DLL imports recursively from the build toolchain.
+for pass in $(seq 1 16); do
+  changed=0
+  for f in "$dst/bin/"*; do
+    imports="$(objdump -p "$f" | awk '/DLL Name:/ {print $3}' | tr -d '\r')"
+    while IFS= read -r dll; do
+      [[ -n "$dll" ]] || continue
+      [[ "$dll" =~ ^[A-Za-z0-9_.-]+[.][dD][lL][lL]$ ]] || exit 1
+      if [[ -f "/ucrt64/bin/$dll" && ! -f "$dst/bin/$dll" ]]; then
+        cp "/ucrt64/bin/$dll" "$dst/bin/$dll"
+        changed=1
+      fi
+    done <<< "$imports"
+  done
+  if [[ "$changed" == 0 ]]; then break; fi
+done
+test "$changed" == 0
+cp desktop/native-*.mjs "$dst/desktop/"
+cp lib/quantic/*.mjs "$dst/lib/quantic/"
+cp scripts/native-vault-windows-local.mjs "$dst/scripts/"
+cp docs/AUDIT_WINDOWS_DESKTOP_BRIDGE.md "$dst/"
+cp docs/WINDOWS_PQ_LAB_README.md "$dst/README.md"
+for p in /ucrt64/share/licenses/openssl /ucrt64/share/licenses/gcc /ucrt64/share/licenses/gcc-libs /ucrt64/share/licenses/libwinpthread /ucrt64/share/licenses/zlib /ucrt64/share/licenses/zstd /ucrt64/share/licenses/libffi; do
+  if [[ -d "$p" ]]; then cp -R "$p" "$dst/licenses/"; fi
+done
+if compgen -G "$dst/bin/libcrypto*.dll" > /dev/null; then
+  test -d "$dst/licenses/openssl"
+fi
+(
+ cd "$dst"
+ find . -type f ! -name SHA256SUMS.txt -print0 | LC_ALL=C sort -z | xargs -0 sha256sum > SHA256SUMS.txt
+ sha256sum -c SHA256SUMS.txt
+)

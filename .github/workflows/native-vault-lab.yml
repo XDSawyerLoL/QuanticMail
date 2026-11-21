@@ -2,10 +2,10 @@ name: Native Vault laboratory
 on:
   pull_request:
     branches: [main]
-    paths: ['labs/quantic-native/**', '.github/workflows/native-vault-lab.yml']
+    paths: ['labs/quantic-native/**', 'desktop/**', 'lib/quantic/**', 'scripts/native-vault-windows-local.mjs', 'scripts/package-windows-pq-lab.sh', 'tests/native-windows-desktop.test.mjs', '.github/workflows/native-vault-lab.yml']
   push:
     branches: [main, "feat/**"]
-    paths: ['labs/quantic-native/**', '.github/workflows/native-vault-lab.yml']
+    paths: ['labs/quantic-native/**', 'desktop/**', 'lib/quantic/**', 'scripts/native-vault-windows-local.mjs', 'scripts/package-windows-pq-lab.sh', 'tests/native-windows-desktop.test.mjs', '.github/workflows/native-vault-lab.yml']
 permissions:
   contents: read
 jobs:
@@ -99,3 +99,33 @@ jobs:
           openssl list -signature-algorithms | grep -qi ML-DSA-65
           go test -count=1 -tags pqopenssl -run '^(TestPQProviderRoundTrip|TestWindowsPrivateStorage|TestWindowsPQStorageReopen|TestWindowsProvisionJournalRestart|TestWindowsConsoleParsing|TestWindowsRecoveryExactResult|TestWindowsQuorumConfigRefusal)$' -v .
           go build -trimpath -tags pqopenssl -o "$RUNNER_TEMP/Vault-PQ-provider-lab.exe" .
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24.8.0
+      - name: Windows trusted client workflow regressions
+        run: node --test tests/native-windows-desktop.test.mjs tests/native-vault-controller.test.mjs
+      - name: Stage isolated portable Windows laboratory
+        shell: msys2 {0}
+        run: bash scripts/package-windows-pq-lab.sh "$RUNNER_TEMP/Vault-PQ-provider-lab.exe" "$RUNNER_TEMP/QuanticMail-Windows-PQ-Lab"
+      - name: Verify packaged entry points and cryptography runtime
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP "QuanticMail-Windows-PQ-Lab"
+          $originalPath = $env:PATH
+          try {
+            $env:PATH = "$env:SystemRoot\System32"
+            $provider = & "$dir\bin\Vault-PQ-lab.exe" --providers
+            if ($LASTEXITCODE -ne 0) { throw "Packaged native executable failed" }
+            $provider | Write-Output
+          } finally { $env:PATH = $originalPath }
+          $env:QV_PACKAGE = $dir
+          node --input-type=module -e "import {pathToFileURL} from 'node:url'; import {join} from 'node:path'; import {generateKeyPairSync} from 'node:crypto'; generateKeyPairSync('ml-kem-768'); generateKeyPairSync('ml-dsa-65'); await import(pathToFileURL(join(process.env.QV_PACKAGE,'desktop','native-windows-desktop.mjs')).href); await import(pathToFileURL(join(process.env.QV_PACKAGE,'lib','quantic','native-identity-bridge.mjs')).href);"
+          if ($LASTEXITCODE -ne 0) { throw "Packaged Node bridge failed" }
+          Get-Content "$dir\SHA256SUMS.txt"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: QuanticMail-Windows-PQ-Lab-unsigned
+          path: ${{ runner.temp }}/QuanticMail-Windows-PQ-Lab/
+          if-no-files-found: error
+          retention-days: 7
