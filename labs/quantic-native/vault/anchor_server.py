@@ -86,7 +86,8 @@ def serve(args):
         has_contacts=bool(c.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='contact_feed_policy'").fetchone())
         if has_contacts and not contact_feed:raise ValueError('contact feed mode required')
         if contact_feed and not has_contacts:
-            c.execute('CREATE TABLE contact_feed_policy (version INTEGER NOT NULL CHECK(version=1))');c.execute('INSERT INTO contact_feed_policy VALUES (1)')
+            c.execute('CREATE TABLE contact_feed_policy (version INTEGER NOT NULL CHECK(version=2))');c.execute('INSERT INTO contact_feed_policy VALUES (2)')
+        elif contact_feed and c.execute('SELECT version FROM contact_feed_policy').fetchall()!=[(2,)]:raise ValueError('explicit QCP2 database provisioning required')
         if bound and c.execute('SELECT id FROM signed_manifest').fetchall()!=[(rows[0][0],)]: raise ValueError('invalid binding')
         if len(rows)!=1 or not valid_hash(rows[0][0]) or not valid_hash(rows[0][2]) or not 0<=rows[0][1]<=CAP: raise ValueError('invalid checkpoint DB')
     worker=None

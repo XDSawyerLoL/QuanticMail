@@ -11,6 +11,8 @@ import (
 
 type manifestVote struct {
 	ContactCommitment string `json:"contactCommitment,omitempty"`
+	ContactSequence int64 `json:"contactSequence,omitempty"`
+	ContactDigest string `json:"contactDigest,omitempty"`
 	Sequence        int64  `json:"sequence"`
 	Digest          string `json:"digest"`
 	Expires         int64  `json:"expires"`
@@ -58,8 +60,8 @@ func (a *remoteAnchor) fresh(op string, p anchorRequest, scheduled, compact bool
 	if resp.StatusCode != 200 {
 		return v, errors.New("fresh witness refused")
 	}
-	raw, e := io.ReadAll(io.LimitReader(resp.Body, 513))
-	if e != nil || len(raw) > 512 {
+	raw, e := io.ReadAll(io.LimitReader(resp.Body, 1025))
+	if e != nil || len(raw) > 1024 {
 		return v, errors.New("invalid vote")
 	}
 	d := json.NewDecoder(bytes.NewReader(raw))
@@ -76,10 +78,13 @@ func (q *freshQuorum) accept(votes []manifestVote, now int64) error {
 		digest          string
 		profileSequence int64
 		profileDigest   string
+		contactSequence int64
+		contactDigest string
 	}
 	counts := map[version]int{}
 	for _, v := range votes {
 		if v.ContactCommitment!=q.contactCommitment{continue}
+		if q.contactCommitment!="" {if v.ContactSequence<1||!hashRE.MatchString(v.ContactDigest){continue}} else if v.ContactSequence!=0||v.ContactDigest!=""{continue}
 		if v.Sequence < 1 || !hashRE.MatchString(v.Digest) || v.Expires <= now || v.Expires > now+30000 {
 			continue
 		}
@@ -97,7 +102,7 @@ func (q *freshQuorum) accept(votes []manifestVote, now int64) error {
 				continue
 			}
 		}
-		counts[version{v.Sequence, v.Digest, v.ProfileSequence, v.ProfileDigest}]++
+		counts[version{v.Sequence, v.Digest, v.ProfileSequence, v.ProfileDigest,v.ContactSequence,v.ContactDigest}]++
 	}
 	for v, n := range counts {
 		if n >= 3 {

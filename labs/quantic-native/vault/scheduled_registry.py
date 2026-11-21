@@ -57,8 +57,8 @@ class ScheduledRegistry:
         started=time.monotonic()
         try:
             raw=self.feed.fetch()
-            signature=None;contact=None
-            if self.contact_feed:raw,signature,contact=raw
+            signature=None;contacts=[]
+            if self.contact_feed:raw,signature,contacts=raw
             elif self.dual_feed:raw,signature=raw
             p=rl.decode(raw,self.pin,self.identity)
             c=self.connection()
@@ -73,10 +73,10 @@ class ScheduledRegistry:
                 result=rl.apply(c,self.identity,p,allow_pq=self.allow_pq)
                 if self.contact_feed:
                     import contact_permission as cp
-                    if contact is not None:
+                    result['contacts']={}
+                    for contact in contacts:
                         cp.stage(c,self.identity,contact)
-                        result['contactPayload']=cp.digest(cp.canonical(contact['payload']))
-                        result['contactId']=contact['payload']['contactId']
+                        result['contacts'][contact['payload']['contactId']]=cp.digest(cp.canonical(contact['payload']))
                 rl.fresh(p)
                 if time.monotonic()-started>=MAX_AGE:raise ValueError('slow refresh')
                 c.commit()
@@ -129,8 +129,11 @@ class ScheduledRegistry:
         vote=self.vote(c,identity,expected)
         if self.contact_feed:
             with self.lock:s=self.snapshot
-            if s is None or s[1].get('contactId')!=contact:raise ValueError('no current contact snapshot')
+            if s is None or contact not in s[1].get('contacts',{}):raise ValueError('no current contact snapshot')
             d=c.execute('SELECT payload_digest FROM contact_permission WHERE id=? AND contact=?',(identity,contact)).fetchone()
-            if not d or d[0]!=s[1].get('contactPayload'):raise ValueError('contact snapshot diverged')
+            if not d or d[0]!=s[1]['contacts'][contact]:raise ValueError('contact snapshot diverged')
         vote['contactCommitment']=cp.require(c,identity,contact,commitment)
+        row=c.execute('SELECT seq,payload_digest,expires FROM contact_permission WHERE id=? AND contact=?',(identity,contact)).fetchone()
+        if not row:raise ValueError('missing contact state')
+        vote.update(contactSequence=row[0],contactDigest=row[1],expires=min(vote['expires'],row[2]))
         return vote

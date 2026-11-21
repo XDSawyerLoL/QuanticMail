@@ -54,13 +54,24 @@ class PQ(Compact):
   recipient_kem_pub=subprocess.check_output(['openssl','pkey','-in',str(recipient_kem),'-pubout','-outform','DER'])
   directory=self.local/'sender-trust.json'
   directory.write_text(json.dumps([dict(address=from_addr,deviceId=from_dev,classicalSigningSpki=base64.b64encode(sender.public_key().public_bytes(serialization.Encoding.DER,serialization.PublicFormat.SubjectPublicKeyInfo)).decode(),mlDsaSigningSpki=base64.b64encode(sender_pub).decode(),classicalEncryptionSpki=base64.b64encode(recipient_ec.public_key().public_bytes(serialization.Encoding.DER,serialization.PublicFormat.SubjectPublicKeyInfo)).decode(),mlKemEncryptionSpki=base64.b64encode(recipient_kem_pub).decode(),expires=time.time_ns()//1000000+600000)]));directory.chmod(0o600)
+  # Second independently generated contact, not just a duplicated label.
+  second_sign=ec.generate_private_key(ec.SECP256R1());second_enc=ec.generate_private_key(ec.SECP256R1());sj=jwk(second_enc.public_key())
+  second_addr='carol~'+'2'*32+'@quantic';second_dev='d-'+hashlib.sha256(('P-256:'+sj['x']+':'+sj['y']).encode()).hexdigest()[:32]
+  def public_pq(alg):
+   key=subprocess.check_output(['openssl','genpkey','-algorithm',alg])
+   return subprocess.check_output(['openssl','pkey','-pubout','-outform','DER'],input=key)
+  def spki(key):return base64.b64encode(key.public_key().public_bytes(serialization.Encoding.DER,serialization.PublicFormat.SubjectPublicKeyInfo)).decode()
+  second=dict(address=second_addr,deviceId=second_dev,classicalSigningSpki=spki(second_sign),mlDsaSigningSpki=base64.b64encode(public_pq('ML-DSA-65')).decode(),classicalEncryptionSpki=spki(second_enc),mlKemEncryptionSpki=base64.b64encode(public_pq('ML-KEM-768')).decode(),expires=time.time_ns()//1000000+600000)
+  directory.write_text(json.dumps(json.loads(directory.read_text())+[second]))
   import contact_permission as cp
   import pq_dual_authority as dual
   raw_contact=json.loads(directory.read_text())[0]
   def compact_array(a):return json.dumps(a,separators=(',',':')).encode()
   cid=cp.digest(compact_array(['quantic-contact-id-lab/v1',from_addr,from_dev]))
   commitment=cp.digest(compact_array(['quantic-contact-keys-lab/v1',from_addr,from_dev]+[cp.digest(base64.b64decode(raw_contact[k])) for k in ('classicalSigningSpki','mlDsaSigningSpki','classicalEncryptionSpki','mlKemEncryptionSpki')]))
-  def permission(seq,active,indices):
+  def permission(seq,active,indices,entry=raw_contact):
+   cid=cp.digest(compact_array(['quantic-contact-id-lab/v1',entry['address'],entry['deviceId']]))
+   commitment=cp.digest(compact_array(['quantic-contact-keys-lab/v1',entry['address'],entry['deviceId']]+[cp.digest(base64.b64decode(entry[k])) for k in ('classicalSigningSpki','mlDsaSigningSpki','classicalEncryptionSpki','mlKemEncryptionSpki')]))
    now=time.time_ns()//1000000
    payload=dict(contactId=cid,commitment=commitment,sequence=seq,issued=now,expires=now+600000,active=active)
    raw=cp.canonical(payload);r,s=decode_dss_signature(self.root.sign(dual.message(self.id,raw),ec.ECDSA(hashes.SHA256())))
@@ -73,12 +84,13 @@ class PQ(Compact):
     # The fixture is an authority publisher, never writes the witness contact DB.
     # Renew signed own lease alongside contact proof to keep test TTL bounded.
     for i in indices:
-     original,own_sig,*_=self.feeds[i]
+     original,own_sig,*previous=self.feeds[i]
      outer=json.loads(original);lease=json.loads(base64.b64decode(outer['payload']))
      lease.update(issued=time.time_ns()//1000000,expires=time.time_ns()//1000000+30000)
      encoded=json.dumps(lease,separators=(',',':')).encode()
      data=json.dumps(dict(payload=base64.b64encode(encoded).decode(),signature=base64.b64encode(self.registry_key.sign(b'quantic-registry-lease-lab/v1\0'+encoded)).decode())).encode()
-     self.feeds[i]=(data,own_sig,grant)
+     others=previous[0] or [] if previous else []
+     self.feeds[i]=(data,own_sig,[g for g in others if g['payload']['contactId']!=cid]+[grant])
     end=time.monotonic()+12
     while time.monotonic()<end:
      good=True
@@ -96,6 +108,7 @@ class PQ(Compact):
       conn.execute('BEGIN IMMEDIATE');cp.stage(conn,self.id,grant)
    return grant
   initial_permission=permission(1,True,range(4))
+  permission(1,True,range(4),second)
   args.extend([self.rootpin,self.localproof,directory])
   wrong=LocalProcess(args[:-3]+['0'*64,self.localproof,directory]);self.addCleanup(wrong.close);wrong.prompt(b' : ',PASSWORD,True);wrong.prompt(b' : ',PASSWORD,True);self.assertNotEqual(wrong.p.wait(timeout=12),0);self.assertEqual(wrong.p.stdout.read(),b'');print('incorrect independent ML-DSA root pin refused',flush=True)
   original=json.loads(self.localproof.read_text())
@@ -165,5 +178,8 @@ class PQ(Compact):
   ctx,env=envelope();a.request('mail-open-hybrid-lab',pqContext=ctx,pqEnvelope=env,senderAuth=authenticate(ctx,env));a.child.prompt(b'[taper OUI] : ',b'OUI');self.assertFalse(a.child.reply()['ok'])
   self.assertEqual(self.counts(),[3]*4)
   print('contact-only revocation blocked incoming and outgoing; old signed permission refused',flush=True)
+  # Revoking Bob must not disable Carol in the same scheduled snapshot.
+  a.request('mail-seal-hybrid-lab',pqContext={**outctx,'clientMessageId':'native-second-contact','to':second_addr,'toDeviceId':second_dev},message=b64(body));a.child.prompt(b'[taper OUI] : ',b'OUI');self.assertTrue(a.child.reply()['ok']);self.assertEqual(self.counts(),[4]*4)
+  print('second independent contact remains authorized after first contact revocation',flush=True)
   self.assertFalse(a.q('pq-proof-lab',pqChallenge=b64(ch))['ok']);rev=self.grant(pins,2,False);self.publish_profile(rev,(0,1,2));self.wait_profile(2,1,(0,1,2));print('PQ-only revocation; classical manifest unchanged',flush=True);a.request('pq-proof-lab',pqChallenge=b64(os.urandom(32)));a.child.prompt(b'[taper OUI] : ',b'OUI');self.assertNotEqual(a.child.p.wait(timeout=12),0);self.assertEqual(a.child.p.stdout.read(),b'');self.report()
 if __name__=='__main__':unittest.main(defaultTest='PQ.test_pq_gate',verbosity=2)
