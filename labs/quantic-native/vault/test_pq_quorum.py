@@ -42,15 +42,23 @@ class PQ(Compact):
   no_pin=LocalProcess(args);self.addCleanup(no_pin.close);self.assertNotEqual(no_pin.p.wait(timeout=8),0);self.assertEqual(no_pin.p.stdout.read(),b'')
   if not hasattr(self,'rootpin'):
    print('mono-authority startup refused; dual-mode network test required',flush=True);return
-  args.extend([self.rootpin,self.localproof])
-  wrong=LocalProcess(args[:-2]+['0'*64,self.localproof]);self.addCleanup(wrong.close);wrong.prompt(b' : ',PASSWORD,True);wrong.prompt(b' : ',PASSWORD,True);self.assertNotEqual(wrong.p.wait(timeout=12),0);self.assertEqual(wrong.p.stdout.read(),b'');print('incorrect independent ML-DSA root pin refused',flush=True)
+  # Independent synthetic contact provisioning; no key is accepted from message.
+  sender=ec.generate_private_key(ec.SECP256R1())
+  sender_pq=self.local/'sender-pq.pem'
+  subprocess.run(['openssl','genpkey','-algorithm','ML-DSA-65','-out',str(sender_pq)],check=True,capture_output=True);sender_pq.chmod(0o600)
+  sender_pub=subprocess.check_output(['openssl','pkey','-in',str(sender_pq),'-pubout','-outform','DER'])
+  from_addr='bob~'+'1'*32+'@quantic';from_dev='d-'+'1'*32
+  directory=self.local/'sender-trust.json'
+  directory.write_text(json.dumps([dict(address=from_addr,deviceId=from_dev,classicalSigningSpki=base64.b64encode(sender.public_key().public_bytes(serialization.Encoding.DER,serialization.PublicFormat.SubjectPublicKeyInfo)).decode(),mlDsaSigningSpki=base64.b64encode(sender_pub).decode(),expires=time.time_ns()//1000000+600000)]));directory.chmod(0o600)
+  args.extend([self.rootpin,self.localproof,directory])
+  wrong=LocalProcess(args[:-3]+['0'*64,self.localproof,directory]);self.addCleanup(wrong.close);wrong.prompt(b' : ',PASSWORD,True);wrong.prompt(b' : ',PASSWORD,True);self.assertNotEqual(wrong.p.wait(timeout=12),0);self.assertEqual(wrong.p.stdout.read(),b'');print('incorrect independent ML-DSA root pin refused',flush=True)
   original=json.loads(self.localproof.read_text())
   for field in ('classicalSignature','pqSignature'):
    altered=dict(original);raw=bytearray(base64.b64decode(altered[field]));raw[-1]^=1;altered[field]=base64.b64encode(raw).decode()
    bad=self.local/'bad-dual-proof.json';bad.write_text(json.dumps(altered));bad.chmod(0o600)
-   rejected=LocalProcess(args[:-1]+[bad]);self.addCleanup(rejected.close);rejected.prompt(b' : ',PASSWORD,True);rejected.prompt(b' : ',PASSWORD,True);self.assertNotEqual(rejected.p.wait(timeout=12),0);self.assertEqual(rejected.p.stdout.read(),b'')
+   rejected=LocalProcess(args[:-2]+[bad,directory]);self.addCleanup(rejected.close);rejected.prompt(b' : ',PASSWORD,True);rejected.prompt(b' : ',PASSWORD,True);self.assertNotEqual(rejected.p.wait(timeout=12),0);self.assertEqual(rejected.p.stdout.read(),b'')
   print('native verifier rejected both independently corrupted signatures',flush=True)
-  args[-1]='auto'
+  args[-2]='auto'
   a=Controller(args,self.appkey);self.addCleanup(a.child.close);a.child.prompt(b' : ',PASSWORD,True);a.child.prompt(b' : ',PASSWORD,True);a.nonce=unb64(a.child.reply()['session']);p=a.q('public');pub=a.q('pq-public-lab');self.assertEqual(pub['pqKem'],pins['kemPublic']);self.assertEqual(pub['pqDsa'],pins['dsaPublic'])
   print('native broker automatically verified proofs from three witnesses before fresh quorum',flush=True)
   self.assertFalse(a.q('mail-open-static-lab')['ok']);self.assertFalse(a.q('export')['ok'])
@@ -60,10 +68,27 @@ class PQ(Compact):
    eph=ec.generate_private_key(ec.SECP256R1());peer=ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP256R1(),unb64(p['encryption']));z=eph.exchange(ec.ECDH(),peer);pq=sec.read_bytes();sec.unlink()
    ctx=dict(clientMessageId='synthetic-pq-mail-0001',**{'from':'bob~'+'1'*32+'@quantic'},fromDeviceId='d-'+'1'*32,to=addr,toDeviceId=dev)
    t='\n'.join(['quantic-hybrid-envelope-context-v1',SUITE,ctx['clientMessageId'],ctx['from'],ctx['fromDeviceId'],addr,dev]);key=HKDF(algorithm=hashes.SHA256(),length=32,salt=hashlib.sha256(('quantic-hybrid-kdf-salt-v1\n'+t).encode()).digest(),info=t.encode()).derive(z+pq);iv=os.urandom(12);enc=AESGCM(key).encrypt(iv,b'{"body":"synthetic PQ"}',(t+'\nquantic-aes-gcm-aad-v1').encode());return ctx,dict(cryptoSuite=SUITE,keyMode='hybrid-static-fallback',classicalEphemeralPublicKey=jwk(eph.public_key()),pqKemCiphertext=b64(ct.read_bytes()),iv=b64(iv),ciphertext=b64(enc))
-  ctx,env=envelope();a.request('mail-open-hybrid-lab',pqContext=ctx,pqEnvelope=env);a.child.prompt(b'[taper OUI] : ',b'NON');self.assertFalse(a.child.reply()['ok'])
-  a.request('mail-open-hybrid-lab',pqContext=ctx,pqEnvelope=env);a.child.prompt(b'[taper OUI] : ',b'OUI');self.assertEqual(json.loads(unb64(a.child.reply()['message'])),{'body':'synthetic PQ'});self.assertEqual(self.counts(),[1]*4)
-  self.assertFalse(a.q('mail-open-hybrid-lab',pqContext=ctx,pqEnvelope=env)['ok']);self.assertFalse(a.q('mail-open-hybrid-lab',pqContext={**ctx,'toDeviceId':'d-'+'0'*32},pqEnvelope=env)['ok'])
+  def authenticate(ctx,env):
+   j=env['classicalEphemeralPublicKey']
+   raw=json.dumps(['quantic-mail-sender-auth-lab/v1',ctx['clientMessageId'],ctx['from'],ctx['fromDeviceId'],ctx['to'],ctx['toDeviceId'],env['cryptoSuite'],env['keyMode'],j['kty'],j['crv'],j['x'],j['y'],env['pqKemCiphertext'],env['iv'],env['ciphertext']],separators=(',',':')).encode()
+   r,s=decode_dss_signature(sender.sign(raw,ec.ECDSA(hashes.SHA256())))
+   sign_input=self.local/'sender-msg';sign_input.write_bytes(raw)
+   sig=subprocess.check_output(['openssl','pkeyutl','-sign','-rawin','-inkey',str(sender_pq),'-in',str(sign_input)])
+   return dict(classicalSignature=b64(r.to_bytes(32,'big')+s.to_bytes(32,'big')),pqSignature=b64(sig))
+  ctx,env=envelope();auth=authenticate(ctx,env)
+  self.assertFalse(a.q('mail-open-hybrid-lab',pqContext=ctx,pqEnvelope=env)['ok'])
+  for name in ('classicalSignature','pqSignature'):
+   sig=bytearray(unb64(auth[name]));sig[-1]^=1
+   self.assertFalse(a.q('mail-open-hybrid-lab',pqContext=ctx,pqEnvelope=env,senderAuth={**auth,name:b64(sig)})['ok'])
+  bad=bytearray(unb64(env['ciphertext']));bad[0]^=1
+  self.assertFalse(a.q('mail-open-hybrid-lab',pqContext=ctx,pqEnvelope={**env,'ciphertext':b64(bad)},senderAuth=auth)['ok'])
+  self.assertFalse(a.q('mail-open-hybrid-lab',pqContext={**ctx,'from':'eve~'+'2'*32+'@quantic'},pqEnvelope=env,senderAuth=auth)['ok'])
+  self.assertEqual(self.counts(),[0]*4)
+  print('unsigned, altered-signature, altered-ciphertext and unknown-sender messages refused before consent',flush=True)
+  a.request('mail-open-hybrid-lab',pqContext=ctx,pqEnvelope=env,senderAuth=auth);a.child.prompt(b'[taper OUI] : ',b'NON');self.assertFalse(a.child.reply()['ok'])
+  a.request('mail-open-hybrid-lab',pqContext=ctx,pqEnvelope=env,senderAuth=authenticate(ctx,env));a.child.prompt(b'[taper OUI] : ',b'OUI');self.assertEqual(json.loads(unb64(a.child.reply()['message'])),{'body':'synthetic PQ'});self.assertEqual(self.counts(),[1]*4)
+  self.assertFalse(a.q('mail-open-hybrid-lab',pqContext=ctx,pqEnvelope=env,senderAuth=auth)['ok']);self.assertFalse(a.q('mail-open-hybrid-lab',pqContext={**ctx,'toDeviceId':'d-'+'0'*32},pqEnvelope=env,senderAuth=auth)['ok'])
   ch=os.urandom(32);a.request('pq-proof-lab',pqChallenge=b64(ch));a.child.prompt(b'[taper OUI] : ',b'OUI');proof=a.child.reply();self.assertTrue(proof['ok']);self.assertEqual(self.counts(),[2]*4)
   dsa=self.local/'dsa.der';dsa.write_bytes(unb64(pub['pqDsa']));sig=self.local/'sig';sig.write_bytes(unb64(proof['pqProof']));data=self.local/'msg';data.write_bytes(('quantic-pq-device-proof-lab/v1\0'+addr+'\0'+dev+'\0'+pins['kemPin']+pins['dsaPin']).encode()+ch);subprocess.run(['openssl','pkeyutl','-verify','-pubin','-inkey',str(dsa),'-keyform','DER','-rawin','-in',str(data),'-sigfile',str(sig)],check=True,capture_output=True)
-  self.assertFalse(a.q('pq-proof-lab',pqChallenge=b64(ch))['ok']);rev=self.grant(pins,2,False);self.publish_profile(rev,(0,1,2));self.wait_profile(2,1,(0,1,2));print('PQ-only revocation; classical manifest unchanged',flush=True);ctx,env=envelope();a.request('mail-open-hybrid-lab',pqContext=ctx,pqEnvelope=env);a.child.prompt(b'[taper OUI] : ',b'OUI');self.assertNotEqual(a.child.p.wait(timeout=12),0);self.assertEqual(a.child.p.stdout.read(),b'');self.report()
+  self.assertFalse(a.q('pq-proof-lab',pqChallenge=b64(ch))['ok']);rev=self.grant(pins,2,False);self.publish_profile(rev,(0,1,2));self.wait_profile(2,1,(0,1,2));print('PQ-only revocation; classical manifest unchanged',flush=True);ctx,env=envelope();a.request('mail-open-hybrid-lab',pqContext=ctx,pqEnvelope=env,senderAuth=authenticate(ctx,env));a.child.prompt(b'[taper OUI] : ',b'OUI');self.assertNotEqual(a.child.p.wait(timeout=12),0);self.assertEqual(a.child.p.stdout.read(),b'');self.report()
 if __name__=='__main__':unittest.main(defaultTest='PQ.test_pq_gate',verbosity=2)

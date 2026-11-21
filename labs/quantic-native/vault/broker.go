@@ -55,6 +55,7 @@ type packet struct {
 	Ciphertext string `json:"ciphertext"`
 }
 type request struct {
+	SenderAuth *senderAuth `json:"senderAuth,omitempty"`
 	PQContext   *pqContext    `json:"pqContext,omitempty"`
 	PQEnvelope  *pqEnvelope   `json:"pqEnvelope,omitempty"`
 	PQChallenge string        `json:"pqChallenge,omitempty"`
@@ -192,8 +193,13 @@ func serveWithKey(s signer, key agreementKey, backend string, in io.Reader, out 
 func serveGuarded(s signer, key agreementKey, backend string, in io.Reader, out io.Writer, approve func(string) bool, journal *replayLog) error {
 	return serveGuardedPQ(s, key, backend, in, out, approve, journal, nil)
 }
-func serveGuardedPQ(s signer, key agreementKey, backend string, in io.Reader, out io.Writer, approve func(string) bool, journal *replayLog, pq *pqKeys) error {
+func serveGuardedPQ(s signer, key agreementKey, backend string, in io.Reader, out io.Writer, approve func(string) bool, journal *replayLog, pq *pqKeys, trustedSenders ...*senderTrust) error {
 	var e error
+	var senders *senderTrust
+	if pq!=nil {
+		if len(trustedSenders)!=1||trustedSenders[0]==nil{return portableRefusal}
+		senders=trustedSenders[0]
+	}
 	enc := json.NewEncoder(out)
 	scan := bufio.NewScanner(in)
 	scan.Buffer(make([]byte, 4096), 32768)
@@ -266,8 +272,10 @@ func serveGuardedPQ(s signer, key agreementKey, backend string, in io.Reader, ou
 				break
 			}
 			v := q.PQEnvelope
+			if !senders.verify(*q.PQContext,*v,q.SenderAuth,time.Now().UnixMilli()){break}
 			h := replayID("mail-hybrid-v1", []byte(ctx+"\x00"+v.Ephemeral.X+":"+v.Ephemeral.Y+":"+v.KEM+":"+v.IV+":"+v.Ciphertext))
-			if !already(h) && approve("Déchiffrement hybride de laboratoire : "+hex.EncodeToString(h[:])) {
+			if !already(h) && approve("Déchiffrement hybride de laboratoire, expéditeur connu : "+q.PQContext.From+" / "+q.PQContext.FromDeviceID+" / "+hex.EncodeToString(h[:])) {
+				if _,valid:=senders.contact(*q.PQContext,time.Now().UnixMilli());!valid{break}
 				if plain, err := pq.open(key, *q.PQContext, *v); err == nil {
 					if err = consume(h); err != nil {
 						clear(plain)

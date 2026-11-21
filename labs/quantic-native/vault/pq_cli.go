@@ -50,7 +50,7 @@ func pqCLI(args []string) (bool, error) {
 		return true, json.NewEncoder(os.Stdout).Encode(map[string]string{"kemPin": p.kemPin, "dsaPin": p.dsaPin, "kemPublic": b64.EncodeToString(p.kemPub), "dsaPublic": b64.EncodeToString(p.dsaPub)})
 	}
 	if len(args) > 1 && args[1] == "--broker-software-pq-quorum-lab" {
-		if len(args) != 15 || !hashRE.MatchString(args[13]) {
+		if len(args) != 16 || !hashRE.MatchString(args[13]) {
 			return true, portableRefusal
 		}
 		// Compact arguments plus sidecar, address, device, two PQ pins, independent dual root pin.
@@ -119,11 +119,12 @@ func pqCLI(args []string) (bool, error) {
 		}
 		if e != nil { return true, e }
 		a.localProof = proof
+		senders,e:=loadSenderTrust(args[15]);if e!=nil{return true,e}
 		if e = j.attachAnchor(a, id); e != nil {
 			return true, e
 		}
 		return true, authenticateFrames(pub, os.Stdin, os.Stdout, func(in io.Reader, out io.Writer) error {
-			return serveGuardedPQ(softwareSigner{k.signing}, k.agreement, "software-pq-quorum-lab", in, out, localPortableApproval, j, pq)
+			return serveGuardedPQ(softwareSigner{k.signing}, k.agreement, "software-pq-quorum-lab", in, out, localPortableApproval, j, pq, senders)
 		})
 	}
 	return false, nil
