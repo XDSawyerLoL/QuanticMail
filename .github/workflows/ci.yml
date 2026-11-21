@@ -110,6 +110,17 @@ jobs:
           export QUANTIC_PAY_COMMITTEE_DISTRIBUTED_TEST="$RUNNER_TEMP/Quantic-Pacer"
           node --test --test-concurrency=1 $PAY_SUITE_FILES
 
+  pay-strict-full-service:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.8.0
+      - name: Mandatory 16 strict voters and 64 independent TLS anchor services
+        run: QUANTIC_PAY_FULL_STRICT_TEST=1 node --test tests/pay-unanimous-full-service.test.mjs
+
   node22-runtime-compat:
     runs-on: ubuntu-latest
     steps:
