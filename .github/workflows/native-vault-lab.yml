@@ -117,6 +117,7 @@ jobs:
         run: |
           $dir = Join-Path $env:RUNNER_TEMP "QuanticMail-Windows-PQ-Lab"
           $node = "$dir\runtime\node.exe"
+          $env:QUANTIC_WINDOWS_TEST_ROOT = $env:RUNNER_TEMP
           $env:QUANTIC_WINDOWS_VAULT_TEST = "$dir\bin\Vault-PQ-lab.exe"
           $env:QUANTIC_SCATTERING_NATIVE_TEST = "$dir\bin\Scattering-Pacer.exe"
           $env:PATH = "$dir\bin;$env:SystemRoot\System32"

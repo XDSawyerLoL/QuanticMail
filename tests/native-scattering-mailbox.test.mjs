@@ -4,7 +4,7 @@ import {createServer,request} from 'node:http';
 import {createSocket} from 'node:dgram';
 import {spawn,execFileSync} from 'node:child_process';
 import {randomBytes,createHash} from 'node:crypto';
-import {mkdtemp,mkdir,rm,readFile} from 'node:fs/promises';
+import {mkdtemp,mkdir,rm,readFile,realpath} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {startScatteringMailboxEndpoint} from '../standalone-relay/native-scattering-mailbox.mjs';
@@ -16,7 +16,8 @@ function post(port,path,body){
  return new Promise((resolve,reject)=>{const b=Buffer.from(JSON.stringify(body));const q=request({hostname:'127.0.0.1',port,path,method:'POST',headers:{'content-type':'application/json','content-length':b.length,authorization:'Bearer '+token}},res=>{const parts=[];res.on('data',x=>parts.push(x));res.on('end',()=>resolve({status:res.statusCode,body:JSON.parse(Buffer.concat(parts))}));res.on('error',reject);});q.on('error',reject);q.setTimeout(19000,()=>q.destroy(Error('deadline')));q.end(b);});
 }
 test('native Scattering pacers and sinks carry bounded mailbox HTTP operations over real UDP without public HTTP',{skip:!binary||(windows&&!vault),timeout:90000},async()=>{
- const dir=await mkdtemp(join(tmpdir(),'qs-mailbox-')),kids=[],endpoints=[],hits=[];
+ const parent=windows?(process.env.QUANTIC_WINDOWS_TEST_ROOT??await realpath(tmpdir())):tmpdir();
+ const dir=await realpath(await mkdtemp(join(parent,'qs-mailbox-'))),kids=[],endpoints=[],hits=[];
  const server=createServer(async(req,res)=>{const parts=[];for await(const c of req)parts.push(c);hits.push({path:req.url,token:req.headers.authorization,body:JSON.parse(Buffer.concat(parts))});const b=Buffer.from(JSON.stringify({op:req.url.slice(base.length),ok:true}));res.writeHead(req.url===base+'send'?202:200,{'Content-Type':'application/json','Content-Length':b.length});res.end(b);});
  try{
   await new Promise(r=>server.listen(0,'127.0.0.1',r));
