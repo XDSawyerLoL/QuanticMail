@@ -43,7 +43,10 @@ test("public PQ device proposal never exposes private PQ material", { skip }, as
   assert.equal(proposal.mlDsaPublicKeySpki, material.mlDsaPublicKeySpki);
   assert.equal(await verifyPqcDeviceProposal(proposal, context), true);
 
-  const tampered = { ...proposal, mlKemPublicKeySpki: `${proposal.mlKemPublicKeySpki.slice(0, -1)}A` };
+  // Change a significant base64url character, never an identical or padding-only value.
+  const key = proposal.mlKemPublicKeySpki;
+  const tampered = { ...proposal, mlKemPublicKeySpki: `${key.slice(0, -2)}${key.at(-2) === "A" ? "B" : "A"}${key.at(-1)}` };
+  assert.notEqual(tampered.mlKemPublicKeySpki, key);
   assert.equal(await verifyPqcDeviceProposal(tampered, context), false);
 });
 
