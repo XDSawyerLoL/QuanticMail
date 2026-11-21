@@ -2,7 +2,7 @@
 // in each direction, not a public listener, no persistent real identity.
 import {createSocket} from 'node:dgram';
 import {spawn} from 'node:child_process';
-import {randomBytes} from 'node:crypto';
+import {randomBytes,createHash} from 'node:crypto';
 import {mkdir,realpath} from 'node:fs/promises';
 import {join,isAbsolute} from 'node:path';
 import {startScatteringMailboxEndpoint} from '../../standalone-relay/native-scattering-mailbox.mjs';
@@ -39,6 +39,6 @@ export async function startNativeScatteringLink({dir,binary,relayPort,profile='m
    launch(['-target','127.0.0.1:'+ports[1-i],'-queue-dir',queues[i],'-period-us','5000','-poll','10ms','-wait-mode','native']);
   }
   await new Promise(r=>setTimeout(r,400));if(closing||children.some(p=>p.exitCode!==null||p.signalCode!==null))throw Error('carrier failed');
-  return {url:'http://127.0.0.1:'+endpoints[0].httpPort+'/',close};
+  return {url:'http://127.0.0.1:'+endpoints[0].httpPort+'/',epochId:createHash('sha256').update(Buffer.from(common.epochHex,'hex')).digest('hex'),close};
  }catch(e){await close();throw e;}
 }

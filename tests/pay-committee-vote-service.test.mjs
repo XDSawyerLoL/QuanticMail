@@ -11,6 +11,7 @@ import {createRoundCirculationLab} from '../lib/quantic/pay-circulation-lab.mjs'
 import {createPayRoundLab} from '../lib/quantic/pay-round-lab.mjs';
 import {compactPayView} from '../lib/quantic/pay-compact-view.mjs';
 import {createPayReplicaCarrier} from '../lib/quantic/pay-replica-carrier.mjs';
+import {createCommitteeSession} from '../lib/quantic/pay-committee-session.mjs';
 import {startNativeScatteringLink} from './helpers/native-scattering-link.mjs';
 const script=fileURLToPath(new URL('../scripts/serve-pay-replica-lab.mjs',import.meta.url));
 const sha=b=>createHash('sha256').update(b).digest('hex');
@@ -68,12 +69,20 @@ for(const native of [false,true])test('16 member admission and financial quorum 
   const report=await client.changeView({scope:fscope,input:1});
   const view=compactPayView({scope:fscope,round:1,reports:[report,...members.map(n=>n.changeView(1))]},16);
   assert.equal(b.selectView(view).requiredValue,fvalue);
-  client=await renew();
+  // Renew automatically before each logical operation, never after failure.
+  await link?.close();link=null;
+  const pinnedPort=p;
+  const session=createCommitteeSession({network,authorityPin:config.witnesses[0].pin,provision:async p=>{
+   const l=native?await startNativeScatteringLink({dir:join(dir,'epoch-'+(++epoch)),binary:resolve(process.env.QUANTIC_PAY_SCATTERING_TEST),relayPort:pinnedPort,profile:p.profile==='vote'?'pay-committee-vote-lab':'pay-committee-recovery-lab'}):null;
+   return {network,authorityPin:config.witnesses[0].pin,profile:p.profile,epochId:l?.epochId??randomBytes(32).toString('hex'),loopbackPort:l?Number(new URL(l.url).port):pinnedPort,token,close:async()=>{await l?.close();}};
+  }});
+  client=session;
   const fp={scope:fscope,round:1,value:fvalue,votes:[await client.prepare({scope:fscope,input:{round:1,value:fvalue,viewCertificate:view}}),...members.map(n=>n.prepare({round:1,value:fvalue,viewCertificate:view}))]};
   const fc={scope:fscope,round:1,value:fvalue,votes:[await client.commitVote({scope:fscope,input:fp}),...members.map(n=>n.commit(fp))]};
-  client=await renew(false);
   const record={admission,certificate:{prepared:fp,commit:fc}},receipt=lab.receipt([],record);
   assert.deepEqual(await client.learn(record),receipt);
   assert.equal((await client.status()).root,receipt.root);
+  assert.equal(session.sessionStatus().epochsConsumed,4);
+  session.close();
  }finally{await link?.close();await stop();rmSync(dir,{recursive:true,force:true});}
 });
