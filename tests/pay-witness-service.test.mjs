@@ -10,6 +10,8 @@ import {fileURLToPath} from 'node:url';
 import {createPayWitnessQuorumClient} from '../lib/quantic/pay-witness-quorum-client.mjs';
 import {openNativePayRemoteFlow} from '../lib/quantic/pay-native-remote-flow.mjs';
 import {createDigitalEuroLabAdapter} from '../lib/quantic/pay-iso20022-preview.mjs';
+import {inspectInterruptedPay} from '../lib/quantic/pay-recovery-lab.mjs';
+import {openPaySettlementLab} from '../lib/quantic/pay-settlement-lab.mjs';
 import {startNativeScatteringLink} from './helpers/native-scattering-link.mjs';
 import {resolve} from 'node:path';
 import {newPayCheckpointRequest,reconcilePayCheckpoint} from '../lib/quantic/pay-lab-checkpoint.mjs';
@@ -21,6 +23,7 @@ async function port(){
 }
 for(const useCarrier of [false,true])test('four separate witness processes, durable restart and reconciliation '+(useCarrier?'over four native UDP links':'over local HTTP'),{skip:process.platform!=='linux'||(useCarrier&&!process.env.QUANTIC_PAY_SCATTERING_TEST),timeout:90000},async()=>{
  const root=realpathSync(mkdtempSync(join(tmpdir(),'pay-process-'))),nodes=[],proofs=[],links=[];
+ let ledger;
  const ec=generateKeyPairSync('ec',{namedCurve:'prime256v1'}),pq=generateKeyPairSync('ml-dsa-65');
  const scope={signingPin:sha(spki(ec)),pqPin:sha(spki(pq))};
  const j=ec.publicKey.export({format:'jwk'}),point=Buffer.concat([Buffer.from([4]),Buffer.from(j.x,'base64url'),Buffer.from(j.y,'base64url')]);
@@ -71,8 +74,19 @@ for(const useCarrier of [false,true])test('four separate witness processes, dura
   assert.equal(view.instructedAmount.value,'2.50');assert.equal(view.transmittable,false);assert.equal(view.realPaymentAuthorized,false);assert.equal(view.settlementVerified,false);assert.equal(view.evidence.witnessCount,4);
   assert.throws(()=>adapter.preview({localProofs:[],nonce:proofs[0].intent.Nonce,request:q,trustedAuthorities,attestations}));
   assert.throws(()=>adapter.submit(view));assert.throws(()=>adapter.settle(view));
+  const recovery={localProofs:proofs,nonce:proofs[0].intent.Nonce,request:q,trustedAuthorities,attestations};
+  assert.equal(inspectInterruptedPay(recovery).state,'quorum-matches-complete-history');
+  assert.equal(inspectInterruptedPay({...recovery,attestations:attestations.slice(0,2)}).state,'unresolved');
+  const settlementOptions={directory:join(root,'central-lab'),scope,trustedAuthorities};
+  ledger=openPaySettlementLab({...settlementOptions,createNew:true});
+  const args={localProofs:proofs,nonce:proofs[0].intent.Nonce,request:q,attestations};
+  assert.throws(()=>ledger.settle({...args,attestations:attestations.slice(0,2)}));
+  const receipt=ledger.settle(args);assert.equal(receipt.status,'LAB_SETTLED');assert.equal(receipt.realPaymentAuthorized,false);
+  assert.deepEqual(ledger.balances(),{wallet:9750,merchant:250,person:0,total:10000,simulationOnly:true,redeemable:false});
+  ledger.close();ledger=openPaySettlementLab(settlementOptions);
+  assert.deepEqual(ledger.lookup(args.nonce),receipt);assert.deepEqual(ledger.settle(args),receipt);assert.equal(ledger.balances().merchant,250);
   flow=await openNativePayRemoteFlow(options);assert.equal(flow.snapshot().balanceCents,9750);
   await stop(nodes[3]);assert.equal((await flow.confirm(op)).witnessCount,3);
   await stop(nodes[2]);await assert.rejects(flow.confirm(op));assert.equal(flow.snapshot().balanceCents,9500);assert.equal(flow.snapshot().halted,true);assert.equal(proofs.length,2);
- }finally{await Promise.all(links.map(x=>x.close()));await Promise.all(nodes.map(stop));rmSync(root,{recursive:true,force:true});}
+ }finally{ledger?.close();await Promise.all(links.map(x=>x.close()));await Promise.all(nodes.map(stop));rmSync(root,{recursive:true,force:true});}
 });
