@@ -12,17 +12,18 @@ import {cellKey} from './scattering-cell.mjs';
 import {reliableCellStream} from './scattering-reliable-lab.mjs';
 const port=Number(process.argv[2]);
 if(process.argv[3]!=='--synthetic-loopback-only'||!Number.isInteger(port)||port<1||port>65535)throw Error('lab target required');
-const persistentFeed=process.argv[4]==='--persistent-feed-lab';
+const dualFeed=process.argv[4]==='--dual-proof-feed-lab';
+const persistentFeed=dualFeed||process.argv[4]==='--persistent-feed-lab';
 if(process.argv.length>5 || (process.argv[4]&&!persistentFeed))throw Error('unknown bridge mode');
 const root=mkdtempSync(join(tmpdir(),'qv-scattering-'));const native=join(dirname(fileURLToPath(import.meta.url)),'QuanticNativePacer_v7_1_linux_amd64');
 const dirs=[0,1].map(i=>{const p=join(root,String(i));mkdirSync(p,{mode:0o700});return p});
 const stats={connections:0,datagrams:[0,0],wrongSize:0,streamErrors:0,bytes:[0,0]};let active=null,stopping=false;const pacers=[];
 const udp=await Promise.all([0,1].map(i=>new Promise((resolve,reject)=>{const s=dgram.createSocket('udp4');s.once('error',reject);s.on('message',m=>{stats.datagrams[i]++;if(m.length!==168)stats.wrongSize++;active?.cells[i].receive(m)});s.bind(0,'127.0.0.1',()=>resolve(s))})));
-for(let i=0;i<2;i++){const p=spawn(native,['-target','127.0.0.1:'+udp[1-i].address().port,'-queue-dir',dirs[i],'-period-us',persistentFeed?'20000':'5000','-poll','10ms','-duration','60s','-wait-mode','native'],{stdio:['ignore','ignore','ignore']});p.on('error',()=>stop(1));p.on('exit',()=>{if(!stopping)stop(1)});pacers.push(p)}
+for(let i=0;i<2;i++){const p=spawn(native,['-target','127.0.0.1:'+udp[1-i].address().port,'-queue-dir',dirs[i],'-period-us',persistentFeed&&!dualFeed?'20000':'5000','-poll','10ms','-duration','60s','-wait-mode','native'],{stdio:['ignore','ignore','ignore']});p.on('error',()=>stop(1));p.on('exit',()=>{if(!stopping)stop(1)});pacers.push(p)}
 const server=net.createServer(client=>{
   if(active||stopping){client.destroy();return}
   const secret=randomBytes(32),salt=randomBytes(32),ab=cellKey(secret,salt,'a-b'),ba=cellKey(secret,salt,'b-a');secret.fill(0);salt.fill(0);
-  const cells=[reliableCellStream({sendKey:ab,recvKey:ba,dir:dirs[0],compactPacing:persistentFeed}),reliableCellStream({sendKey:ba,recvKey:ab,dir:dirs[1],compactPacing:persistentFeed})];ab.fill(0);ba.fill(0);
+  const cells=[reliableCellStream({sendKey:ab,recvKey:ba,dir:dirs[0],compactPacing:persistentFeed,dualProofPacing:dualFeed}),reliableCellStream({sendKey:ba,recvKey:ab,dir:dirs[1],compactPacing:persistentFeed,dualProofPacing:dualFeed})];ab.fill(0);ba.fill(0);
   const upstream=net.connect({host:'127.0.0.1',port});const sockets=[client,upstream];let closed=false;
   const end=()=>{if(closed)return;closed=true;clearTimeout(timer);for(const s of sockets)s.destroy();for(const c of cells)c.stream.destroy();if(active?.cells===cells)active=null};
   active={cells,end};stats.connections++;const timer=setTimeout(end,persistentFeed?55000:12000);

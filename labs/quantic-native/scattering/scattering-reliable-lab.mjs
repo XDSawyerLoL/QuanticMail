@@ -25,10 +25,11 @@ export function openReliable(key,packet){try{
 // Per epoch. ACKs acknowledge volatile stream admission, NOT durable message delivery.
 // Fixed periodic transmission: receive() never publishes or schedules a retry.
 // publish accepts a batch of exactly eight opaque cells; native pacer remains autonomous.
-export function reliableCellStream({sendKey,recvKey,dir,autoTick=true,publish,clock=()=>performance.now(),compactPacing=false}){
+export function reliableCellStream({sendKey,recvKey,dir,autoTick=true,publish,clock=()=>performance.now(),compactPacing=false,dualProofPacing=false}){
   check(Buffer.isBuffer(sendKey)&&sendKey.length===32&&Buffer.isBuffer(recvKey)&&recvKey.length===32&&!sendKey.equals(recvKey),'distinct direction keys required');
   // Fixed profile selected at startup, never derived from traffic.
-  const periodMs=compactPacing?50:POLICY.periodMs, cellsPerTick=compactPacing?2:POLICY.cellsPerTick;
+  if(dualProofPacing&&!compactPacing)throw Error('dual proof pacing requires persistent feed');
+  const periodMs=dualProofPacing?25:compactPacing?50:POLICY.periodMs, cellsPerTick=dualProofPacing?4:compactPacing?2:POLICY.cellsPerTick;
   const retryMs=compactPacing?250:0;
   sendKey=Buffer.from(sendKey);recvKey=Buffer.from(recvKey);
   let next=0,expect=0,acked=0,advertised=0,closed=false,blocked=false,writing=null,timer=null,lastTick=-Infinity;

@@ -30,7 +30,7 @@ class Compact(FreshRegistry):
                         except (BrokenPipeError,ConnectionResetError,ssl.SSLError):self.close_connection=True
                 return Handler
             srv=http.server.ThreadingHTTPServer(('127.0.0.1',0),factory(i,pins));ctx=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER);ctx.minimum_version=ssl.TLSVersion.TLSv1_3;ctx.load_cert_chain(d/'server.pem',d/'server.key');ctx.load_verify_locations(d/'ca.pem');ctx.verify_mode=ssl.CERT_REQUIRED;srv.socket=ctx.wrap_socket(srv.socket,server_side=True);self.servers.append(srv);threading.Thread(target=srv.serve_forever,daemon=True).start();self.addCleanup(srv.server_close);self.addCleanup(srv.shutdown)
-            bridge=subprocess.Popen(["node",str(BRIDGE),str(srv.server_port),"--synthetic-loopback-only","--persistent-feed-lab"],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True);self.feed_bridges.append(bridge);bridge.port=json.loads(bridge.stdout.readline())["port"]
+            bridge=subprocess.Popen(["node",str(BRIDGE),str(srv.server_port),"--synthetic-loopback-only","--dual-proof-feed-lab" if self.dual_feed else "--persistent-feed-lab"],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True);self.feed_bridges.append(bridge);bridge.port=json.loads(bridge.stdout.readline())["port"]
         ManifestQuorum.setUp(self);self.publish_lease(self.initial);self.wait_lease(self.initial)
     def stop_feeds(self):
         for i,b in enumerate(self.feed_bridges):
