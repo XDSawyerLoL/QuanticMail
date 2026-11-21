@@ -4,7 +4,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
 import { randomToken } from "@/lib/quantic/crypto";
-import { getLocalIdentity, installRecoveredIdentity, type LocalIdentity } from "@/lib/quantic/local-db";
+import { getLocalIdentity, installRecoveredIdentity, inspectLocalMigration, type LocalIdentity } from "@/lib/quantic/local-db";
+import type { MigrationInventory } from "@/lib/quantic/migration-inventory";
 import { exportIdentityVault, importIdentityVault } from "@/lib/quantic/vault";
 
 function downloadTextFile(filename: string, text: string) {
@@ -22,6 +23,8 @@ function downloadTextFile(filename: string, text: string) {
 export function IdentityVaultApp() {
   const router = useRouter();
   const [identity, setIdentity] = useState<LocalIdentity | null>(null);
+  const [inventory, setInventory] = useState<MigrationInventory | null>(null);
+  const [inventoryError, setInventoryError] = useState(false);
   const [loading, setLoading] = useState(true);
   const [exportPassword, setExportPassword] = useState("");
   const [exportConfirm, setExportConfirm] = useState("");
@@ -36,6 +39,7 @@ export function IdentityVaultApp() {
     void (async () => {
       try {
         setIdentity(await getLocalIdentity());
+        try { setInventory(await inspectLocalMigration()); } catch { setInventoryError(true); }
       } catch {
         setError("Impossible d’ouvrir le stockage local QuanticMail.");
       } finally {
@@ -119,7 +123,18 @@ export function IdentityVaultApp() {
               <p className="qn-kicker">IDENTITÉ INSTALLÉE</p>
               <h2>{identity.address}</h2>
               <code className="qn-vault-address">{identity.canonicalAddress ?? "Migration cryptographique requise"}</code>
-              <p className="qn-footnote">Le fichier exporté contient tes clés privées. Il ne contient pas tes messages et n’est envoyé à aucun serveur Quantic.</p>
+              <p className="qn-footnote">Le fichier exporté contient les clés d’identité historiques. Il ne contient pas les messages, contacts, envois en attente, prekeys, clés post-quantiques ou demandes de pairing. Ce n’est pas une migration complète.</p>
+              <h3>Diagnostic avant migration native</h3>
+              {inventoryError ? <p role="alert">Inventaire incomplet : ne supprimez aucune donnée.</p> : inventory ? (
+                <div>
+                  <p>Clés privées historiques : {inventory.encryptionSecret || inventory.rootSigningSecret || inventory.deviceSigningSecret ? "présentes" : "non détectées"}</p>
+                  <p>Clés post-quantiques privées : {inventory.postQuantumSecrets}</p>
+                  <p>Prekeys locales : {inventory.prekeys} · Messages : {inventory.messages} · Envois en attente : {inventory.outbox} · Contacts : {inventory.contacts}</p>
+                  <p>Pairing en attente : {inventory.pendingDevice ? "oui" : "non"}</p>
+                  <p>Identifiant canonique : {inventory.canonicalFormat === "strong" ? "empreinte 128 bits" : inventory.canonicalFormat === "legacy" ? "empreinte historique 40 bits" : "à vérifier"}</p>
+                  <p className="qn-footnote">Migration native non autorisée : conservez les clés historiques et les données locales. Ce diagnostic ne transmet aucun secret et n’efface rien. Même un inventaire vide ne prouve pas la réussite d’une migration.</p>
+                </div>
+              ) : <p>Inventaire non disponible : conservez toutes les données historiques.</p>}
             </section>
 
             <section className="qn-vault-section">

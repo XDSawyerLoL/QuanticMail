@@ -1,3 +1,4 @@
+import { summarizeMigration, type MigrationInventory } from "@/lib/quantic/migration-inventory";
 import {
   generateLocalPqcKeyMaterial,
   type LocalPqcKeyMaterial,
@@ -367,5 +368,29 @@ export async function installRecoveredIdentity(identity: LocalIdentity) {
     tx.oncomplete = () => resolve();
     tx.onabort = () => reject(new Error("Restauration refusée : identité déjà installée ou stockage indisponible."));
     tx.onerror = () => reject(request.error ?? tx.error);
+  });
+}
+
+/** Read a consistent snapshot; count rows without fetching message or prekey bodies.
+ * No identity write, export, storage deletion or network call.
+ * Existing database only: openDb may initialize absent stores as usual.
+ */
+export async function inspectLocalMigration():Promise<MigrationInventory>{
+  const db=await openDb();
+  return new Promise((resolve,reject)=>{
+    const tx=db.transaction(["identity","pairing","prekeys","messages","outbox","contacts"],"readonly");
+    const identity=tx.objectStore("identity").get("current");
+    const pending=tx.objectStore("pairing").count("pending-device");
+    const prekeys=tx.objectStore("prekeys").count();
+    const messages=tx.objectStore("messages").count();
+    const outbox=tx.objectStore("outbox").count();
+    const contacts=tx.objectStore("contacts").count();
+    tx.oncomplete=()=>{
+      try{resolve(summarizeMigration(identity.result,{pendingDevice:pending.result>0,prekeys:prekeys.result,messages:messages.result,outbox:outbox.result,contacts:contacts.result}));}
+      catch(error){reject(error);}
+      finally{db.close();}
+    };
+    tx.onabort=()=>{db.close();reject(new Error("Inventaire local interrompu."));};
+    tx.onerror=()=>{db.close();reject(new Error("Inventaire local indisponible."));};
   });
 }
