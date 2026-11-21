@@ -18,7 +18,7 @@ const spki=k=>k.publicKey.export({format:'der',type:'spki'});
 const pair=type=>({cl:type==='ec'?generateKeyPairSync('ec',{namedCurve:'prime256v1'}):generateKeyPairSync(type),pq:generateKeyPairSync('ml-dsa-65')});
 const pub=k=>({pin:sha(spki(k.cl)),publicKey:spki(k.cl).toString('base64url'),pqPin:sha(spki(k.pq)),pqPublicKey:spki(k.pq).toString('base64url')});
 async function port(){const s=createServer();await new Promise(r=>s.listen(0,'127.0.0.1',r));const p=s.address().port;await new Promise(r=>s.close(r));return p;}
-for(const useCarrier of [false,true])test('four financial round authorities resolve 2-2 prepare split after restart '+(useCarrier?'over native Scattering UDP':'over local HTTP'),{skip:process.platform!=='linux'||(useCarrier&&!process.env.QUANTIC_PAY_SCATTERING_TEST),timeout:150000},async()=>{
+for(const useCarrier of [false,true])test('four financial round authorities resolve 2-2 prepare split after restart '+(useCarrier?'over native Scattering UDP':'over local HTTP'),{skip:process.platform!=='linux'||(useCarrier&&!process.env.QUANTIC_PAY_SCATTERING_TEST),timeout:240000},async()=>{
  const root=realpathSync(mkdtempSync(join(tmpdir(),'pay-round-service-'))),nodes=[],links=[],now=1000000;
  const ids=['demo-alice','demo-bob','demo-shop'],wallets=ids.map(()=>pair('ec')),witnesses=Array.from({length:4},()=>pair('ed25519'));
  const config={wallets:ids.map((id,i)=>({id,initialCents:i===0?10000:0,...pub(wallets[i])})),witnesses:witnesses.map(pub)};
@@ -54,8 +54,16 @@ for(const useCarrier of [false,true])test('four financial round authorities reso
   assert.equal(verifier.selectView(viewCertificate).requiredValue,null);
   const p={scope:info.scope,round:1,value:b,votes:await Promise.all(clients.slice(0,3).map(c=>c.prepare({round:1,value:b,viewCertificate})))};
   const commit={scope:info.scope,round:1,value:b,votes:await Promise.all(clients.slice(0,3).map(c=>c.commit(p)))};
-  const certificate={prepared:p,commit};
-  assert.throws(()=>chain.commit({prepared:p,commit:{...commit,votes:commit.votes.slice(0,2)}}));
+  // Hide the first final certificate. Three retained prepared claims now
+  // exceed one 32 KiB carrier frame, and must force the same financial value.
+  const claims=await Promise.all(clients.map(c=>c.changeView(2)));
+  const complex={scope:info.scope,round:2,reports:claims.slice(0,3)};
+  assert.ok(Buffer.byteLength(JSON.stringify(complex))>32768);
+  assert.equal(verifier.selectView(complex).requiredValue,b);
+  const next={scope:info.scope,round:2,value:b,votes:await Promise.all(clients.slice(0,3).map(c=>c.prepare({round:2,value:b,viewCertificate:complex})))};
+  const nextCommit={scope:info.scope,round:2,value:b,votes:await Promise.all(clients.slice(0,3).map(c=>c.commit(next)))};
+  const certificate={prepared:next,commit:nextCommit};
+  assert.throws(()=>chain.commit({prepared:next,commit:{...nextCommit,votes:nextCommit.votes.slice(0,2)}}));
   const result=chain.commit(certificate);assert.equal(result.payee,ids[2]);assert.equal(result.realPaymentAuthorized,false);
   await Promise.all(clients.map(c=>c.learn(certificate)));
   assert.deepEqual(chain.snapshot().balances,{'demo-alice':2500,'demo-bob':0,'demo-shop':7500});
