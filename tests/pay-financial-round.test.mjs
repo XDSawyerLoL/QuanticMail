@@ -7,6 +7,8 @@ import {join} from 'node:path';
 import {createCirculationLab} from '../lib/quantic/pay-circulation-lab.mjs';
 import {openFinancialRound} from '../lib/quantic/pay-financial-round.mjs';
 import {openPersistentPayRound} from '../lib/quantic/pay-round-store.mjs';
+import {openFinancialRoundLedger} from '../lib/quantic/pay-financial-round-ledger.mjs';
+import {DatabaseSync} from 'node:sqlite';
 const sha=b=>createHash('sha256').update(b).digest('hex');
 const spki=k=>k.publicKey.export({type:'spki',format:'der'});
 const pair=type=>({cl:type==='ec'?generateKeyPairSync('ec',{namedCurve:'prime256v1'}):generateKeyPairSync(type),pq:generateKeyPairSync('ml-dsa-65')});
@@ -16,6 +18,7 @@ test('signed conflicting financial intents enter persistent 2-2 round recovery a
  const ids=['demo-alice','demo-bob','demo-shop'],wallets=ids.map(()=>pair('ec')),witnesses=Array.from({length:4},()=>pair('ed25519'));
  const config={wallets:ids.map((id,i)=>({id,initialCents:i===0?10000:0,...pub(wallets[i])})),witnesses:witnesses.map(pub)};
  const circulation=createCirculationLab(config),stores=[];
+ let ledger;
  function proposal(payee){
   const intent=circulation.prepare([],{payer:ids[0],payee,cents:7500,nonce:randomBytes(32).toString('hex'),now}),k=wallets[0],raw=circulation.transcript(intent);
   return {intent,signature:sign('sha256',raw,{key:k.cl.privateKey,dsaEncoding:'ieee-p1363'}).toString('base64url'),pqSignature:sign(null,raw,k.pq.privateKey).toString('base64url')};
@@ -26,6 +29,13 @@ test('signed conflicting financial intents enter persistent 2-2 round recovery a
   assert.throws(()=>openFinancialRound({...params,admissionTime:now+120000}));
   assert.throws(()=>openFinancialRound({...params,proposals:[a,a]}));
   const lab=openFinancialRound(params),[alpha,beta]=lab.candidates().map(c=>c.value);
+  const options={...params,directory:join(root,'ledger')};
+  assert.throws(()=>openFinancialRoundLedger(options));
+  ledger=openFinancialRoundLedger({...options,createNew:true});
+  assert.equal(ledger.snapshot().committedCount,0);
+  assert.equal(ledger.snapshot().balances['demo-alice'],10000);
+  assert.equal(ledger.receipt(),null);
+  assert.throws(()=>openFinancialRoundLedger({...options,proposals:[a]}));
   assert.notEqual(alpha,beta);
   assert.equal(openFinancialRound({...params,proposals:[b,a]}).scope,lab.scope);
   const opts=witnesses.map((w,i)=>({directory:join(root,'witness-'+i),config:lab.roundConfig(),authorityPin:config.witnesses[i].pin,classicalPrivateKey:w.cl.privateKey,pqPrivateKey:w.pq.privateKey}));
@@ -44,8 +54,25 @@ test('signed conflicting financial intents enter persistent 2-2 round recovery a
   const result=lab.project(cert);
   assert.deepEqual(result.balances,{'demo-alice':2500,'demo-bob':0,'demo-shop':7500});
   assert.equal(result.totalCents,10000);assert.equal(result.ledgerCommitted,false);assert.equal(result.realPaymentAuthorized,false);
+  assert.throws(()=>ledger.commit({prepared:prepare,commit:{...commit,votes:commit.votes.slice(0,2)}}));
+  assert.equal(ledger.snapshot().committedCount,0);
+  const receipt=ledger.commit(cert);
+  assert.equal(receipt.status,'LAB_ROUND_COMMITTED');assert.equal(receipt.ledgerCommitted,true);
+  assert.equal(receipt.realPaymentAuthorized,false);assert.equal(receipt.settlementVerified,false);
+  assert.deepEqual(ledger.snapshot().balances,result.balances);
+  assert.equal(ledger.snapshot().totalCents,10000);
+  ledger.close();ledger=openFinancialRoundLedger(options);
+  assert.deepEqual(ledger.receipt(),receipt);
+  assert.deepEqual(ledger.commit(cert),receipt);
+  assert.equal(ledger.snapshot().committedCount,1);
+  assert.throws(()=>ledger.commit({prepared:prepare,commit:{...commit,value:alpha}}));
+  assert.throws(()=>openFinancialRoundLedger({...options,createNew:true}));
   for(const s of stores)s.learn(cert);
   assert.equal(circulation.snapshot([]).balances['demo-alice'],10000);
   stores[0].close();stores[0]=openPersistentPayRound(opts[0]);assert.equal(stores[0].status().finalValue,beta);
- }finally{for(const s of stores)s.close();rmSync(root,{recursive:true,force:true});}
+  ledger.close();
+  const db=new DatabaseSync(join(options.directory,'financial-round.sqlite'));
+  try{db.exec("UPDATE decision SET certificate='{}' WHERE id=1");}finally{db.close();}
+  assert.throws(()=>openFinancialRoundLedger(options));
+ }finally{ledger?.close();for(const s of stores)s.close();rmSync(root,{recursive:true,force:true});}
 });
