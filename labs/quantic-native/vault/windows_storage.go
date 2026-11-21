@@ -97,7 +97,9 @@ static int qv_type(HANDLE h,int directory) {
  return directory || i.nNumberOfLinks==1;
 }
 static uintptr_t qv_dir(const WCHAR *path,int private) {
- HANDLE h=CreateFileW(path,FILE_READ_ATTRIBUTES | (private?READ_CONTROL:0),
+ // Metadata-only opens do not enforce the share-mode exclusion for rename.
+ // Request directory data access as well, and never share DELETE.
+ HANDLE h=CreateFileW(path,FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES | (private?READ_CONTROL:0),
   FILE_SHARE_READ|FILE_SHARE_WRITE,NULL,OPEN_EXISTING,
   FILE_FLAG_BACKUP_SEMANTICS|FILE_FLAG_OPEN_REPARSE_POINT,NULL);
  if (h==INVALID_HANDLE_VALUE) return 0;

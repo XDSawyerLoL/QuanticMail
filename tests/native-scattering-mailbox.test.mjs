@@ -6,10 +6,10 @@ import {spawn,execFileSync} from 'node:child_process';
 import {randomBytes,createHash} from 'node:crypto';
 import {mkdtemp,mkdir,rm,readFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {join,resolve} from 'node:path';
 import {startScatteringMailboxEndpoint} from '../standalone-relay/native-scattering-mailbox.mjs';
-const binary=process.env.QUANTIC_SCATTERING_NATIVE_TEST;
-const windows=process.platform==='win32',vault=process.env.QUANTIC_WINDOWS_VAULT_TEST;
+const binary=process.env.QUANTIC_SCATTERING_NATIVE_TEST?resolve(process.env.QUANTIC_SCATTERING_NATIVE_TEST):undefined;
+const windows=process.platform==='win32',vault=process.env.QUANTIC_WINDOWS_VAULT_TEST?resolve(process.env.QUANTIC_WINDOWS_VAULT_TEST):undefined;
 const token='synthetic-'+'a'.repeat(48),base='/api/quantic/native/v1/';
 async function freeUDP(){const s=createSocket('udp4');await new Promise(r=>s.bind(0,'127.0.0.1',r));const p=s.address().port;await new Promise(r=>s.close(r));return p;}
 function post(port,path,body){
