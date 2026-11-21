@@ -112,3 +112,12 @@ test("hybrid envelope authenticates its routing context as AES-GCM additional da
     envelope,
   }));
 });
+
+test("hybrid envelope binds strong device identifiers in the cryptographic context", () => {
+  const recipient = p256Pair(), pq = generateMlKem768KeyPair();
+  const routing = {...context,fromDeviceId:"d-"+"a".repeat(32),toDeviceId:"d-"+"b".repeat(32)};
+  const envelope = encryptHybridEnvelopeNode({recipientClassicalPublicKey:publicJwk(recipient),recipientMlKemPublicKeySpki:pq.publicKeySpki,context:routing,payload:{body:"synthetic strong ID"}});
+  const open = (ctx:typeof routing)=>decryptHybridEnvelopeNode({recipientClassicalPrivateKey:privateJwk(recipient),recipientMlKemPrivateKeyPkcs8:pq.privateKeyPkcs8,context:ctx,envelope});
+  assert.deepEqual(open(routing),{body:"synthetic strong ID"});
+  assert.throws(()=>open({...routing,toDeviceId:"d-"+"b".repeat(10)}));
+});

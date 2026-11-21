@@ -31,7 +31,7 @@ export function controllerFrame(nonce,seq,body,key){
 export function normalizeClassicalEnvelope(e){
   check(e&&typeof e==='object'&&!Array.isArray(e),'invalid envelope');
   // Require explicit choice of classical static mode; never downgrade prekey or hybrid.
-  check(e.keyMode==='static-fallback'&&!e.preKeyId&&!e.cryptoSuite&&!e.hybrid&&!e.pqc&&!e.kemCiphertext&&!e.mlKemCiphertext,'unsupported envelope mode');
+  check(e.keyMode==='static-fallback'&&!e.preKeyId&&!e.cryptoSuite&&!e.hybrid&&!e.pqc&&!e.kemCiphertext&&!e.mlKemCiphertext&&!e.pqKemCiphertext&&!e.classicalEphemeralPublicKey,'unsupported envelope mode');
   const j=e.ephemeralPublicKey;
   check(j?.kty==='EC'&&j.crv==='P-256'&&!('d' in j),'invalid public key');
   const p=Buffer.concat([Buffer.from([4]),b64(j.x,32,32),b64(j.y,32,32)]);
