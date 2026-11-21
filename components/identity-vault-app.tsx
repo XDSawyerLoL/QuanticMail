@@ -6,7 +6,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { randomToken } from "@/lib/quantic/crypto";
 import { getLocalIdentity, installRecoveredIdentity, inspectLocalMigration, captureMigrationSnapshot, type LocalIdentity } from "@/lib/quantic/local-db";
 import type { MigrationInventory } from "@/lib/quantic/migration-inventory";
-import {prepareMigrationArchive,sealMigrationArchive,openMigrationArchive,migrationArchiveSummary,ARCHIVE_MAX_BYTES} from "@/lib/quantic/migration-archive";
+import {prepareMigrationArchive,sealMigrationArchive,openMigrationArchive,migrationArchiveSummary,reconcileMigrationSnapshot,ARCHIVE_MAX_BYTES} from "@/lib/quantic/migration-archive";
 import { exportIdentityVault, importIdentityVault } from "@/lib/quantic/vault";
 
 function downloadTextFile(filename: string, text: string) {
@@ -96,7 +96,19 @@ export function IdentityVaultApp() {
       if(!archiveFile||archiveFile.size>Math.ceil((ARCHIVE_MAX_BYTES+16)/3)*4+512)throw Error("Fichier absent ou trop volumineux.");
       const a=await openMigrationArchive(await archiveFile.text(),archivePassword,archiveAddress.trim());
       const s=migrationArchiveSummary(a);
-      setNotice(`Archive lisible : ${s.messages} messages, ${s.prekeys} prekeys, ${s.contacts} contacts, ${s.outbox} envois, matériel PQ ${s.pqMaterial?"présent":"absent"}. Aucune réactivation ni restauration de compte.`);
+      let comparison="Comparaison à l’appareil d’origine non effectuée.";
+      if(identity?.canonicalAddress===archiveAddress.trim()){
+        const report=reconcileMigrationSnapshot(a,await captureMigrationSnapshot());
+        if(report.snapshotMatches)comparison="La sauvegarde correspond à la capture locale actuelle (hors jetons de session).";
+        else{
+          const missing=report.rows.reduce((sum,r)=>sum+r.missing,0);
+          const changed=report.rows.reduce((sum,r)=>sum+r.changed,0);
+          const extra=report.rows.reduce((sum,r)=>sum+r.extra,0);
+          const identityChange=report.identityMatches&&report.pendingMatches?"":" Identité ou association modifiée.";
+          comparison="Écart avec la capture locale : "+missing+" manquant(s), "+changed+" modifié(s), "+extra+" supplémentaire(s)."+identityChange+" Renouveler la sauvegarde avant toute migration.";
+        }
+      }
+      setNotice("Archive lisible : "+s.messages+" messages, "+s.prekeys+" prekeys, "+s.contacts+" contacts, "+s.outbox+" envois, matériel PQ "+(s.pqMaterial?"présent":"absent")+". "+comparison+" Aucune réactivation ni restauration de compte.");
     }catch{setError("Archive non vérifiée : fichier, phrase secrète ou adresse incorrects.");}
     finally{setArchivePassword("");setBusy(false);}
   }

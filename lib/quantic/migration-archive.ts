@@ -69,3 +69,43 @@ export function migrationArchiveSummary(v:MigrationArchive){
  validate(v);
  return {prekeys:v.prekeys.length,messages:v.messages.length,contacts:v.contacts.length,outbox:v.outbox.length,pending:!!v.pending,pqMaterial:!!v.identity.pqc,liveRestoreAuthorized:false as const};
 }
+
+// Compare a decrypted archive with a freshly captured source transaction.
+// No disk/network writes; no disclosure of message contents, IDs or key material.
+// Counts describe the sampled transaction, not a lock on subsequent writes.
+function canonicalValue(v:unknown):string {
+ if(v===null||typeof v==="boolean"||typeof v==="string"||typeof v==="number"){
+  check(typeof v!=="number"||Number.isFinite(v));return JSON.stringify(v);
+ }
+ if(Array.isArray(v))return "["+v.map(canonicalValue).join(",")+"]";
+ check(obj(v));
+ const keys=Object.keys(v).filter(k=>v[k]!==undefined).sort();
+ return "{"+keys.map(k=>JSON.stringify(k)+":"+canonicalValue(v[k])).join(",")+"}";
+}
+function rowMap(rows:unknown[],key:string){
+ const map=new Map<string,string>();
+ for(const row of rows){
+  check(obj(row));const id=row[key];
+  check(typeof id==="string"&&id.length>0&&id.length<=512&&!map.has(id),"Enregistrements dupliqués ou invalides.");
+  map.set(id,canonicalValue(row));
+ }
+ return map;
+}
+export function reconcileMigrationSnapshot(archive:MigrationArchive,source:MigrationSnapshot){
+ validate(archive);const current=prepareMigrationArchive(source);
+ check(current.identity.canonicalAddress===archive.identity.canonicalAddress,"Identité différente.");
+ const identityMatches=canonicalValue(current.identity)===canonicalValue(archive.identity);
+ const pendingMatches=canonicalValue(current.pending)===canonicalValue(archive.pending);
+ const categories=[["messages","id"],["contacts","handle"],["prekeys","preKeyId"],["outbox","id"]] as const;
+ const rows=categories.map(([category,key])=>{
+  const saved=rowMap(archive[category],key),live=rowMap(current[category],key);
+  let missing=0,changed=0,extra=0;
+  for(const [id,value] of live){
+   if(!saved.has(id))missing++;
+   else if(saved.get(id)!==value)changed++;
+  }
+  for(const id of saved.keys())if(!live.has(id))extra++;
+  return {category,missing,changed,extra,sourceCount:live.size,archiveCount:saved.size};
+ });
+ return {identityMatches,pendingMatches,rows,snapshotMatches:identityMatches&&pendingMatches&&rows.every(r=>r.missing+r.changed+r.extra===0),liveRestoreAuthorized:false as const,legacyDeletionAuthorized:false as const};
+}

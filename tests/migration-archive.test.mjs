@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {generateKeyPairSync} from "node:crypto";
-import {prepareMigrationArchive,sealMigrationArchive,openMigrationArchive,migrationArchiveSummary} from "../lib/quantic/migration-archive.ts";
+import {prepareMigrationArchive,sealMigrationArchive,openMigrationArchive,migrationArchiveSummary,reconcileMigrationSnapshot} from "../lib/quantic/migration-archive.ts";
 import {encryptForRecipientCore,decryptEnvelopeCore} from "../lib/quantic/envelope-crypto.mjs";
 const pass="synthetic long archive secret only";
 const pair=()=>generateKeyPairSync("ec",{namedCurve:"prime256v1"});
@@ -43,4 +43,21 @@ test("recovered ML-KEM and ML-DSA material performs real historical operations",
  const signature=pq.mlDsaSign(m.mlDsaPrivateKeyPkcs8,data);
  assert.equal(pq.mlDsaVerify(dsa.publicKeySpki,data,signature),true);
  assert.equal(pq.mlDsaVerify(dsa.publicKeySpki,Buffer.from("changed"),signature),false);
+});
+
+test("read-only reconciliation detects missing changed and extra records and ignores bearer rotation",()=>{
+ const p=pair(),source={identity:{canonicalAddress:address,privateKey:p.privateKey.export({format:"jwk"}),publicKey:p.publicKey.export({format:"jwk"}),authToken:"original"},pending:null,prekeys:[{preKeyId:"p",state:"claimed"}],messages:[{id:"a",body:"alpha"},{id:"b",body:"beta"}],contacts:[{handle:"bob"}],outbox:[{id:"o"}]};
+ const saved=prepareMigrationArchive(source);
+ const frozen=JSON.stringify(source);
+ const changed=structuredClone(source);changed.identity.authToken="rotated";changed.messages.reverse();
+ assert.equal(reconcileMigrationSnapshot(saved,changed).snapshotMatches,true);
+ changed.messages=[{id:"a",body:"modified"},{id:"c",body:"new"}];changed.prekeys[0].state="unused";
+ const report=reconcileMigrationSnapshot(saved,changed);
+ assert.equal(report.snapshotMatches,false);
+ assert.deepEqual(report.rows.find(x=>x.category==="messages"),{category:"messages",missing:1,changed:1,extra:1,sourceCount:2,archiveCount:2});
+ assert.equal(report.rows.find(x=>x.category==="prekeys").changed,1);
+ assert.equal(report.liveRestoreAuthorized,false);assert.equal(report.legacyDeletionAuthorized,false);
+ assert.equal(JSON.stringify(source),frozen);assert.ok(!JSON.stringify(report).includes("modified"));
+ const dup=structuredClone(saved);dup.messages.push(dup.messages[0]);assert.throws(()=>reconcileMigrationSnapshot(dup,source));
+ const wrong=structuredClone(source);wrong.identity.canonicalAddress="bob~"+"b".repeat(32)+"@quantic";assert.throws(()=>reconcileMigrationSnapshot(saved,wrong));
 });
