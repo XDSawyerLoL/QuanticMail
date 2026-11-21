@@ -84,6 +84,10 @@ func (a *authority) verify(r response, now time.Time) bool {
 	return true
 }
 func main() {
+ if handled,err:=windowsVaultCLI(os.Args);handled{
+  if err!=nil{fmt.Fprintln(os.Stderr,"FAIL CLOSED:",err);os.Exit(1)}
+  return
+ }
 	if handled, err := pqCLI(os.Args); handled {
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "FAIL CLOSED:", err)

@@ -111,12 +111,13 @@ static int qv_mkdir(const WCHAR *path) {
  int ok=CreateDirectoryW(path,&sa);
  LocalFree(sd);return ok;
 }
-static uintptr_t qv_file(const WCHAR *path,int write) {
- PSECURITY_DESCRIPTOR sd=write?qv_descriptor():NULL;
- if (write && !sd) return 0;
+static uintptr_t qv_file(const WCHAR *path,int mode) {
+ int create=mode==1, write=mode!=0;
+ PSECURITY_DESCRIPTOR sd=create?qv_descriptor():NULL;
+ if (create && !sd) return 0;
  SECURITY_ATTRIBUTES sa={sizeof(sa),sd,FALSE};
- HANDLE h=CreateFileW(path,READ_CONTROL|FILE_READ_ATTRIBUTES|(write?GENERIC_WRITE:GENERIC_READ),
-  0,write?&sa:NULL,write?CREATE_NEW:OPEN_EXISTING,
+ HANDLE h=CreateFileW(path,READ_CONTROL|FILE_READ_ATTRIBUTES|(write?(GENERIC_READ|GENERIC_WRITE):GENERIC_READ),
+  0,create?&sa:NULL,create?CREATE_NEW:OPEN_EXISTING,
   FILE_ATTRIBUTE_NORMAL|FILE_FLAG_OPEN_REPARSE_POINT|(write?FILE_FLAG_WRITE_THROUGH:0),NULL);
  if(sd) LocalFree(sd);
  if(h==INVALID_HANDLE_VALUE) return 0;
@@ -190,10 +191,13 @@ func winCreatePrivateDirectory(path string)error{
  return nil
 }
 func winOpenPrivate(path string,write bool)(*os.File,[]syscall.Handle,error){
+ mode:=0;if write{mode=1};return winOpenPrivateMode(path,mode)
+}
+func winOpenPrivateMode(path string,mode int)(*os.File,[]syscall.Handle,error){
+ if mode<0||mode>2{return nil,nil,windowsStorageRefusal}
  if _,_,e:=winPathParts(path);e!=nil{return nil,nil,e}
  hs,e:=winLockDirectory(filepath.Dir(path),true);if e!=nil{return nil,nil,e}
- flag:=C.int(0);if write{flag=1}
- h:=C.qv_file(winWide(path),flag);if h==0{winClose(hs);return nil,nil,windowsStorageRefusal}
+ h:=C.qv_file(winWide(path),C.int(mode));if h==0{winClose(hs);return nil,nil,windowsStorageRefusal}
  f:=os.NewFile(uintptr(h),path)
  if f==nil{syscall.CloseHandle(syscall.Handle(h));winClose(hs);return nil,nil,windowsStorageRefusal}
  return f,hs,nil

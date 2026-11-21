@@ -48,7 +48,7 @@
   "vault/mail_legacy_test.go": "897c6dc873e0e96ffbde8ca8cdaad43910fb6ea19fa462666b3a82ed3b5c7f17",
   "vault/mail_legacy.go": "4a01100f7913021df4d5fb4c6d1cd9da8a0acd5a85ca1f4faa6397035131e1c2",
   "vault/main_test.go": "591cbf99f7c334b42a0fff09a823f27c657e158552c49cc4cdc4d980adc199f1",
-  "vault/main.go": "3023044a31b46c3461452548fb20b8db166d704d2ee59228bca6779742abcfcf",
+  "vault/main.go": "2c398733bdd000686e1931ba437d19f5fa62aef5a57dbf523b16b1b1dd98fe21",
   "vault/manifest_guard.mjs": "7ee805e5e09b150276b23e800d05f0b62a85aac402f452a1f048185d85dd14b5",
   "vault/manifest_store.py": "1b5f5270f15ece24c14aafac354f4eafa51de0ae53e81d74bc7a93fd99e478d6",
   "vault/persistent_test.go": "1c0aabba07cfad7d719cf0e8491018f97709d4ef433af5149c0af4437bd3f6ce",
@@ -66,7 +66,7 @@
   "vault/pq_vault.go": "c3a8d56e078ee82217b099626139d48fe07f190be712a665b959452789be5bc7",
   "vault/registry_lease.py": "b8c0ceaa258daba882a543070559986c51f36beb945e63adcae33328d2b105c4",
   "vault/replay_test.go": "3dbb49444b7f31c56f6813a2ecd265e2444123586448fc256f36aba2ba095bc8",
-  "vault/replay.go": "c18728b2c87f890a5b7fc0f3379cd9abc26a2fd9e78ca0f999aa2c7c7ca8cfa2",
+  "vault/replay.go": "24dc31c44f2ea2e6b68f3d0efb2216b080dcf44a9ca4bd535a108279c010ebac",
   "vault/result_recovery_test.go": "6de85b19c8362526f9becbc3e27289f561ea5d31ac09650d62f78d20ba738e6a",
   "vault/result_recovery.go": "830d4f798d335d7a08f0649f94212db112bb5afd4254c37f83af1937d05f6c1f",
   "vault/scheduled_registry.py": "f103f392693c880fa3a1950be0943cd2e2e81bb5590a97dca84d17c1cc8bff61",
@@ -98,6 +98,11 @@
   "vault/tests/isolated-enrollment.test.mjs": "3c90b9b3ce5522877b175176a372508834719a7447a28f342d0296df00d93e7f",
   "vault/tests/native-enrollment.test.mjs": "a07c4711d5a7a18f5ee48f969fcf07b4e81ecab5771e11739c3f93a91c011807",
   "vault/pq_provider_test.go": "581ecc1f153d9bfff1c60ffb059f86827a898b5d0817f3e3cebca800154f7171",
-  "vault/windows_storage.go": "4e7aa4a99ec9c8109be71a9d2f60f119bacd7fff3e19f197836c6592b83bb265",
-  "vault/windows_storage_test.go": "18b89948324caa6b6ae338be2cdad948b6f15e94fc7aafebad34781c8ad03114"
+  "vault/windows_storage.go": "eb2adeeeb6b99b5d54aa03c80806009e15713c4c1453e95289c632c7fbbfe04e",
+  "vault/windows_storage_test.go": "18b89948324caa6b6ae338be2cdad948b6f15e94fc7aafebad34781c8ad03114",
+  "vault/windows_journal.go": "06b1af4b02668e4c0f670ca7f8c736cb9ec7f0ef95f1d4b7b1b34b8a0a4b584b",
+  "vault/windows_console.go": "a44834947eb6239ab5562191ab44f02f1443638331d2ce956ef6e0a0735de5ed",
+  "vault/windows_provision.go": "d49b69bceaae79e88c3c82e7e704a07d5af9f74744610437fa5ae5d35f8f6804",
+  "vault/windows_provision_stub.go": "7e24f0ee0d1a69bef69b229276c9beb3b431a4f6857b307c4dce20fff9083d3d",
+  "vault/windows_journal_test.go": "b74265ac0102ed76d87006a863fb23afcbe938d5dd5a7f8b99c2011ae94b6f03"
 }

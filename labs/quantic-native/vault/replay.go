@@ -21,6 +21,7 @@ type replayLog struct {
 	failed   bool
 	anchor   checkpointAnchor
 	anchorID string
+	release func()
 }
 
 func replayBinding(sign, enc, app string) ([]byte, error) {
@@ -76,7 +77,14 @@ func openReplay(path, sign, enc, app string) (*replayLog, error) {
 	if e != nil || !os.SameFile(info, info2) {
 		return nil, errors.New("journal changed")
 	}
-	n := info2.Size()
+	j, e := parseReplayHandle(f, h, info2.Size())
+	if e != nil { return nil, e }
+	ok = true
+	return j, nil
+}
+// Caller must hold an exclusive, validated file handle at offset zero.
+func parseReplayHandle(f *os.File,h []byte,size int64)(*replayLog,error) {
+	n := size
 	if n < int64(len(h)) || n > int64(len(h)+64*replayCap) || (n-int64(len(h)))%64 != 0 {
 		return nil, errors.New("journal size invalid")
 	}
@@ -95,7 +103,6 @@ func openReplay(path, sign, enc, app string) (*replayLog, error) {
 		j.seen[k] = true
 		j.tail = next
 	}
-	ok = true
 	return j, nil
 }
 func hashRecord(prev, key [32]byte) [32]byte {
@@ -134,7 +141,7 @@ func (j *replayLog) consume(k [32]byte) error {
 	j.tail = next
 	return nil
 }
-func (j *replayLog) close() { j.f.Close() }
+func (j *replayLog) close() { j.f.Close(); if j.release!=nil{j.release();j.release=nil} }
 func replayID(domain string, data []byte) [32]byte {
 	return sha256.Sum256(append([]byte(domain+"\x00"), data...))
 }
