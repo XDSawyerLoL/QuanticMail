@@ -135,6 +135,27 @@ jobs:
           } finally { [IO.File]::WriteAllBytes($file,$original) }
           & ./scripts/Test-Windows-PQ-Package.ps1 -PackageDirectory $dir -ExpectedManifestSha256 $pin
           "Package manifest SHA256 (CI provenance only): $pin"
+      - name: Parse and execute the actual packaged launcher
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP "QuanticMail-Windows-PQ-Lab"
+          foreach ($path in @("$dir\Start-Windows-PQ-Lab.ps1","$dir\Test-Windows-PQ-Package.ps1")) {
+            $tokens=$null
+            $errors=$null
+            $null=[System.Management.Automation.Language.Parser]::ParseFile($path,[ref]$tokens,[ref]$errors)
+            if ($errors.Count -ne 0) { throw ("Invalid packaged PowerShell: "+($errors -join "; ")) }
+          }
+          $manifestPin=(Get-FileHash -LiteralPath "$dir\SHA256SUMS.txt" -Algorithm SHA256).Hash
+          $binaryPin=(Get-FileHash -LiteralPath "$dir\bin\Vault-PQ-lab.exe" -Algorithm SHA256).Hash
+          $shell=(Get-Process -Id $PID).Path
+          & $shell -NoProfile -NonInteractive -File "$dir\Start-Windows-PQ-Lab.ps1" -Operation Providers -ExpectedManifestSha256 $manifestPin -TrustedBinarySha256 $binaryPin
+          if ($LASTEXITCODE -ne 0) { throw "Packaged launcher providers failed" }
+          & $shell -NoProfile -NonInteractive -File "$dir\Start-Windows-PQ-Lab.ps1" -Operation Providers -ExpectedManifestSha256 ("0"*64) -TrustedBinarySha256 $binaryPin
+          if ($LASTEXITCODE -eq 0) { throw "Launcher accepted an incorrect manifest pin" }
+          & $shell -NoProfile -NonInteractive -File "$dir\Start-Windows-PQ-Lab.ps1" -Operation Providers -ExpectedManifestSha256 $manifestPin -TrustedBinarySha256 ("0"*64)
+          if ($LASTEXITCODE -eq 0) { throw "Launcher accepted an incorrect binary pin" }
+          & $shell -NoProfile -NonInteractive -File "$dir\Start-Windows-PQ-Lab.ps1" -Operation ProbeLoopback -ExpectedManifestSha256 $manifestPin
+          if ($LASTEXITCODE -ne 0) { throw "Packaged launcher loopback failed" }
       - name: Windows native Scattering mailbox loopback using packaged binaries
         shell: pwsh
         run: |
