@@ -8,3 +8,5 @@ Node command: .\runtime\node.exe --experimental-transform-types scripts/native-v
 No power-loss, WAN or physical-machine validation is implied. Do not install as a production identity provider.
 
 The runtime and migration-verifier import are covered by the packaged smoke test. Do not trust SHA256SUMS alone: obtain an independent authenticated expected manifest hash and publisher identity. This is not an Authenticode-signed installer, not an automatic enrollment tool, and does not authorize real account migration.
+
+New synthetic vault provisioning generates a separate random receipt.key and completion marker. Explicit --windows-import-lab-file ABS_VAULT_DIR BASENAME INDEPENDENT_SHA256 reads bounded bytes from stdin, then requires a real console APPROVE; the native file is created with strict ACL and never overwritten. Controller PKCS8 Ed25519 PEM must match the provisioned public key. JSON/PEM import only stages input; broker still validates all authority, contact and peer data. Older incomplete directories are refused. No import of vault, journal, receipt key or historical identity; no live migration.

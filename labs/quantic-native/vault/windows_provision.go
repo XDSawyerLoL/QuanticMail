@@ -4,6 +4,7 @@ package main
 
 import(
  "crypto/elliptic"
+ "crypto/rand"
  "encoding/json"
  "os"
  "path/filepath"
@@ -29,9 +30,13 @@ func winProvisionVault(dir,app,quorum,addr string,pw,pqPassword []byte)(map[stri
  if e=winWriteClassical(filepath.Join(dir,"classical.vault"),anchoredMagic+"compact-manifest-quorum:"+quorum+"\x00",pw,k);e!=nil{return nil,e}
  if e=winWritePQ(filepath.Join(dir,"pq.vault"),binding,pqPassword,p);e!=nil{return nil,e}
  if e=winInitReplay(filepath.Join(dir,"journal.log"),s,a,hexHash(pub));e!=nil{return nil,e}
+ var receipt [32]byte;if _,e=rand.Read(receipt[:]);e!=nil{return nil,e};defer clear(receipt[:])
+ if e=winWritePrivate(filepath.Join(dir,"receipt.key"),receipt[:]);e!=nil{return nil,e}
+ if e=winWritePrivate(filepath.Join(dir,"lab-provisioned"),[]byte(hexHash(pub)));e!=nil{return nil,e}
  return map[string]string{"backend":"windows-software-pq-storage-lab","address":addr,"deviceId":device,"signingPin":s,"encryptionPin":a,"kemPin":p.kemPin,"dsaPin":p.dsaPin,"signing":b64.EncodeToString(elliptic.Marshal(elliptic.P256(),k.signing.X,k.signing.Y)),"encryption":b64.EncodeToString(point),"kemPublic":b64.EncodeToString(p.kemPub),"dsaPublic":b64.EncodeToString(p.dsaPub),"status":"local-provision-only-not-enrolled"},nil
 }
 func windowsVaultCLI(args []string)(bool,error){
+ if len(args)>1&&args[1]=="--windows-import-lab-file"{return true,winImportCLI(args)}
  if handled,e:=winScatteringCLI(args);handled{return true,e}
  if handled,e:=winClientIO(args);handled{return true,e}
  if len(args)>1&&args[1]=="--broker-windows-pq-quorum-lab"{return true,winBroker(args)}
