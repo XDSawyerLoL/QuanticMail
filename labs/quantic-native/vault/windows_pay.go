@@ -6,6 +6,7 @@ package main
 // Same private NTFS custody and password-derived AEAD as the native vault.
 // An authorization is only a synthetic proof, not a settlement or payment credential.
 import (
+ "crypto/ecdh"
  "crypto/ecdsa"
  "crypto/elliptic"
  "crypto/rand"
@@ -15,6 +16,8 @@ import (
  "os"
  "path/filepath"
  "strconv"
+ "strings"
+ "bytes"
  "time"
 )
 
@@ -55,9 +58,16 @@ func openPayLabKeys(raw,pw []byte,signPin,pqPin string)(*payLabKeys,error){
  return k,nil
 }
 
+func parsePayScalar(raw []byte)(*ecdsa.PrivateKey,error){
+ k,e:=ecdh.P256().NewPrivateKey(raw);if e!=nil{return nil,e}
+ x,y:=elliptic.Unmarshal(elliptic.P256(),k.PublicKey().Bytes());if x==nil{return nil,portableRefusal}
+ return ecdsaFromBytes(raw,x,y)
+}
+
 func provisionPayLab(dir string,pw []byte)(map[string]string,error){
  if !validPortablePassword(pw){return nil,portableRefusal}
  if _,_,e:=winPathParts(filepath.Join(dir,"pay.vault"));e!=nil{return nil,e}
+ if _,_,e:=winPathParts(filepath.Join(dir,"pay-receipt-"+strings.Repeat("a",64)+".json"));e!=nil{return nil,e}
  priv,e:=ecdsa.GenerateKey(elliptic.P256(),rand.Reader);if e!=nil{return nil,e}
  pq,e:=pqGenerate("ML-DSA-65");if e!=nil{priv.D.SetInt64(0);return nil,e}
  dp,e:=pq.der(false);if e!=nil{pq.close();priv.D.SetInt64(0);return nil,e}
@@ -95,6 +105,16 @@ func signPayLab(k *payLabKeys,i payLabIntent,now int64,approved bool)(payLabProo
  return payLabProof{i,s,d,b64.EncodeToString(sig),b64.EncodeToString(pq),b64.EncodeToString(elliptic.Marshal(elliptic.P256(),k.classical.X,k.classical.Y)),b64.EncodeToString(k.pqPublic),false},nil
 }
 
+// Exclusive durable receipt per synthetic nonce. A partial write or duplicate
+// fails closed. This is not an externally anchored rollback-proof ledger.
+func commitPayLabProof(dir string,proof payLabProof)([]byte,error){
+ if proof.RealPaymentAuthorized||!hashRE.MatchString(proof.Intent.Nonce){return nil,portableRefusal}
+ path:=filepath.Join(dir,"pay-receipt-"+proof.Intent.Nonce+".json")
+ raw,e:=json.Marshal(proof);if e!=nil{return nil,e}
+ if e=winWritePrivate(path,raw);e!=nil{return nil,e}
+ got,e:=winReadPrivate(path,32768);if e!=nil||!bytes.Equal(got,raw){return nil,portableRefusal}
+ return raw,nil
+}
 func windowsPayCLI(args []string)(bool,error){
  if len(args)<2{return false,nil}
  if args[1]=="--provision-windows-pay-lab"{
@@ -117,6 +137,8 @@ func windowsPayCLI(args []string)(bool,error){
  k,e:=openPayLabKeys(raw,pw,s,d);clear(pw);if e!=nil{return true,e};defer k.close()
  approved:=winApprove(fmt.Sprintf("SIMULATION ONLY: %d.%02d fictional EUR to %s; request %s. No money moves.",i.Cents/100,i.Cents%100,i.Payee,i.Nonce))
  proof,e:=signPayLab(k,i,time.Now().UnixMilli(),approved);if e!=nil{return true,e}
- // Dedicated domain proof only, no replay/settlement claim.
- return true,json.NewEncoder(os.Stdout).Encode(proof)
+ // Release only after exclusive write and exact readback.
+ receipt,e:=commitPayLabProof(dir,proof);if e!=nil{return true,e}
+ _,e=os.Stdout.Write(append(receipt,'\n'))
+ return true,e
 }

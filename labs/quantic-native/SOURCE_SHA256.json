@@ -112,6 +112,6 @@
   "vault/windows_scattering_test.go": "1b8ca9c6ecd3bc9796587ed5e167c1e6eaef8b5873073406acb2d94b60e33dc4",
   "vault/windows_import.go": "b16821bcc801f38d6228c762b40317c7e3cadd66ffc95e455810825808d9c35d",
   "vault/windows_import_test.go": "76a73c5ae1e0d6723313a4c236931d201dfac2e8eba8986a336d5668af7b10eb",
-  "vault/windows_pay.go": "b47d4cbd7d04175c86eb1bf1c6aacfb5f30ec7d54d9a02a52715b62a3abc60e9",
-  "vault/windows_pay_test.go": "47fa9f6e54057034795db690dacaaaf3cc444ab89d3895ba6603b3ee6aa376ad"
+  "vault/windows_pay.go": "d1a6db47b1886206250668d0d11b56716c34fcf794830a1d6d5341096645f79a",
+  "vault/windows_pay_test.go": "a6f30d27abd3ddd92bb5251ad22e1cf9e11d4f28bf333444af5fe5854c9b03b5"
 }
