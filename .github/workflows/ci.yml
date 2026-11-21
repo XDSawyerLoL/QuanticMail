@@ -83,3 +83,29 @@ jobs:
           }
           console.log(JSON.stringify(capabilities));
           NODE
+
+  shared-auth-rate-postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: quantic_test
+          POSTGRES_PASSWORD: quantic_test_only
+          POSTGRES_DB: quantic_rate_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U quantic_test -d quantic_rate_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      QUANTIC_AUTH_RATE_TEST_DATABASE_URL: postgresql://quantic_test:quantic_test_only@127.0.0.1:5432/quantic_rate_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.8.0
+      - run: npm install
+      - run: node --experimental-transform-types --test tests/shared-auth-rate.test.mjs

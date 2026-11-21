@@ -7,6 +7,7 @@ import { createDiscoveryRequestHandler } from "./discovery-http.ts";
 import { createDiscoveryResolveRequestHandler } from "./discovery-resolve-http.ts";
 import { retryPendingFederationReceipts } from "./federation-retry.ts";
 import { createRelayRequestHandler } from "./http.ts";
+import { rejectOverAuthBudget } from "./auth-rate-postgres.ts";
 import { loadOrCreateRelayIdentity } from "./identity.ts";
 import { createPostgresRelayPersistenceFromUrl } from "./postgres-storage.ts";
 import { createPulseStateRequestHandler } from "./pulse-state.ts";
@@ -19,6 +20,7 @@ export type RelayServerOptions = {
   port?: number;
   dataDir?: string;
   databaseUrl?: string;
+  sharedAuthRateLimit?: boolean;
   identitySecret?: string;
   publicEndpoint?: string;
   bootstrapEndpoints?: string[];
@@ -61,9 +63,11 @@ export async function startRelayServer(
   validateServerPort(port);
 
   const databaseUrl = options.databaseUrl?.trim() || "";
+  if (options.sharedAuthRateLimit && !databaseUrl) throw new Error("Le contrôle partagé exige PostgreSQL.");
   const postgresPersistence = databaseUrl
     ? await createPostgresRelayPersistenceFromUrl(databaseUrl, {
         identitySecret: options.identitySecret,
+        sharedAuthRateLimit: options.sharedAuthRateLimit,
       })
     : null;
   const relayIdentity = postgresPersistence
@@ -90,6 +94,7 @@ export async function startRelayServer(
     : null;
   const server = createServer((request, response) => {
     void (async () => {
+      if (await rejectOverAuthBudget(request, response, postgresPersistence?.authRateLimiter)) return;
       if (pulseState && await pulseState.handler(request, response)) return;
       if (await compatRegisterHandler(request, response)) return;
       if (await directSignalingHandler(request, response)) return;
