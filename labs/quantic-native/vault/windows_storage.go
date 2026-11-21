@@ -27,7 +27,7 @@ static PTOKEN_USER qv_user(void) {
  return u;
 }
 
-static int qv_private(HANDLE h) {
+static int qv_private(HANDLE h,int queue) {
  PTOKEN_USER u = qv_user();
  if (!u) return 0;
  PSID owner = NULL, system = NULL;
@@ -48,7 +48,7 @@ static int qv_private(HANDLE h) {
  for (DWORD i=0; i<ai.AceCount; i++) {
   ACCESS_ALLOWED_ACE *ace = NULL;
   if (!GetAce(dacl,i,(LPVOID*)&ace) || ace->Header.AceType!=ACCESS_ALLOWED_ACE_TYPE ||
-      ace->Header.AceFlags != 0 ||
+      ace->Header.AceFlags != (queue?(OBJECT_INHERIT_ACE|CONTAINER_INHERIT_ACE):0) ||
       (ace->Mask & FILE_ALL_ACCESS) != FILE_ALL_ACCESS) goto done;
   PSID sid=(PSID)&ace->SidStart;
   if (!IsValidSid(sid)) goto done;
@@ -64,7 +64,7 @@ done:
  return ok;
 }
 
-static PSECURITY_DESCRIPTOR qv_descriptor(void) {
+static PSECURITY_DESCRIPTOR qv_descriptor(int queue) {
  PTOKEN_USER u=qv_user();
  if (!u) return NULL;
  LPWSTR sid=NULL;
@@ -73,8 +73,8 @@ static PSECURITY_DESCRIPTOR qv_descriptor(void) {
  if (ConvertSidToStringSidW(u->User.Sid,&sid)) {
   if (wcslen(sid)<180) {
    wcscpy(buf,L"O:"); wcscat(buf,sid);
-   wcscat(buf,L"D:P(A;;FA;;;"); wcscat(buf,sid);
-   wcscat(buf,L")(A;;FA;;;SY)");
+   wcscat(buf,queue?L"D:P(A;OICI;FA;;;":L"D:P(A;;FA;;;"); wcscat(buf,sid);
+   wcscat(buf,queue?L")(A;OICI;FA;;;SY)":L")(A;;FA;;;SY)");
    ConvertStringSecurityDescriptorToSecurityDescriptorW(buf,SDDL_REVISION_1,&sd,NULL);
   }
   LocalFree(sid);
@@ -101,11 +101,11 @@ static uintptr_t qv_dir(const WCHAR *path,int private) {
   FILE_SHARE_READ|FILE_SHARE_WRITE,NULL,OPEN_EXISTING,
   FILE_FLAG_BACKUP_SEMANTICS|FILE_FLAG_OPEN_REPARSE_POINT,NULL);
  if (h==INVALID_HANDLE_VALUE) return 0;
- if (!qv_type(h,1) || (private && !qv_private(h))) {CloseHandle(h);return 0;}
+ if (!qv_type(h,1) || (private && !qv_private(h,private==2))) {CloseHandle(h);return 0;}
  return (uintptr_t)h;
 }
-static int qv_mkdir(const WCHAR *path) {
- PSECURITY_DESCRIPTOR sd=qv_descriptor();
+static int qv_mkdir(const WCHAR *path,int queue) {
+ PSECURITY_DESCRIPTOR sd=qv_descriptor(queue);
  if (!sd) return 0;
  SECURITY_ATTRIBUTES sa={sizeof(sa),sd,FALSE};
  int ok=CreateDirectoryW(path,&sa);
@@ -113,7 +113,7 @@ static int qv_mkdir(const WCHAR *path) {
 }
 static uintptr_t qv_file(const WCHAR *path,int mode) {
  int create=mode==1, write=mode!=0;
- PSECURITY_DESCRIPTOR sd=create?qv_descriptor():NULL;
+ PSECURITY_DESCRIPTOR sd=create?qv_descriptor(0):NULL;
  if (create && !sd) return 0;
  SECURITY_ATTRIBUTES sa={sizeof(sa),sd,FALSE};
  HANDLE h=CreateFileW(path,READ_CONTROL|FILE_READ_ATTRIBUTES|(write?(GENERIC_READ|GENERIC_WRITE):GENERIC_READ),
@@ -121,7 +121,7 @@ static uintptr_t qv_file(const WCHAR *path,int mode) {
   FILE_ATTRIBUTE_NORMAL|FILE_FLAG_OPEN_REPARSE_POINT|(write?FILE_FLAG_WRITE_THROUGH:0),NULL);
  if(sd) LocalFree(sd);
  if(h==INVALID_HANDLE_VALUE) return 0;
- if(!qv_type(h,0)||!qv_private(h)){CloseHandle(h);return 0;}
+ if(!qv_type(h,0)||!qv_private(h,0)){CloseHandle(h);return 0;}
  return (uintptr_t)h;
 }
 */
@@ -166,6 +166,9 @@ func winClose(hs []syscall.Handle){for i:=len(hs)-1;i>=0;i--{syscall.CloseHandle
 // Keep all traversed directories open without delete sharing for the duration
 // of a file operation. Reparse points on any path segment are refused.
 func winLockDirectory(path string,private bool)([]syscall.Handle,error){
+ mode:=0;if private{mode=1};return winLockDirectoryMode(path,mode)
+}
+func winLockDirectoryMode(path string,mode int)([]syscall.Handle,error){
  root,parts,e:=winPathParts(path)
  if e!=nil||C.qv_ntfs(winWide(root))==0{return nil,windowsStorageRefusal}
  var hs []syscall.Handle
@@ -176,18 +179,20 @@ func winLockDirectory(path string,private bool)([]syscall.Handle,error){
  cur:=root
  for i,p:=range parts{
   cur=filepath.Join(cur,p);flag:=C.int(0)
-  if private&&i==len(parts)-1{flag=1}
+  if i==len(parts)-1{flag=C.int(mode)}
   h=C.qv_dir(winWide(cur),flag)
   if h==0{return nil,windowsStorageRefusal}
   hs=append(hs,syscall.Handle(h))
  }
  ok=true;return hs,nil
 }
-func winCreatePrivateDirectory(path string)error{
+func winCreatePrivateDirectory(path string)error{return winCreateDirectoryMode(path,1)}
+func winCreateDirectoryMode(path string,mode int)error{
  if _,_,e:=winPathParts(path);e!=nil{return e}
  hs,e:=winLockDirectory(filepath.Dir(path),false);if e!=nil{return e};defer winClose(hs)
- if C.qv_mkdir(winWide(path))==0{return windowsStorageRefusal}
- inner,e:=winLockDirectory(path,true);if e!=nil{return e};winClose(inner)
+ queue:=C.int(0);if mode==2{queue=1}
+ if C.qv_mkdir(winWide(path),queue)==0{return windowsStorageRefusal}
+ inner,e:=winLockDirectoryMode(path,mode);if e!=nil{return e};winClose(inner)
  return nil
 }
 func winOpenPrivate(path string,write bool)(*os.File,[]syscall.Handle,error){

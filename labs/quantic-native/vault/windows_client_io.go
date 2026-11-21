@@ -12,7 +12,7 @@ import (
 // Explicit local helper for the trusted Node desktop process, not a web API.
 // It accepts only designated client files inside the private vault directory.
 // Same-Windows-user processes are in the trusted OS boundary.
-var clientFileName=regexp.MustCompile("^(desktop[.]json|controller[.]pem|contacts[.]json|peer-[a-z0-9-]{1,48}[.]pem|draft-[a-z0-9-]{1,48}[.]json|wire-[a-z0-9-]{1,48}[.]json)$")
+var clientFileName=regexp.MustCompile("^(scattering[.]json|desktop[.]json|controller[.]pem|contacts[.]json|peer-[a-z0-9-]{1,48}[.]pem|draft-[a-z0-9-]{1,48}[.]json|wire-[a-z0-9-]{1,48}[.]json)$")
 var clientWireName=regexp.MustCompile("^wire-[a-z0-9-]{1,48}[.]json$")
 func winClientIO(args []string)(bool,error){
  if len(args)<2||(args[1]!="--windows-client-read-lab"&&args[1]!="--windows-client-write-wire-lab"){return false,nil}

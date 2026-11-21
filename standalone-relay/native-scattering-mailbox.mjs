@@ -38,9 +38,14 @@ function response(res,status,body){
  res.writeHead(status,{'Content-Type':'application/json','Content-Length':body.length,'Cache-Control':'no-store',Connection:'close'});res.end(body);
 }
 const errorBody=Buffer.from('{"error":"native mailbox operation not confirmed"}');
-export async function startScatteringMailboxEndpoint(c){
+export async function startScatteringMailboxEndpoint(c,{windowsBootstrap}={}){
  check(c?.labOnly===true&&['client','relay'].includes(c.role)&&/^[a-f0-9]{64}$/.test(c.secretHex)&&/^[a-f0-9]{64}$/.test(c.epochHex)&&!/^0+$/.test(c.secretHex)&&!/^0+$/.test(c.epochHex)&&c.secretHex!==c.epochHex&&port(c.recvPort,true)&&port(c.httpPort,c.role==='client'));
- await reserve(c);
+ let guard;
+ if(process.platform==='win32'){
+  if(!windowsBootstrap)throw Error('explicit Windows native guard required');
+  const {reserveWindowsScattering}=await import('../desktop/native-windows-scattering.mjs');
+  guard=await reserveWindowsScattering(c,windowsBootstrap);
+ }else{await reserve(c);}
  const secret=Buffer.from(c.secretHex,'hex'),epoch=Buffer.from(c.epochHex,'hex');
  const ab=cellKey(secret,epoch,'a-b'),ba=cellKey(secret,epoch,'b-a');secret.fill(0);epoch.fill(0);
  let cells,server,stopped=false,upstream,pending,busy=false,next=1,input=Buffer.alloc(0);
@@ -51,8 +56,9 @@ export async function startScatteringMailboxEndpoint(c){
   if(pending){clearTimeout(pending.timer);pending.reject(Error('Scattering epoch terminated'));pending=null;}
   upstream?.destroy();cells?.stream.destroy();input.fill(0);
   server?.closeAllConnections();server?.close();try{udp.close();}catch{}
-  resolveClosed();
+  guard?.close();resolveClosed();
  }
+ if(guard)void guard.closed.then(stop);
  async function sendFrame(frame){
   const raw=Buffer.from(JSON.stringify(frame));check(raw.length>0&&raw.length<=FRAME);
   const h=Buffer.alloc(4);h.writeUInt32BE(raw.length);const bytes=Buffer.concat([h,raw]);
