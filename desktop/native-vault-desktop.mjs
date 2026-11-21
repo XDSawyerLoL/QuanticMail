@@ -28,7 +28,7 @@ async function choose(dialog,title){
 }
 const message=(dialog,options)=>dialog.showMessageBox({title:'QuanticMail · Coffre natif local',noLink:true,...options});
 export async function runNativeDesktop(dialog,{connect=connectNativeVault,mailboxConnect}={}){
-  let controller,output,receiptKey;
+  let controller,output,receiptKey,recoverDraft=false;
   try{
     const action=await message(dialog,{type:'info',message:'Mode local expérimental',detail:'Identités de test uniquement. Aucune connexion à la page Web. Le terminal du coffre demandera le mot de passe et le consentement. Les anciennes clés restent intactes.',buttons:['Lire une enveloppe','Signer une inscription','Quitter'],defaultId:2,cancelId:2});
     if(action.response!==0&&action.response!==1)return 'cancelled';
@@ -64,8 +64,8 @@ export async function runNativeDesktop(dialog,{connect=connectNativeVault,mailbo
         const client=await factory(cfg);
         const item=await client.pull();
         if(!item){await message(dialog,{type:'info',message:'Aucun message en attente',buttons:['Fermer']});return 'completed';}
-        const approval=await message(dialog,{type:'warning',message:'Recevoir et enregistrer le message ?',detail:'Le reçu sera chiffré avec une clé locale séparée. Le coffre peut consommer le droit de rejeu. Aucun accusé avant enregistrement durable.',buttons:['Annuler','Continuer'],defaultId:0,cancelId:0});
-        if(approval.response!==1)return 'cancelled';
+        const approval=await message(dialog,{type:'warning',message:'Recevoir et enregistrer le message ?',detail:'Le reçu sera chiffré. Si une ouverture précédente a été interrompue, choisissez la récupération exacte. Aucun accusé avant enregistrement durable.',buttons:['Annuler','Continuer','Récupérer une ouverture interrompue'],defaultId:0,cancelId:0});
+        if(approval.response!==1&&approval.response!==2)return 'cancelled';
         const save=await dialog.showSaveDialog({title:'Reçu local chiffré'});
         if(save.canceled||!save.filePath)return 'cancelled';
         if(!isAbsolute(save.filePath))throw Error('absolute output required');
@@ -74,7 +74,7 @@ export async function runNativeDesktop(dialog,{connect=connectNativeVault,mailbo
         sealReceipt(receiptKey,cfg,item,{subject:'',body:''});
         output=await open(save.filePath,'wx',0o600);
         controller=await connect(config);
-        const payload=await controller.openHybrid(item.record),detail=safeMailDisplay(payload);
+        const payload=await controller.openHybrid(item.record,{recover:approval.response===2}),detail=safeMailDisplay(payload);
         const encrypted=sealReceipt(receiptKey,cfg,item,{subject:payload.subject,body:payload.body});
         await output.writeFile(JSON.stringify(encrypted)+'\n','utf8');
         await output.sync();await output.close();output=undefined;
@@ -103,8 +103,9 @@ export async function runNativeDesktop(dialog,{connect=connectNativeVault,mailbo
         const preview=safeMailDisplay(record.payload);
         const c=record.context;
         if(!/^[a-z0-9][a-z0-9._-]{2,31}~[a-f0-9]{32}@quantic$/.test(c?.to)||!/^d-[a-f0-9]{32}$/.test(c?.toDeviceId))throw Error('invalid recipient');
-        const approval=await message(dialog,{type:'warning',message:'Confirmer le brouillon vers '+c.to,detail:c.toDeviceId+'\n\n'+preview,buttons:['Annuler','Continuer'],defaultId:0,cancelId:0});
-        if(approval.response!==1)return 'cancelled';
+        const approval=await message(dialog,{type:'warning',message:'Confirmer le brouillon vers '+c.to,detail:c.toDeviceId+'\n\n'+preview+'\n\nEn cas d’interruption antérieure, récupération du résultat exact sans nouvelle signature.',buttons:['Annuler','Continuer','Récupérer un envoi interrompu'],defaultId:0,cancelId:0});
+        if(approval.response!==1&&approval.response!==2)return 'cancelled';
+        recoverDraft=approval.response===2;
         const save=await dialog.showSaveDialog({title:'Enveloppe native chiffrée et signée'});
         if(save.canceled||!save.filePath)return 'cancelled';
         if(!isAbsolute(save.filePath))throw Error('absolute output required');
@@ -116,7 +117,7 @@ export async function runNativeDesktop(dialog,{connect=connectNativeVault,mailbo
         const detail=safeMailDisplay(payload);
         await message(dialog,{type:'info',message:'Message déchiffré — signatures et attestations vérifiées',detail,buttons:['Fermer']});
       }else{
-        const sealed=await controller.sealHybrid(record.context,record.payload);
+        const sealed=await controller.sealHybrid(record.context,record.payload,{recover:recoverDraft});
         await output.writeFile(JSON.stringify(sealed)+'\n','utf8');await output.sync();await output.close();output=undefined;
         await syncReceiptDirectory(save.filePath);
         await message(dialog,{type:'info',message:'Enveloppe native enregistrée',detail:'Chiffrée et signée. Non envoyée ; conservez le brouillon.',buttons:['Fermer']});
