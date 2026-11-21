@@ -7,6 +7,9 @@ from compact_registry import pack_lease,RESPONSE_SIZE
 from scheduled_registry import REQUEST_SIZE
 HERE=pathlib.Path(__file__).resolve().parent
 class Compact(FreshRegistry):
+    dual_feed=False
+    response_size=RESPONSE_SIZE
+    def frame(self,i):return pack_lease(self.feeds[i])
     provision_mode='--provision-software-compact-manifest-quorum-lab'
     broker_mode='--broker-software-compact-manifest-quorum-lab'
     def setUp(self):
@@ -20,7 +23,7 @@ class Compact(FreshRegistry):
                     def log_message(self,*a):pass
                     def do_POST(self):
                         if self.path!='/lease' or hashlib.sha256(self.connection.getpeercert(binary_form=True)).hexdigest()!=pins['client'] or self.headers.get('Content-Length')!=str(REQUEST_SIZE) or self.rfile.read(REQUEST_SIZE)!=bytes(REQUEST_SIZE):self.send_error(403);return
-                        try:data=pack_lease(owner.feeds[i])
+                        try:data=owner.frame(i)
                         except ValueError:self.send_error(503);return
                         owner.logs[i].append((time.monotonic(),REQUEST_SIZE,len(data)));self.send_response(200);self.send_header('Content-Length',str(len(data)));self.end_headers()
                         try:self.wfile.write(data)
@@ -36,7 +39,7 @@ class Compact(FreshRegistry):
             if out.strip():
                 stats=json.loads(out.strip().splitlines()[-1])["stats"];print("feed_carrier",i,json.dumps(stats),flush=True);self.assertEqual(stats["wrongSize"],0)
     def start(self,i):
-        n=self.nodes[i];d=n['d'];f,pins=self.feed_certs[i];n['proc']=subprocess.Popen([sys.executable,str(HERE/'anchor_server.py'),'serve',str(n['db']),'--port','0','--cert',str(d/'server.pem'),'--key',str(d/'server.key'),'--ca',str(d/'ca.pem'),'--client-pin',n['pins']['client'],'--manifest-required','--registry-url',f'https://localhost:{self.feed_bridges[i].port}/lease','--registry-pin',self.registry_pin,'--scheduled-registry','--compact-registry','--feed-pin',pins['server'],'--feed-ca',str(f/'ca.pem'),'--feed-cert',str(f/'client.pem'),'--feed-key',str(f/'client.key')],stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+        n=self.nodes[i];d=n['d'];f,pins=self.feed_certs[i];n['proc']=subprocess.Popen([sys.executable,str(HERE/'anchor_server.py'),'serve',str(n['db']),'--port','0','--cert',str(d/'server.pem'),'--key',str(d/'server.key'),'--ca',str(d/'ca.pem'),'--client-pin',n['pins']['client'],'--manifest-required','--registry-url',f'https://localhost:{self.feed_bridges[i].port}/lease','--registry-pin',self.registry_pin,'--scheduled-registry','--compact-registry','--feed-pin',pins['server'],'--feed-ca',str(f/'ca.pem'),'--feed-cert',str(f/'client.pem'),'--feed-key',str(f/'client.key')]+(['--dual-proof-feed'] if self.dual_feed else []),stdout=subprocess.PIPE,stderr=subprocess.PIPE)
         line=n['proc'].stdout.readline();assert line,n['proc'].stderr.read();n['port']=json.loads(line)['port'];n['direct_port']=n['port'];n['bridge']=subprocess.Popen(['node',str(BRIDGE),str(n['port']),'--synthetic-loopback-only'],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True);n['port']=json.loads(n['bridge'].stdout.readline())['port']
     def wait_lease(self,m,ids=range(4)):
         end=time.monotonic()+15
@@ -51,7 +54,7 @@ class Compact(FreshRegistry):
         self.fail('background sync did not reach required witnesses')
     def report(self):
         for i,logs in enumerate(self.logs):
-            gaps=[b[0]-a[0] for a,b in zip(logs,logs[1:])];self.assertTrue(all(x[1:]==(REQUEST_SIZE,RESPONSE_SIZE) for x in logs));print('registry_feed',i,'requests',len(logs),'gap_min_s',round(min(gaps,default=0),3),'gap_max_s',round(max(gaps,default=0),3),'fixed_body',REQUEST_SIZE,RESPONSE_SIZE,flush=True)
+            gaps=[b[0]-a[0] for a,b in zip(logs,logs[1:])];self.assertTrue(all(x[1:]==(REQUEST_SIZE,self.response_size) for x in logs));print('registry_feed',i,'requests',len(logs),'gap_min_s',round(min(gaps,default=0),3),'gap_max_s',round(max(gaps,default=0),3),'fixed_body',REQUEST_SIZE,self.response_size,flush=True)
     def test_idle_active_revoke(self):
         before=list(map(len,self.logs));time.sleep(4.1);idle=[len(l)-n for l,n in zip(self.logs,before)];self.assertTrue(all(x>=1 for x in idle),idle);print('idle_poll_counts',idle,flush=True)
         a=self.enter();self.decrypt(a);self.assertEqual(self.counts(),[1]*4)

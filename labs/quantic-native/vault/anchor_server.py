@@ -48,6 +48,8 @@ def serve(args):
     if not valid_hash(args.client_pin): raise ValueError('invalid client pin')
     scheduled=bool(args.scheduled_registry)
     compact=bool(args.compact_registry)
+    dual_feed=bool(args.dual_proof_feed)
+    if dual_feed and not compact:raise ValueError("dual proof feed requires compact mode")
     if compact and not scheduled:raise ValueError("compact requires scheduled mode")
     if scheduled and not args.registry_url:raise ValueError("scheduled feed required")
     with closing(connection(args.db)) as c, c:
@@ -75,12 +77,17 @@ def serve(args):
         has_compact=bool(c.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='compact_policy'").fetchone())
         if has_compact and not compact:raise ValueError('compact registry mode required')
         if compact and not has_compact:c.execute('CREATE TABLE compact_policy (version INTEGER NOT NULL CHECK(version=7))');c.execute('INSERT INTO compact_policy VALUES (7)')
+        has_dual=bool(c.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='dual_feed_policy'").fetchone())
+        if has_dual and not dual_feed:raise ValueError("dual proof feed mode required")
+        if dual_feed and not has_dual:
+            c.execute("CREATE TABLE dual_feed_policy (version INTEGER NOT NULL CHECK(version=1))");c.execute("INSERT INTO dual_feed_policy VALUES (1)")
         if bound and c.execute('SELECT id FROM signed_manifest').fetchall()!=[(rows[0][0],)]: raise ValueError('invalid binding')
         if len(rows)!=1 or not valid_hash(rows[0][0]) or not valid_hash(rows[0][2]) or not 0<=rows[0][1]<=CAP: raise ValueError('invalid checkpoint DB')
     worker=None
     if scheduled:
-        feed=(cr.CompactFeed if compact else sr.FixedFeed)(args.registry_url,args.feed_pin,args.feed_ca,args.feed_cert,args.feed_key)
-        worker=sr.ScheduledRegistry(feed,args.registry_pin,rows[0][0],lambda:connection(args.db),allow_pq=compact)
+        from dual_proof_feed import DualProofFeed
+        feed=(DualProofFeed if dual_feed else cr.CompactFeed if compact else sr.FixedFeed)(args.registry_url,args.feed_pin,args.feed_ca,args.feed_cert,args.feed_key)
+        worker=sr.ScheduledRegistry(feed,args.registry_pin,rows[0][0],lambda:connection(args.db),allow_pq=compact,dual_feed=dual_feed)
         worker.start()
     class Handler(http.server.BaseHTTPRequestHandler):
         def log_message(self,*_): pass
@@ -138,6 +145,7 @@ if __name__=='__main__':
     a.add_argument('--registry-url');a.add_argument('--registry-pin')
     a.add_argument('--scheduled-registry',action='store_true')
     a.add_argument('--compact-registry',action='store_true')
+    a.add_argument('--dual-proof-feed',action='store_true')
     for name in ['feed-pin','feed-ca','feed-cert','feed-key']:a.add_argument('--'+name)
     m=s.add_parser('init-manifest');m.add_argument('db');m.add_argument('id');m.add_argument('binding');m.add_argument('manifest')
     u=s.add_parser('publish-manifest');u.add_argument('db');u.add_argument('id');u.add_argument('manifest')

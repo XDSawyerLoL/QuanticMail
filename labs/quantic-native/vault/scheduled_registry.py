@@ -38,8 +38,8 @@ class FixedFeed:
         finally:c.close()
 
 class ScheduledRegistry:
-    def __init__(self,feed,pin,identity,connection,allow_pq=False):
-        self.feed=feed;self.pin=pin;self.identity=identity;self.connection=connection;self.allow_pq=allow_pq
+    def __init__(self,feed,pin,identity,connection,allow_pq=False,dual_feed=False):
+        self.feed=feed;self.pin=pin;self.identity=identity;self.connection=connection;self.allow_pq=allow_pq;self.dual_feed=dual_feed
         self.lock=threading.Lock();self.snapshot=None;self.stop=threading.Event()
         self.thread=threading.Thread(target=self.run,daemon=True)
     def start(self):self.thread.start()
@@ -56,13 +56,19 @@ class ScheduledRegistry:
     def refresh(self):
         started=time.monotonic()
         try:
-            p=rl.decode(self.feed.fetch(),self.pin,self.identity)
+            raw=self.feed.fetch()
+            signature=None
+            if self.dual_feed:raw,signature=raw
+            p=rl.decode(raw,self.pin,self.identity)
             c=self.connection()
             try:
                 c.execute('BEGIN IMMEDIATE')
                 old=c.execute('SELECT issued,expires FROM registry_lease WHERE id=?',(self.identity,)).fetchone()
                 current=c.execute('SELECT manifest FROM signed_manifest WHERE id=?',(self.identity,)).fetchone()
                 if old and p['issued']==old[0] and (not current or json.loads(current[0])!=p['manifest']):raise ValueError('same issued lease conflict')
+                if self.dual_feed:
+                    import dual_proof_feed as dpf
+                    dpf.stage(c,self.identity,p,signature)
                 result=rl.apply(c,self.identity,p,allow_pq=self.allow_pq)
                 rl.fresh(p)
                 if time.monotonic()-started>=MAX_AGE:raise ValueError('slow refresh')
