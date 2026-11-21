@@ -2,10 +2,10 @@ name: Native Vault laboratory
 on:
   pull_request:
     branches: [main]
-    paths: ['labs/quantic-native/**', 'desktop/**', 'lib/quantic/**', 'scripts/native-vault-windows-local.mjs', 'scripts/package-windows-pq-lab.sh', 'scripts/scattering-physical-probe.mjs', 'scripts/Start-Windows-PQ-Lab.ps1', 'scripts/Test-Windows-PQ-Package.ps1', 'tests/native-windows-desktop.test.mjs', 'tests/native-windows-mail-flow.test.mjs', 'tests/native-scattering-mailbox.test.mjs', 'standalone-relay/native-scattering-mailbox.mjs', 'scripts/serve-native-scattering-windows.mjs', 'scripts/native-vault-windows-mailbox.mjs', '.github/workflows/native-vault-lab.yml']
+    paths: ['labs/quantic-native/**', 'desktop/**', 'lib/quantic/**', 'scripts/native-vault-windows-local.mjs', 'scripts/package-windows-pq-lab.sh', 'scripts/scattering-physical-probe.mjs', 'scripts/Start-Windows-PQ-Lab.ps1', 'scripts/Test-Windows-PQ-Package.ps1', 'scripts/Quantic-Sillage-Alpha.ps1', 'tests/native-windows-desktop.test.mjs', 'tests/native-windows-mail-flow.test.mjs', 'tests/native-scattering-mailbox.test.mjs', 'standalone-relay/native-scattering-mailbox.mjs', 'scripts/serve-native-scattering-windows.mjs', 'scripts/native-vault-windows-mailbox.mjs', '.github/workflows/native-vault-lab.yml']
   push:
     branches: [main, "feat/**"]
-    paths: ['labs/quantic-native/**', 'desktop/**', 'lib/quantic/**', 'scripts/native-vault-windows-local.mjs', 'scripts/package-windows-pq-lab.sh', 'scripts/scattering-physical-probe.mjs', 'scripts/Start-Windows-PQ-Lab.ps1', 'scripts/Test-Windows-PQ-Package.ps1', 'tests/native-windows-desktop.test.mjs', 'tests/native-windows-mail-flow.test.mjs', 'tests/native-scattering-mailbox.test.mjs', 'standalone-relay/native-scattering-mailbox.mjs', 'scripts/serve-native-scattering-windows.mjs', 'scripts/native-vault-windows-mailbox.mjs', '.github/workflows/native-vault-lab.yml']
+    paths: ['labs/quantic-native/**', 'desktop/**', 'lib/quantic/**', 'scripts/native-vault-windows-local.mjs', 'scripts/package-windows-pq-lab.sh', 'scripts/scattering-physical-probe.mjs', 'scripts/Start-Windows-PQ-Lab.ps1', 'scripts/Test-Windows-PQ-Package.ps1', 'scripts/Quantic-Sillage-Alpha.ps1', 'tests/native-windows-desktop.test.mjs', 'tests/native-windows-mail-flow.test.mjs', 'tests/native-scattering-mailbox.test.mjs', 'standalone-relay/native-scattering-mailbox.mjs', 'scripts/serve-native-scattering-windows.mjs', 'scripts/native-vault-windows-mailbox.mjs', '.github/workflows/native-vault-lab.yml']
 permissions:
   contents: read
 jobs:
@@ -139,7 +139,7 @@ jobs:
         shell: pwsh
         run: |
           $dir = Join-Path $env:RUNNER_TEMP "QuanticMail-Windows-PQ-Lab"
-          foreach ($path in @("$dir\Start-Windows-PQ-Lab.ps1","$dir\Test-Windows-PQ-Package.ps1")) {
+          foreach ($path in @("$dir\Start-Windows-PQ-Lab.ps1","$dir\Test-Windows-PQ-Package.ps1","$dir\Quantic-Sillage-Alpha.ps1")) {
             $tokens=$null
             $errors=$null
             $null=[System.Management.Automation.Language.Parser]::ParseFile($path,[ref]$tokens,[ref]$errors)
@@ -156,6 +156,8 @@ jobs:
           if ($LASTEXITCODE -eq 0) { throw "Launcher accepted an incorrect binary pin" }
           & $shell -NoProfile -NonInteractive -File "$dir\Start-Windows-PQ-Lab.ps1" -Operation ProbeLoopback -ExpectedManifestSha256 $manifestPin
           if ($LASTEXITCODE -ne 0) { throw "Packaged launcher loopback failed" }
+          & $shell -NoProfile -NonInteractive -File "$dir\Start-Windows-PQ-Lab.ps1" -Operation DashboardCheck -ExpectedManifestSha256 $manifestPin -TrustedBinarySha256 $binaryPin
+          if ($LASTEXITCODE -ne 0) { throw "Packaged dashboard check failed" }
       - name: Windows native Scattering mailbox loopback using packaged binaries
         shell: pwsh
         run: |

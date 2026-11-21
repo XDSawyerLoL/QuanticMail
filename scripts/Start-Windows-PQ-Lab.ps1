@@ -1,12 +1,15 @@
 # Explicit laboratory launcher. No installation or production login.
 [CmdletBinding()]
 param(
- [Parameter(Mandatory=$true)][ValidateSet("Providers","Open","RecoverOpen","Seal","RecoverSeal","ProbeLoopback")][string]$Operation,
+ [Parameter(Mandatory=$true)][ValidateSet("Providers","Open","RecoverOpen","Seal","RecoverSeal","ProbeLoopback","Send","Receive","RecoverReceive","ConfirmReceipt","StartBridge","Provision","Dashboard","DashboardCheck")][string]$Operation,
  [Parameter(Mandatory=$true)][ValidatePattern('^[a-fA-F0-9]{64}$')][string]$ExpectedManifestSha256,
  [string]$TrustedBinarySha256,
  [string]$PrivateDirectory,
  [string]$InputFile,
- [string]$OutputFile
+ [string]$OutputFile,
+ [string]$ControllerPublicKey,
+ [string]$QuorumPin,
+ [string]$CanonicalAddress
 )
 $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
@@ -32,6 +35,30 @@ if ($Operation -eq "ProbeLoopback") {
 if ($TrustedBinarySha256 -notmatch '^[0-9a-fA-F]{64}$') { throw "Independently supplied executable SHA256 required." }
 if ((Get-FileHash -LiteralPath $vault -Algorithm SHA256).Hash -ine $TrustedBinarySha256) { throw "Unexpected vault binary." }
 if ($Operation -eq "Providers") { & $vault --providers; exit $LASTEXITCODE }
+if ($Operation -in @("Dashboard","DashboardCheck")) {
+ $ui = Join-Path $root "Quantic-Sillage-Alpha.ps1"
+ $shell = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
+ $uiArgs = @("-NoProfile","-STA","-File",$ui,"-ExpectedManifestSha256",$ExpectedManifestSha256,"-TrustedBinarySha256",$TrustedBinarySha256)
+ if ($Operation -eq "DashboardCheck") { $uiArgs += "-SelfTest" }
+ & $shell @uiArgs
+ exit $LASTEXITCODE
+}
+if (-not $PrivateDirectory) { throw "PrivateDirectory required." }
+if ($Operation -eq "Provision") {
+ if ($ControllerPublicKey -notmatch '^[A-Za-z0-9_-]{43}$' -or $QuorumPin -notmatch '^[a-f0-9]{64}$' -or $CanonicalAddress -notmatch '^[a-z0-9][a-z0-9._-]{2,31}~[a-f0-9]{32}@quantic$') { throw "Independently provisioned synthetic identity parameters required." }
+ & $vault --provision-windows-pq-storage-lab $PrivateDirectory $ControllerPublicKey $QuorumPin $CanonicalAddress
+ exit $LASTEXITCODE
+}
+if ($Operation -eq "StartBridge") {
+ & $node --experimental-transform-types (Join-Path $root "scripts\serve-native-scattering-windows.mjs") $vault $TrustedBinarySha256.ToLowerInvariant() $PrivateDirectory
+ exit $LASTEXITCODE
+}
+if ($Operation -in @("Send","Receive","RecoverReceive","ConfirmReceipt")) {
+ if (-not $InputFile) { throw "Private wire or receipt path required." }
+ $mailOps=@{Send="send";Receive="receive";RecoverReceive="recover-receive";ConfirmReceipt="confirm-receipt"}
+ & $node --experimental-transform-types (Join-Path $root "scripts\native-vault-windows-mailbox.mjs") $vault $TrustedBinarySha256.ToLowerInvariant() $PrivateDirectory $mailOps[$Operation] $InputFile
+ exit $LASTEXITCODE
+}
 if (-not $PrivateDirectory -or -not $InputFile) { throw "PrivateDirectory and InputFile required." }
 $ops = @{Open="open";RecoverOpen="recover-open";Seal="seal";RecoverSeal="recover-seal"}
 $argsList=@($vault,$TrustedBinarySha256.ToLowerInvariant(),$PrivateDirectory,$ops[$Operation],$InputFile)
