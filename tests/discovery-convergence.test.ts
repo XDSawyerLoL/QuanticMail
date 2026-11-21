@@ -60,6 +60,10 @@ function peer(index: number): DiscoveryPeer {
 }
 
 function bundleFactory(handle = "converge") {
+  const now = Date.now();
+  const issuedAt = new Date(now - 60_000).toISOString();
+  const expiresAt = new Date(now + 24 * 60 * 60_000).toISOString();
+  const identities = new Map<number, QuanticIdentityManifest>();
   const owner = keyPair();
   const encryption = keyPair();
   const routeRelay = keyPair();
@@ -81,12 +85,12 @@ function bundleFactory(handle = "converge") {
         publicKey: encryption.publicKey,
         deviceSigningPublicKey: owner.publicKey,
         kind: "root" as const,
-        issuedAt: new Date(Date.now() - 60_000).toISOString(),
+        issuedAt: issuedAt,
       }],
       revocations: [],
-      issuedAt: new Date(Date.now() - 60_000).toISOString(),
+      issuedAt: issuedAt,
     };
-    const identityManifest: QuanticIdentityManifest = {
+    const identityManifest: QuanticIdentityManifest = identities.get(identitySequence) ?? {
       format: "quantic-identity-manifest",
       version: 1,
       payload: identityPayload,
@@ -95,6 +99,7 @@ function bundleFactory(handle = "converge") {
         dsaEncoding: "ieee-p1363",
       }).toString("base64"),
     };
+    identities.set(identitySequence, identityManifest);
     const routePayload = {
       version: 1 as const,
       sequence: routeSequence,
@@ -109,10 +114,10 @@ function bundleFactory(handle = "converge") {
         priority: 10,
         protocols: ["quantic-federation/1"],
         classicalSigningPublicKey: routeRelay.publicKey,
-        expiresAt: new Date(Date.now() + 24 * 60 * 60_000).toISOString(),
+        expiresAt: expiresAt,
       }],
-      issuedAt: new Date(Date.now() - 60_000).toISOString(),
-      expiresAt: new Date(Date.now() + 24 * 60 * 60_000).toISOString(),
+      issuedAt: issuedAt,
+      expiresAt: expiresAt,
     };
     const routeManifest: QuanticRouteManifest = {
       format: "quantic-route-manifest",
@@ -125,7 +130,7 @@ function bundleFactory(handle = "converge") {
         }).toString("base64"),
       },
     };
-    return { identityManifest, routeManifest };
+    return { identityManifest: structuredClone(identityManifest), routeManifest };
   }
 
   return { canonicalAddress, make };
