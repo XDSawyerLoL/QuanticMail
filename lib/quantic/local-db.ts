@@ -1,3 +1,4 @@
+import {ARCHIVE_MAX_ROWS, type MigrationSnapshot} from "@/lib/quantic/migration-archive";
 import { summarizeMigration, type MigrationInventory } from "@/lib/quantic/migration-inventory";
 import {
   generateLocalPqcKeyMaterial,
@@ -393,4 +394,26 @@ export async function inspectLocalMigration():Promise<MigrationInventory>{
     tx.onabort=()=>{db.close();reject(new Error("Inventaire local interrompu."));};
     tx.onerror=()=>{db.close();reject(new Error("Inventaire local indisponible."));};
   });
+}
+
+/** One read-only transaction. No live session token will be included by the archive encoder. */
+export async function captureMigrationSnapshot():Promise<MigrationSnapshot>{
+ const db=await openDb();
+ return new Promise((resolve,reject)=>{
+  const tx=db.transaction(["identity","pairing","prekeys","messages","outbox","contacts"],"readonly");
+  const identity=tx.objectStore("identity").get("current");
+  const pending=tx.objectStore("pairing").get("pending-device");
+  const prekeys=tx.objectStore("prekeys").getAll(undefined,ARCHIVE_MAX_ROWS+1);
+  const messages=tx.objectStore("messages").getAll(undefined,ARCHIVE_MAX_ROWS+1);
+  const contacts=tx.objectStore("contacts").getAll(undefined,ARCHIVE_MAX_ROWS+1);
+  const outbox=tx.objectStore("outbox").getAll(undefined,ARCHIVE_MAX_ROWS+1);
+  tx.oncomplete=()=>{
+   try{
+    if(!identity.result||[prekeys,messages,contacts,outbox].some(r=>r.result.length>ARCHIVE_MAX_ROWS))throw Error("Inventaire hors limites : aucune donnée supprimée.");
+    resolve({identity:identity.result,pending:pending.result??null,prekeys:prekeys.result,messages:messages.result,contacts:contacts.result,outbox:outbox.result});
+   }catch(e){reject(e);}finally{db.close();}
+  };
+  tx.onabort=()=>{db.close();reject(Error("Capture interrompue."));};
+  tx.onerror=()=>{db.close();reject(Error("Capture locale impossible."));};
+ });
 }

@@ -4,8 +4,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
 import { randomToken } from "@/lib/quantic/crypto";
-import { getLocalIdentity, installRecoveredIdentity, inspectLocalMigration, type LocalIdentity } from "@/lib/quantic/local-db";
+import { getLocalIdentity, installRecoveredIdentity, inspectLocalMigration, captureMigrationSnapshot, type LocalIdentity } from "@/lib/quantic/local-db";
 import type { MigrationInventory } from "@/lib/quantic/migration-inventory";
+import {prepareMigrationArchive,sealMigrationArchive,openMigrationArchive,migrationArchiveSummary,ARCHIVE_MAX_BYTES} from "@/lib/quantic/migration-archive";
 import { exportIdentityVault, importIdentityVault } from "@/lib/quantic/vault";
 
 function downloadTextFile(filename: string, text: string) {
@@ -31,6 +32,9 @@ export function IdentityVaultApp() {
   const [restorePassword, setRestorePassword] = useState("");
   const [restoreAddress, setRestoreAddress] = useState("");
   const [restoreFile, setRestoreFile] = useState<File | null>(null);
+  const [archiveFile,setArchiveFile]=useState<File|null>(null);
+  const [archivePassword,setArchivePassword]=useState("");
+  const [archiveAddress,setArchiveAddress]=useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -69,6 +73,32 @@ export function IdentityVaultApp() {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function exportMigration(){
+    if(busy)return;
+    setBusy(true);setError("");setNotice("");
+    try{
+      if(exportPassword!==exportConfirm)throw Error("Les phrases secrètes ne correspondent pas.");
+      const s=prepareMigrationArchive(await captureMigrationSnapshot());
+      if(s.identity.canonicalAddress!==identity?.canonicalAddress)throw Error("Identité locale modifiée.");
+      const text=await sealMigrationArchive(s,exportPassword);
+      const verified=await openMigrationArchive(text,exportPassword,s.identity.canonicalAddress!);
+      if(JSON.stringify(verified)!==JSON.stringify(s))throw Error("Vérification de l’archive échouée.");
+      downloadTextFile("quantic-migration.qma",text);
+      setNotice("Archive chiffrée créée et relue. Vérifiez le fichier téléchargé séparément. Aucune migration ni suppression.");
+    }catch(e){setError(e instanceof Error?e.message:"Archive impossible.");}
+    finally{setExportPassword("");setExportConfirm("");setBusy(false);}
+  }
+  async function verifyMigration(event:FormEvent){
+    event.preventDefault();setBusy(true);setNotice("");setError("");
+    try{
+      if(!archiveFile||archiveFile.size>Math.ceil((ARCHIVE_MAX_BYTES+16)/3)*4+512)throw Error("Fichier absent ou trop volumineux.");
+      const a=await openMigrationArchive(await archiveFile.text(),archivePassword,archiveAddress.trim());
+      const s=migrationArchiveSummary(a);
+      setNotice(`Archive lisible : ${s.messages} messages, ${s.prekeys} prekeys, ${s.contacts} contacts, ${s.outbox} envois, matériel PQ ${s.pqMaterial?"présent":"absent"}. Aucune réactivation ni restauration de compte.`);
+    }catch{setError("Archive non vérifiée : fichier, phrase secrète ou adresse incorrects.");}
+    finally{setArchivePassword("");setBusy(false);}
   }
 
   async function restoreVault(event: FormEvent) {
@@ -147,6 +177,8 @@ export function IdentityVaultApp() {
                 <label htmlFor="vault-confirm">Confirmer</label>
                 <input id="vault-confirm" type="password" minLength={14} maxLength={1024} value={exportConfirm} onChange={(e) => setExportConfirm(e.target.value)} autoComplete="new-password" required />
                 <button disabled={busy}>{busy ? "Chiffrement…" : "Exporter mon identité"}</button>
+                <button type="button" disabled={busy} onClick={()=>void exportMigration()}>Exporter une archive de migration chiffrée</button>
+                <p className="qn-footnote">Archive distincte : clés historiques, matériel PQ et données locales, sans jetons de session. Ne permet pas de réactiver un compte ni de réutiliser une prekey consommée. Limite de 16 Mio avant chiffrement.</p>
               </form>
             </section>
           </div>
@@ -169,6 +201,18 @@ export function IdentityVaultApp() {
           </div>
         )}
 
+        <section className="qn-vault-section">
+          <h2>Vérifier une archive de migration</h2>
+          <form className="qn-vault-form" onSubmit={verifyMigration}>
+            <label htmlFor="migration-file">Archive .qma</label>
+            <input id="migration-file" type="file" accept=".qma,application/json" onChange={e=>setArchiveFile(e.target.files?.[0]??null)} required/>
+            <label htmlFor="migration-address">Adresse canonique d’origine</label>
+            <input id="migration-address" value={archiveAddress} onChange={e=>setArchiveAddress(e.target.value)} maxLength={74} required/>
+            <label htmlFor="migration-password">Phrase secrète</label>
+            <input id="migration-password" type="password" value={archivePassword} onChange={e=>setArchivePassword(e.target.value)} minLength={14} maxLength={1024} required/>
+            <button disabled={busy}>Vérifier sans restaurer</button>
+          </form>
+        </section>
         {(error || notice) && <p className={error ? "qn-error" : "qn-notice"}>{error || notice}</p>}
         <div className="qn-vault-warning">
           <strong>À retenir</strong>

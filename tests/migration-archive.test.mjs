@@ -1,0 +1,31 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import {generateKeyPairSync} from "node:crypto";
+import {prepareMigrationArchive,sealMigrationArchive,openMigrationArchive,migrationArchiveSummary} from "../lib/quantic/migration-archive.ts";
+import {encryptForRecipientCore,decryptEnvelopeCore} from "../lib/quantic/envelope-crypto.mjs";
+const pass="synthetic long archive secret only";
+const pair=()=>generateKeyPairSync("ec",{namedCurve:"prime256v1"});
+const address="alice~"+"a".repeat(32)+"@quantic";
+test("encrypted migration snapshot preserves historical decryptability without copying bearer tokens",async()=>{
+ const p=pair(),q=pair();
+ const pub=k=>k.publicKey.export({format:"jwk"}),priv=k=>k.privateKey.export({format:"jwk"});
+ const snap={identity:{canonicalAddress:address,privateKey:priv(p),publicKey:pub(p),authToken:"LIVE_TOKEN",pqc:{mlKemPrivateKeyPkcs8:"synthetic",mlDsaPrivateKeyPkcs8:"synthetic"}},pending:{authToken:"PENDING_TOKEN",privateKey:priv(q)},prekeys:[{privateKey:priv(q),publicKey:pub(q),state:"claimed"}],messages:[{id:"m",body:"historic plaintext"}],contacts:[{handle:"bob"}],outbox:[{id:"out"}]};
+ const archive=prepareMigrationArchive(snap);
+ const text=await sealMigrationArchive(archive,pass);
+ assert.ok(!text.includes("historic plaintext"));assert.ok(!text.includes("LIVE_TOKEN"));
+ const r=await openMigrationArchive(text,pass,address);
+ assert.deepEqual(r,archive);assert.equal(snap.identity.authToken,"LIVE_TOKEN");assert.ok(!JSON.stringify(r).includes("PENDING_TOKEN"));
+ assert.deepEqual(await decryptEnvelopeCore(r.identity.privateKey,await encryptForRecipientCore(pub(p),{body:"old mail"})),{body:"old mail"});
+ assert.deepEqual(await decryptEnvelopeCore(r.prekeys[0].privateKey,await encryptForRecipientCore(pub(q),{body:"old prekey mail"})),{body:"old prekey mail"});
+ assert.equal(r.prekeys[0].state,"claimed");
+ assert.equal(migrationArchiveSummary(r).liveRestoreAuthorized,false);
+ await assert.rejects(openMigrationArchive(text,"wrong password long enough",address));
+ await assert.rejects(openMigrationArchive(text,pass,"bob~"+"b".repeat(32)+"@quantic"));
+ const bad=JSON.parse(text),c=Buffer.from(bad.ciphertext,"base64");c[0]^=1;bad.ciphertext=c.toString("base64");
+ await assert.rejects(openMigrationArchive(JSON.stringify(bad),pass,address));
+ bad.iterations=1;await assert.rejects(openMigrationArchive(JSON.stringify(bad),pass,address));
+});
+test("archive rejects incomplete identity and credentials inserted into archive",async()=>{
+ assert.throws(()=>prepareMigrationArchive({identity:{},pending:null,prekeys:[],messages:[],contacts:[],outbox:[]}));
+ await assert.rejects(sealMigrationArchive({identity:{canonicalAddress:address,privateKey:{},publicKey:{},authToken:"x"},pending:null,prekeys:[],messages:[],contacts:[],outbox:[]},pass));
+});
