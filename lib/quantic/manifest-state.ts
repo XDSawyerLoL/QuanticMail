@@ -130,6 +130,9 @@ export async function assertCurrentManifestDeviceActive(canonicalAddress: string
   if (registryStatus().configured) {
     try {
       const remote = await loadRegistryManifest(canonical);
+      // Publication can advance the local high-water mark while the remote read
+      // is pending. Re-read it before accepting any response.
+      current = getCachedManifest(canonical);
       if (!remote && current) throw new Error("Checkpoint durable absent.");
       if (remote) {
         assertVerified(remote);
