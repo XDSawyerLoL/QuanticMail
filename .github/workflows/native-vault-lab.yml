@@ -86,6 +86,7 @@ jobs:
             mingw-w64-ucrt-x86_64-gcc
             mingw-w64-ucrt-x86_64-pkgconf
             mingw-w64-ucrt-x86_64-openssl
+            mingw-w64-ucrt-x86_64-nsis
       - name: Compile and exercise real Windows PQ provider
         shell: msys2 {0}
         working-directory: labs/quantic-native/vault
@@ -197,18 +198,26 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      - name: Build and exercise single-file unsigned native laboratory installer
+      - name: Compile single-file unsigned native laboratory installer
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          dir="$(cygpath -u "$RUNNER_TEMP")/QuanticMail-Windows-PQ-Lab"
+          exe="$(cygpath -u "$RUNNER_TEMP")/Quantic-Sillage-Alpha-UNSIGNED.exe"
+          pacman -Q mingw-w64-ucrt-x86_64-nsis
+          test -x /ucrt64/bin/makensis.exe
+          manifest_pin="$(sha256sum --binary "$dir/SHA256SUMS.txt" | cut -d ' ' -f 1)"
+          vault_pin="$(sha256sum --binary "$dir/bin/Vault-PQ-lab.exe" | cut -d ' ' -f 1)"
+          export MSYS2_ARG_CONV_EXCL='*'
+          /ucrt64/bin/makensis.exe "/DOUTPUT_EXE=$(cygpath -w "$exe")" "/DPACKAGE_DIR=$(cygpath -w "$dir")" "/DBUILD_ID=$(printf %.12s "$GITHUB_SHA")" "/DMANIFEST_PIN=$manifest_pin" "/DVAULT_PIN=$vault_pin" "$(cygpath -w scripts/Quantic-Sillage-Alpha.nsi)"
+          test -s "$exe"
+      - name: Exercise single-file unsigned native laboratory installer
         shell: pwsh
         run: |
           $dir = Join-Path $env:RUNNER_TEMP "QuanticMail-Windows-PQ-Lab"
           $exe = Join-Path $env:RUNNER_TEMP "Quantic-Sillage-Alpha-UNSIGNED.exe"
-          $nsis = Join-Path ${env:ProgramFiles(x86)} "NSIS\makensis.exe"
-          if (-not (Test-Path -LiteralPath $nsis)) { throw "NSIS build tool unavailable; no installer published" }
           $build = $env:GITHUB_SHA.Substring(0,12)
           $manifestPin = (Get-FileHash -LiteralPath "$dir\SHA256SUMS.txt" -Algorithm SHA256).Hash
-          $vaultPin = (Get-FileHash -LiteralPath "$dir\bin\Vault-PQ-lab.exe" -Algorithm SHA256).Hash
-          & $nsis "/DOUTPUT_EXE=$exe" "/DPACKAGE_DIR=$dir" "/DBUILD_ID=$build" "/DMANIFEST_PIN=$manifestPin" "/DVAULT_PIN=$vaultPin" "scripts\Quantic-Sillage-Alpha.nsi"
-          if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $exe)) { throw "Native installer build failed" }
           $p = Start-Process -FilePath $exe -ArgumentList "/S" -Wait -PassThru
           if ($p.ExitCode -ne 0) { throw "Native installation failed" }
           $installed = Join-Path $env:LOCALAPPDATA "QuanticSillage\Alpha-$build\app"
