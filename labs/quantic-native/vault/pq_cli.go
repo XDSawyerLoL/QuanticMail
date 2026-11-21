@@ -111,7 +111,12 @@ func pqCLI(args []string) (bool, error) {
 		if e != nil {
 			return true, e
 		}
-		proof, e := a.loadDualLocalProof(args[14], id)
+		var proof *dualLocalProof
+		if args[14]=="auto" {
+			proof,e=a.fetchDualLocalProof(id,len(j.seen),j.tail)
+		} else {
+			proof,e=a.loadDualLocalProof(args[14],id)
+		}
 		if e != nil { return true, e }
 		a.localProof = proof
 		if e = j.attachAnchor(a, id); e != nil {

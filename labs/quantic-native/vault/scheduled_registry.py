@@ -91,3 +91,26 @@ class ScheduledRegistry:
         if not row or row[1] or not result['active'] or json.loads(row[0])!=p['manifest'] or old!=(p['issued'],p['expires']):raise ValueError('revoked or divergent durable state')
         expiry=min(p['expires'],time.time_ns()//1000000+int((MAX_AGE-age)*1000))
         return dict(sequence=result['sequence'],digest=result['digest'],expires=expiry,**pq.vote(c,identity,result,expected))
+
+    def public_proof(self,c,identity,expected):
+        # Explicit startup read only; no refresh or network request triggered.
+        if not self.dual_feed or not expected:raise ValueError('dual proof mode required')
+        vote=self.vote(c,identity,expected)
+        with self.lock:s=self.snapshot
+        if s is None:raise ValueError('no current proof')
+        p,result,_=s
+        import base64
+        import pq_dual_authority as dual
+        from cryptography.hazmat.primitives.asymmetric import ec
+        from cryptography.hazmat.primitives import serialization
+        grant=p.get('pqProfile')
+        r=dual.root(c,identity);st=dual.staged(c,identity)
+        if not grant or not r or not st or not grant['payload']['active']:raise ValueError('no active proof')
+        if grant['payload']['sequence']!=vote['profileSequence'] or st[:2]!=(vote['profileSequence'],dual.sha(pq.canonical(grant['payload']))) or dual.combined_digest(r[0],st[1])!=vote['profileDigest']:raise ValueError('proof state diverged')
+        point=p['manifest']['payload']['identitySigningPublicKey']
+        def dec(s):return base64.urlsafe_b64decode(s+'='*(-len(s)%4))
+        key=ec.EllipticCurvePublicNumbers(int.from_bytes(dec(point['x']),'big'),int.from_bytes(dec(point['y']),'big'),ec.SECP256R1()).public_key()
+        def enc(b):return base64.b64encode(b).decode()
+        wire=dict(sequence=st[0],classicalRoot=enc(key.public_bytes(serialization.Encoding.DER,serialization.PublicFormat.SubjectPublicKeyInfo)),pqRoot=enc(r[1]),classicalSignature=grant['signature'],pqSignature=enc(st[2]))
+        self.vote(c,identity,expected)
+        return wire

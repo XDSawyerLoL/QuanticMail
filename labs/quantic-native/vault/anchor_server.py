@@ -100,7 +100,7 @@ def serve(args):
             try:
                 if hashlib.sha256(self.connection.getpeercert(binary_form=True)).hexdigest()!=args.client_pin: return self.answer(403)
                 fresh_mode=bool(args.registry_url)
-                if self.path not in (('/compact-check','/compact-advance') if compact else ('/scheduled-check','/scheduled-advance') if scheduled else (('/fresh-check','/fresh-advance') if fresh_mode else ('/check','/advance'))):return self.answer(404)
+                if self.path not in (('/compact-check','/compact-advance')+ (('/compact-proof',) if dual_feed else ()) if compact else ('/scheduled-check','/scheduled-advance') if scheduled else (('/fresh-check','/fresh-advance') if fresh_mode else ('/check','/advance'))):return self.answer(404)
                 advance=self.path.endswith('advance')
                 n=int(self.headers.get('Content-Length','0'))
                 if not 1<=n<=1024 or self.headers.get('Transfer-Encoding'):return self.answer(400)
@@ -128,6 +128,7 @@ def serve(args):
                         c.execute('UPDATE checkpoint SET count=count+1,tail=? WHERE id=?',(nxt,p['id']))
                     if lease:rl.fresh(lease)
                     if scheduled:vote=worker.vote(c,p['id'],p.get('pqBinding'))
+                    if self.path=='/compact-proof':vote=worker.public_proof(c,p['id'],p.get('pqBinding'))
                     c.commit()
                 finally:c.close()
                 return self.answer(200,vote)

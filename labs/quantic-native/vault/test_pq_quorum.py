@@ -50,7 +50,9 @@ class PQ(Compact):
    bad=self.local/'bad-dual-proof.json';bad.write_text(json.dumps(altered));bad.chmod(0o600)
    rejected=LocalProcess(args[:-1]+[bad]);self.addCleanup(rejected.close);rejected.prompt(b' : ',PASSWORD,True);rejected.prompt(b' : ',PASSWORD,True);self.assertNotEqual(rejected.p.wait(timeout=12),0);self.assertEqual(rejected.p.stdout.read(),b'')
   print('native verifier rejected both independently corrupted signatures',flush=True)
+  args[-1]='auto'
   a=Controller(args,self.appkey);self.addCleanup(a.child.close);a.child.prompt(b' : ',PASSWORD,True);a.child.prompt(b' : ',PASSWORD,True);a.nonce=unb64(a.child.reply()['session']);p=a.q('public');pub=a.q('pq-public-lab');self.assertEqual(pub['pqKem'],pins['kemPublic']);self.assertEqual(pub['pqDsa'],pins['dsaPublic'])
+  print('native broker automatically verified proofs from three witnesses before fresh quorum',flush=True)
   self.assertFalse(a.q('mail-open-static-lab')['ok']);self.assertFalse(a.q('export')['ok'])
   def envelope():
    kem=self.local/'kem.der';ct=self.local/'ct';sec=self.local/'secret';kem.write_bytes(unb64(pub['pqKem']))
