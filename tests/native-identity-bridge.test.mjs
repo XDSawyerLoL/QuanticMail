@@ -211,3 +211,35 @@ test('integrated native relay with four real mTLS authorities, hybrid ciphertext
   if(scatteringBinary){await links.get(a).close();await assert.rejects(post('send',r,a));}
  }finally{await Promise.all([...links.values()].map(x=>x.close()));if(relay)await relay.close();await Promise.all(services.map(x=>x.close()));await rm(dir,{recursive:true,force:true});}
 });
+
+import {checkMigrationContinuity} from '../lib/quantic/migration-continuity.mjs';
+test('migration continuity requires both devices in the same newer signed hybrid snapshot without replacing old keys',async()=>{
+ const a=fixture('migrationalice'),n=fixture('newfixture'),old=structuredClone(a.bundle.manifest);
+ const p={...old.payload,sequence:2,devices:[...old.payload.devices,{...n.bundle.manifest.payload.devices[0],kind:'linked'}]};
+ const manifest={...old,payload:p,signature:sig(a.owner,canonicalManifestText(p)).toString('base64')};
+ const q={...a.bundle.profile.payload,sequence:2,identityManifestSequence:2,devices:[...a.bundle.profile.payload.devices,...n.bundle.profile.payload.devices]};
+ // New PQ root independently pinned; historical snapshot includes classical manifest only.
+ const rootKey=generateKeyPairSync('ml-dsa-65');
+ // A distinct test root is independently pinned below; the original archive has only the classical manifest.
+ q.identityMlDsaPublicKeySpki=spki(rootKey).toString('base64url');
+ const profileText=canonicalCryptoProfileText(q);
+ const pqSig=sign(null,Buffer.from(profileText),rootKey.privateKey).toString('base64url');
+ const profile={format:'quantic-crypto-profile',version:2,payload:q,signatures:{p256:sig(a.owner,profileText).toString('base64'),mlDsa65Self:pqSig}};
+ const base={...a.checkpoint,pqRootPin:sha(spki(rootKey)),manifestSequence:2,profileSequence:2,manifestDigest:sha(canonicalManifestText(p)),profileDigest:sha(profileText)};
+ const witnesses=Array.from({length:4},()=>generateKeyPairSync('ed25519'));
+ const trusted=witnesses.map(k=>({pin:sha(spki(k)),publicKey:spki(k).toString('base64url')}));
+ const newDeviceId=n.checkpoint.deviceId,oldDeviceId=a.checkpoint.deviceId;
+ const peerSource=async(address,deviceId)=>{
+  const t=Date.now(),request={address,deviceId,nonce:randomBytes(32).toString('hex'),expires:t+10000};
+  const state={format:'quantic-relay-state',version:3,savedAt:new Date(t).toISOString(),manifests:[[address,manifest]],cryptoProfiles:[[address,profile]]};
+  const policy=[{...base,deviceId:oldDeviceId,active:true},{...base,deviceId:newDeviceId,active:true}];
+  const votes=witnesses.map(k=>issueCheckpoint({state,policy,request,privateKey:k.privateKey,now:t}));
+  return {bundle:votes[0].bundle,checkpoint:verifyCheckpointQuorum(votes.map(v=>v.attestation),trusted,request,t)};
+ };
+ const opts={historicalManifest:old,address:a.checkpoint.address,oldDeviceId,newDeviceId,rootPin:a.checkpoint.rootPin,pqRootPin:base.pqRootPin,newDevicePins:[n.ds,n.enc,n.kem,n.dsa].map(k=>sha(spki(k))),peerSource};
+ const result=await checkMigrationContinuity(opts);
+ assert.equal(result.previousDeviceActive,true);assert.equal(result.newDeviceAttested,true);assert.equal(result.liveRestoreAuthorized,false);assert.equal(result.legacyDeletionAuthorized,false);
+ await assert.rejects(checkMigrationContinuity({...opts,newDevicePins:['f'.repeat(64),...opts.newDevicePins.slice(1)]}));
+ await assert.rejects(checkMigrationContinuity({...opts,pqRootPin:'f'.repeat(64)}));
+ await assert.rejects(checkMigrationContinuity({...opts,peerSource:async(address,id)=>id===newDeviceId?Promise.reject(Error('unavailable')):peerSource(address,id)}));
+});
