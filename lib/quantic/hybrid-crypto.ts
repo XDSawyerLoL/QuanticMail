@@ -9,7 +9,7 @@ export type HybridEnvelopeContext = {
 };
 
 const CANONICAL_ADDRESS = /^[a-z0-9][a-z0-9._-]{2,31}~(?:[0-9a-f]{10}|[0-9a-f]{32})@quantic$/;
-const DEVICE_ID = /^d-[0-9a-f]{10}$/;
+const DEVICE_ID = /^d-(?:[0-9a-f]{10}|[0-9a-f]{32})$/;
 const CLIENT_MESSAGE_ID = /^[A-Za-z0-9._:-]{8,100}$/;
 
 export function canonicalHybridContext(context: HybridEnvelopeContext) {
