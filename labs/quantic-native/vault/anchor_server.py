@@ -106,6 +106,7 @@ def serve(args):
                 if not 1<=n<=1024 or self.headers.get('Transfer-Encoding'):return self.answer(400)
                 p=json.loads(self.rfile.read(n)); keys={'id','count','tail'} | ({'record'} if advance else set())
                 if isinstance(p,dict) and 'pqBinding' in p and compact:keys.add('pqBinding')
+                if isinstance(p,dict) and ('contactId' in p or 'contactCommitment' in p) and dual_feed and self.path!='/compact-proof':keys.update(('contactId','contactCommitment'))
                 if not isinstance(p,dict) or set(p)!=keys or type(p['count']) is not int or not 0<=p['count']<=CAP or not all(valid_hash(p[k]) for k in keys-{'count'}):return self.answer(400)
                 lease=rl.pull(args.registry_url,args.registry_pin,p['id']) if fresh_mode and not scheduled else None
                 c=connection(args.db)
@@ -128,6 +129,10 @@ def serve(args):
                         c.execute('UPDATE checkpoint SET count=count+1,tail=? WHERE id=?',(nxt,p['id']))
                     if lease:rl.fresh(lease)
                     if scheduled:vote=worker.vote(c,p['id'],p.get('pqBinding'))
+                    if 'contactId' in p:
+                        if not p.get('pqBinding') or not vote:raise ValueError('PQ contact policy required')
+                        import contact_permission as cp
+                        vote['contactCommitment']=cp.require(c,p['id'],p['contactId'],p['contactCommitment'])
                     if self.path=='/compact-proof':vote=worker.public_proof(c,p['id'],p.get('pqBinding'))
                     c.commit()
                 finally:c.close()

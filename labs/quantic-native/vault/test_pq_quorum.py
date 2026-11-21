@@ -54,6 +54,26 @@ class PQ(Compact):
   recipient_kem_pub=subprocess.check_output(['openssl','pkey','-in',str(recipient_kem),'-pubout','-outform','DER'])
   directory=self.local/'sender-trust.json'
   directory.write_text(json.dumps([dict(address=from_addr,deviceId=from_dev,classicalSigningSpki=base64.b64encode(sender.public_key().public_bytes(serialization.Encoding.DER,serialization.PublicFormat.SubjectPublicKeyInfo)).decode(),mlDsaSigningSpki=base64.b64encode(sender_pub).decode(),classicalEncryptionSpki=base64.b64encode(recipient_ec.public_key().public_bytes(serialization.Encoding.DER,serialization.PublicFormat.SubjectPublicKeyInfo)).decode(),mlKemEncryptionSpki=base64.b64encode(recipient_kem_pub).decode(),expires=time.time_ns()//1000000+600000)]));directory.chmod(0o600)
+  import contact_permission as cp
+  import pq_dual_authority as dual
+  raw_contact=json.loads(directory.read_text())[0]
+  def compact_array(a):return json.dumps(a,separators=(',',':')).encode()
+  cid=cp.digest(compact_array(['quantic-contact-id-lab/v1',from_addr,from_dev]))
+  commitment=cp.digest(compact_array(['quantic-contact-keys-lab/v1',from_addr,from_dev]+[cp.digest(base64.b64decode(raw_contact[k])) for k in ('classicalSigningSpki','mlDsaSigningSpki','classicalEncryptionSpki','mlKemEncryptionSpki')]))
+  def permission(seq,active,indices):
+   now=time.time_ns()//1000000
+   payload=dict(contactId=cid,commitment=commitment,sequence=seq,issued=now,expires=now+600000,active=active)
+   raw=cp.canonical(payload);r,s=decode_dss_signature(self.root.sign(dual.message(self.id,raw),ec.ECDSA(hashes.SHA256())))
+   rootfile=self.local/'synthetic-pq-root.pem';rootfile.write_bytes(self.pqroot);rootfile.chmod(0o600)
+   msgfile=self.local/'contact-grant-message';msgfile.write_bytes(dual.message(self.id,raw))
+   sig=subprocess.check_output(['openssl','pkeyutl','-sign','-rawin','-inkey',str(rootfile),'-in',str(msgfile)])
+   rootfile.unlink()
+   grant=dict(payload=payload,classicalSignature=base64.b64encode(r.to_bytes(32,'big')+s.to_bytes(32,'big')).decode(),pqSignature=base64.b64encode(sig).decode())
+   for i in indices:
+    with closing(sqlite3.connect(self.nodes[i]['db'])) as conn,conn:
+     conn.execute('BEGIN IMMEDIATE');cp.stage(conn,self.id,grant)
+   return grant
+  initial_permission=permission(1,True,range(4))
   args.extend([self.rootpin,self.localproof,directory])
   wrong=LocalProcess(args[:-3]+['0'*64,self.localproof,directory]);self.addCleanup(wrong.close);wrong.prompt(b' : ',PASSWORD,True);wrong.prompt(b' : ',PASSWORD,True);self.assertNotEqual(wrong.p.wait(timeout=12),0);self.assertEqual(wrong.p.stdout.read(),b'');print('incorrect independent ML-DSA root pin refused',flush=True)
   original=json.loads(self.localproof.read_text())
@@ -113,5 +133,15 @@ class PQ(Compact):
   self.assertEqual(AESGCM(ak).decrypt(unb64(env['iv']),unb64(env['ciphertext']),(t+'\nquantic-aes-gcm-aad-v1').encode()),body)
   self.assertFalse(a.q('mail-seal-hybrid-lab',pqContext=outctx,message=b64(b'{"changed":true}'))['ok'])
   print('native outgoing encryption and both signatures independently verified, denied and replayed sends refused',flush=True)
-  self.assertFalse(a.q('pq-proof-lab',pqChallenge=b64(ch))['ok']);rev=self.grant(pins,2,False);self.publish_profile(rev,(0,1,2));self.wait_profile(2,1,(0,1,2));print('PQ-only revocation; classical manifest unchanged',flush=True);ctx,env=envelope();a.request('mail-open-hybrid-lab',pqContext=ctx,pqEnvelope=env,senderAuth=authenticate(ctx,env));a.child.prompt(b'[taper OUI] : ',b'OUI');self.assertNotEqual(a.child.p.wait(timeout=12),0);self.assertEqual(a.child.p.stdout.read(),b'');self.report()
+  permission(2,False,(0,1,2))
+  for i in range(3):
+   with closing(sqlite3.connect(self.nodes[i]['db'])) as conn,conn:
+    with self.assertRaises(ValueError):cp.stage(conn,self.id,initial_permission)
+  # Local contact still present; revocation blocks BOTH directions without
+  # advancing the journal or terminating the broker on a failed precheck.
+  a.request('mail-seal-hybrid-lab',pqContext={**outctx,'clientMessageId':'native-outgoing-revoked'},message=b64(body));a.child.prompt(b'[taper OUI] : ',b'OUI');self.assertFalse(a.child.reply()['ok'])
+  ctx,env=envelope();a.request('mail-open-hybrid-lab',pqContext=ctx,pqEnvelope=env,senderAuth=authenticate(ctx,env));a.child.prompt(b'[taper OUI] : ',b'OUI');self.assertFalse(a.child.reply()['ok'])
+  self.assertEqual(self.counts(),[3]*4)
+  print('contact-only revocation blocked incoming and outgoing; old signed permission refused',flush=True)
+  self.assertFalse(a.q('pq-proof-lab',pqChallenge=b64(ch))['ok']);rev=self.grant(pins,2,False);self.publish_profile(rev,(0,1,2));self.wait_profile(2,1,(0,1,2));print('PQ-only revocation; classical manifest unchanged',flush=True);a.request('pq-proof-lab',pqChallenge=b64(os.urandom(32)));a.child.prompt(b'[taper OUI] : ',b'OUI');self.assertNotEqual(a.child.p.wait(timeout=12),0);self.assertEqual(a.child.p.stdout.read(),b'');self.report()
 if __name__=='__main__':unittest.main(defaultTest='PQ.test_pq_gate',verbosity=2)

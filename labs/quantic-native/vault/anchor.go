@@ -30,6 +30,8 @@ type anchorRequest struct {
 	Tail      string `json:"tail"`
 	Record    string `json:"record,omitempty"`
 	PQBinding string `json:"pqBinding,omitempty"`
+	ContactID string `json:"contactId,omitempty"`
+	ContactCommitment string `json:"contactCommitment,omitempty"`
 }
 type checkpointAnchor interface {
 	check(id string, count int, tail [32]byte) error

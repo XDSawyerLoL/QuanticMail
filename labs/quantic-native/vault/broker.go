@@ -277,9 +277,11 @@ func serveGuardedPQ(s signer, key agreementKey, backend string, in io.Reader, ou
 			if already(h)||!json.Valid(plain){clear(plain);break}
 			if !approve("Envoi hybride de laboratoire vers "+c.To+" / "+c.ToDeviceID+" / contenu SHA256 "+hexHash(plain)){clear(plain);break}
 			if recipient.Expires<=time.Now().UnixMilli(){clear(plain);break}
+			if !journal.beginContact(recipient){clear(plain);break}
 			v,auth,err:=pq.sealOutgoing(s,c,recipient,plain);clear(plain)
-			if err!=nil{break}
-			if err=consume(h);err!=nil{return err}
+			if err!=nil{journal.endContact();break}
+			err=consume(h);journal.endContact()
+			if err!=nil{return err}
 			if recipient.Expires<=time.Now().UnixMilli(){return portableRefusal}
 			r=reply{OK:true,HybridEnvelope:&v,SenderAuth:&auth}
 		case "mail-open-hybrid-lab":
@@ -294,16 +296,16 @@ func serveGuardedPQ(s signer, key agreementKey, backend string, in io.Reader, ou
 			if !senders.verify(*q.PQContext,*v,q.SenderAuth,time.Now().UnixMilli()){break}
 			h := replayID("mail-hybrid-v1", []byte(ctx+"\x00"+v.Ephemeral.X+":"+v.Ephemeral.Y+":"+v.KEM+":"+v.IV+":"+v.Ciphertext))
 			if !already(h) && approve("Déchiffrement hybride de laboratoire, expéditeur connu : "+q.PQContext.From+" / "+q.PQContext.FromDeviceID+" / "+hex.EncodeToString(h[:])) {
-				if _,valid:=senders.contact(*q.PQContext,time.Now().UnixMilli());!valid{break}
+				contact,valid:=senders.contact(*q.PQContext,time.Now().UnixMilli());if !valid||!journal.beginContact(contact){break}
 				if plain, err := pq.open(key, *q.PQContext, *v); err == nil {
-					if err = consume(h); err != nil {
-						clear(plain)
-						return err
-					}
+					err=consume(h);journal.endContact()
+					if err!=nil{clear(plain);return err}
+					if contact.Expires<=time.Now().UnixMilli(){clear(plain);return portableRefusal}
 					msg := b64.EncodeToString(plain)
 					clear(plain)
 					r = reply{OK: true, Message: &msg}
 				}
+				journal.endContact()
 			}
 
 		case "public":

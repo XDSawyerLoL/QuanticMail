@@ -10,6 +10,7 @@ import (
 )
 
 type manifestVote struct {
+	ContactCommitment string `json:"contactCommitment,omitempty"`
 	Sequence        int64  `json:"sequence"`
 	Digest          string `json:"digest"`
 	Expires         int64  `json:"expires"`
@@ -32,6 +33,8 @@ type freshQuorum struct {
 	pqKemPin       string
 	pqDsaPin       string
 	localProof *dualLocalProof
+	contactID string
+	contactCommitment string
 }
 
 func (a *remoteAnchor) fresh(op string, p anchorRequest, scheduled, compact bool) (manifestVote, error) {
@@ -76,6 +79,7 @@ func (q *freshQuorum) accept(votes []manifestVote, now int64) error {
 	}
 	counts := map[version]int{}
 	for _, v := range votes {
+		if v.ContactCommitment!=q.contactCommitment{continue}
 		if v.Sequence < 1 || !hashRE.MatchString(v.Digest) || v.Expires <= now || v.Expires > now+30000 {
 			continue
 		}
@@ -114,6 +118,7 @@ func (q *freshQuorum) accept(votes []manifestVote, now int64) error {
 }
 func (q *freshQuorum) call(op string, p anchorRequest) error {
 	p.PQBinding = q.pqBinding
+	p.ContactID,p.ContactCommitment=q.contactID,q.contactCommitment
 	ch := make(chan manifestVote, 4)
 	for _, m := range q.q.members {
 		a, ok := m.(*remoteAnchor)
