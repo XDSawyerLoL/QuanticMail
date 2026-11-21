@@ -47,6 +47,13 @@ for(const [size,locked] of [[4,false],[4,true],[7,false],[16,false],[16,true]])t
   if(locked)assert.throws(()=>nodes[0].prepare({draft:b,round:1,viewCertificate}));
   const draft=locked?a:b,value=locked?av:bv;
   const p={scope,round:1,value,votes:nodes.slice(0,quorum).map(n=>n.prepare({draft,round:1,viewCertificate}))};
+  if(size>4){
+   now+=16000;
+   // A new preparation is stale even with a valid view; the existing
+   // 11/16 prepare certificate may still be committed before payer expiry.
+   assert.throws(()=>nodes[quorum].prepare({draft,round:1,viewCertificate}));
+   assert.throws(()=>nodes[0].commit({draft:locked?b:a,certificate:p}));
+  }
   const c={scope,round:1,value,votes:nodes.slice(0,quorum).map(n=>n.commit({draft,certificate:p}))};
   const certificate={prepared:p,commit:c};
   assert.throws(()=>chain.admitExact({...draft,admissionCertificate:{prepared:p,commit:{...c,votes:c.votes.slice(0,quorum-1)}}}));

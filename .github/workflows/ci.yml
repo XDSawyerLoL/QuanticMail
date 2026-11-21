@@ -28,6 +28,8 @@ jobs:
         run: QUANTIC_PAY_SCATTERING_TEST="$RUNNER_TEMP/Quantic-Pacer" node --test tests/pay-scattering.test.mjs tests/pay-witness-service.test.mjs tests/pay-round-service.test.mjs tests/pay-replica-service.test.mjs tests/pay-committee-recovery-service.test.mjs tests/pay-committee-vote-service.test.mjs
       - name: Pay 16 independent authority processes over native Scattering UDP (Node 24)
         run: QUANTIC_PAY_COMMITTEE_DISTRIBUTED_TEST="$RUNNER_TEMP/Quantic-Pacer" node --test --test-name-pattern='native UDP' tests/pay-committee-distributed.test.mjs
+      - name: Pay five adversarial fixture services over native Scattering UDP (Node 24)
+        run: QUANTIC_PAY_COMMITTEE_DISTRIBUTED_TEST="$RUNNER_TEMP/Quantic-Pacer" node --test --test-name-pattern='native UDP' tests/pay-committee-byzantine-network.test.mjs
       - run: npm run build
       - name: Build Hostinger static Mail surface
         run: |
