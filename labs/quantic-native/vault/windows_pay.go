@@ -140,8 +140,27 @@ func readPayLabHistory(dir string)([]payLabProof,error){
  if !vault{return nil,portableRefusal}
  return result,nil
 }
+func writePayQuorumConfig(dir,pin string,raw []byte)error{
+ if !hashRE.MatchString(pin)||len(raw)<1||len(raw)>32768||hexHash(raw)!=pin||!json.Valid(raw){return portableRefusal}
+ history,e:=readPayLabHistory(dir);if e!=nil||len(history)!=0{return portableRefusal}
+ vault,e:=winReadPrivate(filepath.Join(dir,"pay.vault"),50000);if e!=nil{return e};defer clear(vault)
+ if !bytes.HasPrefix(vault,[]byte(payMagic)){return portableRefusal}
+ return winWritePrivate(filepath.Join(dir,"pay-quorum.json"),raw)
+}
 func windowsPayCLI(args []string)(bool,error){
  if len(args)<2{return false,nil}
+ if args[1]=="--configure-windows-pay-quorum-lab"{
+  if len(args)!=4||!hashRE.MatchString(args[3]){return true,portableRefusal}
+  raw,e:=io.ReadAll(io.LimitReader(os.Stdin,32769));if e!=nil{return true,e};defer clear(raw)
+  if !winApprove("Import NEW fictional Pay quorum configuration, SHA256 "+args[3]+". No overwrite or real account."){return true,portableRefusal}
+  return true,writePayQuorumConfig(args[2],args[3],raw)
+ }
+ if args[1]=="--read-windows-pay-quorum-lab"{
+  if len(args)!=4||!hashRE.MatchString(args[3]){return true,portableRefusal}
+  raw,e:=winReadPrivate(filepath.Join(args[2],"pay-quorum.json"),32768);if e!=nil{return true,e};defer clear(raw)
+  if hexHash(raw)!=args[3]{return true,portableRefusal}
+  _,e=os.Stdout.Write(raw);return true,e
+ }
  if args[1]=="--read-windows-pay-history-lab"{
   if len(args)!=3{return true,portableRefusal}
   proofs,e:=readPayLabHistory(args[2]);if e!=nil{return true,e}

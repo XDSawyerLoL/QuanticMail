@@ -1,7 +1,7 @@
 # Explicit laboratory launcher. No installation or production login.
 [CmdletBinding()]
 param(
- [Parameter(Mandatory=$true)][ValidateSet("Providers","Open","RecoverOpen","Seal","RecoverSeal","ProbeLoopback","Send","Receive","RecoverReceive","ConfirmReceipt","StartBridge","Provision","Dashboard","DashboardCheck","MigrationCheck","MigrationHistory","PayLab","PayLabCheck","PayProvision","PayNative","PayQuorumDemo","PayQuorumCheck","PayNativeQuorum","PayHistoryCheck")][string]$Operation,
+ [Parameter(Mandatory=$true)][ValidateSet("Providers","Open","RecoverOpen","Seal","RecoverSeal","ProbeLoopback","Send","Receive","RecoverReceive","ConfirmReceipt","StartBridge","Provision","Dashboard","DashboardCheck","MigrationCheck","MigrationHistory","PayLab","PayLabCheck","PayProvision","PayNative","PayQuorumDemo","PayQuorumCheck","PayNativeQuorum","PayHistoryCheck","PayOperator","PayOperatorConfigure","StartPayBridge")][string]$Operation,
  [Parameter(Mandatory=$true)][ValidatePattern('^[a-fA-F0-9]{64}$')][string]$ExpectedManifestSha256,
  [string]$TrustedBinarySha256,
  [string]$PrivateDirectory,
@@ -12,7 +12,8 @@ param(
  [string]$CanonicalAddress,
  [string]$TrustedRootPin,
  [string]$PaySigningPin,
- [string]$PayPQPin
+ [string]$PayPQPin,
+ [string]$PayConfigPin
 )
 $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
@@ -44,6 +45,21 @@ if ($Operation -in @("Dashboard","DashboardCheck")) {
  $uiArgs = @("-NoProfile","-STA","-File",$ui,"-ExpectedManifestSha256",$ExpectedManifestSha256,"-TrustedBinarySha256",$TrustedBinarySha256)
  if ($Operation -eq "DashboardCheck") { $uiArgs += "-SelfTest" }
  & $shell @uiArgs
+ exit $LASTEXITCODE
+}
+if ($Operation -in @("PayOperator","PayOperatorConfigure")) {
+ if (-not $PrivateDirectory -or $PayConfigPin -cnotmatch '^[a-f0-9]{64}$') { throw "Private Pay directory and independent configuration pin required." }
+ $payArgs=@((Join-Path $root "scripts\quantic-pay-operator.mjs"),$vault,$TrustedBinarySha256.ToLowerInvariant(),$PrivateDirectory,$PayConfigPin)
+ if ($Operation -eq "PayOperatorConfigure") {
+  if (-not $InputFile) { throw "Protected configuration source required." }
+  $payArgs+=@("configure",$InputFile)
+ }else{$payArgs+="run"}
+ & $node @payArgs
+ exit $LASTEXITCODE
+}
+if ($Operation -eq "StartPayBridge") {
+ if (-not $PrivateDirectory) { throw "Separate Pay carrier directory required." }
+ & $node --experimental-transform-types (Join-Path $root "scripts\serve-native-scattering-windows.mjs") $vault $TrustedBinarySha256.ToLowerInvariant() $PrivateDirectory pay-lab
  exit $LASTEXITCODE
 }
 if ($Operation -eq "PayNativeQuorum") {

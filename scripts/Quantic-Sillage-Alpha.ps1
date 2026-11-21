@@ -33,7 +33,10 @@ $actions=@(
  @{Id="PayNative";Title="Quantic Pay - simulation avec coffre natif";Hint="Empreintes publiques independantes requises. Aucun transfert reel.";Scope=$true},
  @{Id="PayQuorumDemo";Title="Quantic Pay - simulation quorum 3/4";Hint="Quatre temoins locaux en memoire. Aucune autorite externe ni argent reel."},
  @{Id="PayNativeQuorum";Title="Quantic Pay - coffre natif + quorum local";Hint="NOUVEAU dossier de test obligatoire. Temoins locaux non persistants.";Scope=$true},
- @{Id="PayHistoryCheck";Title="Quantic Pay - verifier historique natif";Hint="Lecture seule des preuves signees. Aucune validation distante.";Scope=$true}
+ @{Id="PayHistoryCheck";Title="Quantic Pay - verifier historique natif";Hint="Lecture seule des preuves signees. Aucune validation distante.";Scope=$true},
+ @{Id="PayOperator";Title="Quantic Pay - portefeuille avec quatre temoins";Hint="Coffre configure et quatre ponts actifs requis. Simulation.";Scope=$true},
+ @{Id="StartPayBridge";Title="Quantic Pay - demarrer pont dedie";Hint="Transport Pay uniquement. Dossier Scattering distinct deja configure.";Scope=$true},
+ @{Id="PayOperatorConfigure";Title="Quantic Pay - importer configuration";Hint="Nouveau coffre fictif, configuration privee et empreinte independante.";Scope=$true}
 )
 function New-OperationArguments($Action,[string]$Directory,[string]$InputName,[string]$OutputName) {
  $a=@("-Operation",$Action.Id,"-ExpectedManifestSha256",$ExpectedManifestSha256,"-TrustedBinarySha256",$TrustedBinarySha256.ToLowerInvariant())
@@ -114,7 +117,7 @@ $run.Add_Click({
 $choice.SelectedIndex=0
 if ($SelfTest) {
  try {
-  if($choice.Items.Count -ne 20 -or -not $inputName.Enabled -or -not $outputName.Enabled){throw "Dashboard initialization failed"}
+  if($choice.Items.Count -ne 23 -or -not $inputName.Enabled -or -not $outputName.Enabled){throw "Dashboard initialization failed"}
   $a=New-OperationArguments $actions[0] "C:\Quantic Lab\vault" "draft-test.json" "wire-test.json"
   if($a -notcontains "C:\Quantic Lab\vault\draft-test.json" -or $a -notcontains "C:\Quantic Lab\vault\wire-test.json"){throw "Wrong arguments"}
   $rejected=$false
@@ -131,6 +134,14 @@ try {
   $script:selectedArguments=$null;$script:selectedAction=$null
   if ($form.ShowDialog() -ne [Windows.Forms.DialogResult]::OK) { break }
   $operationArgs=$script:selectedArguments
+  if ($script:selectedAction -in @("PayOperator","PayOperatorConfigure")) {
+   $configPin=Read-Host "Empreinte SHA256 independante de la configuration Pay"
+   $operationArgs+=@("-PayConfigPin",$configPin)
+   if ($script:selectedAction -eq "PayOperatorConfigure") {
+    $configSource=Read-Host "Chemin absolu de la configuration privee"
+    $operationArgs+=@("-InputFile",$configSource)
+   }
+  }
   if ($script:selectedAction -in @("PayNative","PayHistoryCheck")) {
    $signPin=Read-Host "Empreinte SHA256 P-256 du coffre Pay"
    $pqPin=Read-Host "Empreinte SHA256 ML-DSA-65 du coffre Pay"

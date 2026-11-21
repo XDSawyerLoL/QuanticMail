@@ -165,6 +165,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Packaged Pay quorum simulation failed" }
           & "$dir\runtime\node.exe" --check "$dir\scripts\quantic-pay-native-quorum.mjs"
           if ($LASTEXITCODE -ne 0) { throw "Packaged native Pay quorum syntax failed" }
+          & "$dir\runtime\node.exe" --check "$dir\scripts\quantic-pay-operator.mjs"
+          if ($LASTEXITCODE -ne 0) { throw "Packaged Pay operator syntax failed" }
       - name: Windows native Scattering mailbox loopback using packaged binaries
         shell: pwsh
         run: |

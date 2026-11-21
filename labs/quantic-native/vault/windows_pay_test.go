@@ -12,6 +12,10 @@ func TestWindowsPayLab(t *testing.T){
   pin:=s;if string(bad)==string(pw){pin=strings.Repeat("f",64)}
   if _,e=openPayLabKeys(raw,bad,pin,d);e==nil{t.Fatal("invalid unlock")}
  }
+ cfg:=[]byte("{\"simulationOnly\":true}")
+ if e=writePayQuorumConfig(dir,strings.Repeat("a",64),cfg);e==nil{t.Fatal("configuration pin mismatch")}
+ if e=writePayQuorumConfig(dir,hexHash(cfg),cfg);e!=nil{t.Fatal("configuration refused",e)}
+ if e=writePayQuorumConfig(dir,hexHash(cfg),cfg);e==nil{t.Fatal("configuration overwritten")}
  k,e:=openPayLabKeys(raw,pw,s,d);if e!=nil{t.Fatal(e)};defer k.close()
  n:=time.Now().UnixMilli();i:=payLabIntent{"demo-shop",250,strings.Repeat("a",64),n,n+120000}
  if _,e=signPayLab(k,i,n,false);e==nil{t.Fatal("no consent")}
