@@ -112,3 +112,57 @@ test('four pinned mTLS authorities deliver real signed checkpoints and refuse tw
   await assert.rejects(source(a.checkpoint.address,a.checkpoint.deviceId));
  }finally{await Promise.all(services.map(s=>s.close()));await rm(dir,{recursive:true,force:true});}
 });
+
+import {startRelayServer} from '../standalone-relay/server.ts';
+import {createIdentityChallenge,registerIdentity} from '../lib/quantic/relay.ts';
+import {nativeRecordDigest} from '../lib/quantic/native-mailbox.mjs';
+test('native relay persists encrypted record, exact retry, acknowledgement and recovery across restart',async()=>{
+ const dir=await mkdtemp(join(tmpdir(),'quantic-native-mailbox-'));
+ const a=fixture('queuealice'),b=fixture('queuebob');
+ const fixtures=[a,b];
+ const source=async(address,deviceId)=>{
+  const f=fixtures.find(x=>x.checkpoint.address===address&&x.checkpoint.deviceId===deviceId);
+  if(!f)throw Error('unknown device');
+  return {bundle:f.bundle,checkpoint:{...f.checkpoint,expires:Date.now()+10000}};
+ };
+ let relay;
+ const start=()=>startRelayServer({host:'127.0.0.1',port:0,dataDir:dir,nativePeerSource:source});
+ const authToken=f=>sha('synthetic-token-'+f.checkpoint.address);
+ function register(f){
+  const p=f.bundle.manifest.payload;
+  const input={handle:p.canonicalAddress,publicKey:p.identityPublicKey,signingPublicKey:p.identitySigningPublicKey};
+  const c=createIdentityChallenge(input);
+  const r=registerIdentity({...input,deviceId:f.checkpoint.deviceId,authToken:authToken(f),challenge:c.challenge,signature:sig(f.owner,c.challenge).toString('base64')});
+  assert.equal(r.canonicalAddress,f.checkpoint.address);assert.equal(r.rootDeviceId,f.checkpoint.deviceId);
+ }
+ function makeRecord(){
+  const context={clientMessageId:'native-durable-0001',from:a.checkpoint.address,fromDeviceId:a.checkpoint.deviceId,to:b.checkpoint.address,toDeviceId:b.checkpoint.deviceId};
+  const envelope={cryptoSuite:'QNT-HYB-P256-MLKEM768-HKDFSHA256-AES256GCM-1',keyMode:'hybrid-static-fallback',classicalEphemeralPublicKey:pk(ec()),pqKemCiphertext:randomBytes(1088).toString('base64url'),iv:randomBytes(12).toString('base64url'),ciphertext:randomBytes(32).toString('base64url')};
+  const raw=nativeSenderTranscript(context,envelope);
+  return {format:'quantic-native-mail',version:1,context,envelope,senderAuth:{classicalSignature:sig(a.ds,raw).toString('base64url'),pqSignature:sign(null,raw,a.dsa.privateKey).toString('base64url')}};
+ }
+ const target=f=>({address:f.checkpoint.address,deviceId:f.checkpoint.deviceId});
+ const post=async(op,body,f)=>{
+  const res=await fetch(relay.url+'/api/quantic/native/v1/'+op,{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+authToken(f)},body:JSON.stringify(body)});
+  return [res.status,await res.json()];
+ };
+ try{
+  relay=await start();register(a);register(b);
+  const r=makeRecord(),changed=makeRecord();
+  assert.notEqual((await post('send',r,b))[0],202);
+  const [code,saved]=await post('send',r,a);assert.equal(code,202);assert.equal(saved.digest,nativeRecordDigest(r));assert.equal(saved.duplicate,false);
+  await relay.close();relay=undefined;relay=await start();
+  const [retryCode,retry]=await post('send',r,a);assert.equal(retryCode,202);assert.equal(retry.id,saved.id);assert.equal(retry.duplicate,true);
+  assert.equal((await post('send',changed,a))[0],409);
+  const [pullCode,pull]=await post('pull',target(b),b);assert.equal(pullCode,200);assert.deepEqual(pull.item.record,r);
+  const ack={...target(b),id:saved.id,digest:saved.digest};
+  assert.notEqual((await post('ack',ack,a))[0],200);
+  assert.equal((await post('ack',{...ack,digest:'0'.repeat(64)},b))[0],409);
+  assert.equal((await post('ack',ack,b))[0],200);
+  await relay.close();relay=undefined;relay=await start();
+  assert.equal((await post('pull',target(b),b))[1].item,null);
+  assert.deepEqual((await post('recover',ack,b))[1].item.record,r);
+  const [lastCode,last]=await post('send',r,a);assert.equal(lastCode,202);assert.equal(last.status,'acknowledged');assert.equal(last.id,saved.id);
+  assert.equal((await post('send',changed,a))[0],409);
+ }finally{if(relay)await relay.close();await rm(dir,{recursive:true,force:true});}
+});

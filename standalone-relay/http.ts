@@ -1,3 +1,4 @@
+import { nativeMailboxOperation } from "../lib/quantic/native-mailbox-http.mjs";
 import { hasUnsupportedNativeFields } from "../lib/quantic/legacy-native-boundary.mjs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 
@@ -249,6 +250,7 @@ async function flushPendingReceipts(runtime: RelayRuntime) {
 export function createRelayRequestHandler(
   runtime: RelayRuntime,
   federation?: RelayHttpFederationContext,
+  nativePeerSource?: (address: string, deviceId: string) => Promise<unknown>,
 ) {
   return async function relayRequestHandler(request: IncomingMessage, response: ServerResponse) {
     applyCors(response);
@@ -260,6 +262,28 @@ export function createRelayRequestHandler(
 
       if (!path.startsWith("/api/quantic/")) {
         json(response, 404, { error: "Route Quantic introuvable." });
+        return;
+      }
+
+      if (path.startsWith("/api/quantic/native/v1/")) {
+        // Explicit opt-in, local trusted client only. Never accept a checkpoint
+        // or authority key supplied by the sender or its HTTP request.
+        response.removeHeader("Access-Control-Allow-Origin");
+        response.removeHeader("Access-Control-Allow-Methods");
+        response.removeHeader("Access-Control-Allow-Headers");
+        response.removeHeader("Access-Control-Max-Age");
+        response.setHeader("Cache-Control","no-store");
+        const respond=(status:number,payload:unknown)=>{
+          response.statusCode=status;response.setHeader("Content-Type","application/json; charset=utf-8");response.end(JSON.stringify(payload));
+        };
+        if (!nativePeerSource || request.socket.remoteAddress!=="127.0.0.1" || request.headers.origin || request.headers["sec-fetch-site"]) {respond(403,{error:"Native local uniquement."});return;}
+        const op=path.slice("/api/quantic/native/v1/".length);
+        if(method!=="POST"||!["send","pull","ack","recover"].includes(op)){respond(405,{error:"Opération native non autorisée."});return;}
+        try{
+          const body=await readJsonBody(request);
+          const result=await nativeMailboxOperation(runtime,nativePeerSource,op,body,bearer(request));
+          respond(op==="send"?202:200,result);
+        }catch(error){respond(error instanceof RelayError||error instanceof RelayHttpRequestError?error.status:503,{error:"Opération native refusée."});}
         return;
       }
 

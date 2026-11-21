@@ -24,6 +24,7 @@ export type RelayServerOptions = {
   identitySecret?: string;
   publicEndpoint?: string;
   bootstrapEndpoints?: string[];
+  nativePeerSource?: (address: string, deviceId: string) => Promise<unknown>;
 };
 
 export type RunningRelayServer = {
@@ -61,6 +62,7 @@ export async function startRelayServer(
   const port = options.port ?? 8787;
   const dataDir = options.dataDir ?? "./data";
   validateServerPort(port);
+  if(options.nativePeerSource&&host!=="127.0.0.1")throw Error("Native laboratory requires loopback relay.");
 
   const databaseUrl = options.databaseUrl?.trim() || "";
   if (options.sharedAuthRateLimit && !databaseUrl) throw new Error("Le contrôle partagé exige PostgreSQL.");
@@ -81,7 +83,7 @@ export async function startRelayServer(
   const relayHandler = createRelayRequestHandler(runtime, {
     identity: relayIdentity,
     getPublicEndpoint: () => publicEndpoint,
-  });
+  },options.nativePeerSource);
   const discoveryHandler = createDiscoveryRequestHandler(runtime, {
     localRelayId: relayIdentity.relayId,
   });
