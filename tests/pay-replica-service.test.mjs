@@ -20,7 +20,7 @@ async function port(){const s=createServer();await new Promise(r=>s.listen(0,'12
 for(const native of [false,true])test('permanent replica processes advance successive heights and catch up through '+(native?'native Scattering UDP':'local HTTP'),{skip:process.platform!=='linux'||(native&&!process.env.QUANTIC_PAY_SCATTERING_TEST),timeout:240000},async()=>{
  const root=realpathSync(mkdtempSync(join(tmpdir(),'pay-replica-service-'))),nodes=[],links=[];
  const ids=['demo-alice','demo-bob','demo-shop'],wallets=ids.map(()=>pair('ec')),witnesses=Array.from({length:4},()=>pair('ed25519'));
- const config={wallets:ids.map((id,i)=>({id,initialCents:i===0?10000:0,...pub(wallets[i])})),witnesses:witnesses.map(pub)};
+ const config={admissionPolicy:'quorum-v1',wallets:ids.map((id,i)=>({id,initialCents:i===0?10000:0,...pub(wallets[i])})),witnesses:witnesses.map(pub)};
  let chain,clients,epoch=0;
  async function start(n){
   n.proc=spawn(process.execPath,[script,'serve',n.file],{stdio:['ignore','pipe','pipe']});
@@ -37,8 +37,11 @@ for(const native of [false,true])test('permanent replica processes advance succe
   return {intent,signature:sign('sha256',raw,{key:k.cl.privateKey,dsaEncoding:'ieee-p1363'}).toString('base64url'),pqSignature:sign(null,raw,k.pq.privateKey).toString('base64url')};
  }
  async function settle(from,to,cents,active){
-  const info=chain.admit([proposal(from,to,cents)]),{admission}=chain.admission(),scope=info.scope,value=info.candidates[0].value;
-  const members=active.map(i=>clients[i]);
+  const proof=proposal(from,to,cents),draft={proposals:[proof],admissionTime:Date.now()},members=active.map(i=>clients[i]);
+  const endorsements=await Promise.all(members.map(c=>c.voteAdmission(draft)));
+  assert.throws(()=>chain.admitExact({...draft,endorsements:endorsements.slice(0,2)}));
+  const admission={...draft,endorsements};
+  const {info}=chain.admitExact(admission),scope=info.scope,value=info.candidates[0].value;
   await Promise.all(members.map(async c=>assert.equal((await c.admit(admission)).scope,scope)));
   const p={scope,round:0,value,votes:await Promise.all(members.map(c=>c.prepare({scope,input:{round:0,value}})))};
   const commit={scope,round:0,value,votes:await Promise.all(members.map(c=>c.commitVote({scope,input:p})))};

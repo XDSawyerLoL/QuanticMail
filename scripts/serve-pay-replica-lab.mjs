@@ -35,10 +35,11 @@ async function main(){
  if(process.argv[2]==='provision'){store.close();console.log('PROVISIONED PAY REPLICA LAB');return;}
  const auth=Buffer.from('Bearer '+c.token);delete c.token;
  let busy=false;
- const upload=createRoundUpload({validate:payload=>check(exact(payload,['op','input'])&&['prepare','learn'].includes(payload.op))});
+ const upload=createRoundUpload({validate:payload=>check(exact(payload,['op','input'])&&['prepare','learn','admit'].includes(payload.op))});
  const download=createRoundDownload({readRecord:height=>store.record(height)});
  function dispatch(op,input){
   if(op==='status'){check(input===null);return store.status();}
+  if(op==='voteAdmission')return store.voteAdmission(input);
   if(op==='admit')return store.admit(input);
   if(op==='prepare')return store.prepare(input);
   if(op==='changeView')return store.changeView(input);
@@ -60,8 +61,8 @@ async function main(){
    const body=JSON.parse(new TextDecoder('utf8',{fatal:true}).decode(Buffer.concat(chunks,n)));
    check(body?.simulationOnly===true);
    check(exact(body,['simulationOnly','scope','input'])&&body.scope===network);
-   const action={'/api/quantic/pay-replica-lab/v1/status':'status','/api/quantic/pay-replica-lab/v1/admit':'admit','/api/quantic/pay-replica-lab/v1/prepare':'prepare','/api/quantic/pay-replica-lab/v1/change-view':'changeView','/api/quantic/pay-replica-lab/v1/commit':'commit','/api/quantic/pay-replica-lab/v1/learn':'learn','/api/quantic/pay-replica-lab/v1/upload-begin':'uploadBegin','/api/quantic/pay-replica-lab/v1/upload-chunk':'uploadChunk','/api/quantic/pay-replica-lab/v1/upload-finish':'uploadFinish','/api/quantic/pay-replica-lab/v1/record-begin':'recordBegin','/api/quantic/pay-replica-lab/v1/record-chunk':'recordChunk'}[req.url];
-   if(!['status','admit','prepare','changeView','commit','learn','uploadBegin','uploadChunk','uploadFinish','recordBegin','recordChunk'].includes(action)){send(404,{});return;}
+   const action={'/api/quantic/pay-replica-lab/v1/status':'status','/api/quantic/pay-replica-lab/v1/admit':'admit','/api/quantic/pay-replica-lab/v1/vote-admission':'voteAdmission','/api/quantic/pay-replica-lab/v1/prepare':'prepare','/api/quantic/pay-replica-lab/v1/change-view':'changeView','/api/quantic/pay-replica-lab/v1/commit':'commit','/api/quantic/pay-replica-lab/v1/learn':'learn','/api/quantic/pay-replica-lab/v1/upload-begin':'uploadBegin','/api/quantic/pay-replica-lab/v1/upload-chunk':'uploadChunk','/api/quantic/pay-replica-lab/v1/upload-finish':'uploadFinish','/api/quantic/pay-replica-lab/v1/record-begin':'recordBegin','/api/quantic/pay-replica-lab/v1/record-chunk':'recordChunk'}[req.url];
+   if(!['status','voteAdmission','admit','prepare','changeView','commit','learn','uploadBegin','uploadChunk','uploadFinish','recordBegin','recordChunk'].includes(action)){send(404,{});return;}
    let output;
    if(action==='uploadBegin')output=upload.begin(body.input);
    else if(action==='uploadChunk')output=upload.chunk(body.input);
