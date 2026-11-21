@@ -117,11 +117,13 @@ test('four pinned mTLS authorities deliver real signed checkpoints and refuse tw
 import {startRelayServer} from '../standalone-relay/server.ts';
 import {createIdentityChallenge,registerIdentity} from '../lib/quantic/relay.ts';
 import {nativeRecordDigest} from '../lib/quantic/native-mailbox.mjs';
-test('integrated native relay with four real mTLS authorities, hybrid ciphertext, exact retry, ack and restart',async()=>{
+import {startNativeScatteringLink} from './helpers/native-scattering-link.mjs';
+const scatteringBinary=process.env.QUANTIC_INTEGRATED_SCATTERING_BINARY;
+test('integrated native relay with four real mTLS authorities, hybrid ciphertext, exact retry, ack and restart'+(scatteringBinary?' via two independent native UDP links':''),{timeout:180000},async()=>{
  const dir=await mkdtemp(join(tmpdir(),'quantic-native-mailbox-'));
  const a=fixture('queuealice'),b=fixture('queuebob');
  const fixtures=[a,b],services=[];
- let source,relay;
+ let source,relay,relayPort=0;const links=new Map();
  const policy=fixtures.map(f=>({...f.checkpoint,active:true}));
  // Distinct keys and actual mTLS transport. The test supplies fresh fixture
  // snapshots, not production policy updates or independent physical hosts.
@@ -141,7 +143,8 @@ test('integrated native relay with four real mTLS authorities, hybrid ciphertext
   }
   source=await createAttestedPeerSource({authorities,caFile:join(dir,'ca.crt'),clientCertFile:join(dir,'client.crt'),clientKeyFile:join(dir,'client.key')});
  }
- const start=()=>startRelayServer({host:'127.0.0.1',port:0,dataDir:dir,nativePeerSource:source});
+ const start=()=>startRelayServer({host:'127.0.0.1',port:relayPort,dataDir:dir,nativePeerSource:source});
+ const endpoint=f=>{if(scatteringBinary){const link=links.get(f);assert.ok(link,'No direct HTTP fallback');return link.url;}return relay.url;};
  const authToken=f=>sha('synthetic-token-'+f.checkpoint.address);
  function register(f){
   const p=f.bundle.manifest.payload;
@@ -176,16 +179,20 @@ test('integrated native relay with four real mTLS authorities, hybrid ciphertext
  }
  const target=f=>({address:f.checkpoint.address,deviceId:f.checkpoint.deviceId});
  const post=async(op,body,f)=>{
-  const res=await fetch(relay.url+'/api/quantic/native/v1/'+op,{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+authToken(f)},body:JSON.stringify(body)});
+  const res=await fetch(new URL('/api/quantic/native/v1/'+op,endpoint(f)),{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+authToken(f)},body:JSON.stringify(body)});
   return [res.status,await res.json()];
  };
  try{
   await setupAuthorities();relay=await start();register(a);register(b);
+  if(scatteringBinary){
+   relayPort=Number(new URL(relay.url).port);assert.ok(relayPort>0);
+   for(const [idx,f] of fixtures.entries())links.set(f,await startNativeScatteringLink({dir:join(dir,'carrier-'+idx),binary:scatteringBinary,relayPort}));
+  }
   const r=makeRecord(),changed=makeRecord();
   assert.notEqual((await post('send',r,b))[0],202);
   const [code,saved]=await post('send',r,a);assert.equal(code,202);assert.equal(saved.digest,nativeRecordDigest(r));assert.equal(saved.duplicate,false);
   await relay.close();relay=undefined;relay=await start();
-  const client=createNativeMailboxClient({endpoint:relay.url,address:a.checkpoint.address,deviceId:a.checkpoint.deviceId,token:authToken(a)});
+  const client=createNativeMailboxClient({endpoint:endpoint(a),address:a.checkpoint.address,deviceId:a.checkpoint.deviceId,token:authToken(a)});
   const retry=await client.send(r);assert.equal(retry.id,saved.id);assert.equal(retry.duplicate,true);
   assert.equal((await post('send',changed,a))[0],409);
   const [pullCode,pull]=await post('pull',target(b),b);assert.equal(pullCode,200);assert.deepEqual(pull.item.record,r);assert.deepEqual(decryptRecord(pull.item.record),plaintext);
@@ -201,5 +208,6 @@ test('integrated native relay with four real mTLS authorities, hybrid ciphertext
   policy[1].active=false;
   assert.notEqual((await post('send',r,a))[0],202);
   assert.notEqual((await post('pull',target(b),b))[0],200);
- }finally{if(relay)await relay.close();await Promise.all(services.map(x=>x.close()));await rm(dir,{recursive:true,force:true});}
+  if(scatteringBinary){await links.get(a).close();await assert.rejects(post('send',r,a));}
+ }finally{await Promise.all([...links.values()].map(x=>x.close()));if(relay)await relay.close();await Promise.all(services.map(x=>x.close()));await rm(dir,{recursive:true,force:true});}
 });
