@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createLocalQuorumDemo} from '../scripts/quantic-pay-quorum-demo.mjs';
+import {createLocalQuorumDemo,createLocalWitnessFlow} from '../scripts/quantic-pay-quorum-demo.mjs';
 const operation={payeeId:'demo-shop',amount:'2.50',explicitConsent:true};
 test('three separated witness states confirm two synthetic payments',async()=>{
  const flow=createLocalQuorumDemo({available:()=>[0,1,2]});
@@ -20,4 +20,12 @@ test('two pre-votes refuse confirmation; uncertain post-votes lock session witho
 test('split witness history refuses post-confirmation even with four signatures',async()=>{
  const flow=createLocalQuorumDemo({available:phase=>phase==='append'?[0,1]:[0,1,2,3]});
  await assert.rejects(flow.confirm(operation));assert.equal(flow.snapshot().halted,true);assert.equal(flow.snapshot().proofCount,0);
+});
+
+test('externally supplied signer is not called without a fresh pre-quorum; no local key fallback',async()=>{
+ let signed=0;
+ const flow=createLocalWitnessFlow({scope:{signingPin:'1'.repeat(64),pqPin:'2'.repeat(64)},available:()=>[0,1],signProof:async()=>{signed++;throw Error('must not sign')}});
+ await assert.rejects(flow.confirm(operation));assert.equal(signed,0);assert.equal(flow.snapshot().halted,true);
+ const second=createLocalWitnessFlow({scope:{signingPin:'1'.repeat(64),pqPin:'2'.repeat(64)},signProof:async()=>{signed++;throw Error('native refused')}});
+ await assert.rejects(second.confirm(operation));assert.equal(signed,1);assert.equal(second.snapshot().balanceCents,10000);assert.equal(second.snapshot().halted,true);
 });

@@ -31,7 +31,8 @@ $actions=@(
  @{Id="PayLab";Title="Quantic Pay - laboratoire";Hint="Portefeuille et paiements strictement fictifs. Aucune valeur monetaire."},
  @{Id="PayProvision";Title="Quantic Pay - creer le coffre";Hint="Nouveau dossier prive et phrase secrete distincte. Cles fictives." ;Scope=$true},
  @{Id="PayNative";Title="Quantic Pay - simulation avec coffre natif";Hint="Empreintes publiques independantes requises. Aucun transfert reel.";Scope=$true},
- @{Id="PayQuorumDemo";Title="Quantic Pay - simulation quorum 3/4";Hint="Quatre temoins locaux en memoire. Aucune autorite externe ni argent reel."}
+ @{Id="PayQuorumDemo";Title="Quantic Pay - simulation quorum 3/4";Hint="Quatre temoins locaux en memoire. Aucune autorite externe ni argent reel."},
+ @{Id="PayNativeQuorum";Title="Quantic Pay - coffre natif + quorum local";Hint="NOUVEAU dossier de test obligatoire. Temoins locaux non persistants.";Scope=$true}
 )
 function New-OperationArguments($Action,[string]$Directory,[string]$InputName,[string]$OutputName) {
  $a=@("-Operation",$Action.Id,"-ExpectedManifestSha256",$ExpectedManifestSha256,"-TrustedBinarySha256",$TrustedBinarySha256.ToLowerInvariant())
@@ -112,7 +113,7 @@ $run.Add_Click({
 $choice.SelectedIndex=0
 if ($SelfTest) {
  try {
-  if($choice.Items.Count -ne 18 -or -not $inputName.Enabled -or -not $outputName.Enabled){throw "Dashboard initialization failed"}
+  if($choice.Items.Count -ne 19 -or -not $inputName.Enabled -or -not $outputName.Enabled){throw "Dashboard initialization failed"}
   $a=New-OperationArguments $actions[0] "C:\Quantic Lab\vault" "draft-test.json" "wire-test.json"
   if($a -notcontains "C:\Quantic Lab\vault\draft-test.json" -or $a -notcontains "C:\Quantic Lab\vault\wire-test.json"){throw "Wrong arguments"}
   $rejected=$false
