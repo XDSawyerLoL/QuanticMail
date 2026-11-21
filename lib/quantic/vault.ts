@@ -121,15 +121,15 @@ async function assertKeyPairs(payload: VaultIdentityPayload) {
   if (!await crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, verification, signature, challenge)) {
     throw new Error("Paire de signature incohérente dans le coffre.");
   }
-  const own = await crypto.subtle.importKey("jwk", privateKey, { name: "ECDH", namedCurve: "P-256" }, false, ["deriveBits"]);
+  // Existing Quantic ECDH JWKs have key_ops=["deriveKey"], not "deriveBits".
+  const own = await crypto.subtle.importKey("jwk", privateKey, { name: "ECDH", namedCurve: "P-256" }, false, ["deriveKey"]);
   const pub = await crypto.subtle.importKey("jwk", publicKey, { name: "ECDH", namedCurve: "P-256" }, false, []);
-  const ephemeral = await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, false, ["deriveBits"]);
-  const a = new Uint8Array(await crypto.subtle.deriveBits({ name: "ECDH", public: ephemeral.publicKey }, own, 256));
-  const b = new Uint8Array(await crypto.subtle.deriveBits({ name: "ECDH", public: pub }, ephemeral.privateKey, 256));
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= a[i] ^ b[i];
-  a.fill(0); b.fill(0);
-  if (diff !== 0) throw new Error("Paire de chiffrement incohérente dans le coffre.");
+  const ephemeral = await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, false, ["deriveKey"]);
+  const a = await crypto.subtle.deriveKey({ name: "ECDH", public: ephemeral.publicKey }, own, { name: "AES-GCM", length: 256 }, false, ["encrypt"]);
+  const b = await crypto.subtle.deriveKey({ name: "ECDH", public: pub }, ephemeral.privateKey, { name: "AES-GCM", length: 256 }, false, ["decrypt"]);
+  const iv = toArrayBuffer(randomBytes(12));
+  const encrypted = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, a, challenge);
+  await crypto.subtle.decrypt({ name: "AES-GCM", iv }, b, encrypted);
 }
 
 function parseEnvelope(text: string): VaultEnvelope {
