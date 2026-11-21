@@ -1,0 +1,39 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {createHash,generateKeyPairSync,sign} from 'node:crypto';
+import {verifyMigrationArchiveOffline} from '../lib/quantic/migration-proof-node.mjs';
+import {prepareMigrationArchive,sealMigrationArchive} from '../lib/quantic/migration-archive.ts';
+import {canonicalManifestText} from '../lib/quantic/manifest-core.mjs';
+import {deviceIdForPublicKeyNode,fingerprintPublicKeyNode} from '../lib/quantic/manifest-node.mjs';
+import {generateMlKem768KeyPair,generateMlDsa65KeyPair} from '../lib/quantic/pqc-runtime-node.ts';
+const pass='synthetic archive recovery only';
+const pair=()=>generateKeyPairSync('ec',{namedCurve:'prime256v1'});
+const pub=k=>k.publicKey.export({format:'jwk'}),priv=k=>k.privateKey.export({format:'jwk'});
+const date='2026-11-21T00:00:00.000Z';
+function fixture(){
+ const root=pair(),enc=pair(),device=pair(),prekey=pair(),kem=generateMlKem768KeyPair(),dsa=generateMlDsa65KeyPair();
+ const fingerprint=fingerprintPublicKeyNode(pub(root),32),canonicalAddress='alice~'+fingerprint+'@quantic',deviceId=deviceIdForPublicKeyNode(pub(enc),32);
+ const payload={version:1,sequence:1,canonicalAddress,handle:'alice',fingerprint,identityPublicKey:pub(enc),identitySigningPublicKey:pub(root),devices:[{deviceId,label:'Offline fixture',publicKey:pub(enc),deviceSigningPublicKey:pub(device),kind:'root',issuedAt:date}],revocations:[],issuedAt:date};
+ const manifest={format:'quantic-identity-manifest',version:1,payload,signature:sign('sha256',Buffer.from(canonicalManifestText(payload)),{key:root.privateKey,dsaEncoding:'ieee-p1363'}).toString('base64')};
+ const identity={role:'root',handle:'alice',canonicalAddress,fingerprint,deviceId,publicKey:pub(enc),privateKey:priv(enc),signingPublicKey:pub(root),signingPrivateKey:priv(root),deviceSigningPublicKey:pub(device),deviceSigningPrivateKey:priv(device),manifest,pqc:{version:1,mlKemPublicKeySpki:kem.publicKeySpki,mlKemPrivateKeyPkcs8:kem.privateKeyPkcs8,mlDsaPublicKeySpki:dsa.publicKeySpki,mlDsaPrivateKeyPkcs8:dsa.privateKeyPkcs8},authToken:'never-exported'};
+ const archive=prepareMigrationArchive({identity,pending:null,prekeys:[{version:1,canonicalAddress,deviceId,preKeyId:'old-1',state:'claimed',publicKey:pub(prekey),privateKey:priv(prekey)}],messages:[],contacts:[],outbox:[]});
+ return {archive,scope:{expectedAddress:canonicalAddress,trustedRootPin:createHash('sha256').update(root.publicKey.export({format:'der',type:'spki'})).digest('hex')}};
+}
+test('offline migration verifies original root, manifest and real classical plus PQ key possession without cutover',async()=>{
+ const {archive,scope}=fixture();
+ const result=await verifyMigrationArchiveOffline(await sealMigrationArchive(archive,pass),pass,scope);
+ assert.equal(result.historicalRootPinVerified,true);assert.equal(result.rootPrivateKeyVerified,true);assert.equal(result.deviceKeyPossessionVerified,true);assert.equal(result.postQuantumKeyPairsVerified,true);assert.equal(result.prekeyPairsVerified,1);
+ assert.equal(result.liveRestoreAuthorized,false);assert.equal(result.legacyDeletionAuthorized,false);
+ assert.ok(!JSON.stringify(result).includes(archive.identity.privateKey.d));
+});
+test('valid archive encryption cannot authorize mismatched root, substituted device or PQ keys',async()=>{
+ const {archive,scope}=fixture();
+ const text=await sealMigrationArchive(archive,pass);
+ await assert.rejects(verifyMigrationArchiveOffline(text,pass,{...scope,trustedRootPin:'f'.repeat(64)}));
+ const key=pair();const bad=structuredClone(archive);bad.identity.privateKey=priv(key);
+ await assert.rejects(verifyMigrationArchiveOffline(await sealMigrationArchive(bad,pass),pass,scope));
+ const badPQ=structuredClone(archive);badPQ.identity.pqc.mlKemPrivateKeyPkcs8=generateMlKem768KeyPair().privateKeyPkcs8;
+ await assert.rejects(verifyMigrationArchiveOffline(await sealMigrationArchive(badPQ,pass),pass,scope));
+ const stale=structuredClone(archive);stale.identity.manifest.payload.sequence=2;
+ await assert.rejects(verifyMigrationArchiveOffline(await sealMigrationArchive(stale,pass),pass,scope));
+});
