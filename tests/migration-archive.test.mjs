@@ -29,3 +29,18 @@ test("archive rejects incomplete identity and credentials inserted into archive"
  assert.throws(()=>prepareMigrationArchive({identity:{},pending:null,prekeys:[],messages:[],contacts:[],outbox:[]}));
  await assert.rejects(sealMigrationArchive({identity:{canonicalAddress:address,privateKey:{},publicKey:{},authToken:"x"},pending:null,prekeys:[],messages:[],contacts:[],outbox:[]},pass));
 });
+
+test("recovered ML-KEM and ML-DSA material performs real historical operations",async()=>{
+ const pq=await import("../lib/quantic/pqc-runtime-node.ts");
+ const kem=pq.generateMlKem768KeyPair(),dsa=pq.generateMlDsa65KeyPair(),p=pair();
+ const secret=pq.mlKemEncapsulate(kem.publicKeySpki);
+ const identity={canonicalAddress:address,publicKey:p.publicKey.export({format:"jwk"}),privateKey:p.privateKey.export({format:"jwk"}),authToken:"exclude",pqc:{version:1,mlKemPublicKeySpki:kem.publicKeySpki,mlKemPrivateKeyPkcs8:kem.privateKeyPkcs8,mlDsaPublicKeySpki:dsa.publicKeySpki,mlDsaPrivateKeyPkcs8:dsa.privateKeyPkcs8,createdAt:new Date().toISOString()}};
+ const a=prepareMigrationArchive({identity,pending:null,prekeys:[],messages:[],contacts:[],outbox:[]});
+ const restored=await openMigrationArchive(await sealMigrationArchive(a,pass),pass,address);
+ const m=restored.identity.pqc;
+ assert.deepEqual(pq.mlKemDecapsulate(m.mlKemPrivateKeyPkcs8,secret.ciphertext),secret.sharedSecret);
+ const data=Buffer.from("synthetic historical recovery challenge");
+ const signature=pq.mlDsaSign(m.mlDsaPrivateKeyPkcs8,data);
+ assert.equal(pq.mlDsaVerify(dsa.publicKeySpki,data,signature),true);
+ assert.equal(pq.mlDsaVerify(dsa.publicKeySpki,Buffer.from("changed"),signature),false);
+});

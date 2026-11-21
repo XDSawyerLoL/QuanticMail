@@ -35,10 +35,10 @@ function validate(v:unknown):asserts v is MigrationArchive{
 }
 export function prepareMigrationArchive(s:MigrationSnapshot):MigrationArchive{
  // Preserve captured records exactly except explicitly excluded live bearer secrets.
- const identity={...s.identity};delete (identity as Partial<LocalIdentity>).authToken;
- const pending=s.pending?{...s.pending}:null;
+ const identity=structuredClone(s.identity);delete (identity as Partial<LocalIdentity>).authToken;
+ const pending=s.pending?structuredClone(s.pending):null;
  if(pending)delete (pending as Partial<LocalPendingDevice>).authToken;
- const v={identity,pending,prekeys:s.prekeys,messages:s.messages,contacts:s.contacts,outbox:s.outbox};
+ const v={identity,pending,prekeys:structuredClone(s.prekeys),messages:structuredClone(s.messages),contacts:structuredClone(s.contacts),outbox:structuredClone(s.outbox)};
  validate(v);return v;
 }
 export async function sealMigrationArchive(v:MigrationArchive,p:string){
