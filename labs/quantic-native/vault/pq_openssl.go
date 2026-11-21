@@ -1,4 +1,4 @@
-//go:build linux && cgo && pqopenssl
+//go:build (linux || windows) && cgo && pqopenssl
 
 package main
 

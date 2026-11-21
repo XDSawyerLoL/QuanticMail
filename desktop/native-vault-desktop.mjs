@@ -28,7 +28,7 @@ async function choose(dialog,title){
 }
 const message=(dialog,options)=>dialog.showMessageBox({title:'QuanticMail · Coffre natif local',noLink:true,...options});
 export async function runNativeDesktop(dialog,{connect=connectNativeVault,mailboxConnect}={}){
-  let controller,output,receiptKey,recoverDraft=false;
+  let controller,output,receiptKey,draftOutputPath,recoverDraft=false;
   try{
     const action=await message(dialog,{type:'info',message:'Mode local expérimental',detail:'Identités de test uniquement. Aucune connexion à la page Web. Le terminal du coffre demandera le mot de passe et le consentement. Les anciennes clés restent intactes.',buttons:['Lire une enveloppe','Signer une inscription','Quitter'],defaultId:2,cancelId:2});
     if(action.response!==0&&action.response!==1)return 'cancelled';
@@ -109,7 +109,8 @@ export async function runNativeDesktop(dialog,{connect=connectNativeVault,mailbo
         const save=await dialog.showSaveDialog({title:'Enveloppe native chiffrée et signée'});
         if(save.canceled||!save.filePath)return 'cancelled';
         if(!isAbsolute(save.filePath))throw Error('absolute output required');
-        output=await open(save.filePath,'wx',0o600);
+        draftOutputPath=save.filePath;
+        output=await open(draftOutputPath,'wx',0o600);
       }
       controller=await connect(config);
       if(choice.response===0){
@@ -119,7 +120,7 @@ export async function runNativeDesktop(dialog,{connect=connectNativeVault,mailbo
       }else{
         const sealed=await controller.sealHybrid(record.context,record.payload,{recover:recoverDraft});
         await output.writeFile(JSON.stringify(sealed)+'\n','utf8');await output.sync();await output.close();output=undefined;
-        await syncReceiptDirectory(save.filePath);
+        await syncReceiptDirectory(draftOutputPath);
         await message(dialog,{type:'info',message:'Enveloppe native enregistrée',detail:'Chiffrée et signée. Non envoyée ; conservez le brouillon.',buttons:['Fermer']});
       }
       return 'completed';

@@ -76,3 +76,22 @@ test('receipt encryption binds account, message ID and digest and refuses modifi
  for(const bad of [{...a,digest:'e'.repeat(64)},{...a,tag:Buffer.alloc(16).toString('base64url')},{...a,address:'bobby~'+'a'.repeat(32)+'@quantic'}])assert.throws(()=>openReceipt(key,scope,bad));
  assert.throws(()=>openReceipt(randomBytes(32),scope,a));key.fill(0);
 });
+
+test('native outgoing result is durably saved and confirmed, including explicit exact recovery',()=>fixture(async({cfg,dir})=>{
+ const address='alice~'+'a'.repeat(32)+'@quantic',deviceId='d-'+'b'.repeat(32);
+ const context={clientMessageId:'synthetic-001',from:address,fromDeviceId:deviceId,to:'bobby~'+'c'.repeat(32)+'@quantic',toDeviceId:'d-'+'d'.repeat(32)};
+ const payload={subject:'test',body:'synthetic'};
+ const draft=join(dir,'draft.json');
+ await writeFile(cfg,JSON.stringify({labOnly:true,pqMode:{enabled:true,address,deviceId}}),{mode:0o600});
+ await writeFile(draft,JSON.stringify({context,payload}),{mode:0o600});
+ const sealed={format:'fixture',context,ciphertext:'not-a-real-message'};
+ const options=[];
+ const connect=async()=>({sealHybrid:async(c,p,o)=>{assert.deepEqual(c,context);assert.deepEqual(p,payload);options.push(o);return sealed;},close(){}});
+ for(const approval of [1,2]){
+  const save=join(dir,'sealed-'+approval+'.json'),dialog=dialogFor({files:[cfg,draft],responses:[0,1,approval],save});
+  assert.equal(await runNativeDesktop(dialog,{connect}),'completed');
+  assert.deepEqual(JSON.parse(await readFile(save,'utf8')),sealed);
+  assert.match(dialog.seen.at(-1).message,/Enveloppe native enregistrée/);
+ }
+ assert.deepEqual(options,[{recover:false},{recover:true}]);
+}));

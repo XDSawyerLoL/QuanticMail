@@ -59,10 +59,10 @@
   "vault/portable.go": "9558a10dd10d3aaafbc82057aa4a75b42b5942d313d2685d3e3769f591330390",
   "vault/pq_cli.go": "b45aa69b7f84b609640d2b66b1637533d3cb860416738580ab4cca24b346eae1",
   "vault/pq_dual_authority.py": "7528d09bc1f2eafb8c4f42f9dec7a839d1f688a1bd0820df07a77504f0942809",
-  "vault/pq_openssl.go": "f6a26bdaf520092b8a2089d3936a91c03b76d168ad0177a45a1e32e57e0bac6d",
+  "vault/pq_openssl.go": "68aeefdef213eed92225bc18ebbe0fa4d02a1c7b1fb09b48225109edace7b424",
   "vault/pq_outgoing.go": "60b73af5d2c9a07a9465d2ff62a2551cb591a92058ba2f22233be9c4c3173835",
   "vault/pq_profile.py": "be123df1c07105a1cc43961259b9717c6892a17545269bad1e1c703ee862ff6d",
-  "vault/pq_stub.go": "a995252916662864c318837cd5e98bdaf434c71a52a3a8d734808a8c26da4f9c",
+  "vault/pq_stub.go": "a0595465280564a6a70de755bdd5b8178e7a3b9d633cf4f32d5fb91ef31fa633",
   "vault/pq_vault.go": "6bc484c7a83687705e62bf591a3bfb6497ef445bdfe1620288dc78ab50bba4bf",
   "vault/registry_lease.py": "b8c0ceaa258daba882a543070559986c51f36beb945e63adcae33328d2b105c4",
   "vault/replay_test.go": "3dbb49444b7f31c56f6813a2ecd265e2444123586448fc256f36aba2ba095bc8",
@@ -96,5 +96,6 @@
   "vault/TEST_TPM_PERSISTENT.py": "099a3f9e4d9445ccac600608b7c0186ed6f0a9d14f5faedda9e35b63e2564846",
   "vault/tests/dual-enrollment.test.mjs": "b237d536238557d52b226baa05bceb7d9045715c079bd02a7d4a8e43e2bc2ced",
   "vault/tests/isolated-enrollment.test.mjs": "3c90b9b3ce5522877b175176a372508834719a7447a28f342d0296df00d93e7f",
-  "vault/tests/native-enrollment.test.mjs": "a07c4711d5a7a18f5ee48f969fcf07b4e81ecab5771e11739c3f93a91c011807"
+  "vault/tests/native-enrollment.test.mjs": "a07c4711d5a7a18f5ee48f969fcf07b4e81ecab5771e11739c3f93a91c011807",
+  "vault/pq_provider_test.go": "581ecc1f153d9bfff1c60ffb059f86827a898b5d0817f3e3cebca800154f7171"
 }
