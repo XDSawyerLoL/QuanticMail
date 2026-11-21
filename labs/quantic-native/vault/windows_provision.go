@@ -52,6 +52,7 @@ func winProvisionVaultLocal(dir,app,quorum,addr string,pw,pqPassword,controller 
  return map[string]string{"backend":"windows-software-pq-storage-lab","address":addr,"deviceId":device,"signingPin":s,"encryptionPin":a,"kemPin":p.kemPin,"dsaPin":p.dsaPin,"signing":b64.EncodeToString(elliptic.Marshal(elliptic.P256(),k.signing.X,k.signing.Y)),"encryption":b64.EncodeToString(point),"kemPublic":b64.EncodeToString(p.kemPub),"dsaPublic":b64.EncodeToString(p.dsaPub),"status":"local-provision-only-not-enrolled"},nil
 }
 func windowsVaultCLI(args []string)(bool,error){
+ if handled,e:=windowsPayCLI(args);handled{return true,e}
  if len(args)>1&&args[1]=="--windows-import-lab-file"{return true,winImportCLI(args)}
  if handled,e:=winScatteringCLI(args);handled{return true,e}
  if handled,e:=winClientIO(args);handled{return true,e}

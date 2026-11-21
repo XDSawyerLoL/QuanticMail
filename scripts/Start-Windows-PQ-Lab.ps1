@@ -1,7 +1,7 @@
 # Explicit laboratory launcher. No installation or production login.
 [CmdletBinding()]
 param(
- [Parameter(Mandatory=$true)][ValidateSet("Providers","Open","RecoverOpen","Seal","RecoverSeal","ProbeLoopback","Send","Receive","RecoverReceive","ConfirmReceipt","StartBridge","Provision","Dashboard","DashboardCheck","MigrationCheck","MigrationHistory","PayLab","PayLabCheck")][string]$Operation,
+ [Parameter(Mandatory=$true)][ValidateSet("Providers","Open","RecoverOpen","Seal","RecoverSeal","ProbeLoopback","Send","Receive","RecoverReceive","ConfirmReceipt","StartBridge","Provision","Dashboard","DashboardCheck","MigrationCheck","MigrationHistory","PayLab","PayLabCheck","PayProvision","PayNative")][string]$Operation,
  [Parameter(Mandatory=$true)][ValidatePattern('^[a-fA-F0-9]{64}$')][string]$ExpectedManifestSha256,
  [string]$TrustedBinarySha256,
  [string]$PrivateDirectory,
@@ -10,7 +10,9 @@ param(
  [string]$ControllerPublicKey,
  [string]$QuorumPin,
  [string]$CanonicalAddress,
- [string]$TrustedRootPin
+ [string]$TrustedRootPin,
+ [string]$PaySigningPin,
+ [string]$PayPQPin
 )
 $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
@@ -42,6 +44,16 @@ if ($Operation -in @("Dashboard","DashboardCheck")) {
  $uiArgs = @("-NoProfile","-STA","-File",$ui,"-ExpectedManifestSha256",$ExpectedManifestSha256,"-TrustedBinarySha256",$TrustedBinarySha256)
  if ($Operation -eq "DashboardCheck") { $uiArgs += "-SelfTest" }
  & $shell @uiArgs
+ exit $LASTEXITCODE
+}
+if ($Operation -eq "PayProvision") {
+ if (-not $PrivateDirectory) { throw "New private Pay directory required." }
+ & $vault --provision-windows-pay-lab $PrivateDirectory
+ exit $LASTEXITCODE
+}
+if ($Operation -eq "PayNative") {
+ if (-not $PrivateDirectory -or $PaySigningPin -cnotmatch '^[a-f0-9]{64}$' -or $PayPQPin -cnotmatch '^[a-f0-9]{64}$') { throw "Independent Pay laboratory public pins required." }
+ & $node (Join-Path $root "scripts\quantic-pay-native.mjs") $vault $PrivateDirectory $PaySigningPin $PayPQPin
  exit $LASTEXITCODE
 }
 if ($Operation -in @("PayLab","PayLabCheck")) {
