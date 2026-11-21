@@ -124,11 +124,12 @@ export function IdentityVaultApp() {
             <section className="qn-vault-section">
               <p className="qn-kicker">EXPORT CHIFFRÉ</p>
               <h2>Créer un coffre</h2>
+              <p className="qn-footnote">Utilise une phrase secrète unique, longue et aléatoire. Un coffre volé peut être attaqué hors ligne.</p>
               <form className="qn-vault-form" onSubmit={exportVault}>
                 <label htmlFor="vault-password">Mot de passe du coffre</label>
-                <input id="vault-password" type="password" minLength={10} value={exportPassword} onChange={(e) => setExportPassword(e.target.value)} autoComplete="new-password" required />
+                <input id="vault-password" type="password" minLength={14} maxLength={1024} value={exportPassword} onChange={(e) => setExportPassword(e.target.value)} autoComplete="new-password" required />
                 <label htmlFor="vault-confirm">Confirmer</label>
-                <input id="vault-confirm" type="password" minLength={10} value={exportConfirm} onChange={(e) => setExportConfirm(e.target.value)} autoComplete="new-password" required />
+                <input id="vault-confirm" type="password" minLength={14} maxLength={1024} value={exportConfirm} onChange={(e) => setExportConfirm(e.target.value)} autoComplete="new-password" required />
                 <button disabled={busy}>{busy ? "Chiffrement…" : "Exporter mon identité"}</button>
               </form>
             </section>
@@ -143,7 +144,7 @@ export function IdentityVaultApp() {
                 <label htmlFor="vault-file">Fichier du coffre</label>
                 <input id="vault-file" type="file" accept=".quantic-vault,application/json" onChange={(e) => setRestoreFile(e.target.files?.[0] ?? null)} required />
                 <label htmlFor="restore-password">Mot de passe du coffre</label>
-                <input id="restore-password" type="password" minLength={10} value={restorePassword} onChange={(e) => setRestorePassword(e.target.value)} autoComplete="current-password" required />
+                <input id="restore-password" type="password" minLength={10} maxLength={1024} value={restorePassword} onChange={(e) => setRestorePassword(e.target.value)} autoComplete="current-password" required />
                 <button disabled={busy}>{busy ? "Déchiffrement…" : "Restaurer mon identité"}</button>
               </form>
             </section>

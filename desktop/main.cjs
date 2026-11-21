@@ -1,24 +1,16 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 const { app, BrowserWindow, shell } = require("electron");
 
-const MAIL_ORIGIN = "https://quanticmail.onrender.com";
-const PORTAL_ORIGIN = "https://mediumorchid-badger-314305.hostingersite.com";
+const { MAIL_ORIGIN, navigationTarget } = require("./navigation-policy.cjs");
 
-function isMailUrl(raw) {
-  try {
-    const url = new URL(raw);
-    return url.origin === MAIL_ORIGIN;
-  } catch {
-    return false;
-  }
+function target(raw) {
+  return navigationTarget(typeof raw === "string" ? raw : raw?.url);
 }
 
-function isSafeExternal(raw) {
-  try {
-    const url = new URL(raw);
-    return url.protocol === "https:" || url.protocol === "mailto:";
-  } catch {
-    return false;
+function openPortal(raw) {
+  if (target(raw) === "portal") {
+    const url = typeof raw === "string" ? raw : raw.url;
+    void shell.openExternal(url).catch(() => {});
   }
 }
 
@@ -35,28 +27,30 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
+      webviewTag: false,
       spellcheck: true
     }
   });
 
+  const ses = win.webContents.session;
+  ses.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
+  ses.setPermissionCheckHandler(() => false);
+  win.webContents.on("will-attach-webview", (event) => event.preventDefault());
   win.webContents.setWindowOpenHandler(({ url }) => {
-    if (isMailUrl(url)) return { action: "allow" };
-    if (isSafeExternal(url)) shell.openExternal(url);
+    if (target(url) === "portal") openPortal(url);
     return { action: "deny" };
   });
-
   win.webContents.on("will-navigate", (event, url) => {
-    if (isMailUrl(url)) return;
+    if (target(url) === "mail") return;
     event.preventDefault();
-    if (isSafeExternal(url)) shell.openExternal(url);
+    if (target(url) === "portal") openPortal(url);
   });
-
   win.webContents.on("will-redirect", (event, url) => {
-    if (isMailUrl(url)) return;
-    if (url.startsWith(PORTAL_ORIGIN)) {
-      event.preventDefault();
-      shell.openExternal(url);
-    }
+    if (target(url) === "mail") return;
+    event.preventDefault();
+    // Never launch external handlers from a server-controlled redirect.
   });
 
   win.loadURL(MAIL_ORIGIN);

@@ -3,7 +3,7 @@ import type { LocalIdentity } from "@/lib/quantic/local-db";
 
 const VAULT_FORMAT = "quantic-identity-vault";
 const VAULT_VERSION = 1;
-const PBKDF2_ITERATIONS = 250_000;
+const PBKDF2_ITERATIONS = 600_000;
 const AAD = new TextEncoder().encode(`${VAULT_FORMAT}:v${VAULT_VERSION}`);
 
 type VaultEnvelope = {
@@ -57,9 +57,9 @@ function randomBytes(length: number) {
   return bytes;
 }
 
-function assertPassword(password: string) {
-  if (password.length < 10) {
-    throw new Error("Le mot de passe du coffre doit contenir au moins 10 caractères.");
+function assertPassword(password: string, minimum = 10) {
+  if (typeof password !== "string" || password.length < minimum || password.length > 1024) {
+    throw new Error(`Le mot de passe du coffre doit contenir entre ${minimum} et 1024 caractères.`);
   }
 }
 
@@ -98,7 +98,42 @@ function assertPublicJwk(key: JsonWebKey, label: string) {
   }
 }
 
+function checkedBase64(value: string, min: number, max: number) {
+  if (value.length > Math.ceil(max / 3) * 4 || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)) {
+    throw new Error("Encodage du coffre invalide.");
+  }
+  const bytes = fromBase64(value);
+  if (bytes.length < min || bytes.length > max || toBase64(bytes) !== value) {
+    throw new Error("Taille ou encodage du coffre invalide.");
+  }
+  return bytes;
+}
+
+async function assertKeyPairs(payload: VaultIdentityPayload) {
+  const { publicKey, privateKey, signingPublicKey, signingPrivateKey } = payload;
+  if (publicKey.x !== privateKey.x || publicKey.y !== privateKey.y ||
+      signingPublicKey.x !== signingPrivateKey.x || signingPublicKey.y !== signingPrivateKey.y ||
+      publicKey.d || signingPublicKey.d) throw new Error("Paires de clés incohérentes dans le coffre.");
+  const challenge = toArrayBuffer(randomBytes(32));
+  const signing = await crypto.subtle.importKey("jwk", signingPrivateKey, { name: "ECDSA", namedCurve: "P-256" }, false, ["sign"]);
+  const verification = await crypto.subtle.importKey("jwk", signingPublicKey, { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]);
+  const signature = await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, signing, challenge);
+  if (!await crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, verification, signature, challenge)) {
+    throw new Error("Paire de signature incohérente dans le coffre.");
+  }
+  const own = await crypto.subtle.importKey("jwk", privateKey, { name: "ECDH", namedCurve: "P-256" }, false, ["deriveBits"]);
+  const pub = await crypto.subtle.importKey("jwk", publicKey, { name: "ECDH", namedCurve: "P-256" }, false, []);
+  const ephemeral = await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, false, ["deriveBits"]);
+  const a = new Uint8Array(await crypto.subtle.deriveBits({ name: "ECDH", public: ephemeral.publicKey }, own, 256));
+  const b = new Uint8Array(await crypto.subtle.deriveBits({ name: "ECDH", public: pub }, ephemeral.privateKey, 256));
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a[i] ^ b[i];
+  a.fill(0); b.fill(0);
+  if (diff !== 0) throw new Error("Paire de chiffrement incohérente dans le coffre.");
+}
+
 function parseEnvelope(text: string): VaultEnvelope {
+  if (typeof text !== "string" || text.length > 1_000_000) throw new Error("Taille du coffre invalide.");
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
@@ -106,6 +141,7 @@ function parseEnvelope(text: string): VaultEnvelope {
     throw new Error("Ce fichier n’est pas un coffre Quantic valide.");
   }
 
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Format de coffre Quantic non reconnu.");
   const envelope = parsed as Partial<VaultEnvelope>;
   if (
     envelope.format !== VAULT_FORMAT ||
@@ -113,7 +149,7 @@ function parseEnvelope(text: string): VaultEnvelope {
     envelope.kdf?.name !== "PBKDF2" ||
     envelope.kdf.hash !== "SHA-256" ||
     envelope.cipher?.name !== "AES-GCM" ||
-    typeof envelope.kdf.iterations !== "number" ||
+    typeof envelope.kdf.iterations !== "number" || !Number.isSafeInteger(envelope.kdf.iterations) ||
     typeof envelope.kdf.salt !== "string" ||
     typeof envelope.cipher.iv !== "string" ||
     typeof envelope.ciphertext !== "string"
@@ -123,11 +159,14 @@ function parseEnvelope(text: string): VaultEnvelope {
   if (envelope.kdf.iterations < 100_000 || envelope.kdf.iterations > 2_000_000) {
     throw new Error("Paramètres de dérivation du coffre refusés.");
   }
+  checkedBase64(envelope.kdf.salt, 16, 16);
+  checkedBase64(envelope.cipher.iv, 12, 12);
+  checkedBase64(envelope.ciphertext, 17, 750_000);
   return envelope as VaultEnvelope;
 }
 
 export async function exportIdentityVault(identity: LocalIdentity, password: string) {
-  assertPassword(password);
+  assertPassword(password, 14);
   if (!identity.signingPublicKey || !identity.signingPrivateKey) {
     throw new Error("L’identité doit être migrée vers Quantic V0.7 avant export.");
   }
@@ -141,6 +180,7 @@ export async function exportIdentityVault(identity: LocalIdentity, password: str
     createdAt: identity.createdAt,
   };
 
+  await assertKeyPairs(payload);
   const salt = randomBytes(16);
   const iv = randomBytes(12);
   const key = await deriveVaultKey(password, salt, PBKDF2_ITERATIONS);
@@ -204,6 +244,7 @@ export async function importIdentityVault(text: string, password: string) {
     assertPublicJwk(payload.signingPublicKey, "Clé publique de propriété");
     assertPrivateJwk(payload.signingPrivateKey, "Clé privée de propriété");
 
+    await assertKeyPairs(payload);
     const fingerprint = await fingerprintPublicKey(payload.signingPublicKey);
     return {
       handle: payload.handle,
