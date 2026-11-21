@@ -62,3 +62,16 @@ test("PQ device proposal canonical text binds identity, device and both public k
   assert.match(text, /ML-KEM-768/);
   assert.match(text, /ML-DSA-65/);
 });
+
+test("strong device identifier is signed and bound to the PQ proposal", { skip }, async () => {
+  const material = await generateLocalPqcKeyMaterial();
+  assert.ok(material);
+  const context = {
+    canonicalAddress: `alice~${"a".repeat(32)}@quantic`,
+    deviceId: "d-"+"abcdef0123456789".repeat(2),
+    createdAt: "2026-09-17T08:30:00.000Z",
+  };
+  const proposal = await publicPqcDeviceProposal(material,context);
+  assert.equal(await verifyPqcDeviceProposal(proposal,context),true);
+  assert.equal(await verifyPqcDeviceProposal(proposal,{...context,deviceId:"d-"+"b".repeat(32)}),false);
+});

@@ -55,10 +55,10 @@ function signedIdentity(handle: string) {
       publicKey: encryptionPublic,
       deviceSigningPublicKey: ownerPublic,
       kind: "root" as const,
-      issuedAt: "2026-09-17T00:00:00.000Z",
+      issuedAt: new Date(Date.now() - 60_000).toISOString(),
     }],
     revocations: [],
-    issuedAt: "2026-09-17T00:00:00.000Z",
+    issuedAt: new Date(Date.now() - 60_000).toISOString(),
   };
   const signature = sign("sha256", Buffer.from(canonicalManifestText(payload), "utf8"), {
     key: owner.privateKey,
@@ -136,10 +136,10 @@ function signedRoute(
       priority: 10,
       protocols: ["quantic-federation/1"],
       classicalSigningPublicKey: relay.classicalSigningPublicKey,
-      expiresAt: "2026-10-17T00:00:00.000Z",
+      expiresAt: new Date(Date.now() + 24 * 60 * 60_000).toISOString(),
     }],
-    issuedAt: "2026-09-17T00:00:00.000Z",
-    expiresAt: "2026-10-17T00:00:00.000Z",
+    issuedAt: new Date(Date.now() - 60_000).toISOString(),
+    expiresAt: new Date(Date.now() + 24 * 60 * 60_000).toISOString(),
   };
   const p256 = sign("sha256", Buffer.from(canonicalRouteManifestText(payload), "utf8"), {
     key: recipient.owner.privateKey,
@@ -166,7 +166,7 @@ function signedEnvelope(
     classicalEphemeralPublicKey: publicJwk(ephemeral),
     iv: "aXYtbm9uY2U=",
     ciphertext: "ZmVkZXJhdGVkLWNpcGhlcnRleHQ=",
-    createdAt: "2026-09-17T00:10:00.000Z",
+    createdAt: new Date(Date.now() - 30_000).toISOString(),
     expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
     signatures: { p256Device: "placeholder" },
   };

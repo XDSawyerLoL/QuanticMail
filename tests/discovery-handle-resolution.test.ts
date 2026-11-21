@@ -60,10 +60,10 @@ function signedBundle(handle: string): DiscoveryBundle {
       publicKey: encryption.publicKey,
       deviceSigningPublicKey: owner.publicKey,
       kind: "root" as const,
-      issuedAt: "2026-09-17T00:00:00.000Z",
+      issuedAt: new Date(Date.now() - 60_000).toISOString(),
     }],
     revocations: [],
-    issuedAt: "2026-09-17T00:00:00.000Z",
+    issuedAt: new Date(Date.now() - 60_000).toISOString(),
   };
   const identityManifest = {
     format: "quantic-identity-manifest" as const,
@@ -88,10 +88,10 @@ function signedBundle(handle: string): DiscoveryBundle {
       priority: 10,
       protocols: ["quantic-federation/1"],
       classicalSigningPublicKey: relay.publicKey,
-      expiresAt: "2026-10-17T00:00:00.000Z",
+      expiresAt: new Date(Date.now() + 24 * 60 * 60_000).toISOString(),
     }],
-    issuedAt: "2026-09-17T00:00:00.000Z",
-    expiresAt: "2026-10-17T00:00:00.000Z",
+    issuedAt: new Date(Date.now() - 60_000).toISOString(),
+    expiresAt: new Date(Date.now() + 24 * 60 * 60_000).toISOString(),
   };
   const routeManifest = {
     format: "quantic-route-manifest" as const,
@@ -111,7 +111,7 @@ function peer(hex: string, endpoint: string): DiscoveryPeer {
   return {
     relayId: hex.repeat(64),
     endpoint,
-    lastSeenAt: "2026-09-17T12:00:00.000Z",
+    lastSeenAt: new Date().toISOString(),
     failures: 0,
     bucketIndex: 0,
   };

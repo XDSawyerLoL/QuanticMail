@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { assertManifestDeviceActive, ManifestStateError } from "@/lib/quantic/manifest-state";
+import { assertCurrentManifestDeviceActive, ManifestStateError } from "@/lib/quantic/manifest-state";
 import {
+  authenticateLocalDevice,
   acknowledgeReceipts,
   pullReceipts,
   RelayError,
@@ -16,8 +17,10 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const handle = url.searchParams.get("handle") ?? "";
     const deviceId = url.searchParams.get("deviceId");
-    if (deviceId) assertManifestDeviceActive(handle, deviceId);
-    return NextResponse.json({ receipts: pullReceipts(handle, bearer(request), deviceId) });
+    const token = bearer(request);
+    const authenticated = authenticateLocalDevice(handle, token, deviceId);
+    await assertCurrentManifestDeviceActive(authenticated.canonicalAddress, authenticated.deviceId);
+    return NextResponse.json({ receipts: pullReceipts(authenticated.canonicalAddress, token, authenticated.deviceId) });
   } catch (error) {
     if (error instanceof ManifestStateError || error instanceof RelayError) {
       return NextResponse.json({ error: error.message }, { status: error.status });
@@ -31,11 +34,13 @@ export async function POST(request: Request) {
     const body = await request.json();
     const handle = String(body.handle ?? "");
     const deviceId = typeof body.deviceId === "string" ? body.deviceId : undefined;
-    if (deviceId) assertManifestDeviceActive(handle, deviceId);
+    const token = bearer(request);
+    const authenticated = authenticateLocalDevice(handle, token, deviceId);
+    await assertCurrentManifestDeviceActive(authenticated.canonicalAddress, authenticated.deviceId);
     const result = acknowledgeReceipts(
-      handle,
-      bearer(request),
-      deviceId,
+      authenticated.canonicalAddress,
+      token,
+      authenticated.deviceId,
       Array.isArray(body.ids) ? body.ids : [],
     );
     return NextResponse.json(result);

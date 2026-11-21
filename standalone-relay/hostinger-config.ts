@@ -50,6 +50,7 @@ export function hostingerRelayConfig(env: RelayEnv=process.env){
     port:parsePort(env.PORT ?? env.QUANTIC_RELAY_PORT ?? "8787"),
     dataDir:env.QUANTIC_RELAY_DATA_DIR ?? "./data",
     databaseUrl,
+    sharedAuthRateLimit: env.QUANTIC_SHARED_AUTH_RATE_LIMIT === "1",
     identitySecret,
     publicEndpoint,
     bootstrapEndpoints,

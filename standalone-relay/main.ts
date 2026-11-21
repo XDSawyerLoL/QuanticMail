@@ -25,6 +25,7 @@ async function main() {
     port,
     dataDir,
     databaseUrl,
+    sharedAuthRateLimit: process.env.QUANTIC_SHARED_AUTH_RATE_LIMIT === "1",
     identitySecret,
     publicEndpoint,
     bootstrapEndpoints,

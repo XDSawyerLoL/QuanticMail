@@ -129,6 +129,7 @@ const MAX_QUEUE = 500;
 const MAX_RECEIPTS = 500;
 const MAX_CIPHERTEXT_CHARS = 400_000;
 const MESSAGE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const MAX_PENDING_CHALLENGES = 4096;
 const CHALLENGE_TTL_MS = 5 * 60 * 1000;
 const SENDS_PER_MINUTE = 60;
 
@@ -438,6 +439,13 @@ export function createIdentityChallenge(input: {
   validateEncryptionPublicKey(input.publicKey);
   validateSigningPublicKey(input.signingPublicKey);
   const names = identityNames(locator.handle, input.signingPublicKey, locator.fingerprint);
+  const now = Date.now();
+  for (const [key, record] of state.challenges) {
+    if (record.expiresAt <= now) state.challenges.delete(key);
+  }
+  if (!state.challenges.has(names.canonicalAddress) && state.challenges.size >= MAX_PENDING_CHALLENGES) {
+    throw new RelayError("Capacité temporaire de défis atteinte.", 429);
+  }
   const challenge = randomBytes(32).toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
   state.challenges.set(names.canonicalAddress, {
     challenge,

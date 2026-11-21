@@ -7,6 +7,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Origine invalide." }, { status: 403 });
   }
 
-  await destroySession();
+  try { await destroySession(); } catch {
+    return NextResponse.json({error:"Autorité de session indisponible. Déconnexion non confirmée."},{status:503});
+  }
   return NextResponse.json({ ok: true });
 }
