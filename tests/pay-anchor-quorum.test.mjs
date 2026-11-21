@@ -13,6 +13,7 @@ import {openPayRoundReplica} from '../lib/quantic/pay-round-replica.mjs';
 import {openAnchoredPayReplica} from '../lib/quantic/pay-anchored-replica.mjs';
 import {createPayAnchorClient} from '../lib/quantic/pay-anchor-client.mjs';
 import {createPayAnchorQuorum} from '../lib/quantic/pay-anchor-quorum.mjs';
+import {preparePayAnchorReplacement} from '../lib/quantic/pay-anchor-recovery.mjs';
 const script=fileURLToPath(new URL('../scripts/serve-pay-anchor-lab.mjs',import.meta.url));
 const sha=b=>createHash('sha256').update(b).digest('hex');
 const spki=k=>k.publicKey.export({format:'der',type:'spki'});
@@ -81,5 +82,25 @@ test('three of four real TLS anchors protect a settled balance against restoring
   rmSync(opts.directory,{recursive:true,force:true});restore(join(dir,'backup'),opts.directory);
   assert.throws(()=>openAnchoredPayReplica({...opts,anchor:quorum()}),/checkpoint mismatch/);
   t.diagnostic('3 independent TLS services retain settled checkpoint, 1 stale, 2 current insufficient, old 100 EUR snapshot rejected');
+  // Replacement is an offline ceremony. Old service is fenced; new TLS
+  // credentials and DB directory are provisioned without modifying old files.
+  await stop(members[3]);
+  const serverFile=join(dir,'replacement.json'),clientFile=join(dir,'replacement-client.json'),keyFile=join(dir,'replacement-key.pem'),certFile=join(dir,'replacement-cert.pem'),p=await port(),token=randomBytes(32).toString('hex');
+  execFileSync('openssl',['req','-x509','-newkey','rsa:2048','-nodes','-keyout',keyFile,'-out',certFile,'-days','2','-subj','/CN=127.0.0.1','-addext','subjectAltName=IP:127.0.0.1'],{stdio:'ignore'});chmodSync(keyFile,0o600);chmodSync(certFile,0o600);
+  privateJSON(serverFile,{simulationOnly:true,directory:join(dir,'replacement'),initial,port:p,token,keyFile,certFile});
+  privateJSON(clientFile,{simulationOnly:true,network,authorityPin,port:p,token,certFile});
+  const expectedCheckpointFile=join(dir,'expected.json'),oldCheckpointFile=join(dir,'stale-expected.json'),outputQuorumFile=join(dir,'new-quorum.json');
+  privateJSON(expectedCheckpointFile,latest);privateJSON(oldCheckpointFile,initial);
+  const plan={quorumFile,replaceIndex:3,expectedCheckpointFile,replacementServerFile:serverFile,replacementClientFile:clientFile,outputQuorumFile,offlineConfirmed:true};
+  assert.throws(()=>preparePayAnchorReplacement({...plan,expectedCheckpointFile:oldCheckpointFile}));
+  assert.throws(()=>preparePayAnchorReplacement({...plan,offlineConfirmed:false}));
+  const result=preparePayAnchorReplacement(plan);assert.equal(result.sequence,1);assert.equal(result.requiresFourWayReadback,true);
+  assert.throws(()=>preparePayAnchorReplacement(plan));
+  const m={serverFile,clientFile};members.push(m);await start(m);
+  const repaired=createPayAnchorQuorum({configFile:outputQuorumFile,network,authorityPin,unanimous:true});
+  assert.deepEqual(repaired.read(),latest);assert.equal(repaired.status().quorum,4);
+  // Even after recovering 4/4 availability, the old replica stays refused.
+  assert.throws(()=>openAnchoredPayReplica({...opts,anchor:repaired}),/checkpoint mismatch/);
+  t.diagnostic('offline replacement uses three current sources and independent checkpoint, then 4/4 TLS readback; old ledger remains blocked');
  }finally{node?.close();await Promise.all(members.map(stop));rmSync(dir,{recursive:true,force:true});}
 });
