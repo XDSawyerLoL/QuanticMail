@@ -9,10 +9,10 @@ const check=(ok)=>{if(!ok)throw Error('Attested peer unavailable');};
 const hex=/^[a-f0-9]{64}$/;
 const address=/^[a-z0-9][a-z0-9._-]{2,31}~[a-f0-9]{32}@quantic$/;
 const device=/^d-[a-f0-9]{32}$/;
-export async function createAttestedPeerSource(config){
+export async function createAttestedPeerSource(config,{read=readFile}={}){
  check(Array.isArray(config?.authorities)&&config.authorities.length===4);
  for(const path of [config.caFile,config.clientCertFile,config.clientKeyFile])check(typeof path==='string'&&isAbsolute(path));
- const tls={ca:await readFile(config.caFile),cert:await readFile(config.clientCertFile),key:await readFile(config.clientKeyFile),minVersion:'TLSv1.3',rejectUnauthorized:true};
+ const tls={ca:await read(config.caFile),cert:await read(config.clientCertFile),key:await read(config.clientKeyFile),minVersion:'TLSv1.3',rejectUnauthorized:true};
  const authorities=config.authorities.map(a=>{
   const u=new URL(a.url);
   check(u.protocol==='https:'&&u.pathname==='/native-checkpoint'&&!u.username&&!u.password&&!u.search&&!u.hash&&hex.test(a.tlsPin)&&hex.test(a.pin));

@@ -57,7 +57,22 @@ function createWindow() {
 }
 
 const nativeLab=process.argv.includes("--native-vault-lab");
+const windowsLab=process.argv.includes("--native-vault-windows-lab");
 app.whenReady().then(async () => {
+  if(windowsLab){
+    try{
+      if(process.platform!=="win32"||Number(process.versions.node.split(".")[0])<24){
+        await dialog.showMessageBox({type:"error",message:"Le laboratoire Windows exige un moteur Node 24 et une console locale."});
+        app.exit(1);return;
+      }
+      const i=process.argv.indexOf("--native-vault-windows-lab");
+      const [binary,binarySha256,dir]=process.argv.slice(i+1);
+      const {runWindowsNativeDesktop}=await import("./native-windows-desktop.mjs");
+      const result=await runWindowsNativeDesktop(dialog,{binary,binarySha256,dir});
+      app.exit(result==="failed"?1:0);
+    }catch{app.exit(1);}
+    return;
+  }
   if(nativeLab){
     try{
       if(process.platform!=="linux"||!process.stderr.isTTY){

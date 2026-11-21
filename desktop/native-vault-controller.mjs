@@ -4,7 +4,8 @@
 import {spawn} from 'node:child_process';
 import {createHash,createPublicKey,createPrivateKey,sign,verify} from 'node:crypto';
 import {readFile,stat} from 'node:fs/promises';
-import {isAbsolute} from 'node:path';
+import {isAbsolute,win32} from 'node:path';
+import {createWindowsNativeStorage} from './native-windows-storage.mjs';
 const hash=b=>createHash('sha256').update(b).digest();
 const hex=b=>hash(b).toString('hex');
 const pinRE=/^[a-f0-9]{64}$/;
@@ -39,13 +40,22 @@ export function normalizeClassicalEnvelope(e){
   b64(e.iv,12,12,'base64');b64(e.ciphertext,16,8208,'base64');
   return {ciphertext:e.ciphertext,iv:e.iv,ephemeralPublicKey:jwk};
 }
-export async function connectNativeVault({binary,binarySha256,vault,journal,quorum,controllerKeyFile,signingPin,encryptionPin,labOnly,pqMode}){
-  check(labOnly===true&&process.platform==='linux','Linux laboratory only');
+export async function connectNativeVault({binary,binarySha256,vault,journal,quorum,controllerKeyFile,signingPin,encryptionPin,labOnly,pqMode,windowsLab}){
+  const windows=process.platform==='win32';
+  check(labOnly===true&&(process.platform==='linux'||windows&&windowsLab?.enabled===true&&pqMode?.enabled===true),'Explicit native laboratory only');
   for(const p of [binary,vault,journal,quorum,controllerKeyFile])check(typeof p==='string'&&isAbsolute(p),'absolute path required');
   check([binarySha256,signingPin,encryptionPin].every(p=>pinRE.test(p)),'trusted pins required');
-  const ks=await stat(controllerKeyFile);
-  check(ks.isFile()&&(ks.mode&0o077)===0&&ks.uid===process.getuid(),'controller key must be private');
-  const key=createPrivateKey(await readFile(controllerKeyFile));
+  let storage;
+  if(windows){
+    check(Number(process.versions.node.split('.')[0])>=24,'Node 24 required');
+    storage=await createWindowsNativeStorage({binary,binarySha256,dir:windowsLab.dir});
+    for(const [path,n] of [[vault,'classical.vault'],[journal,'journal.log'],[quorum,'quorum.json'],[controllerKeyFile,'controller.pem'],[pqMode.sidecar,'pq.vault'],[pqMode.contactDirectory,'contacts.json']])check(path===win32.join(storage.dir,n),'Windows vault layout mismatch');
+  }else{
+    const ks=await stat(controllerKeyFile);
+    check(ks.isFile()&&(ks.mode&0o077)===0&&ks.uid===process.getuid(),'controller key must be private');
+  }
+  const secret=await (storage?storage.read(controllerKeyFile):readFile(controllerKeyFile));
+  let key;try{key=createPrivateKey(secret);}finally{secret.fill(0);}
   check(key.asymmetricKeyType==='ed25519','invalid controller key');
   check(hex(await readFile(binary))===binarySha256,'broker executable mismatch');
   const app=createPublicKey(key).export({format:'jwk'}).x;
@@ -56,13 +66,14 @@ export async function connectNativeVault({binary,binarySha256,vault,journal,quor
     check([pqMode.kemPin,pqMode.dsaPin,pqMode.rootPin].every(p=>pinRE.test(p)),'independent PQ pins required');
     const {createAttestedPeerSource}=await import('./native-attested-peer.mjs');
     bridge=await import('../lib/quantic/native-identity-bridge.mjs');
-    peerSource=await createAttestedPeerSource(pqMode.authority);
-    const ds=await stat(pqMode.contactDirectory);check(ds.isFile()&&ds.uid===process.getuid()&&(ds.mode&0o077)===0&&ds.size<=131072,'private contact directory required');
-    contacts=JSON.parse(await readFile(pqMode.contactDirectory,'utf8'));
+    peerSource=await createAttestedPeerSource(pqMode.authority,storage?{read:storage.read}:{});
+    if(storage){contacts=JSON.parse((await storage.read(pqMode.contactDirectory)).toString('utf8'));}
+    else{const ds=await stat(pqMode.contactDirectory);check(ds.isFile()&&ds.uid===process.getuid()&&(ds.mode&0o077)===0&&ds.size<=131072,'private contact directory required');contacts=JSON.parse(await readFile(pqMode.contactDirectory,'utf8'));}
     check(Array.isArray(contacts)&&contacts.length>=1&&contacts.length<=32,'invalid contacts');
   }
-  const args=pqMode?['--broker-software-pq-quorum-lab',vault,signingPin,encryptionPin,app,journal,quorum,pqMode.sidecar,pqMode.address,pqMode.deviceId,pqMode.kemPin,pqMode.dsaPin,pqMode.rootPin,'auto',pqMode.contactDirectory]:['--broker-software-compact-manifest-quorum-lab',vault,signingPin,encryptionPin,app,journal,quorum];
-  const child=spawn(binary,args,{shell:false,stdio:['pipe','pipe','inherit']});
+  const args=windows?['--broker-windows-pq-quorum-lab',storage.dir,app,signingPin,encryptionPin,pqMode.address,pqMode.deviceId,pqMode.kemPin,pqMode.dsaPin,pqMode.rootPin]:pqMode?['--broker-software-pq-quorum-lab',vault,signingPin,encryptionPin,app,journal,quorum,pqMode.sidecar,pqMode.address,pqMode.deviceId,pqMode.kemPin,pqMode.dsaPin,pqMode.rootPin,'auto',pqMode.contactDirectory]:['--broker-software-compact-manifest-quorum-lab',vault,signingPin,encryptionPin,app,journal,quorum];
+  if(storage)await storage.verifyBinary();
+  const child=spawn(binary,args,{shell:false,stdio:['pipe','pipe','inherit'],...(storage?{cwd:win32.dirname(binary),env:storage.env,windowsHide:false}:{})});
   let buf=Buffer.alloc(0),waiter=null,closed=false,busy=false,seq=0,nonce,signing;
   function fail(){
     if(closed)return;closed=true;child.kill();if(waiter){const w=waiter;waiter=null;clearTimeout(w.timer);w.reject(Error('native vault unavailable'));}
@@ -92,7 +103,7 @@ export async function connectNativeVault({binary,binarySha256,vault,journal,quor
     const p=await call({op:'public'});signing=publicPoint(p.signing);const enc=publicPoint(p.encryption);
     check(signing.pin===signingPin&&enc.pin===encryptionPin,'native vault point mismatch');
     if(pqMode){
-      check(p.backend==='software-pq-quorum-lab','wrong native backend');
+      check(p.backend===(windows?'windows-software-pq-quorum-lab':'software-pq-quorum-lab'),'wrong native backend');
       const pq=await call({op:'pq-public-lab'});
       check(hex(b64(pq.pqKem,1206,1206))===pqMode.kemPin&&hex(b64(pq.pqDsa,1974,1974))===pqMode.dsaPin,'native PQ pin mismatch');
       const ownKeys={classicalSigningSpki:signing.key.export({format:'der',type:'spki'}).toString('base64'),classicalEncryptionSpki:enc.key.export({format:'der',type:'spki'}).toString('base64'),mlKemEncryptionSpki:Buffer.from(pq.pqKem,'base64url').toString('base64'),mlDsaSigningSpki:Buffer.from(pq.pqDsa,'base64url').toString('base64')};
