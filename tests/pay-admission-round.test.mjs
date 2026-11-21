@@ -6,6 +6,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {createRoundCirculationLab} from '../lib/quantic/pay-circulation-lab.mjs';
 import {createPayRoundLab} from '../lib/quantic/pay-round-lab.mjs';
+import {compactPayView} from '../lib/quantic/pay-compact-view.mjs';
 import {openAdmissionRound} from '../lib/quantic/pay-admission-round.mjs';
 import {openRoundChain} from '../lib/quantic/pay-round-chain-store.mjs';
 import {openPayRoundReplica} from '../lib/quantic/pay-round-replica.mjs';
@@ -40,7 +41,8 @@ for(const [size,locked] of [[4,false],[4,true],[7,false],[16,false],[16,true]])t
   }else assert.throws(()=>verifier.prepared({scope,round:0,value:av,votes:old.slice(0,quorum-1)}));
   for(let i=0;i<size;i++)restart(i);
   assert.throws(()=>nodes[0].prepare({draft:b,round:0}));
-  const viewCertificate={scope,round:1,reports:nodes.map(n=>n.changeView(1)).slice(0,quorum)};
+  const expanded={scope,round:1,reports:nodes.map(n=>n.changeView(1)).slice(0,quorum)};
+  const viewCertificate=size>4?compactPayView(expanded,size):expanded;
   assert.equal(verifier.selectView(viewCertificate).requiredValue,locked?av:null);
   if(locked)assert.throws(()=>nodes[0].prepare({draft:b,round:1,viewCertificate}));
   const draft=locked?a:b,value=locked?av:bv;
