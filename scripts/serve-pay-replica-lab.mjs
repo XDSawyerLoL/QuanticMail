@@ -24,7 +24,8 @@ async function main(){
  // Verify the provisioned signed proposals, prior certificates, balance and
  // domain locally. The HTTP requester cannot supply an alternative config.
  const chain=createRoundCirculationLab(c.chainConfig);
- const network=chain.snapshot([]).network;
+ const network=chain.snapshot([]).network,committeeMode=chain.committeeMode===true;
+ const base=committeeMode?'/api/quantic/pay-committee-recovery-lab/v1/':'/api/quantic/pay-replica-lab/v1/';
  check(network===c.expectedNetwork&&c.chainConfig.witnesses.some(a=>a.pin===c.authorityPin&&a.pqPin===c.authorityPQPin));
  const secret=privateRead(c.authorityKeyFile,8192);
  let key;try{key=createPrivateKey(secret);}finally{secret.fill(0);}
@@ -35,8 +36,8 @@ async function main(){
  if(process.argv[2]==='provision'){store.close();console.log('PROVISIONED PAY REPLICA LAB');return;}
  const auth=Buffer.from('Bearer '+c.token);delete c.token;
  let busy=false;
- const upload=createRoundUpload({validate:payload=>check(exact(payload,['op','input'])&&['prepare','learn','admit'].includes(payload.op))});
- const download=createRoundDownload({readRecord:height=>store.record(height)});
+ const upload=createRoundUpload({committeeMode,validate:payload=>check(exact(payload,['op','input'])&&(committeeMode?payload.op==='learn':['prepare','learn','admit'].includes(payload.op)))});
+ const download=createRoundDownload({committeeMode,readRecord:height=>store.record(height)});
  function dispatch(op,input){
   if(op==='status'){check(input===null);return store.status();}
   if(op==='admissionReport'){check(input===null);return store.admissionReport();}
@@ -48,6 +49,7 @@ async function main(){
   if(op==='learn')return store.learn(input);
   throw Error('Operation refused');
  }
+ const routes=Object.freeze({'status':'status','admit':'admit','vote-admission':'voteAdmission','admission-report':'admissionReport','prepare':'prepare','change-view':'changeView','commit':'commit','learn':'learn','upload-begin':'uploadBegin','upload-chunk':'uploadChunk','upload-finish':'uploadFinish','record-begin':'recordBegin','record-chunk':'recordChunk'});
  const server=createServer(async(req,res)=>{
   const send=(status,data)=>{const b=Buffer.from(JSON.stringify(data));res.writeHead(status,{'Content-Type':'application/json','Content-Length':b.length,'Cache-Control':'no-store',Connection:'close'});res.end(b);};
   const header=Buffer.from(req.headers.authorization??'');
@@ -62,7 +64,9 @@ async function main(){
    const body=JSON.parse(new TextDecoder('utf8',{fatal:true}).decode(Buffer.concat(chunks,n)));
    check(body?.simulationOnly===true);
    check(exact(body,['simulationOnly','scope','input'])&&body.scope===network);
-   const action={'/api/quantic/pay-replica-lab/v1/status':'status','/api/quantic/pay-replica-lab/v1/admit':'admit','/api/quantic/pay-replica-lab/v1/vote-admission':'voteAdmission','/api/quantic/pay-replica-lab/v1/admission-report':'admissionReport','/api/quantic/pay-replica-lab/v1/prepare':'prepare','/api/quantic/pay-replica-lab/v1/change-view':'changeView','/api/quantic/pay-replica-lab/v1/commit':'commit','/api/quantic/pay-replica-lab/v1/learn':'learn','/api/quantic/pay-replica-lab/v1/upload-begin':'uploadBegin','/api/quantic/pay-replica-lab/v1/upload-chunk':'uploadChunk','/api/quantic/pay-replica-lab/v1/upload-finish':'uploadFinish','/api/quantic/pay-replica-lab/v1/record-begin':'recordBegin','/api/quantic/pay-replica-lab/v1/record-chunk':'recordChunk'}[req.url];
+   const route=typeof req.url==='string'&&req.url.startsWith(base)?req.url.slice(base.length):'';
+   const action=Object.hasOwn(routes,route)?routes[route]:null;
+   if(committeeMode&&!['status','learn','uploadBegin','uploadChunk','uploadFinish','recordBegin','recordChunk'].includes(action)){send(404,{});return;}
    if(!['status','admissionReport','voteAdmission','admit','prepare','changeView','commit','learn','uploadBegin','uploadChunk','uploadFinish','recordBegin','recordChunk'].includes(action)){send(404,{});return;}
    let output;
    if(action==='uploadBegin')output=upload.begin(body.input);

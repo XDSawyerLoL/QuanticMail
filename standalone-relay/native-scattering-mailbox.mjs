@@ -8,7 +8,7 @@ import {createServer,request} from 'node:http';
 import {cellKey} from '../labs/quantic-native/scattering/scattering-cell.mjs';
 import {reliableCellStream} from '../labs/quantic-native/scattering/scattering-reliable-lab.mjs';
 const MAX=32768,FRAME=65536,OPS=16;
-const profiles=Object.freeze({mailbox:Object.freeze({base:'/api/quantic/native/v1/',ops:Object.freeze(['send','pull','ack','recover'])}), 'pay-lab':Object.freeze({base:'/api/quantic/pay-lab/v1/',ops:Object.freeze(['checkpoint','submit'])}), 'pay-round-lab':Object.freeze({base:'/api/quantic/pay-round-lab/v1/',ops:Object.freeze(['status','prepare','change-view','commit','learn','upload-begin','upload-chunk','upload-finish'])}), 'pay-replica-lab':Object.freeze({base:'/api/quantic/pay-replica-lab/v1/',ops:Object.freeze(['status','admission-report','vote-admission','admit','prepare','change-view','commit','learn','upload-begin','upload-chunk','upload-finish','record-begin','record-chunk'])})});
+const profiles=Object.freeze({mailbox:Object.freeze({base:'/api/quantic/native/v1/',ops:Object.freeze(['send','pull','ack','recover'])}), 'pay-lab':Object.freeze({base:'/api/quantic/pay-lab/v1/',ops:Object.freeze(['checkpoint','submit'])}), 'pay-round-lab':Object.freeze({base:'/api/quantic/pay-round-lab/v1/',ops:Object.freeze(['status','prepare','change-view','commit','learn','upload-begin','upload-chunk','upload-finish'])}), 'pay-replica-lab':Object.freeze({base:'/api/quantic/pay-replica-lab/v1/',ops:Object.freeze(['status','admission-report','vote-admission','admit','prepare','change-view','commit','learn','upload-begin','upload-chunk','upload-finish','record-begin','record-chunk'])}), 'pay-committee-recovery-lab':Object.freeze({base:'/api/quantic/pay-committee-recovery-lab/v1/',ops:Object.freeze(['status','learn','upload-begin','upload-chunk','upload-finish','record-begin','record-chunk']),maxOps:48})});
 const check=x=>{if(!x)throw Error('Scattering mailbox lab refused');};
 const port=(v,zero=false)=>Number.isInteger(v)&&v>=(zero?0:1)&&v<=65535;
 const tokenOK=v=>typeof v==='string'&&/^[A-Za-z0-9._~-]{40,256}$/.test(v);
@@ -40,7 +40,7 @@ function response(res,status,body){
 const errorBody=Buffer.from('{"error":"native mailbox operation not confirmed"}');
 export async function startScatteringMailboxEndpoint(c,{windowsBootstrap,profile='mailbox'}={}){
  check(Object.hasOwn(profiles,profile));
- const BASE=profiles[profile].base,allowed=new Set(profiles[profile].ops);
+ const BASE=profiles[profile].base,allowed=new Set(profiles[profile].ops),operationLimit=profiles[profile].maxOps??OPS;
  check(c?.labOnly===true&&['client','relay'].includes(c.role)&&/^[a-f0-9]{64}$/.test(c.secretHex)&&/^[a-f0-9]{64}$/.test(c.epochHex)&&!/^0+$/.test(c.secretHex)&&!/^0+$/.test(c.epochHex)&&c.secretHex!==c.epochHex&&port(c.recvPort,true)&&port(c.httpPort,c.role==='client'));
  let guard;
  if(process.platform==='win32'){
@@ -80,7 +80,7 @@ export async function startScatteringMailboxEndpoint(c,{windowsBootstrap,profile
  }
  async function onFrame(frame){
   if(c.role==='relay'){
-   check(!stopped&&exact(frame,['kind','seq','op','token','body'])&&frame.kind==='request'&&frame.seq===next&&next<=OPS&&allowed.has(frame.op)&&tokenOK(frame.token));
+   check(!stopped&&exact(frame,['kind','seq','op','token','body'])&&frame.kind==='request'&&frame.seq===next&&next<=operationLimit&&allowed.has(frame.op)&&tokenOK(frame.token));
    // The client receives a full response slightly before our last carrier ACK.
    // Accept at most one next sequential request while that ACK is outstanding.
    // Never execute parallel upstream operations or buffer unbounded requests.
@@ -117,7 +117,7 @@ export async function startScatteringMailboxEndpoint(c,{windowsBootstrap,profile
   const auth=req.headers.authorization;
   const len=Number(req.headers['content-length']);
   if(req.method!=='POST'||!allowed.has(op)||typeof auth!=='string'||!auth.startsWith('Bearer ')||!tokenOK(auth.slice(7))||req.headers.origin!==undefined||req.headers['transfer-encoding']!==undefined||req.headers['content-type']!=='application/json'||!Number.isInteger(len)||len<1||len>MAX){response(res,400,errorBody);req.resume();return;}
-  if(stopped||busy||next>OPS){response(res,503,errorBody);req.resume();return;}
+  if(stopped||busy||next>operationLimit){response(res,503,errorBody);req.resume();return;}
   busy=true;let transmitted=false,data;
   try{
    data=await readBounded(req);check(data.length===len);
