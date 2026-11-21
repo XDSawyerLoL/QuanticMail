@@ -1,14 +1,14 @@
 // Explicit two-host lab, fixed native mailbox routes only; no public HTTP endpoint.
 // Native pacer and native sink are independently operated, not children of this process.
-import {createHash} from 'node:crypto';
+import {createHash,hkdfSync} from 'node:crypto';
 import {lstat,realpath,readdir,open} from 'node:fs/promises';
 import {isAbsolute,join} from 'node:path';
 import {createSocket} from 'node:dgram';
 import {createServer,request} from 'node:http';
 import {cellKey} from '../labs/quantic-native/scattering/scattering-cell.mjs';
 import {reliableCellStream} from '../labs/quantic-native/scattering/scattering-reliable-lab.mjs';
-const MAX=32768,FRAME=65536,OPS=16,BASE='/api/quantic/native/v1/';
-const allowed=new Set(['send','pull','ack','recover']);
+const MAX=32768,FRAME=65536,OPS=16;
+const profiles=Object.freeze({mailbox:Object.freeze({base:'/api/quantic/native/v1/',ops:Object.freeze(['send','pull','ack','recover'])}), 'pay-lab':Object.freeze({base:'/api/quantic/pay-lab/v1/',ops:Object.freeze(['checkpoint','submit'])})});
 const check=x=>{if(!x)throw Error('Scattering mailbox lab refused');};
 const port=(v,zero=false)=>Number.isInteger(v)&&v>=(zero?0:1)&&v<=65535;
 const tokenOK=v=>typeof v==='string'&&/^[A-Za-z0-9._~-]{40,256}$/.test(v);
@@ -38,7 +38,9 @@ function response(res,status,body){
  res.writeHead(status,{'Content-Type':'application/json','Content-Length':body.length,'Cache-Control':'no-store',Connection:'close'});res.end(body);
 }
 const errorBody=Buffer.from('{"error":"native mailbox operation not confirmed"}');
-export async function startScatteringMailboxEndpoint(c,{windowsBootstrap}={}){
+export async function startScatteringMailboxEndpoint(c,{windowsBootstrap,profile='mailbox'}={}){
+ check(Object.hasOwn(profiles,profile));
+ const BASE=profiles[profile].base,allowed=new Set(profiles[profile].ops);
  check(c?.labOnly===true&&['client','relay'].includes(c.role)&&/^[a-f0-9]{64}$/.test(c.secretHex)&&/^[a-f0-9]{64}$/.test(c.epochHex)&&!/^0+$/.test(c.secretHex)&&!/^0+$/.test(c.epochHex)&&c.secretHex!==c.epochHex&&port(c.recvPort,true)&&port(c.httpPort,c.role==='client'));
  let guard;
  if(process.platform==='win32'){
@@ -47,7 +49,8 @@ export async function startScatteringMailboxEndpoint(c,{windowsBootstrap}={}){
   guard=await reserveWindowsScattering(c,windowsBootstrap);
  }else{await reserve(c);}
  const secret=Buffer.from(c.secretHex,'hex'),epoch=Buffer.from(c.epochHex,'hex');
- const ab=cellKey(secret,epoch,'a-b'),ba=cellKey(secret,epoch,'b-a');secret.fill(0);epoch.fill(0);
+ const domainSecret=profile==='pay-lab'?Buffer.from(hkdfSync('sha256',secret,epoch,Buffer.from('quantic-pay-lab-scattering/v1'),32)):secret;
+ const ab=cellKey(domainSecret,epoch,'a-b'),ba=cellKey(domainSecret,epoch,'b-a');domainSecret.fill(0);secret.fill(0);epoch.fill(0);
  let cells,server,stopped=false,upstream,pending,busy=false,next=1,input=Buffer.alloc(0),relayResponse,waitingNext=false;
  const udp=createSocket('udp4');
  let resolveClosed;const closed=new Promise(resolve=>{resolveClosed=resolve;});

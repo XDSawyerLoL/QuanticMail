@@ -11,7 +11,7 @@ async function freeUDP(){
  try{await new Promise((resolve,reject)=>{s.once('error',reject);s.bind(0,'127.0.0.1',resolve);});return s.address().port;}
  finally{await new Promise(r=>s.close(r));}
 }
-export async function startNativeScatteringLink({dir,binary,relayPort}){
+export async function startNativeScatteringLink({dir,binary,relayPort,profile='mailbox'}){
  if(process.platform!=='linux'||!isAbsolute(binary)||!Number.isInteger(relayPort)||relayPort<1)throw Error('explicit Linux fixture required');
  const endpoints=[],children=[];
  let closing=false;
@@ -30,7 +30,7 @@ export async function startNativeScatteringLink({dir,binary,relayPort}){
   for(const role of ['client','relay']){
    const queueDir=join(dir,role+'-queue'),stateDir=join(dir,role+'-state');
    await mkdir(queueDir,{mode:0o700});await mkdir(stateDir,{mode:0o700});queues.push(queueDir);
-   endpoints.push(await startScatteringMailboxEndpoint({...common,role,queueDir,stateDir,httpPort:role==='client'?0:relayPort}));
+   endpoints.push(await startScatteringMailboxEndpoint({...common,role,queueDir,stateDir,httpPort:role==='client'?0:relayPort},{profile}));
   }
   const ports=[await freeUDP(),await freeUDP()];if(ports[0]===ports[1])throw Error('port collision');
   const launch=args=>{const p=spawn(binary,args,{stdio:'ignore'});children.push(p);p.on('error',()=>{void close();});p.on('exit',()=>{void close();});};
