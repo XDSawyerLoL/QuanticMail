@@ -91,6 +91,8 @@ jobs:
             files: tests/pay-committee-distributed.test.mjs
           - suite: byzantine
             files: tests/pay-committee-byzantine-network.test.mjs
+          - suite: strict
+            files: tests/pay-unanimous-service.test.mjs
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
