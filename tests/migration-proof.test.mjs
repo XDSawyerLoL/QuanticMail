@@ -4,6 +4,7 @@ import {createHash,generateKeyPairSync,sign} from 'node:crypto';
 import {verifyMigrationArchiveOffline} from '../lib/quantic/migration-proof-node.mjs';
 import {prepareMigrationArchive,sealMigrationArchive} from '../lib/quantic/migration-archive.ts';
 import {canonicalManifestText} from '../lib/quantic/manifest-core.mjs';
+import {canonicalPreKeyText} from '../lib/quantic/prekey-core.mjs';
 import {deviceIdForPublicKeyNode,fingerprintPublicKeyNode} from '../lib/quantic/manifest-node.mjs';
 import {generateMlKem768KeyPair,generateMlDsa65KeyPair} from '../lib/quantic/pqc-runtime-node.ts';
 const pass='synthetic archive recovery only';
@@ -16,13 +17,15 @@ function fixture(){
  const payload={version:1,sequence:1,canonicalAddress,handle:'alice',fingerprint,identityPublicKey:pub(enc),identitySigningPublicKey:pub(root),devices:[{deviceId,label:'Offline fixture',publicKey:pub(enc),deviceSigningPublicKey:pub(device),kind:'root',issuedAt:date}],revocations:[],issuedAt:date};
  const manifest={format:'quantic-identity-manifest',version:1,payload,signature:sign('sha256',Buffer.from(canonicalManifestText(payload)),{key:root.privateKey,dsaEncoding:'ieee-p1363'}).toString('base64')};
  const identity={role:'root',handle:'alice',canonicalAddress,fingerprint,deviceId,publicKey:pub(enc),privateKey:priv(enc),signingPublicKey:pub(root),signingPrivateKey:priv(root),deviceSigningPublicKey:pub(device),deviceSigningPrivateKey:priv(device),manifest,pqc:{version:1,mlKemPublicKeySpki:kem.publicKeySpki,mlKemPrivateKeyPkcs8:kem.privateKeyPkcs8,mlDsaPublicKeySpki:dsa.publicKeySpki,mlDsaPrivateKeyPkcs8:dsa.privateKeyPkcs8},authToken:'never-exported'};
- const archive=prepareMigrationArchive({identity,pending:null,prekeys:[{version:1,canonicalAddress,deviceId,preKeyId:'old-1',state:'claimed',publicKey:pub(prekey),privateKey:priv(prekey)}],messages:[],contacts:[],outbox:[]});
+ const historical={version:1,canonicalAddress,deviceId,preKeyId:'c'.repeat(32),state:'claimed',publicKey:pub(prekey),privateKey:priv(prekey),createdAt:date,expiresAt:'2026-11-22T00:00:00.000Z'};
+ historical.signature=sign('sha256',Buffer.from(canonicalPreKeyText(historical)),{key:device.privateKey,dsaEncoding:'ieee-p1363'}).toString('base64');
+ const archive=prepareMigrationArchive({identity,pending:null,prekeys:[historical],messages:[],contacts:[],outbox:[]});
  return {archive,scope:{expectedAddress:canonicalAddress,trustedRootPin:createHash('sha256').update(root.publicKey.export({format:'der',type:'spki'})).digest('hex')}};
 }
 test('offline migration verifies original root, manifest and real classical plus PQ key possession without cutover',async()=>{
  const {archive,scope}=fixture();
  const result=await verifyMigrationArchiveOffline(await sealMigrationArchive(archive,pass),pass,scope);
- assert.equal(result.historicalRootPinVerified,true);assert.equal(result.rootPrivateKeyVerified,true);assert.equal(result.deviceKeyPossessionVerified,true);assert.equal(result.postQuantumKeyPairsVerified,true);assert.equal(result.prekeyPairsVerified,1);
+ assert.equal(result.historicalRootPinVerified,true);assert.equal(result.rootPrivateKeyVerified,true);assert.equal(result.deviceKeyPossessionVerified,true);assert.equal(result.postQuantumKeyPairsVerified,true);assert.equal(result.prekeyPairsVerified,1);assert.equal(result.historicalPrekeySignaturesVerified,1);assert.equal(result.syntheticLegacyEnvelopeRecoveryVerified,true);
  assert.equal(result.liveRestoreAuthorized,false);assert.equal(result.legacyDeletionAuthorized,false);
  assert.ok(!JSON.stringify(result).includes(archive.identity.privateKey.d));
 });
@@ -36,4 +39,12 @@ test('valid archive encryption cannot authorize mismatched root, substituted dev
  await assert.rejects(verifyMigrationArchiveOffline(await sealMigrationArchive(badPQ,pass),pass,scope));
  const stale=structuredClone(archive);stale.identity.manifest.payload.sequence=2;
  await assert.rejects(verifyMigrationArchiveOffline(await sealMigrationArchive(stale,pass),pass,scope));
+});
+
+test('archive authentication alone cannot substitute a historical signed prekey',async()=>{
+ const {archive,scope}=fixture();
+ const changed=structuredClone(archive);changed.prekeys[0].expiresAt='2026-12-01T00:00:00.000Z';
+ await assert.rejects(verifyMigrationArchiveOffline(await sealMigrationArchive(changed,pass),pass,scope));
+ const other=pair();const replaced=structuredClone(archive);replaced.prekeys[0].publicKey=pub(other);replaced.prekeys[0].privateKey=priv(other);
+ await assert.rejects(verifyMigrationArchiveOffline(await sealMigrationArchive(replaced,pass),pass,scope));
 });
