@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import {
-  assertManifestDeviceActive,
+  assertCurrentManifestDeviceActive,
   ManifestStateError,
 } from "@/lib/quantic/manifest-state";
-import { enqueueEnvelope, RelayError } from "@/lib/quantic/relay";
+import { authenticateLocalDevice, resolveIdentity, enqueueEnvelope, RelayError } from "@/lib/quantic/relay";
 
 function bearer(request: Request) {
   const value = request.headers.get("authorization");
@@ -17,16 +17,19 @@ export async function POST(request: Request) {
     const fromDeviceId = typeof body.fromDeviceId === "string" ? body.fromDeviceId : undefined;
     const to = String(body.to ?? "");
     const toDeviceId = String(body.toDeviceId ?? "");
-    if (fromDeviceId) assertManifestDeviceActive(from, fromDeviceId);
-    assertManifestDeviceActive(to, toDeviceId);
+    const token = bearer(request);
+    const sender = authenticateLocalDevice(from, token, fromDeviceId);
+    const recipient = resolveIdentity(to);
+    await assertCurrentManifestDeviceActive(sender.canonicalAddress, sender.deviceId);
+    await assertCurrentManifestDeviceActive(recipient.canonicalAddress, toDeviceId);
 
     const result = enqueueEnvelope({
       clientMessageId: String(body.clientMessageId ?? ""),
-      from,
-      fromDeviceId,
-      to,
+      from: sender.canonicalAddress,
+      fromDeviceId: sender.deviceId,
+      to: recipient.canonicalAddress,
       toDeviceId,
-      authToken: bearer(request),
+      authToken: token,
       ciphertext: String(body.ciphertext ?? ""),
       iv: String(body.iv ?? ""),
       ephemeralPublicKey: body.ephemeralPublicKey ?? {},

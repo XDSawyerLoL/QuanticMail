@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { assertManifestDeviceActive, ManifestStateError } from "@/lib/quantic/manifest-state";
-import { acknowledgeEnvelopes, RelayError } from "@/lib/quantic/relay";
+import { assertCurrentManifestDeviceActive, ManifestStateError } from "@/lib/quantic/manifest-state";
+import { authenticateLocalDevice, acknowledgeEnvelopes, RelayError } from "@/lib/quantic/relay";
 
 function bearer(request: Request) {
   const value = request.headers.get("authorization");
@@ -12,11 +12,13 @@ export async function POST(request: Request) {
     const body = await request.json();
     const handle = String(body.handle ?? "");
     const deviceId = typeof body.deviceId === "string" ? body.deviceId : undefined;
-    if (deviceId) assertManifestDeviceActive(handle, deviceId);
+    const token = bearer(request);
+    const authenticated = authenticateLocalDevice(handle, token, deviceId);
+    await assertCurrentManifestDeviceActive(authenticated.canonicalAddress, authenticated.deviceId);
     const result = acknowledgeEnvelopes(
-      handle,
-      bearer(request),
-      deviceId,
+      authenticated.canonicalAddress,
+      token,
+      authenticated.deviceId,
       Array.isArray(body.ids) ? body.ids : [],
     );
     return NextResponse.json(result);
