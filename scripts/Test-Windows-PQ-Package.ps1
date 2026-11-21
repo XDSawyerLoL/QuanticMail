@@ -37,7 +37,7 @@ foreach ($line in [IO.File]::ReadAllLines($manifest)) {
  $expected.Add($rel,$digest)
  if ($expected.Count -gt 2000) { throw "Package inventory too large." }
 }
-foreach ($critical in @('bin/Vault-PQ-lab.exe','bin/Scattering-Pacer.exe','runtime/node.exe','Start-Windows-PQ-Lab.ps1','Test-Windows-PQ-Package.ps1','Quantic-Sillage-Alpha.ps1','scripts/native-vault-windows-local.mjs','scripts/native-vault-windows-mailbox.mjs','scripts/serve-native-scattering-windows.mjs','scripts/verify-migration-local.mjs')) {
+foreach ($critical in @('bin/Vault-PQ-lab.exe','bin/Scattering-Pacer.exe','runtime/node.exe','Start-Windows-PQ-Lab.ps1','Test-Windows-PQ-Package.ps1','Quantic-Sillage-Alpha.ps1','scripts/native-vault-windows-local.mjs','scripts/native-vault-windows-mailbox.mjs','scripts/serve-native-scattering-windows.mjs','scripts/verify-migration-local.mjs','scripts/quantic-pay-lab.mjs','lib/quantic/pay-sandbox.mjs')) {
  if (-not $expected.ContainsKey($critical)) { throw "Required component missing." }
 }
 # Walk without following junctions or links, reject unlisted files, hash all bytes.

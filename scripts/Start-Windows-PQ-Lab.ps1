@@ -1,7 +1,7 @@
 # Explicit laboratory launcher. No installation or production login.
 [CmdletBinding()]
 param(
- [Parameter(Mandatory=$true)][ValidateSet("Providers","Open","RecoverOpen","Seal","RecoverSeal","ProbeLoopback","Send","Receive","RecoverReceive","ConfirmReceipt","StartBridge","Provision","Dashboard","DashboardCheck","MigrationCheck","MigrationHistory")][string]$Operation,
+ [Parameter(Mandatory=$true)][ValidateSet("Providers","Open","RecoverOpen","Seal","RecoverSeal","ProbeLoopback","Send","Receive","RecoverReceive","ConfirmReceipt","StartBridge","Provision","Dashboard","DashboardCheck","MigrationCheck","MigrationHistory","PayLab","PayLabCheck")][string]$Operation,
  [Parameter(Mandatory=$true)][ValidatePattern('^[a-fA-F0-9]{64}$')][string]$ExpectedManifestSha256,
  [string]$TrustedBinarySha256,
  [string]$PrivateDirectory,
@@ -42,6 +42,12 @@ if ($Operation -in @("Dashboard","DashboardCheck")) {
  $uiArgs = @("-NoProfile","-STA","-File",$ui,"-ExpectedManifestSha256",$ExpectedManifestSha256,"-TrustedBinarySha256",$TrustedBinarySha256)
  if ($Operation -eq "DashboardCheck") { $uiArgs += "-SelfTest" }
  & $shell @uiArgs
+ exit $LASTEXITCODE
+}
+if ($Operation -in @("PayLab","PayLabCheck")) {
+ $payArgs=@((Join-Path $root "scripts\quantic-pay-lab.mjs"))
+ if ($Operation -eq "PayLabCheck") { $payArgs+="--self-test" }
+ & $node @payArgs
  exit $LASTEXITCODE
 }
 if ($Operation -in @("MigrationCheck","MigrationHistory")) {

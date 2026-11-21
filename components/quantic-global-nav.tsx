@@ -13,6 +13,7 @@ export function QuanticGlobalNav() {
         <Link href={`${PORTAL_ORIGIN}/vision/`}>Vision</Link>
         <Link className="active" href={`${PORTAL_ORIGIN}/mail/`} aria-current="page">Mail</Link>
         <Link href={`${PORTAL_ORIGIN}/network/`}>Network</Link>
+        <Link href="/pay">Pay (lab)</Link>
         <Link href={`${PORTAL_ORIGIN}/products/`}>Produits</Link>
         <Link href={`${PORTAL_ORIGIN}/downloads/`}>Téléchargements</Link>
         <Link className="centre" href={`${PORTAL_ORIGIN}/quantic/`}>Centre</Link>

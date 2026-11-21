@@ -159,6 +159,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Packaged launcher loopback failed" }
           & $shell -NoProfile -NonInteractive -File "$dir\Start-Windows-PQ-Lab.ps1" -Operation DashboardCheck -ExpectedManifestSha256 $manifestPin -TrustedBinarySha256 $binaryPin
           if ($LASTEXITCODE -ne 0) { throw "Packaged dashboard check failed" }
+          & $shell -NoProfile -NonInteractive -File "$dir\Start-Windows-PQ-Lab.ps1" -Operation PayLabCheck -ExpectedManifestSha256 $manifestPin -TrustedBinarySha256 $binaryPin
+          if ($LASTEXITCODE -ne 0) { throw "Packaged Pay simulation check failed" }
       - name: Windows native Scattering mailbox loopback using packaged binaries
         shell: pwsh
         run: |
