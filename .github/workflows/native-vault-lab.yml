@@ -163,6 +163,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Packaged Pay simulation check failed" }
           & $shell -NoProfile -NonInteractive -File "$dir\Start-Windows-PQ-Lab.ps1" -Operation PayQuorumCheck -ExpectedManifestSha256 $manifestPin -TrustedBinarySha256 $binaryPin
           if ($LASTEXITCODE -ne 0) { throw "Packaged Pay quorum simulation failed" }
+          & $shell -NoProfile -NonInteractive -File "$dir\Start-Windows-PQ-Lab.ps1" -Operation PayCirculationCheck -ExpectedManifestSha256 $manifestPin -TrustedBinarySha256 $binaryPin
+          if ($LASTEXITCODE -ne 0) { throw "Packaged Pay circulation simulation failed" }
           & "$dir\runtime\node.exe" --check "$dir\scripts\quantic-pay-native-quorum.mjs"
           if ($LASTEXITCODE -ne 0) { throw "Packaged native Pay quorum syntax failed" }
           & "$dir\runtime\node.exe" --check "$dir\scripts\quantic-pay-operator.mjs"
