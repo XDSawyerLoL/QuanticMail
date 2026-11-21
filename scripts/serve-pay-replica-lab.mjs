@@ -37,7 +37,9 @@ async function main(){
  let pqKey;try{pqKey=createPrivateKey(pqSecret);}finally{pqSecret.fill(0);}
  const options={directory:c.directory,config:c.chainConfig,classicalPrivateKey:key,pqPrivateKey:pqKey,authorityPin:c.authorityPin};
  const anchored=['serve-anchored','serve-quorum-anchored'].includes(process.argv[2]);
- const anchorFactory=process.argv[2]==='serve-quorum-anchored'?createPayAnchorQuorum:createPayAnchorClient;
+ const strict=c.chainConfig.admissionPolicy==='round-v3-unanimous';
+ check(!strict||['provision','serve-quorum-anchored'].includes(process.argv[2]));
+ const anchorFactory=process.argv[2]==='serve-quorum-anchored'?o=>createPayAnchorQuorum({...o,unanimous:strict}):createPayAnchorClient;
  check(!anchored||committeeMode);
  const store=anchored?openAnchoredPayReplica({...options,anchor:anchorFactory({configFile:process.argv[4],network,authorityPin:c.authorityPin})}):openPayRoundReplica({...options,createNew:process.argv[2]==='provision'});
  if(process.argv[2]==='provision'){store.close();console.log('PROVISIONED PAY REPLICA LAB');return;}

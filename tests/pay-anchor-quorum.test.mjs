@@ -56,6 +56,8 @@ test('three of four real TLS anchors protect a settled balance against restoring
   assert.throws(()=>createPayAnchorQuorum({configFile:badFile,network,authorityPin}));
   const q=quorum();assert.deepEqual(q.read(),initial);
   await stop(members[3]);
+  const strict=createPayAnchorQuorum({configFile:quorumFile,network,authorityPin,unanimous:true});
+  assert.equal(strict.status().quorum,4);assert.throws(()=>strict.read(),/quorum halted/);
   node=openAnchoredPayReplica({...opts,anchor:q});
   const intent=lab.prepare([],{payer:'demo-alice',payee:'demo-bob',cents:7500,nonce:randomBytes(32).toString('hex'),now}),raw=lab.transcript(intent);
   const draft={admissionTime:now,proposals:[{intent,signature:sign('sha256',raw,{key:wallets[0].cl.privateKey,dsaEncoding:'ieee-p1363'}).toString('base64url'),pqSignature:sign(null,raw,wallets[0].pq.privateKey).toString('base64url')}]};
