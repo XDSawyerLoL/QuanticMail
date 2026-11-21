@@ -39,7 +39,7 @@ export function normalizeClassicalEnvelope(e){
   b64(e.iv,12,12,'base64');b64(e.ciphertext,16,8208,'base64');
   return {ciphertext:e.ciphertext,iv:e.iv,ephemeralPublicKey:jwk};
 }
-export async function connectNativeVault({binary,binarySha256,vault,journal,quorum,controllerKeyFile,signingPin,encryptionPin,labOnly}){
+export async function connectNativeVault({binary,binarySha256,vault,journal,quorum,controllerKeyFile,signingPin,encryptionPin,labOnly,pqMode}){
   check(labOnly===true&&process.platform==='linux','Linux laboratory only');
   for(const p of [binary,vault,journal,quorum,controllerKeyFile])check(typeof p==='string'&&isAbsolute(p),'absolute path required');
   check([binarySha256,signingPin,encryptionPin].every(p=>pinRE.test(p)),'trusted pins required');
@@ -49,7 +49,20 @@ export async function connectNativeVault({binary,binarySha256,vault,journal,quor
   check(key.asymmetricKeyType==='ed25519','invalid controller key');
   check(hex(await readFile(binary))===binarySha256,'broker executable mismatch');
   const app=createPublicKey(key).export({format:'jwk'}).x;
-  const child=spawn(binary,['--broker-software-compact-manifest-quorum-lab',vault,signingPin,encryptionPin,app,journal,quorum],{shell:false,stdio:['pipe','pipe','inherit']});
+  let peerSource,bridge,contacts;
+  if(pqMode!==undefined){
+    check(pqMode?.enabled===true&&Number(process.versions.node.split('.')[0])>=24,'Node 24 PQ laboratory required');
+    for(const path of [pqMode.sidecar,pqMode.contactDirectory])check(typeof path==='string'&&isAbsolute(path),'absolute PQ paths required');
+    check([pqMode.kemPin,pqMode.dsaPin,pqMode.rootPin].every(p=>pinRE.test(p)),'independent PQ pins required');
+    const {createAttestedPeerSource}=await import('./native-attested-peer.mjs');
+    bridge=await import('../lib/quantic/native-identity-bridge.mjs');
+    peerSource=await createAttestedPeerSource(pqMode.authority);
+    const ds=await stat(pqMode.contactDirectory);check(ds.isFile()&&ds.uid===process.getuid()&&(ds.mode&0o077)===0&&ds.size<=131072,'private contact directory required');
+    contacts=JSON.parse(await readFile(pqMode.contactDirectory,'utf8'));
+    check(Array.isArray(contacts)&&contacts.length>=1&&contacts.length<=32,'invalid contacts');
+  }
+  const args=pqMode?['--broker-software-pq-quorum-lab',vault,signingPin,encryptionPin,app,journal,quorum,pqMode.sidecar,pqMode.address,pqMode.deviceId,pqMode.kemPin,pqMode.dsaPin,pqMode.rootPin,'auto',pqMode.contactDirectory]:['--broker-software-compact-manifest-quorum-lab',vault,signingPin,encryptionPin,app,journal,quorum];
+  const child=spawn(binary,args,{shell:false,stdio:['pipe','pipe','inherit']});
   let buf=Buffer.alloc(0),waiter=null,closed=false,busy=false,seq=0,nonce,signing;
   function fail(){
     if(closed)return;closed=true;child.kill();if(waiter){const w=waiter;waiter=null;clearTimeout(w.timer);w.reject(Error('native vault unavailable'));}
@@ -78,6 +91,48 @@ export async function connectNativeVault({binary,binarySha256,vault,journal,quor
     const hello=await receive();nonce=b64(hello.session,32,32);
     const p=await call({op:'public'});signing=publicPoint(p.signing);const enc=publicPoint(p.encryption);
     check(signing.pin===signingPin&&enc.pin===encryptionPin,'native vault point mismatch');
+    if(pqMode){
+      check(p.backend==='software-pq-quorum-lab','wrong native backend');
+      const pq=await call({op:'pq-public-lab'});
+      check(hex(b64(pq.pqKem,1206,1206))===pqMode.kemPin&&hex(b64(pq.pqDsa,1974,1974))===pqMode.dsaPin,'native PQ pin mismatch');
+      const ownKeys={classicalSigningSpki:signing.key.export({format:'der',type:'spki'}).toString('base64'),classicalEncryptionSpki:enc.key.export({format:'der',type:'spki'}).toString('base64'),mlKemEncryptionSpki:Buffer.from(pq.pqKem,'base64url').toString('base64'),mlDsaSigningSpki:Buffer.from(pq.pqDsa,'base64url').toString('base64')};
+      const sameKeys=(a,b)=>Object.keys(ownKeys).every(k=>a?.[k]===b?.[k]);
+      async function peers(c){
+        const [from,to]=await Promise.all([peerSource(c.from,c.fromDeviceId),peerSource(c.to,c.toDeviceId)]);
+        const own=c.from===pqMode.address&&c.fromDeviceId===pqMode.deviceId?from:to;
+        const other=own===from?to:from;
+        check(own.contact.address===pqMode.address&&own.contact.deviceId===pqMode.deviceId&&own.checkpoint.pqRootPin===pqMode.rootPin&&sameKeys(own.contact,ownKeys),'own identity mismatch');
+        const matches=contacts.filter(x=>x.address===other.contact.address&&x.deviceId===other.contact.deviceId);
+        check(matches.length===1&&sameKeys(matches[0],other.contact)&&matches[0].expires>Date.now(),'contact key mismatch');
+        return {from,to};
+      }
+      function verified(record,pair){
+        return bridge.verifyNativeWire(record,pair.from.bundle,pair.from.checkpoint,pair.to.bundle,pair.to.checkpoint);
+      }
+      let mailBusy=false;
+      async function exclusive(fn){check(!mailBusy&&!closed,'native session unavailable');mailBusy=true;try{return await fn();}catch(e){fail();throw e;}finally{mailBusy=false;}}
+      return Object.freeze({
+        async openHybrid(record){return exclusive(async()=>{
+          const c=record?.context;
+          check(c?.to===pqMode.address&&c.toDeviceId===pqMode.deviceId,'wrong recipient');
+          verified(record,await peers(c));
+          const r=await call({op:'mail-open-hybrid-lab',pqContext:c,pqEnvelope:record.envelope,senderAuth:record.senderAuth});
+          const plain=b64(r.message,1,8192);
+          try{verified(record,await peers(c));return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(plain));}finally{plain.fill(0);}
+        });},
+        async sealHybrid(context,payload){return exclusive(async()=>{
+          check(context?.from===pqMode.address&&context.fromDeviceId===pqMode.deviceId,'wrong sender');
+          const raw=Buffer.from(JSON.stringify(payload));check(raw.length>=1&&raw.length<=8192,'invalid message size');
+          try{
+            await peers(context);
+            const r=await call({op:'mail-seal-hybrid-lab',pqContext:context,message:raw.toString('base64url')});
+            const record={format:'quantic-native-mail',version:1,context,envelope:r.pqEnvelope,senderAuth:r.senderAuth};
+            verified(record,await peers(context));return record;
+          }finally{raw.fill(0);}
+        });},
+        close(){fail();}
+      });
+    }
     return Object.freeze({
       publicKeys:Object.freeze({signing:Object.freeze(signing.jwk),encryption:Object.freeze(enc.jwk)}),
       async openStatic(envelope){

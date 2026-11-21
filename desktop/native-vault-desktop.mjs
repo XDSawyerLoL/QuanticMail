@@ -35,6 +35,36 @@ export async function runNativeDesktop(dialog,{connect=connectNativeVault}={}){
     if(!configPath)return 'cancelled';
     const config=JSON.parse(await readLocal(configPath,true));
     if(config?.labOnly!==true)throw Error('lab only');
+    if(config.pqMode!==undefined){
+      if(config.pqMode.enabled!==true)throw Error('invalid PQ mode');
+      const choice=await message(dialog,{type:'info',message:'QuanticMail · mode hybride authentifié',detail:'Utilise les attestations de deux identités et le coffre natif. Échange par fichiers uniquement ; aucun envoi réseau du message.',buttons:['Ouvrir un message signé','Préparer un message chiffré','Annuler'],defaultId:2,cancelId:2});
+      if(choice.response!==0&&choice.response!==1)return 'cancelled';
+      const path=await choose(dialog,choice.response===0?'Enveloppe native signée':'Brouillon privé (JSON : context, payload)');
+      if(!path)return 'cancelled';
+      const record=JSON.parse(await readLocal(path,choice.response===1));
+      if(choice.response===1){
+        const preview=safeMailDisplay(record.payload);
+        const c=record.context;
+        if(!/^[a-z0-9][a-z0-9._-]{2,31}~[a-f0-9]{32}@quantic$/.test(c?.to)||!/^d-[a-f0-9]{32}$/.test(c?.toDeviceId))throw Error('invalid recipient');
+        const approval=await message(dialog,{type:'warning',message:'Confirmer le brouillon vers '+c.to,detail:c.toDeviceId+'\n\n'+preview,buttons:['Annuler','Continuer'],defaultId:0,cancelId:0});
+        if(approval.response!==1)return 'cancelled';
+        const save=await dialog.showSaveDialog({title:'Enveloppe native chiffrée et signée'});
+        if(save.canceled||!save.filePath)return 'cancelled';
+        if(!isAbsolute(save.filePath))throw Error('absolute output required');
+        output=await open(save.filePath,'wx',0o600);
+      }
+      controller=await connect(config);
+      if(choice.response===0){
+        const payload=await controller.openHybrid(record);
+        const detail=safeMailDisplay(payload);
+        await message(dialog,{type:'info',message:'Message déchiffré — signatures et attestations vérifiées',detail,buttons:['Fermer']});
+      }else{
+        const sealed=await controller.sealHybrid(record.context,record.payload);
+        await output.writeFile(JSON.stringify(sealed)+'\n','utf8');await output.sync();
+        await message(dialog,{type:'info',message:'Enveloppe native enregistrée',detail:'Chiffrée et signée. Non envoyée ; conservez le brouillon.',buttons:['Fermer']});
+      }
+      return 'completed';
+    }
     const inputPath=await choose(dialog,action.response===0?'Enveloppe classique chiffrée':'Défi exact d’inscription');
     if(!inputPath)return 'cancelled';
     const input=await readLocal(inputPath);

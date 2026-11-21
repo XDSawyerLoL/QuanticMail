@@ -20,3 +20,7 @@ test('native controller has no implicit activation or legacy fallback',async()=>
  await assert.rejects(connectNativeVault({labOnly:false}),/laboratory/);
  await assert.rejects(connectNativeVault({labOnly:true,binary:'relative'}));
 });
+
+test('explicit PQ controller refuses incomplete configuration before spawn',async()=>{
+ await assert.rejects(connectNativeVault({labOnly:true,pqMode:{enabled:true}}));
+});
