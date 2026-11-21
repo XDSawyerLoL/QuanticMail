@@ -1,0 +1,59 @@
+name: Native Vault laboratory
+on:
+  pull_request:
+    branches: [main]
+    paths: ['labs/quantic-native/**', '.github/workflows/native-vault-lab.yml']
+  push:
+    branches: [main, "feat/**"]
+    paths: ['labs/quantic-native/**', '.github/workflows/native-vault-lab.yml']
+permissions:
+  contents: read
+jobs:
+  native-linux-pq:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    container: debian:trixie-slim
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      GOTOOLCHAIN: local
+      GOPROXY: "off"
+      GOSUMDB: "off"
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - name: Install native build and test dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates git golang-go gcc libc6-dev pkg-config libssl-dev openssl python3 python3-cryptography nodejs
+          openssl version
+          openssl list -kem-algorithms | grep -qi ML-KEM-768
+          openssl list -signature-algorithms | grep -qi ML-DSA-65
+          go version
+          node --version
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Verify exact frozen source inventory
+        working-directory: labs/quantic-native
+        run: python3 verify_sources.py
+      - name: Build carrier from source
+        working-directory: labs/quantic-native/scattering/native
+        run: |
+          go test -count=1 ./...
+          go build -trimpath -o ../QuanticNativePacer_v7_1_linux_amd64 .
+      - name: Vault default and PQ build and tests
+        working-directory: labs/quantic-native/vault
+        run: |
+          go test -count=1 ./...
+          go test -count=1 -tags pqopenssl ./...
+          go vet -tags pqopenssl ./...
+          go build -trimpath -tags pqopenssl -o VaultIsolated-linux .
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -o /tmp/VaultIsolated-Windows-nonPQ.exe .
+      - name: Authority and native enrolment regressions
+        working-directory: labs/quantic-native
+        run: |
+          node --test vault/tests/*.test.mjs scattering/compact-pacing.test.mjs
+          cd vault
+          python3 -m unittest test_pq_dual_unit test_schedule_unit -v
+      - name: Real local dual-authority network and PQ-only revocation
+        working-directory: labs/quantic-native/vault
+        run: timeout 180s python3 -u test_pq_dual_network.py

@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+/vault/VaultIsolated-linux
+/scattering/QuanticNativePacer_v7_1_linux_amd64
+*.exe
+*.sqlite
+*.sqlite3
+*.db
+*.key
+*.pem
