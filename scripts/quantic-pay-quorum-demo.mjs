@@ -22,9 +22,9 @@ export function createLocalWitnessFlow({scope,signProof,available=()=>[0,1,2,3],
  if(typeof signProof!=='function')throw Error('A signer is required');
  scope=Object.freeze({...scope});
  const witnesses=Array.from({length:4},(_,index)=>{
-  const k=generateKeyPairSync('ed25519');let retained=structuredClone(initialWitnessProofs?.[index]??[]);
-  return Object.freeze({trusted:{pin:sha(spki(k)),publicKey:spki(k).toString('base64url')},
-   vote:request=>attestPayCheckpoint({retainedProofs:retained,request,authorityPrivateKey:k.privateKey,now:clock()}),
+  const k=generateKeyPairSync('ed25519'),wq=generateKeyPairSync('ml-dsa-65');let retained=structuredClone(initialWitnessProofs?.[index]??[]);
+  return Object.freeze({trusted:{pin:sha(spki(k)),publicKey:spki(k).toString('base64url'),pqPin:sha(spki(wq)),pqPublicKey:spki(wq).toString('base64url')},
+   vote:request=>attestPayCheckpoint({retainedProofs:retained,request,authorityPrivateKey:k.privateKey,authorityPQPrivateKey:wq.privateKey,now:clock()}),
    append(proof,prior){
     const current=summarizePayProofs(retained,scope);
     if(current.count!==prior.count||current.root!==prior.root)throw Error('Witness state mismatch');

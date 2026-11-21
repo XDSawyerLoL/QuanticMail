@@ -16,8 +16,9 @@ test('fresh three-of-four independent signed synthetic proof sets refuse rollbac
  const a=proof(100),b=proof(210),all=[a,b];
  const request=newPayCheckpointRequest(scope,now);
  const keys=Array.from({length:4},()=>generateKeyPairSync('ed25519'));
- const trustedAuthorities=keys.map(k=>({pin:sha(spki(k)),publicKey:spki(k).toString('base64url')}));
- const vote=(k,retainedProofs=all)=>attestPayCheckpoint({retainedProofs,request,authorityPrivateKey:k.privateKey,now});
+ const pqKeys=keys.map(()=>generateKeyPairSync('ml-dsa-65'));
+ const trustedAuthorities=keys.map((k,i)=>({pin:sha(spki(k)),publicKey:spki(k).toString('base64url'),pqPin:sha(spki(pqKeys[i])),pqPublicKey:spki(pqKeys[i]).toString('base64url')}));
+ const vote=(k,retainedProofs=all)=>attestPayCheckpoint({retainedProofs,request,authorityPrivateKey:k.privateKey,authorityPQPrivateKey:pqKeys[keys.indexOf(k)].privateKey,now});
  const attestations=keys.map(k=>vote(k));
  const opt={localProofs:all,request,trustedAuthorities,attestations,now};
  const result=reconcilePayCheckpoint(opt);assert.equal(result.proofCount,2);assert.equal(result.realPaymentAuthorized,false);assert.equal(result.settlementVerified,false);
@@ -31,5 +32,10 @@ test('fresh three-of-four independent signed synthetic proof sets refuse rollbac
  assert.throws(()=>reconcilePayCheckpoint({...opt,request:newPayCheckpointRequest(scope,now)}));
  assert.throws(()=>reconcilePayCheckpoint({...opt,now:request.expires}));
  assert.throws(()=>reconcilePayCheckpoint({...opt,trustedAuthorities:[trustedAuthorities[0],trustedAuthorities[0],trustedAuthorities[2],trustedAuthorities[3]]}));
+ const classicalOnly=attestations.slice(0,3).map(a=>({...a,pqSignature:undefined}));
+ assert.throws(()=>reconcilePayCheckpoint({...opt,attestations:classicalOnly}));
+ const damaged=attestations.slice(0,3).map(a=>({...a,pqSignature:(a.pqSignature[0]==='A'?'B':'A')+a.pqSignature.slice(1)}));
+ assert.throws(()=>reconcilePayCheckpoint({...opt,attestations:damaged}));
+ assert.throws(()=>reconcilePayCheckpoint({...opt,trustedAuthorities:trustedAuthorities.map((t,i)=>i===1?{...t,pqPin:trustedAuthorities[0].pqPin,pqPublicKey:trustedAuthorities[0].pqPublicKey}:t)}));
  assert.notEqual(summarizePayProofs([a],scope).root,summarizePayProofs(all,scope).root);
 });

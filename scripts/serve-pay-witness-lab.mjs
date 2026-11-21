@@ -18,11 +18,13 @@ async function main(){
  check(process.platform==='linux'&&process.argv.length===4&&['provision','serve'].includes(process.argv[2]));
  const raw=privateRead(process.argv[3],16384);let c;
  try{c=JSON.parse(raw.toString('utf8'));}finally{raw.fill(0);}
- check(exact(c,['simulationOnly','directory','scope','authorityKeyFile','authorityPin','token','port'])&&c.simulationOnly===true&&Number.isInteger(c.port)&&c.port>=1&&c.port<=65535&&typeof c.token==='string'&&/^[a-f0-9]{64}$/.test(c.token));
+ check(exact(c,['simulationOnly','directory','scope','authorityKeyFile','authorityPin','authorityPQKeyFile','authorityPQPin','token','port'])&&c.simulationOnly===true&&Number.isInteger(c.port)&&c.port>=1&&c.port<=65535&&typeof c.token==='string'&&/^[a-f0-9]{64}$/.test(c.token));
  check(exact(c.scope,['signingPin','pqPin']));
  const secret=privateRead(c.authorityKeyFile,8192);
  let key;try{key=createPrivateKey(secret);}finally{secret.fill(0);}
- const options={directory:c.directory,scope:c.scope,authorityPrivateKey:key,expectedAuthorityPin:c.authorityPin};
+ const pqSecret=privateRead(c.authorityPQKeyFile,16384);
+ let pqKey;try{pqKey=createPrivateKey(pqSecret);}finally{pqSecret.fill(0);}
+ const options={directory:c.directory,scope:c.scope,authorityPrivateKey:key,expectedAuthorityPin:c.authorityPin,authorityPQPrivateKey:pqKey,expectedAuthorityPQPin:c.authorityPQPin};
  const store=openPayWitnessStore({...options,createNew:process.argv[2]==='provision'});
  if(process.argv[2]==='provision'){store.close();console.log('PROVISIONED PAY LAB');return;}
  const auth=Buffer.from('Bearer '+c.token);delete c.token;

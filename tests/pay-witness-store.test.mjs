@@ -10,9 +10,9 @@ const sha=b=>createHash('sha256').update(b).digest('hex');
 const spki=k=>k.publicKey.export({format:'der',type:'spki'});
 test('private witness store reopens history, refuses duplicate, stale prior and wrong key; never creates on missing reopen',{skip:process.platform!=='linux'},()=>{
  const dir=realpathSync(mkdtempSync(join(tmpdir(),'pay-witness-')));
- const ec=generateKeyPairSync('ec',{namedCurve:'prime256v1'}),pq=generateKeyPairSync('ml-dsa-65'),w=generateKeyPairSync('ed25519');
+ const ec=generateKeyPairSync('ec',{namedCurve:'prime256v1'}),pq=generateKeyPairSync('ml-dsa-65'),w=generateKeyPairSync('ed25519'),wq=generateKeyPairSync('ml-dsa-65');
  const scope={signingPin:sha(spki(ec)),pqPin:sha(spki(pq))},now=123456;
- const directory=join(dir,'witness'),options={directory,scope,authorityPrivateKey:w.privateKey,expectedAuthorityPin:sha(spki(w)),clock:()=>now};
+ const directory=join(dir,'witness'),options={directory,scope,authorityPrivateKey:w.privateKey,expectedAuthorityPin:sha(spki(w)),authorityPQPrivateKey:wq.privateKey,expectedAuthorityPQPin:sha(spki(wq)),clock:()=>now};
  const j=ec.publicKey.export({format:'jwk'}),point=Buffer.concat([Buffer.from([4]),Buffer.from(j.x,'base64url'),Buffer.from(j.y,'base64url')]);
  function proof(cents){
   const i={Payee:'demo-shop',Cents:cents,Nonce:randomBytes(32).toString('hex'),Issued:now,Expires:now+120000};
@@ -33,5 +33,6 @@ test('private witness store reopens history, refuses duplicate, stale prior and 
   assert.deepEqual(store.summary(),after);
   assert.throws(()=>openPayWitnessStore({...options,createNew:true}));
   assert.throws(()=>openPayWitnessStore({...options,authorityPrivateKey:generateKeyPairSync('ed25519').privateKey}));
+  assert.throws(()=>openPayWitnessStore({...options,authorityPQPrivateKey:generateKeyPairSync('ml-dsa-65').privateKey}));
  }finally{store?.close();rmSync(dir,{recursive:true,force:true});}
 });

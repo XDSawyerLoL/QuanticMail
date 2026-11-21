@@ -23,9 +23,9 @@ test('synthetic Pay proof and fresh before/after quorum travel through native UD
  const scope={signingPin:sha(spki(ec)),pqPin:sha(spki(pq))};
  const j=ec.publicKey.export({format:'jwk'});
  const point=Buffer.concat([Buffer.from([4]),Buffer.from(j.x,'base64url'),Buffer.from(j.y,'base64url')]);
- const authorities=Array.from({length:4},(_,i)=>({key:generateKeyPairSync('ed25519'),directory:join(dir,'witness-'+i),store:null}));
- const trustedAuthorities=authorities.map(w=>({pin:sha(spki(w.key)),publicKey:spki(w.key).toString('base64url')}));
- function openWitness(w,createNew){return openPayWitnessStore({directory:w.directory,createNew,scope,authorityPrivateKey:w.key.privateKey,expectedAuthorityPin:sha(spki(w.key))});}
+ const authorities=Array.from({length:4},(_,i)=>({key:generateKeyPairSync('ed25519'),pqKey:generateKeyPairSync('ml-dsa-65'),directory:join(dir,'witness-'+i),store:null}));
+ const trustedAuthorities=authorities.map(w=>({pin:sha(spki(w.key)),publicKey:spki(w.key).toString('base64url'),pqPin:sha(spki(w.pqKey)),pqPublicKey:spki(w.pqKey).toString('base64url')}));
+ function openWitness(w,createNew){return openPayWitnessStore({directory:w.directory,createNew,scope,authorityPrivateKey:w.key.privateKey,expectedAuthorityPin:sha(spki(w.key)),authorityPQPrivateKey:w.pqKey.privateKey,expectedAuthorityPQPin:sha(spki(w.pqKey))});}
  const token=randomBytes(32).toString('hex'),hits=[];
  let link;
  const server=createServer(async(req,res)=>{

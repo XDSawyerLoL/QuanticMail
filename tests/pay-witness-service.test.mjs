@@ -37,10 +37,11 @@ test('four separate witness processes, durable restart and three-witness confirm
  }
  try{
   for(let i=0;i<4;i++){
-   const w=generateKeyPairSync('ed25519'),p=await port(),token=randomBytes(32).toString('hex'),file=join(root,'config-'+i+'.json'),keyFile=join(root,'key-'+i+'.pem');
+   const w=generateKeyPairSync('ed25519'),wq=generateKeyPairSync('ml-dsa-65'),p=await port(),token=randomBytes(32).toString('hex'),file=join(root,'config-'+i+'.json'),keyFile=join(root,'key-'+i+'.pem'),pqKeyFile=join(root,'pq-key-'+i+'.pem');
    writeFileSync(keyFile,w.privateKey.export({format:'pem',type:'pkcs8'}),{mode:0o600,flag:'wx'});
-   const n={file,loopbackPort:p,token,trusted:{pin:sha(spki(w)),publicKey:spki(w).toString('base64url')}};
-   writeFileSync(file,JSON.stringify({simulationOnly:true,directory:join(root,'store-'+i),scope,authorityKeyFile:keyFile,authorityPin:n.trusted.pin,token,port:p}),{mode:0o600,flag:'wx'});
+   writeFileSync(pqKeyFile,wq.privateKey.export({format:'pem',type:'pkcs8'}),{mode:0o600,flag:'wx'});
+   const n={file,loopbackPort:p,token,trusted:{pin:sha(spki(w)),publicKey:spki(w).toString('base64url'),pqPin:sha(spki(wq)),pqPublicKey:spki(wq).toString('base64url')}};
+   writeFileSync(file,JSON.stringify({simulationOnly:true,directory:join(root,'store-'+i),scope,authorityKeyFile:keyFile,authorityPin:n.trusted.pin,authorityPQKeyFile:pqKeyFile,authorityPQPin:n.trusted.pqPin,token,port:p}),{mode:0o600,flag:'wx'});
    execFileSync(process.execPath,[script,'provision',file],{stdio:'ignore'});nodes.push(n);await start(n);
   }
   const trustedAuthorities=nodes.map(n=>n.trusted);
