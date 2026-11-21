@@ -58,34 +58,8 @@ func pqWrite(path, magic string, pw []byte, p *pqKeys) error {
 	if e := checkPortableDirectory(filepath.Dir(path)); e != nil {
 		return e
 	}
-	k, e := p.kem.der(true)
-	if e != nil {
-		return e
-	}
-	defer clear(k)
-	d, e := p.dsa.der(true)
-	if e != nil {
-		return e
-	}
-	defer clear(d)
-	raw, e := json.Marshal([][]byte{k, d})
-	if e != nil {
-		return e
-	}
-	defer clear(raw)
-	salt, iv := make([]byte, 16), make([]byte, 12)
-	if _, e = rand.Read(salt); e != nil {
-		return e
-	}
-	if _, e = rand.Read(iv); e != nil {
-		return e
-	}
-	g, e := portableAEAD(pw, salt)
-	if e != nil {
-		return e
-	}
-	header := append(append([]byte(magic), salt...), iv...)
-	sealed := g.Seal(header, iv, raw, header)
+	sealed, e := encodePQStorage(magic, pw, p)
+	if e != nil { return e }
 	f, e := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
 	if e != nil {
 		return e
@@ -106,6 +80,39 @@ func pqWrite(path, magic string, pw []byte, p *pqKeys) error {
 	}
 	return syncPortableDirectory(filepath.Dir(path))
 }
+// Platform-independent encrypted sidecar bytes; file custody is platform-specific.
+func encodePQStorage(magic string, pw []byte, p *pqKeys) ([]byte,error) {
+	if !validPortablePassword(pw) { return nil, portableRefusal }
+	k, e := p.kem.der(true)
+	if e != nil {
+		return nil, e
+	}
+	defer clear(k)
+	d, e := p.dsa.der(true)
+	if e != nil {
+		return nil, e
+	}
+	defer clear(d)
+	raw, e := json.Marshal([][]byte{k, d})
+	if e != nil {
+		return nil, e
+	}
+	defer clear(raw)
+	salt, iv := make([]byte, 16), make([]byte, 12)
+	if _, e = rand.Read(salt); e != nil {
+		return nil, e
+	}
+	if _, e = rand.Read(iv); e != nil {
+		return nil, e
+	}
+	g, e := portableAEAD(pw, salt)
+	if e != nil {
+		return nil, e
+	}
+	header := append(append([]byte(magic), salt...), iv...)
+	return g.Seal(header, iv, raw, header), nil
+}
+
 func pqRead(path, magic string, pw []byte, addr, device, kpin, dpin string) (*pqKeys, error) {
 	if !filepath.IsAbs(path) || !validPortablePassword(pw) || !hashRE.MatchString(kpin) || !hashRE.MatchString(dpin) {
 		return nil, portableRefusal
@@ -126,9 +133,14 @@ func pqRead(path, magic string, pw []byte, addr, device, kpin, dpin string) (*pq
 	if e != nil || !os.SameFile(info, actual) {
 		return nil, portableRefusal
 	}
-	b, e := io.ReadAll(io.LimitReader(f, 50001))
+ 	b, e := io.ReadAll(io.LimitReader(f, 50001))
+	if e != nil { return nil, portableRefusal }
+	return decodePQStorage(b, magic, pw, addr, device, kpin, dpin)
+}
+func decodePQStorage(b []byte, magic string, pw []byte, addr, device, kpin, dpin string) (*pqKeys,error) {
+	if !validPortablePassword(pw) || !hashRE.MatchString(kpin) || !hashRE.MatchString(dpin) { return nil, portableRefusal }
 	h := len(magic)
-	if e != nil || len(b) < h+44 || len(b) > 50000 || string(b[:h]) != magic {
+	if len(b) < h+44 || len(b) > 50000 || string(b[:h]) != magic {
 		return nil, portableRefusal
 	}
 	g, e := portableAEAD(pw, b[h:h+16])

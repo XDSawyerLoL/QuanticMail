@@ -97,5 +97,7 @@ jobs:
           openssl version
           openssl list -kem-algorithms | grep -qi ML-KEM-768
           openssl list -signature-algorithms | grep -qi ML-DSA-65
-          go test -count=1 -tags pqopenssl -run '^TestPQProviderRoundTrip$' -v .
+          go test -count=1 -tags pqopenssl -run '^(TestPQProviderRoundTrip|TestWindowsPrivateStorage|TestWindowsPQStorageReopen)
+          go build -trimpath -tags pqopenssl -o "$RUNNER_TEMP/Vault-PQ-provider-lab.exe" .
+ -v .
           go build -trimpath -tags pqopenssl -o "$RUNNER_TEMP/Vault-PQ-provider-lab.exe" .

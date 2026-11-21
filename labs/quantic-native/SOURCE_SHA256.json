@@ -63,7 +63,7 @@
   "vault/pq_outgoing.go": "60b73af5d2c9a07a9465d2ff62a2551cb591a92058ba2f22233be9c4c3173835",
   "vault/pq_profile.py": "be123df1c07105a1cc43961259b9717c6892a17545269bad1e1c703ee862ff6d",
   "vault/pq_stub.go": "a0595465280564a6a70de755bdd5b8178e7a3b9d633cf4f32d5fb91ef31fa633",
-  "vault/pq_vault.go": "6bc484c7a83687705e62bf591a3bfb6497ef445bdfe1620288dc78ab50bba4bf",
+  "vault/pq_vault.go": "c3a8d56e078ee82217b099626139d48fe07f190be712a665b959452789be5bc7",
   "vault/registry_lease.py": "b8c0ceaa258daba882a543070559986c51f36beb945e63adcae33328d2b105c4",
   "vault/replay_test.go": "3dbb49444b7f31c56f6813a2ecd265e2444123586448fc256f36aba2ba095bc8",
   "vault/replay.go": "c18728b2c87f890a5b7fc0f3379cd9abc26a2fd9e78ca0f999aa2c7c7ca8cfa2",
@@ -97,5 +97,7 @@
   "vault/tests/dual-enrollment.test.mjs": "b237d536238557d52b226baa05bceb7d9045715c079bd02a7d4a8e43e2bc2ced",
   "vault/tests/isolated-enrollment.test.mjs": "3c90b9b3ce5522877b175176a372508834719a7447a28f342d0296df00d93e7f",
   "vault/tests/native-enrollment.test.mjs": "a07c4711d5a7a18f5ee48f969fcf07b4e81ecab5771e11739c3f93a91c011807",
-  "vault/pq_provider_test.go": "581ecc1f153d9bfff1c60ffb059f86827a898b5d0817f3e3cebca800154f7171"
+  "vault/pq_provider_test.go": "581ecc1f153d9bfff1c60ffb059f86827a898b5d0817f3e3cebca800154f7171",
+  "vault/windows_storage.go": "4e7aa4a99ec9c8109be71a9d2f60f119bacd7fff3e19f197836c6592b83bb265",
+  "vault/windows_storage_test.go": "18b89948324caa6b6ae338be2cdad948b6f15e94fc7aafebad34781c8ad03114"
 }
