@@ -69,6 +69,8 @@ type request struct {
 	Approved    bool          `json:"approved,omitempty"`
 }
 type reply struct {
+	HybridEnvelope *pqEnvelope `json:"pqEnvelope,omitempty"`
+	SenderAuth *senderAuth `json:"senderAuth,omitempty"`
 	PQKEM           string     `json:"pqKem,omitempty"`
 	PQDSA           string     `json:"pqDsa,omitempty"`
 	PQProof         string     `json:"pqProof,omitempty"`
@@ -236,7 +238,7 @@ func serveGuardedPQ(s signer, key agreementKey, backend string, in io.Reader, ou
 			}
 			continue
 		}
-		if pq != nil && q.Op != "public" && q.Op != "pq-public-lab" && q.Op != "pq-proof-lab" && q.Op != "mail-open-hybrid-lab" && q.Op != "close" {
+		if pq != nil && q.Op != "public" && q.Op != "pq-public-lab" && q.Op != "pq-proof-lab" && q.Op != "mail-open-hybrid-lab" && q.Op != "mail-seal-hybrid-lab" && q.Op != "close" {
 			if e = enc.Encode(fail); e != nil {
 				return e
 			}
@@ -263,6 +265,23 @@ func serveGuardedPQ(s signer, key agreementKey, backend string, in io.Reader, ou
 					r = reply{OK: true, PQProof: b64.EncodeToString(sig)}
 				}
 			}
+		case "mail-seal-hybrid-lab":
+			if pq==nil||journal==nil||journal.anchor==nil||q.PQContext==nil||q.PQEnvelope!=nil||q.SenderAuth!=nil{break}
+			c:=*q.PQContext
+			if c.From!=pq.address||c.FromDeviceID!=pq.device||!msgID.MatchString(c.ClientMessageID){break}
+			recipient,ok:=senders.contacts[senderKey(c.To,c.ToDeviceID)]
+			if !ok||recipient.Expires<=time.Now().UnixMilli(){break}
+			if _,err:=recipientKey(recipient);err!=nil{break}
+			plain,err:=decode(q.Message,1,maxPlain);if err!=nil{break}
+			h:=replayID("mail-outgoing-id-v1",[]byte(c.From+"\x00"+c.FromDeviceID+"\x00"+c.ClientMessageID))
+			if already(h)||!json.Valid(plain){clear(plain);break}
+			if !approve("Envoi hybride de laboratoire vers "+c.To+" / "+c.ToDeviceID+" / contenu SHA256 "+hexHash(plain)){clear(plain);break}
+			if recipient.Expires<=time.Now().UnixMilli(){clear(plain);break}
+			v,auth,err:=pq.sealOutgoing(s,c,recipient,plain);clear(plain)
+			if err!=nil{break}
+			if err=consume(h);err!=nil{return err}
+			if recipient.Expires<=time.Now().UnixMilli(){return portableRefusal}
+			r=reply{OK:true,HybridEnvelope:&v,SenderAuth:&auth}
 		case "mail-open-hybrid-lab":
 			if pq == nil || journal == nil || q.PQContext == nil || q.PQEnvelope == nil {
 				break

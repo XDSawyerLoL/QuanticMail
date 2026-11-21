@@ -21,6 +21,8 @@ type senderContact struct {
  Device string `json:"deviceId"`
  ClassicalRoot []byte `json:"classicalSigningSpki"`
  PQRoot []byte `json:"mlDsaSigningSpki"`
+ Encryption []byte `json:"classicalEncryptionSpki,omitempty"`
+ KEM []byte `json:"mlKemEncryptionSpki,omitempty"`
  Expires int64 `json:"expires"`
 }
 type senderTrust struct { contacts map[string]senderContact }
@@ -54,6 +56,7 @@ func loadSenderTrust(path string)(*senderTrust,error){
  for _,s:=range list{
   if !strongAddr.MatchString(s.Address)||!strongDevice.MatchString(s.Device)||s.Expires<=now||s.Expires>now+86400000||len(s.PQRoot)!=1974{return nil,portableRefusal}
   if _,e:=senderPublic(s.ClassicalRoot);e!=nil{return nil,e}
+  if len(s.Encryption)!=0||len(s.KEM)!=0{if _,e:=recipientKey(s);e!=nil{return nil,e}}
   key:=senderKey(s.Address,s.Device);if _,ok:=t.contacts[key];ok{return nil,portableRefusal};t.contacts[key]=s
  }
  return t,nil
