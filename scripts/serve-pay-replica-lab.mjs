@@ -7,6 +7,7 @@ import {isAbsolute} from 'node:path';
 import {openPayRoundReplica} from '../lib/quantic/pay-round-replica.mjs';
 import {openAnchoredPayReplica} from '../lib/quantic/pay-anchored-replica.mjs';
 import {createPayAnchorClient} from '../lib/quantic/pay-anchor-client.mjs';
+import {createPayAnchorQuorum} from '../lib/quantic/pay-anchor-quorum.mjs';
 import {createRoundUpload,createRoundDownload} from '../lib/quantic/pay-round-transfer.mjs';
 import {createRoundCirculationLab} from '../lib/quantic/pay-circulation-lab.mjs';
 const check=v=>{if(!v)throw Error('Pay witness refused');};
@@ -19,7 +20,7 @@ function privateRead(path,max){
 }
 const exact=(o,k)=>o&&typeof o==='object'&&!Array.isArray(o)&&Object.keys(o).length===k.length&&k.every(x=>Object.hasOwn(o,x));
 async function main(){
- check(process.platform==='linux'&&(process.argv.length===4&&['provision','serve'].includes(process.argv[2])||process.argv.length===5&&process.argv[2]==='serve-anchored'));
+ check(process.platform==='linux'&&(process.argv.length===4&&['provision','serve'].includes(process.argv[2])||process.argv.length===5&&['serve-anchored','serve-quorum-anchored'].includes(process.argv[2])));
  const raw=privateRead(process.argv[3],131072);let c;
  try{c=JSON.parse(raw.toString('utf8'));}finally{raw.fill(0);}
  check(exact(c,['simulationOnly','directory','chainConfig','expectedNetwork','authorityKeyFile','authorityPin','authorityPQKeyFile','authorityPQPin','token','port'])&&c.simulationOnly===true&&Number.isInteger(c.port)&&c.port>=1&&c.port<=65535&&typeof c.token==='string'&&/^[a-f0-9]{64}$/.test(c.token));
@@ -35,9 +36,10 @@ async function main(){
  const pqSecret=privateRead(c.authorityPQKeyFile,16384);
  let pqKey;try{pqKey=createPrivateKey(pqSecret);}finally{pqSecret.fill(0);}
  const options={directory:c.directory,config:c.chainConfig,classicalPrivateKey:key,pqPrivateKey:pqKey,authorityPin:c.authorityPin};
- const anchored=process.argv[2]==='serve-anchored';
+ const anchored=['serve-anchored','serve-quorum-anchored'].includes(process.argv[2]);
+ const anchorFactory=process.argv[2]==='serve-quorum-anchored'?createPayAnchorQuorum:createPayAnchorClient;
  check(!anchored||committeeMode);
- const store=anchored?openAnchoredPayReplica({...options,anchor:createPayAnchorClient({configFile:process.argv[4],network,authorityPin:c.authorityPin})}):openPayRoundReplica({...options,createNew:process.argv[2]==='provision'});
+ const store=anchored?openAnchoredPayReplica({...options,anchor:anchorFactory({configFile:process.argv[4],network,authorityPin:c.authorityPin})}):openPayRoundReplica({...options,createNew:process.argv[2]==='provision'});
  if(process.argv[2]==='provision'){store.close();console.log('PROVISIONED PAY REPLICA LAB');return;}
  const auth=Buffer.from('Bearer '+c.token);delete c.token;
  let busy=false;
