@@ -1,7 +1,7 @@
 import {createNativeMailboxClient} from '../desktop/native-mailbox-client.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createHash,generateKeyPairSync,sign,randomBytes} from 'node:crypto';
+import {createHash,generateKeyPairSync,sign,randomBytes,diffieHellman,encapsulate,decapsulate,hkdfSync,createCipheriv,createDecipheriv,createPublicKey} from 'node:crypto';
 import {canonicalManifestText} from '../lib/quantic/manifest-core.mjs';
 import {canonicalCryptoProfileText} from '../lib/quantic/crypto-profile-core.mjs';
 import {bindNativeContact,verifyNativeWire,nativeSenderTranscript} from '../lib/quantic/native-identity-bridge.mjs';
@@ -22,7 +22,7 @@ function fixture(handle){
  const raw=canonicalCryptoProfileText(q);
  const profile={format:'quantic-crypto-profile',version:2,payload:q,signatures:{p256:sig(owner,raw).toString('base64'),mlDsa65Self:sign(null,Buffer.from(raw),root.privateKey).toString('base64url')}};
  const checkpoint={address,deviceId,rootPin:sha(spki(owner)),pqRootPin:sha(spki(root)),manifestSequence:1,profileSequence:1,manifestDigest:sha(canonicalManifestText(p)),profileDigest:sha(raw),expires:now+20000};
- return {bundle:{manifest,profile},checkpoint,ds,dsa,owner};
+ return {bundle:{manifest,profile},checkpoint,ds,dsa,owner,enc,kem};
 }
 test('bind current signed manifest/profile to native contact and verify native transcript',()=>{
  const a=fixture('alice'),b=fixture('bobby');
@@ -117,16 +117,30 @@ test('four pinned mTLS authorities deliver real signed checkpoints and refuse tw
 import {startRelayServer} from '../standalone-relay/server.ts';
 import {createIdentityChallenge,registerIdentity} from '../lib/quantic/relay.ts';
 import {nativeRecordDigest} from '../lib/quantic/native-mailbox.mjs';
-test('native relay persists encrypted record, exact retry, acknowledgement and recovery across restart',async()=>{
+test('integrated native relay with four real mTLS authorities, hybrid ciphertext, exact retry, ack and restart',async()=>{
  const dir=await mkdtemp(join(tmpdir(),'quantic-native-mailbox-'));
  const a=fixture('queuealice'),b=fixture('queuebob');
- const fixtures=[a,b];
- const source=async(address,deviceId)=>{
-  const f=fixtures.find(x=>x.checkpoint.address===address&&x.checkpoint.deviceId===deviceId);
-  if(!f)throw Error('unknown device');
-  return {bundle:f.bundle,checkpoint:{...f.checkpoint,expires:Date.now()+10000}};
- };
- let relay;
+ const fixtures=[a,b],services=[];
+ let source,relay;
+ const policy=fixtures.map(f=>({...f.checkpoint,active:true}));
+ // Distinct keys and actual mTLS transport. The test supplies fresh fixture
+ // snapshots, not production policy updates or independent physical hosts.
+ const state=()=>({format:'quantic-relay-state',version:3,savedAt:new Date().toISOString(),manifests:fixtures.map(f=>[f.checkpoint.address,f.bundle.manifest]),cryptoProfiles:fixtures.map(f=>[f.checkpoint.address,f.bundle.profile])});
+ async function setupAuthorities(){
+  const openssl=(...args)=>execFileSync('openssl',args,{cwd:dir,stdio:'ignore'});
+  openssl('req','-x509','-newkey','ec','-pkeyopt','ec_paramgen_curve:prime256v1','-nodes','-keyout','ca.key','-out','ca.crt','-subj','/CN=Quantic integrated test CA','-days','1','-addext','basicConstraints=critical,CA:TRUE');
+  for(const name of ['client','w0','w1','w2','w3']){
+   openssl('req','-new','-newkey','ec','-pkeyopt','ec_paramgen_curve:prime256v1','-nodes','-keyout',name+'.key','-out',name+'.csr','-subj','/CN='+name,'-addext','subjectAltName=IP:127.0.0.1');
+   openssl('x509','-req','-in',name+'.csr','-CA','ca.crt','-CAkey','ca.key','-CAcreateserial','-out',name+'.crt','-days','1','-copy_extensions','copy');
+  }
+  const ca=await readFile(join(dir,'ca.crt')),clientPin=sha(new X509Certificate(await readFile(join(dir,'client.crt'))).raw),authorities=[];
+  for(let i=0;i<4;i++){
+   const k=generateKeyPairSync('ed25519'),name='w'+i,cert=await readFile(join(dir,name+'.crt'));
+   const service=await startNativeCheckpointAuthority({privateKey:k.privateKey,clientPins:[clientPin],tls:{ca,cert,key:await readFile(join(dir,name+'.key'))},load:async()=>({state:state(),policy})});
+   services.push(service);authorities.push({url:'https://127.0.0.1:'+service.port+'/native-checkpoint',pin:sha(spki(k)),publicKey:spki(k).toString('base64url'),tlsPin:sha(new X509Certificate(cert).raw)});
+  }
+  source=await createAttestedPeerSource({authorities,caFile:join(dir,'ca.crt'),clientCertFile:join(dir,'client.crt'),clientKeyFile:join(dir,'client.key')});
+ }
  const start=()=>startRelayServer({host:'127.0.0.1',port:0,dataDir:dir,nativePeerSource:source});
  const authToken=f=>sha('synthetic-token-'+f.checkpoint.address);
  function register(f){
@@ -136,11 +150,29 @@ test('native relay persists encrypted record, exact retry, acknowledgement and r
   const r=registerIdentity({...input,deviceId:f.checkpoint.deviceId,authToken:authToken(f),challenge:c.challenge,signature:sig(f.owner,c.challenge).toString('base64')});
   assert.equal(r.canonicalAddress,f.checkpoint.address);assert.equal(r.rootDeviceId,f.checkpoint.deviceId);
  }
+ const suite='QNT-HYB-P256-MLKEM768-HKDFSHA256-AES256GCM-1';
+ const plaintext=Buffer.from(JSON.stringify({subject:'Quantic integrated test',body:'encrypted mail round trip'}));
+ function contextText(c){return ['quantic-hybrid-envelope-context-v1',suite,c.clientMessageId,c.from,c.fromDeviceId,c.to,c.toDeviceId].join('\n');}
+ function symmetric(c,z,pq){
+  const t=contextText(c),salt=createHash('sha256').update('quantic-hybrid-kdf-salt-v1\n'+t).digest();
+  return Buffer.from(hkdfSync('sha256',Buffer.concat([z,pq]),salt,Buffer.from(t),32));
+ }
  function makeRecord(){
   const context={clientMessageId:'native-durable-0001',from:a.checkpoint.address,fromDeviceId:a.checkpoint.deviceId,to:b.checkpoint.address,toDeviceId:b.checkpoint.deviceId};
-  const envelope={cryptoSuite:'QNT-HYB-P256-MLKEM768-HKDFSHA256-AES256GCM-1',keyMode:'hybrid-static-fallback',classicalEphemeralPublicKey:pk(ec()),pqKemCiphertext:randomBytes(1088).toString('base64url'),iv:randomBytes(12).toString('base64url'),ciphertext:randomBytes(32).toString('base64url')};
+  const eph=ec(),z=diffieHellman({privateKey:eph.privateKey,publicKey:b.enc.publicKey}),kem=encapsulate(b.kem.publicKey),key=symmetric(context,z,kem.sharedKey),iv=randomBytes(12);
+  const g=createCipheriv('aes-256-gcm',key,iv);g.setAAD(Buffer.from(contextText(context)+'\nquantic-aes-gcm-aad-v1'));
+  const ciphertext=Buffer.concat([g.update(plaintext),g.final(),g.getAuthTag()]);
+  const j=pk(eph);
+  const envelope={cryptoSuite:suite,keyMode:'hybrid-static-fallback',classicalEphemeralPublicKey:{kty:j.kty,crv:j.crv,x:j.x,y:j.y},pqKemCiphertext:Buffer.from(kem.ciphertext).toString('base64url'),iv:iv.toString('base64url'),ciphertext:ciphertext.toString('base64url')};
   const raw=nativeSenderTranscript(context,envelope);
+  z.fill(0);kem.sharedKey.fill(0);key.fill(0);
   return {format:'quantic-native-mail',version:1,context,envelope,senderAuth:{classicalSignature:sig(a.ds,raw).toString('base64url'),pqSignature:sign(null,raw,a.dsa.privateKey).toString('base64url')}};
+ }
+ function decryptRecord(record){
+  const e=record.envelope,c=record.context,key=symmetric(c,diffieHellman({privateKey:b.enc.privateKey,publicKey:createPublicKey({key:e.classicalEphemeralPublicKey,format:'jwk'})}),decapsulate(b.kem.privateKey,Buffer.from(e.pqKemCiphertext,'base64url')));
+  const ciphertext=Buffer.from(e.ciphertext,'base64url'),g=createDecipheriv('aes-256-gcm',key,Buffer.from(e.iv,'base64url'));
+  g.setAAD(Buffer.from(contextText(c)+'\nquantic-aes-gcm-aad-v1'));g.setAuthTag(ciphertext.subarray(-16));
+  try{return Buffer.concat([g.update(ciphertext.subarray(0,-16)),g.final()]);}finally{key.fill(0);}
  }
  const target=f=>({address:f.checkpoint.address,deviceId:f.checkpoint.deviceId});
  const post=async(op,body,f)=>{
@@ -148,7 +180,7 @@ test('native relay persists encrypted record, exact retry, acknowledgement and r
   return [res.status,await res.json()];
  };
  try{
-  relay=await start();register(a);register(b);
+  await setupAuthorities();relay=await start();register(a);register(b);
   const r=makeRecord(),changed=makeRecord();
   assert.notEqual((await post('send',r,b))[0],202);
   const [code,saved]=await post('send',r,a);assert.equal(code,202);assert.equal(saved.digest,nativeRecordDigest(r));assert.equal(saved.duplicate,false);
@@ -156,7 +188,7 @@ test('native relay persists encrypted record, exact retry, acknowledgement and r
   const client=createNativeMailboxClient({endpoint:relay.url,address:a.checkpoint.address,deviceId:a.checkpoint.deviceId,token:authToken(a)});
   const retry=await client.send(r);assert.equal(retry.id,saved.id);assert.equal(retry.duplicate,true);
   assert.equal((await post('send',changed,a))[0],409);
-  const [pullCode,pull]=await post('pull',target(b),b);assert.equal(pullCode,200);assert.deepEqual(pull.item.record,r);
+  const [pullCode,pull]=await post('pull',target(b),b);assert.equal(pullCode,200);assert.deepEqual(pull.item.record,r);assert.deepEqual(decryptRecord(pull.item.record),plaintext);
   const ack={...target(b),id:saved.id,digest:saved.digest};
   assert.notEqual((await post('ack',ack,a))[0],200);
   assert.equal((await post('ack',{...ack,digest:'0'.repeat(64)},b))[0],409);
@@ -166,5 +198,8 @@ test('native relay persists encrypted record, exact retry, acknowledgement and r
   assert.deepEqual((await post('recover',ack,b))[1].item.record,r);
   const [lastCode,last]=await post('send',r,a);assert.equal(lastCode,202);assert.equal(last.status,'acknowledged');assert.equal(last.id,saved.id);
   assert.equal((await post('send',changed,a))[0],409);
- }finally{if(relay)await relay.close();await rm(dir,{recursive:true,force:true});}
+  policy[1].active=false;
+  assert.notEqual((await post('send',r,a))[0],202);
+  assert.notEqual((await post('pull',target(b),b))[0],200);
+ }finally{if(relay)await relay.close();await Promise.all(services.map(x=>x.close()));await rm(dir,{recursive:true,force:true});}
 });
