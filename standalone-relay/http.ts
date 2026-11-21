@@ -1,3 +1,4 @@
+import { hasUnsupportedNativeFields } from "../lib/quantic/legacy-native-boundary.mjs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 
 import { enqueueFederatedEnvelope } from "../lib/quantic/federation-delivery.ts";
@@ -657,6 +658,7 @@ export function createRelayRequestHandler(
       if (path === "/api/quantic/send") {
         if (method !== "POST") return methodNotAllowed(response);
         const body = await readJsonBody(request);
+        if (hasUnsupportedNativeFields(body)) throw new RelayHttpRequestError("Format cryptographique non pris en charge par cette route classique.",400);
         const result = await runtime.mutate(() =>
           enqueueEnvelope({
             clientMessageId: String(body.clientMessageId ?? ""),

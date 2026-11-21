@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { hasUnsupportedNativeFields } from "@/lib/quantic/legacy-native-boundary.mjs";
 import {
   assertCurrentManifestDeviceActive,
   ManifestStateError,
@@ -13,6 +14,7 @@ function bearer(request: Request) {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
+    if (hasUnsupportedNativeFields(body)) return NextResponse.json({error:"Format cryptographique non pris en charge par cette route classique."},{status:400});
     const from = String(body.from ?? "");
     const fromDeviceId = typeof body.fromDeviceId === "string" ? body.fromDeviceId : undefined;
     const to = String(body.to ?? "");
