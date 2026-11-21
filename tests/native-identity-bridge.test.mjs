@@ -1,3 +1,4 @@
+import {createNativeMailboxClient} from '../desktop/native-mailbox-client.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash,generateKeyPairSync,sign,randomBytes} from 'node:crypto';
@@ -152,7 +153,8 @@ test('native relay persists encrypted record, exact retry, acknowledgement and r
   assert.notEqual((await post('send',r,b))[0],202);
   const [code,saved]=await post('send',r,a);assert.equal(code,202);assert.equal(saved.digest,nativeRecordDigest(r));assert.equal(saved.duplicate,false);
   await relay.close();relay=undefined;relay=await start();
-  const [retryCode,retry]=await post('send',r,a);assert.equal(retryCode,202);assert.equal(retry.id,saved.id);assert.equal(retry.duplicate,true);
+  const client=createNativeMailboxClient({endpoint:relay.url,address:a.checkpoint.address,deviceId:a.checkpoint.deviceId,token:authToken(a)});
+  const retry=await client.send(r);assert.equal(retry.id,saved.id);assert.equal(retry.duplicate,true);
   assert.equal((await post('send',changed,a))[0],409);
   const [pullCode,pull]=await post('pull',target(b),b);assert.equal(pullCode,200);assert.deepEqual(pull.item.record,r);
   const ack={...target(b),id:saved.id,digest:saved.digest};

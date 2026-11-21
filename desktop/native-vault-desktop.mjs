@@ -37,11 +37,23 @@ export async function runNativeDesktop(dialog,{connect=connectNativeVault}={}){
     if(config?.labOnly!==true)throw Error('lab only');
     if(config.pqMode!==undefined){
       if(config.pqMode.enabled!==true)throw Error('invalid PQ mode');
-      const choice=await message(dialog,{type:'info',message:'QuanticMail · mode hybride authentifié',detail:'Utilise les attestations de deux identités et le coffre natif. Échange par fichiers uniquement ; aucun envoi réseau du message.',buttons:['Ouvrir un message signé','Préparer un message chiffré','Annuler'],defaultId:2,cancelId:2});
-      if(choice.response!==0&&choice.response!==1)return 'cancelled';
-      const path=await choose(dialog,choice.response===0?'Enveloppe native signée':'Brouillon privé (JSON : context, payload)');
+      const choice=await message(dialog,{type:'info',message:'QuanticMail · mode hybride authentifié',detail:'Utilise les attestations de deux identités et le coffre natif. Échange par fichiers et dépôt explicite sur relais local expérimental. Pas d’envoi public.',buttons:['Ouvrir un message signé','Préparer un message chiffré','Transmettre un fichier déjà signé','Annuler'],defaultId:3,cancelId:3});
+      if(choice.response!==0&&choice.response!==1&&choice.response!==2)return 'cancelled';
+      const path=await choose(dialog,choice.response===1?'Brouillon privé (JSON : context, payload)':'Enveloppe native signée');
       if(!path)return 'cancelled';
       const record=JSON.parse(await readLocal(path,choice.response===1));
+      if(choice.response===2){
+        if(!config.nativeRelay)throw Error('local relay configuration required');
+        const {createNativeMailboxClient}=await import('./native-mailbox-client.mjs');
+        const client=createNativeMailboxClient(config.nativeRelay);
+        const c=record.context;
+        if(!/^[a-z0-9][a-z0-9._-]{2,31}~[a-f0-9]{32}@quantic$/.test(c?.to)||!/^d-[a-f0-9]{32}$/.test(c?.toDeviceId))throw Error('invalid recipient');
+        const confirm=await message(dialog,{type:'warning',message:'Transmettre le fichier chiffré vers '+c.to,detail:'Aucune nouvelle signature. Le relais vérifiera les deux identités. Un nouvel essai doit réutiliser exactement ce fichier.',buttons:['Annuler','Transmettre'],defaultId:0,cancelId:0});
+        if(confirm.response!==1)return 'cancelled';
+        const result=await client.send(record);
+        await message(dialog,{type:'info',message:'Dépôt confirmé par le relais local',detail:'Identifiant : '+result.id+'\nÉtat : '+result.status+'\nNe supprimez pas le fichier chiffré. Ce dépôt ne prouve pas la lecture.',buttons:['Fermer']});
+        return 'completed';
+      }
       if(choice.response===1){
         const preview=safeMailDisplay(record.payload);
         const c=record.context;
