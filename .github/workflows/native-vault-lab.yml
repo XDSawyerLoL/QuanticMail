@@ -2,10 +2,10 @@ name: Native Vault laboratory
 on:
   pull_request:
     branches: [main]
-    paths: ['labs/quantic-native/**', 'desktop/**', 'lib/quantic/**', 'scripts/native-vault-windows-local.mjs', 'scripts/package-windows-pq-lab.sh', 'scripts/scattering-physical-probe.mjs', 'scripts/Start-Windows-PQ-Lab.ps1', 'tests/native-windows-desktop.test.mjs', '.github/workflows/native-vault-lab.yml']
+    paths: ['labs/quantic-native/**', 'desktop/**', 'lib/quantic/**', 'scripts/native-vault-windows-local.mjs', 'scripts/package-windows-pq-lab.sh', 'scripts/scattering-physical-probe.mjs', 'scripts/Start-Windows-PQ-Lab.ps1', 'tests/native-windows-desktop.test.mjs', 'tests/native-windows-mail-flow.test.mjs', 'tests/native-scattering-mailbox.test.mjs', 'standalone-relay/native-scattering-mailbox.mjs', 'scripts/serve-native-scattering-windows.mjs', 'scripts/native-vault-windows-mailbox.mjs', '.github/workflows/native-vault-lab.yml']
   push:
     branches: [main, "feat/**"]
-    paths: ['labs/quantic-native/**', 'desktop/**', 'lib/quantic/**', 'scripts/native-vault-windows-local.mjs', 'scripts/package-windows-pq-lab.sh', 'scripts/scattering-physical-probe.mjs', 'scripts/Start-Windows-PQ-Lab.ps1', 'tests/native-windows-desktop.test.mjs', '.github/workflows/native-vault-lab.yml']
+    paths: ['labs/quantic-native/**', 'desktop/**', 'lib/quantic/**', 'scripts/native-vault-windows-local.mjs', 'scripts/package-windows-pq-lab.sh', 'scripts/scattering-physical-probe.mjs', 'scripts/Start-Windows-PQ-Lab.ps1', 'tests/native-windows-desktop.test.mjs', 'tests/native-windows-mail-flow.test.mjs', 'tests/native-scattering-mailbox.test.mjs', 'standalone-relay/native-scattering-mailbox.mjs', 'scripts/serve-native-scattering-windows.mjs', 'scripts/native-vault-windows-mailbox.mjs', '.github/workflows/native-vault-lab.yml']
 permissions:
   contents: read
 jobs:
@@ -107,15 +107,19 @@ jobs:
           node-version: 24.8.0
       - name: Windows trusted client workflow regressions
         run: node --test tests/native-windows-desktop.test.mjs tests/native-vault-controller.test.mjs tests/native-windows-mail-flow.test.mjs
-      - name: Windows native Scattering mailbox loopback
-        shell: msys2 {0}
-        run: |
-          export QUANTIC_WINDOWS_VAULT_TEST="$(cygpath -w "$RUNNER_TEMP/Vault-PQ-provider-lab.exe")"
-          export QUANTIC_SCATTERING_NATIVE_TEST="$(cygpath -w "$RUNNER_TEMP/Scattering-Pacer.exe")"
-          node --test tests/native-scattering-mailbox.test.mjs
       - name: Stage isolated portable Windows laboratory
         shell: msys2 {0}
         run: bash scripts/package-windows-pq-lab.sh "$RUNNER_TEMP/Vault-PQ-provider-lab.exe" "$RUNNER_TEMP/QuanticMail-Windows-PQ-Lab" "$RUNNER_TEMP/Scattering-Pacer.exe"
+      - name: Windows native Scattering mailbox loopback using packaged binaries
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP "QuanticMail-Windows-PQ-Lab"
+          $node = (Get-Command node.exe -CommandType Application).Source
+          $env:QUANTIC_WINDOWS_VAULT_TEST = "$dir\bin\Vault-PQ-lab.exe"
+          $env:QUANTIC_SCATTERING_NATIVE_TEST = "$dir\bin\Scattering-Pacer.exe"
+          $env:PATH = "$dir\bin;$env:SystemRoot\System32"
+          & $node --test tests/native-scattering-mailbox.test.mjs
+          if ($LASTEXITCODE -ne 0) { throw "Packaged Scattering mailbox failed" }
       - name: Verify packaged entry points and cryptography runtime
         shell: pwsh
         run: |

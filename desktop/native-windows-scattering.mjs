@@ -11,9 +11,10 @@ export async function reserveWindowsScattering(c,bootstrap){
  try{
   await new Promise((resolve,reject)=>{
    let line='';const timer=setTimeout(()=>{p.kill();reject(Error('guard timeout'));},10000);
-   const bad=()=>{clearTimeout(timer);reject(Error('guard refused'));};
-   p.once('error',bad);p.once('close',bad);
-   p.stdout.on('data',b=>{line+=b.toString();if(line==='READY\n'){clearTimeout(timer);resolve();}else if(line.length>=6){p.kill();bad();}});
+   const bad=(reason='refused')=>{clearTimeout(timer);reject(Error('Windows Scattering guard '+reason));};
+   p.once('error',e=>bad('spawn '+(e.code??'unknown')));
+   p.once('close',(code,signal)=>bad('exit '+(Number.isInteger(code)?String(code):signal??'unknown')));
+   p.stdout.on('data',b=>{line+=b.toString();if(line==='READY\n'){clearTimeout(timer);resolve();}else if(line.length>=6){p.kill();bad('invalid readiness frame');}});
    p.stdin.write(c.epochHex);
   });
   if(ended)throw Error('guard exited');
