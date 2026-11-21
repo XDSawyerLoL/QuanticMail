@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import {mkdtemp,writeFile,readFile,rm,symlink} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {generateKeyPairSync} from 'node:crypto';
+import {generateKeyPairSync,randomBytes} from 'node:crypto';
+import {openReceipt,sealReceipt} from '../desktop/native-receipt-store.mjs';
 import {runNativeDesktop,safeMailDisplay} from '../desktop/native-vault-desktop.mjs';
 function dialogFor({files=[],responses=[],save}={}){
  const seen=[];
@@ -51,12 +52,13 @@ test('message display neutralizes directional overrides and rejects other payloa
 });
 
 test('native mailbox receive requires local consent, saves before ack and refuses wrong account',()=>fixture(async({cfg,dir})=>{
- const path=join(dir,'received.json'),payload={subject:'test',body:'received'},item={id:'test-id',digest:'test-digest',record:{}};
+ const path=join(dir,'received.json'),payload={subject:'test',body:'received'},item={id:'01234567-89ab-4cde-8fab-0123456789ab',digest:'f'.repeat(64),record:{}};
  const address='alice~'+'a'.repeat(32)+'@quantic',deviceId='d-'+'b'.repeat(32);
- const config={labOnly:true,pqMode:{enabled:true,address,deviceId},nativeRelay:{address,deviceId}};
+ const receiptKeyFile=join(dir,'receipt.key'),key=randomBytes(32);await writeFile(receiptKeyFile,key,{mode:0o600});
+ const config={labOnly:true,pqMode:{enabled:true,address,deviceId,receiptKeyFile},nativeRelay:{address,deviceId}};
  await writeFile(cfg,JSON.stringify(config),{mode:0o600});
  let ack=0,opens=0,clients=0;
- const mailboxConnect=async()=>{clients++;return {pull:async()=>item,ack:async(id,digest)=>{assert.equal(id,item.id);assert.equal(digest,item.digest);assert.deepEqual(JSON.parse(await readFile(path,'utf8')),{id,digest,payload});ack++;}};};
+ const mailboxConnect=async()=>{clients++;return {pull:async()=>item,ack:async(id,digest)=>{assert.equal(id,item.id);assert.equal(digest,item.digest);const encrypted=JSON.parse(await readFile(path,'utf8'));assert.equal(encrypted.payload,undefined);assert.deepEqual(openReceipt(key,config.nativeRelay,encrypted),{id,digest,payload});ack++;}};};
  const connect=async()=>({openHybrid:async()=>{opens++;return payload;},close(){}});
  assert.equal(await runNativeDesktop(dialogFor({files:[cfg],responses:[0,3,0],save:path}),{connect,mailboxConnect}),'cancelled');
  assert.equal(opens,0);assert.equal(ack,0);
@@ -66,3 +68,11 @@ test('native mailbox receive requires local consent, saves before ack and refuse
  assert.equal(await runNativeDesktop(dialogFor({files:[cfg],responses:[0,3,1]}),{connect,mailboxConnect}),'failed');
  assert.equal(clients,2);
 }));
+
+test('receipt encryption binds account, message ID and digest and refuses modified tags',()=>{
+ const key=randomBytes(32),scope={address:'alice~'+'a'.repeat(32)+'@quantic',deviceId:'d-'+'b'.repeat(32)},item={id:'01234567-89ab-4cde-8fab-0123456789ab',digest:'f'.repeat(64)},payload={subject:'private',body:'secret'};
+ const a=sealReceipt(key,scope,item,payload),b=sealReceipt(key,scope,item,payload);
+ assert.notEqual(a.iv,b.iv);assert.deepEqual(openReceipt(key,scope,a),{...item,payload});
+ for(const bad of [{...a,digest:'e'.repeat(64)},{...a,tag:Buffer.alloc(16).toString('base64url')},{...a,address:'bobby~'+'a'.repeat(32)+'@quantic'}])assert.throws(()=>openReceipt(key,scope,bad));
+ assert.throws(()=>openReceipt(randomBytes(32),scope,a));key.fill(0);
+});
