@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash,generateKeyPairSync,sign} from 'node:crypto';
-import {verifyMigrationArchiveOffline} from '../lib/quantic/migration-proof-node.mjs';
+import {verifyMigrationArchiveOffline,openVerifiedMigrationHistory} from '../lib/quantic/migration-proof-node.mjs';
 import {prepareMigrationArchive,sealMigrationArchive} from '../lib/quantic/migration-archive.ts';
 import {canonicalManifestText} from '../lib/quantic/manifest-core.mjs';
 import {canonicalPreKeyText} from '../lib/quantic/prekey-core.mjs';
@@ -47,4 +47,15 @@ test('archive authentication alone cannot substitute a historical signed prekey'
  await assert.rejects(verifyMigrationArchiveOffline(await sealMigrationArchive(changed,pass),pass,scope));
  const other=pair();const replaced=structuredClone(archive);replaced.prekeys[0].publicKey=pub(other);replaced.prekeys[0].privateKey=priv(other);
  await assert.rejects(verifyMigrationArchiveOffline(await sealMigrationArchive(replaced,pass),pass,scope));
+});
+
+test('verified history reopens archived messages only without making a live account or exposing keys',async()=>{
+ const {archive,scope}=fixture();
+ archive.messages=[{id:'m1',direction:'in',from:'bob@quantic',to:scope.expectedAddress,createdAt:date,subject:'past message',body:'stored body\u001b[31m'}];
+ const text=await sealMigrationArchive(archive,pass),history=await openVerifiedMigrationHistory(text,pass,scope);
+ assert.equal(history.records.length,1);assert.equal(history.records[0].subject,'past message');assert.equal(history.records[0].body,'stored body<U+001B>[31m');
+ assert.equal(history.liveRestoreAuthorized,false);assert.equal(history.legacyDeletionAuthorized,false);
+ assert.ok(!JSON.stringify(history).includes(archive.identity.privateKey.d));assert.equal(history.records[0].id,undefined);
+ await assert.rejects(openVerifiedMigrationHistory(text,pass,{...scope,trustedRootPin:'f'.repeat(64)}));
+ archive.messages.push(archive.messages[0]);await assert.rejects(openVerifiedMigrationHistory(await sealMigrationArchive(archive,pass),pass,scope));
 });

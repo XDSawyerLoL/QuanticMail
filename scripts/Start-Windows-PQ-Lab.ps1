@@ -1,7 +1,7 @@
 # Explicit laboratory launcher. No installation or production login.
 [CmdletBinding()]
 param(
- [Parameter(Mandatory=$true)][ValidateSet("Providers","Open","RecoverOpen","Seal","RecoverSeal","ProbeLoopback","Send","Receive","RecoverReceive","ConfirmReceipt","StartBridge","Provision","Dashboard","DashboardCheck","MigrationCheck")][string]$Operation,
+ [Parameter(Mandatory=$true)][ValidateSet("Providers","Open","RecoverOpen","Seal","RecoverSeal","ProbeLoopback","Send","Receive","RecoverReceive","ConfirmReceipt","StartBridge","Provision","Dashboard","DashboardCheck","MigrationCheck","MigrationHistory")][string]$Operation,
  [Parameter(Mandatory=$true)][ValidatePattern('^[a-fA-F0-9]{64}$')][string]$ExpectedManifestSha256,
  [string]$TrustedBinarySha256,
  [string]$PrivateDirectory,
@@ -44,9 +44,11 @@ if ($Operation -in @("Dashboard","DashboardCheck")) {
  & $shell @uiArgs
  exit $LASTEXITCODE
 }
-if ($Operation -eq "MigrationCheck") {
+if ($Operation -in @("MigrationCheck","MigrationHistory")) {
  if ($TrustedRootPin -notmatch '^[a-f0-9]{64}$' -or $CanonicalAddress -notmatch '^[a-z0-9][a-z0-9._-]{2,31}~(?:[a-f0-9]{10}|[a-f0-9]{32})@quantic$' -or $InputFile -notmatch '^[A-Za-z]:\\[^\r\n]+\.qma$') { throw "Archive and independent public identity pin required." }
- & $node --experimental-transform-types (Join-Path $root "scripts\verify-migration-local.mjs") $InputFile $CanonicalAddress $TrustedRootPin
+ $migrationArgs=@($InputFile,$CanonicalAddress,$TrustedRootPin)
+ if ($Operation -eq "MigrationHistory") { $migrationArgs+="history" }
+ & $node --experimental-transform-types (Join-Path $root "scripts\verify-migration-local.mjs") @migrationArgs
  exit $LASTEXITCODE
 }
 if (-not $PrivateDirectory) { throw "PrivateDirectory required." }

@@ -3,7 +3,7 @@ import {open,lstat} from 'node:fs/promises';
 import {isAbsolute,extname} from 'node:path';
 import {createInterface} from 'node:readline/promises';
 import {Writable} from 'node:stream';
-import {verifyMigrationArchiveOffline} from '../lib/quantic/migration-proof-node.mjs';
+import {verifyMigrationArchiveOffline,openVerifiedMigrationHistory} from '../lib/quantic/migration-proof-node.mjs';
 const MAX=23*1024*1024;
 const check=v=>{if(!v)throw Error('Verification refused');};
 async function archiveText(path){
@@ -31,13 +31,34 @@ async function readPassword(){
  }finally{rl.close();muted.end();process.stderr.write('\n');}
 }
 try{
- const [path,expectedAddress,trustedRootPin]=process.argv.slice(2);
- check(process.argv.length===5&&/^[a-z0-9][a-z0-9._-]{2,31}~(?:[a-f0-9]{10}|[a-f0-9]{32})@quantic$/.test(expectedAddress)&&/^[a-f0-9]{64}$/.test(trustedRootPin));
+ const [path,expectedAddress,trustedRootPin,mode]=process.argv.slice(2);
+ check((process.argv.length===5||process.argv.length===6&&mode==='history')&&/^[a-z0-9][a-z0-9._-]{2,31}~(?:[a-f0-9]{10}|[a-f0-9]{32})@quantic$/.test(expectedAddress)&&/^[a-f0-9]{64}$/.test(trustedRootPin));
  const text=await archiveText(path);
  let password=await readPassword();
  try{
-  const result=await verifyMigrationArchiveOffline(text,password,{expectedAddress,trustedRootPin});
-  process.stdout.write(JSON.stringify(result,null,2)+'\n');
-  process.stderr.write('Verification historique uniquement. Aucune restauration ni suppression autorisee.\n');
+  const scope={expectedAddress,trustedRootPin};
+  if(mode==='history'){
+   check(process.stdout.isTTY&&process.stdin.isTTY);
+   const history=await openVerifiedMigrationHistory(text,password,scope);
+   password='';
+   const rl=createInterface({input:process.stdin,output:process.stderr,terminal:true,historySize:0});
+   try{
+    process.stderr.write('Historique local uniquement : contenu de la sauvegarde, pas de preuve independente de l expéditeur.\n');
+    const count=history.records.length;
+    process.stderr.write('Messages conserves : '+count+'\n');
+    while(count>0){
+     const v=(await rl.question('Numero de message (1-'+count+') ou Q pour quitter : ')).trim();
+     if(v.toLowerCase()==='q')break;
+     if(!/^[1-9][0-9]{0,4}$/.test(v)||Number(v)>count)continue;
+     const m=history.records[Number(v)-1];
+     // No persistent log/output file; render the explicitly selected record only.
+     process.stdout.write('\n'+m.createdAt+' / '+(m.direction==='in'?'Recu':'Envoye')+'\nDe : '+m.from+'\nA : '+m.to+'\nObjet : '+m.subject+'\n\n'+m.body+'\n\n');
+    }
+   }finally{rl.close();}
+  }else{
+   const result=await verifyMigrationArchiveOffline(text,password,scope);
+   process.stdout.write(JSON.stringify(result,null,2)+'\n');
+   process.stderr.write('Verification historique uniquement. Aucune restauration ni suppression autorisee.\n');
+  }
  }finally{password='';}
 }catch{process.stderr.write('Verification refusee ou interrompue. Archive et compte d origine inchanges.\n');process.exitCode=1;}
