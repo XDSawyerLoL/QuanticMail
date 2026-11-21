@@ -24,8 +24,11 @@ for pass in $(seq 1 16); do
 done
 test "$changed" == 0
 cp desktop/native-*.mjs "$dst/desktop/"
-cp lib/quantic/*.mjs "$dst/lib/quantic/"
-cp scripts/native-vault-windows-local.mjs "$dst/scripts/"
+cp lib/quantic/*.mjs lib/quantic/pqc-runtime-node.ts lib/quantic/pqc-runtime.ts "$dst/lib/quantic/"
+cp scripts/native-vault-windows-local.mjs scripts/scattering-physical-probe.mjs "$dst/scripts/"
+cp scripts/Start-Windows-PQ-Lab.ps1 "$dst/"
+cp docs/PHYSICAL_SCATTERING_TEST.md "$dst/"
+cp "$(cygpath -u "$3")" "$dst/bin/Scattering-Pacer.exe"
 cp docs/AUDIT_WINDOWS_DESKTOP_BRIDGE.md "$dst/"
 cp docs/WINDOWS_PQ_LAB_README.md "$dst/README.md"
 for p in /ucrt64/share/licenses/openssl /ucrt64/share/licenses/gcc /ucrt64/share/licenses/gcc-libs /ucrt64/share/licenses/libwinpthread /ucrt64/share/licenses/zlib /ucrt64/share/licenses/zstd /ucrt64/share/licenses/libffi; do
