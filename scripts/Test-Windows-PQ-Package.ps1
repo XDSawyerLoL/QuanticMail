@@ -28,7 +28,7 @@ if ($m.Length -lt 1 -or $m.Length -gt 262144) { throw "Unexpected manifest size.
 if ((Get-FileHash -LiteralPath $manifest -Algorithm SHA256).Hash -ine $ExpectedManifestSha256) { throw "Untrusted package manifest." }
 $expected=[Collections.Generic.Dictionary[string,string]]::new([StringComparer]::OrdinalIgnoreCase)
 foreach ($line in [IO.File]::ReadAllLines($manifest)) {
- if ($line -cnotmatch '^([a-f0-9]{64})  \./([A-Za-z0-9_. -]+(?:/[A-Za-z0-9_. -]+)*)$') { throw "Invalid package manifest line." }
+ if ($line -cnotmatch '^([a-f0-9]{64}) \*\./([A-Za-z0-9_. -]+(?:/[A-Za-z0-9_. -]+)*)$') { throw "Invalid package manifest line." }
  $digest=$Matches[1]; $rel=$Matches[2]
  foreach ($part in $rel.Split('/')) {
   if ($part -in @('.','..') -or $part.EndsWith('.') -or $part.EndsWith(' ') -or $part -match '^(CON|PRN|AUX|NUL|COM[0-9]|LPT[0-9])(\.|$)') { throw "Ambiguous package path." }

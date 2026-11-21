@@ -13,7 +13,7 @@ $root = $PSScriptRoot
 # before initial execution. Verify again before running any bundled executable.
 if ((Get-FileHash -LiteralPath (Join-Path $root "SHA256SUMS.txt") -Algorithm SHA256).Hash -ine $ExpectedManifestSha256) { throw "Unexpected manifest." }
 $verifier = Join-Path $root "Test-Windows-PQ-Package.ps1"
-$line = @(Get-Content -LiteralPath (Join-Path $root "SHA256SUMS.txt") | Where-Object { $_ -cmatch '^[a-f0-9]{64}  \./Test-Windows-PQ-Package\.ps1
+$line = @(Get-Content -LiteralPath (Join-Path $root "SHA256SUMS.txt") | Where-Object { $_ -cmatch '^[a-f0-9]{64} \*\./Test-Windows-PQ-Package\.ps1
 $vault = Join-Path $root "bin\Vault-PQ-lab.exe"
 $pacer = Join-Path $root "bin\Scattering-Pacer.exe"
 $node = Join-Path $root "runtime\node.exe"
