@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {generateKeyPairSync} from "node:crypto";
-import {prepareMigrationArchive,sealMigrationArchive,openMigrationArchive,migrationArchiveSummary,reconcileMigrationSnapshot} from "../lib/quantic/migration-archive.ts";
+import {generateKeyPairSync,createHash} from "node:crypto";
+import {prepareMigrationArchive,sealMigrationArchive,openMigrationArchive,migrationArchiveSummary,reconcileMigrationSnapshot,migrationRootPin} from "../lib/quantic/migration-archive.ts";
 import {encryptForRecipientCore,decryptEnvelopeCore} from "../lib/quantic/envelope-crypto.mjs";
 const pass="synthetic long archive secret only";
 const pair=()=>generateKeyPairSync("ec",{namedCurve:"prime256v1"});
@@ -60,4 +60,12 @@ test("read-only reconciliation detects missing changed and extra records and ign
  assert.equal(JSON.stringify(source),frozen);assert.ok(!JSON.stringify(report).includes("modified"));
  const dup=structuredClone(saved);dup.messages.push(dup.messages[0]);assert.throws(()=>reconcileMigrationSnapshot(dup,source));
  const wrong=structuredClone(source);wrong.identity.canonicalAddress="bob~"+"b".repeat(32)+"@quantic";assert.throws(()=>reconcileMigrationSnapshot(saved,wrong));
+});
+
+test("source public reference interoperates with the Node offline verifier",async()=>{
+ const p=pair(),pub=p.publicKey.export({format:"jwk"});
+ assert.equal(await migrationRootPin(pub),createHash("sha256").update(p.publicKey.export({format:"der",type:"spki"})).digest("hex"));
+ assert.notEqual(await migrationRootPin(pub),await migrationRootPin(pair().publicKey.export({format:"jwk"})));
+ await assert.rejects(migrationRootPin(p.privateKey.export({format:"jwk"})));
+ await assert.rejects(migrationRootPin({kty:"EC",crv:"P-256",x:"bad",y:"bad"}));
 });

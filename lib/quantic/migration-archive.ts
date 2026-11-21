@@ -109,3 +109,14 @@ export function reconcileMigrationSnapshot(archive:MigrationArchive,source:Migra
  });
  return {identityMatches,pendingMatches,rows,snapshotMatches:identityMatches&&pendingMatches&&rows.every(r=>r.missing+r.changed+r.extra===0),liveRestoreAuthorized:false as const,legacyDeletionAuthorized:false as const};
 }
+
+/** Public reference for independently checking an exported archive.
+ * Must be retained separately on the source device; never trust a reference
+ * provided solely by an untrusted archive. This is not an enrollment grant.
+ */
+export async function migrationRootPin(publicKey:JsonWebKey):Promise<string>{
+ check(publicKey?.kty==="EC"&&publicKey.crv==="P-256"&&typeof publicKey.x==="string"&&typeof publicKey.y==="string"&&!Object.hasOwn(publicKey,"d"),"Clé publique historique invalide.");
+ const key=await crypto.subtle.importKey("jwk",{kty:"EC",crv:"P-256",x:publicKey.x,y:publicKey.y},{name:"ECDSA",namedCurve:"P-256"},true,["verify"]);
+ const spki=await crypto.subtle.exportKey("spki",key);
+ return Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",spki)),b=>b.toString(16).padStart(2,"0")).join("");
+}

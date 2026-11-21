@@ -6,7 +6,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { randomToken } from "@/lib/quantic/crypto";
 import { getLocalIdentity, installRecoveredIdentity, inspectLocalMigration, captureMigrationSnapshot, type LocalIdentity } from "@/lib/quantic/local-db";
 import type { MigrationInventory } from "@/lib/quantic/migration-inventory";
-import {prepareMigrationArchive,sealMigrationArchive,openMigrationArchive,migrationArchiveSummary,reconcileMigrationSnapshot,ARCHIVE_MAX_BYTES} from "@/lib/quantic/migration-archive";
+import {prepareMigrationArchive,sealMigrationArchive,openMigrationArchive,migrationArchiveSummary,reconcileMigrationSnapshot,migrationRootPin,ARCHIVE_MAX_BYTES} from "@/lib/quantic/migration-archive";
 import { exportIdentityVault, importIdentityVault } from "@/lib/quantic/vault";
 
 function downloadTextFile(filename: string, text: string) {
@@ -26,6 +26,7 @@ export function IdentityVaultApp() {
   const [identity, setIdentity] = useState<LocalIdentity | null>(null);
   const [inventory, setInventory] = useState<MigrationInventory | null>(null);
   const [inventoryError, setInventoryError] = useState(false);
+  const [historicalRootPin,setHistoricalRootPin]=useState("");
   const [loading, setLoading] = useState(true);
   const [exportPassword, setExportPassword] = useState("");
   const [exportConfirm, setExportConfirm] = useState("");
@@ -42,7 +43,11 @@ export function IdentityVaultApp() {
   useEffect(() => {
     void (async () => {
       try {
-        setIdentity(await getLocalIdentity());
+        const current=await getLocalIdentity();
+        setIdentity(current);
+        if(current?.signingPublicKey){
+          try{setHistoricalRootPin(await migrationRootPin(current.signingPublicKey));}catch{setHistoricalRootPin("");}
+        }
         try { setInventory(await inspectLocalMigration()); } catch { setInventoryError(true); }
       } catch {
         setError("Impossible d’ouvrir le stockage local QuanticMail.");
@@ -166,6 +171,13 @@ export function IdentityVaultApp() {
               <h2>{identity.address}</h2>
               <code className="qn-vault-address">{identity.canonicalAddress ?? "Migration cryptographique requise"}</code>
               <p className="qn-footnote">Le fichier exporté contient les clés d’identité historiques. Il ne contient pas les messages, contacts, envois en attente, prekeys, clés post-quantiques ou demandes de pairing. Ce n’est pas une migration complète.</p>
+              <h3>Référence publique pour la migration</h3>
+              {historicalRootPin ? (
+                <div>
+                  <code className="qn-vault-address" style={{overflowWrap:"anywhere"}}>{historicalRootPin}</code>
+                  <p className="qn-footnote">Empreinte SHA-256 de la clé publique de propriété historique. Relevez-la depuis cet appareil d’origine et conservez-la séparément de l’archive. Le vérificateur Windows en a besoin. Elle ne suffit pas à autoriser une migration.</p>
+                </div>
+              ) : <p className="qn-footnote">Référence publique indisponible : ne validez pas de migration native.</p>}
               <h3>Diagnostic avant migration native</h3>
               {inventoryError ? <p role="alert">Inventaire incomplet : ne supprimez aucune donnée.</p> : inventory ? (
                 <div>
