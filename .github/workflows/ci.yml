@@ -108,4 +108,4 @@ jobs:
         with:
           node-version: 24.8.0
       - run: npm install
-      - run: node --experimental-transform-types --test tests/shared-auth-rate.test.mjs
+      - run: node --experimental-transform-types --test tests/shared-auth-rate.test.mjs tests/audit-session-web.test.mjs
