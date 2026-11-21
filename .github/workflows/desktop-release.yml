@@ -8,6 +8,7 @@ permissions:
 
 jobs:
   windows:
+    if: github.ref == 'refs/heads/main'
     runs-on: windows-latest
     permissions:
       contents: write
@@ -31,8 +32,29 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
+          QUANTIC_WINDOWS_SIGNER_SHA256: ${{ vars.QUANTIC_WINDOWS_SIGNER_SHA256 }}
         run: |
-          if ((Get-AuthenticodeSignature "$env:ASSET").Status -ne "Valid") {
+          $pin = "$env:QUANTIC_WINDOWS_SIGNER_SHA256".Trim().ToLowerInvariant()
+          if ($pin -notmatch '^[0-9a-f]{64}
+            throw "Publication refusée : signature Authenticode absente ou invalide."
+          }
+          $actualPin = [Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData($signature.SignerCertificate.RawData)).ToLowerInvariant()
+          if ($actualPin -cne $pin) {
+            throw "Publication refusée : certificat éditeur inattendu."
+          }
+          $hash = (Get-FileHash "$env:ASSET" -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $(Split-Path "$env:ASSET" -Leaf)" | Set-Content -Encoding ascii "$env:ASSET.sha256"
+          gh release view "$env:TAG" 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            throw "Publication refusée : cette version existe déjà."
+          }
+          gh release create "$env:TAG" "$env:ASSET" "$env:ASSET.sha256" --target "$env:GITHUB_SHA" --title "QuanticMail Desktop $env:VERSION" --notes "Version signée. Vérifier la signature Authenticode de l’installateur."
+          if ($LASTEXITCODE -ne 0) { throw "Publication échouée." }
+) {
+            throw "Publication refusée : empreinte SHA256 du certificat éditeur non configurée."
+          }
+          $signature = Get-AuthenticodeSignature "$env:ASSET"
+          if ($signature.Status -ne "Valid" -or $null -eq $signature.SignerCertificate) {
             throw "Publication refusée : signature Authenticode absente ou invalide."
           }
           $hash = (Get-FileHash "$env:ASSET" -Algorithm SHA256).Hash.ToLowerInvariant()
