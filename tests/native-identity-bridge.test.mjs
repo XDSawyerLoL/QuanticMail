@@ -75,3 +75,40 @@ test('independent authority quorum reads durable schema, pins both roots and ref
  assert.throws(()=>issue(state,[{...policy[0],profileSequence:2}]));
  assert.throws(()=>issue(state,[{...policy[0],pqRootPin:'0'.repeat(64)}]));
 });
+
+import {mkdtemp,readFile,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {execFileSync} from 'node:child_process';
+import {X509Certificate} from 'node:crypto';
+import {startNativeCheckpointAuthority} from '../standalone-relay/native-checkpoint-server.mjs';
+import {createAttestedPeerSource} from '../desktop/native-attested-peer.mjs';
+test('four pinned mTLS authorities deliver real signed checkpoints and refuse two votes',async()=>{
+ const dir=await mkdtemp(join(tmpdir(),'quantic-authority-'));
+ const services=[];
+ try{
+  const openssl=(...args)=>execFileSync('openssl',args,{cwd:dir,stdio:'ignore'});
+  openssl('req','-x509','-newkey','ec','-pkeyopt','ec_paramgen_curve:prime256v1','-nodes','-keyout','ca.key','-out','ca.crt','-subj','/CN=Quantic test CA','-days','1','-addext','basicConstraints=critical,CA:TRUE');
+  for(const name of ['client','w0','w1','w2','w3']){
+   openssl('req','-new','-newkey','ec','-pkeyopt','ec_paramgen_curve:prime256v1','-nodes','-keyout',name+'.key','-out',name+'.csr','-subj','/CN='+name,'-addext','subjectAltName=IP:127.0.0.1');
+   openssl('x509','-req','-in',name+'.csr','-CA','ca.crt','-CAkey','ca.key','-CAcreateserial','-out',name+'.crt','-days','1','-copy_extensions','copy');
+  }
+  const a=fixture('transportalice');
+  const state={format:'quantic-relay-state',version:3,savedAt:new Date().toISOString(),manifests:[[a.checkpoint.address,a.bundle.manifest]],cryptoProfiles:[[a.checkpoint.address,a.bundle.profile]]};
+  const policy=[{...a.checkpoint,active:true}];
+  const ca=await readFile(join(dir,'ca.crt')),clientPin=sha(new X509Certificate(await readFile(join(dir,'client.crt'))).raw);
+  const authorities=[];
+  for(let i=0;i<4;i++){
+   const k=generateKeyPairSync('ed25519'),name='w'+i,cert=await readFile(join(dir,name+'.crt'));
+   const service=await startNativeCheckpointAuthority({privateKey:k.privateKey,clientPins:[clientPin],tls:{ca,cert,key:await readFile(join(dir,name+'.key'))},load:async()=>({state,policy})});
+   services.push(service);
+   authorities.push({url:'https://127.0.0.1:'+service.port+'/native-checkpoint',pin:sha(spki(k)),publicKey:spki(k).toString('base64url'),tlsPin:sha(new X509Certificate(cert).raw)});
+  }
+  const source=await createAttestedPeerSource({authorities,caFile:join(dir,'ca.crt'),clientCertFile:join(dir,'client.crt'),clientKeyFile:join(dir,'client.key')});
+  assert.equal((await source(a.checkpoint.address,a.checkpoint.deviceId)).contact.deviceId,a.checkpoint.deviceId);
+  await services.pop().close();
+  assert.equal((await source(a.checkpoint.address,a.checkpoint.deviceId)).contact.deviceId,a.checkpoint.deviceId);
+  await services.pop().close();
+  await assert.rejects(source(a.checkpoint.address,a.checkpoint.deviceId));
+ }finally{await Promise.all(services.map(s=>s.close()));await rm(dir,{recursive:true,force:true});}
+});
