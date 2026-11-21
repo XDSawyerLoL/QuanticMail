@@ -14,6 +14,7 @@ import (
  "encoding/json"
  "fmt"
  "os"
+ "io"
  "path/filepath"
  "strconv"
  "strings"
@@ -115,8 +116,37 @@ func commitPayLabProof(dir string,proof payLabProof)([]byte,error){
  got,e:=winReadPrivate(path,32768);if e!=nil||!bytes.Equal(got,raw){return nil,portableRefusal}
  return raw,nil
 }
+// Read only bounded public proof records via the same private Windows handles.
+// The caller verifies every hybrid signature and compares the entire set to
+// independently retained witnesses before requesting another signature.
+func readPayLabHistory(dir string)([]payLabProof,error){
+ hs,e:=winLockDirectory(dir,true);if e!=nil{return nil,e};defer winClose(hs)
+ f,e:=os.Open(dir);if e!=nil{return nil,e};defer f.Close()
+ entries,e:=f.Readdirnames(103);if e!=nil&&e!=io.EOF{return nil,e}
+ if len(entries)>102{return nil,portableRefusal}
+ result:=make([]payLabProof,0);vault:=false
+ for _,name:=range entries{
+  if name=="pay.vault"{vault=true;continue}
+  if name=="pay-quorum.json"{continue}
+  if !strings.HasPrefix(name,"pay-receipt-")||!strings.HasSuffix(name,".json"){return nil,portableRefusal}
+  nonce:=strings.TrimSuffix(strings.TrimPrefix(name,"pay-receipt-"),".json")
+  if !hashRE.MatchString(nonce)||len(result)>=100{return nil,portableRefusal}
+  raw,e:=winReadPrivate(filepath.Join(dir,name),32768);if e!=nil{return nil,e}
+  var proof payLabProof
+  if e=json.Unmarshal(raw,&proof);e!=nil||proof.RealPaymentAuthorized||proof.Intent.Nonce!=nonce{return nil,portableRefusal}
+  exact,e:=json.Marshal(proof);if e!=nil||!bytes.Equal(exact,raw){return nil,portableRefusal}
+  result=append(result,proof)
+ }
+ if !vault{return nil,portableRefusal}
+ return result,nil
+}
 func windowsPayCLI(args []string)(bool,error){
  if len(args)<2{return false,nil}
+ if args[1]=="--read-windows-pay-history-lab"{
+  if len(args)!=3{return true,portableRefusal}
+  proofs,e:=readPayLabHistory(args[2]);if e!=nil{return true,e}
+  return true,json.NewEncoder(os.Stdout).Encode(proofs)
+ }
  if args[1]=="--provision-windows-pay-lab"{
   if len(args)!=3||!winApprove("Create separate FICTIONAL Pay lab keys. No real payment."){return true,portableRefusal}
   pw,e:=winConfirmSecret("New independent Pay laboratory passphrase: ");if e!=nil{return true,e};defer clear(pw)

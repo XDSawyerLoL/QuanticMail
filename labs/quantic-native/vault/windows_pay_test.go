@@ -19,6 +19,7 @@ func TestWindowsPayLab(t *testing.T){
  stored,e:=commitPayLabProof(dir,proof);if e!=nil||len(stored)==0{t.Fatal("receipt",e)}
  if _,e=commitPayLabProof(dir,proof);e==nil{t.Fatal("duplicate receipt accepted")}
  persisted,e:=winReadPrivate(filepath.Join(dir,"pay-receipt-"+i.Nonce+".json"),32768);if e!=nil||string(persisted)!=string(stored){t.Fatal("receipt changed")}
+ history,e:=readPayLabHistory(dir);if e!=nil||len(history)!=1||history[0].Intent.Nonce!=i.Nonce{t.Fatal("history inventory",e)}
  b:=payLabTranscript(i,s,d);sum:=sha256.Sum256(b)
  cl,e:=decode(proof.Classical,64,64);if e!=nil{t.Fatal(e)}
  pq,e:=decode(proof.PQ,3309,3309);if e!=nil{t.Fatal(e)}

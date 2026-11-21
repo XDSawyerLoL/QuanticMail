@@ -1,7 +1,7 @@
 # Explicit laboratory launcher. No installation or production login.
 [CmdletBinding()]
 param(
- [Parameter(Mandatory=$true)][ValidateSet("Providers","Open","RecoverOpen","Seal","RecoverSeal","ProbeLoopback","Send","Receive","RecoverReceive","ConfirmReceipt","StartBridge","Provision","Dashboard","DashboardCheck","MigrationCheck","MigrationHistory","PayLab","PayLabCheck","PayProvision","PayNative","PayQuorumDemo","PayQuorumCheck","PayNativeQuorum")][string]$Operation,
+ [Parameter(Mandatory=$true)][ValidateSet("Providers","Open","RecoverOpen","Seal","RecoverSeal","ProbeLoopback","Send","Receive","RecoverReceive","ConfirmReceipt","StartBridge","Provision","Dashboard","DashboardCheck","MigrationCheck","MigrationHistory","PayLab","PayLabCheck","PayProvision","PayNative","PayQuorumDemo","PayQuorumCheck","PayNativeQuorum","PayHistoryCheck")][string]$Operation,
  [Parameter(Mandatory=$true)][ValidatePattern('^[a-fA-F0-9]{64}$')][string]$ExpectedManifestSha256,
  [string]$TrustedBinarySha256,
  [string]$PrivateDirectory,
@@ -49,6 +49,11 @@ if ($Operation -in @("Dashboard","DashboardCheck")) {
 if ($Operation -eq "PayNativeQuorum") {
  if (-not $PrivateDirectory) { throw "New private Pay laboratory directory required." }
  & $node (Join-Path $root "scripts\quantic-pay-native-quorum.mjs") $vault $PrivateDirectory
+ exit $LASTEXITCODE
+}
+if ($Operation -eq "PayHistoryCheck") {
+ if (-not $PrivateDirectory -or $PaySigningPin -cnotmatch '^[a-f0-9]{64}$' -or $PayPQPin -cnotmatch '^[a-f0-9]{64}$') { throw "Independent Pay laboratory public pins required." }
+ & $node (Join-Path $root "scripts\quantic-pay-remote-check.mjs") $vault $PrivateDirectory $PaySigningPin $PayPQPin
  exit $LASTEXITCODE
 }
 if ($Operation -eq "PayProvision") {
