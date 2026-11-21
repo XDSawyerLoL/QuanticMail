@@ -124,7 +124,7 @@ export function assertManifestDeviceActive(canonicalAddress: string, deviceId: s
  * Legacy identities without any manifest remain supported. A configured registry
  * that is unreachable, inconsistent or missing a previously known manifest fails closed.
  */
-export async function assertCurrentManifestDeviceActive(canonicalAddress: string, deviceId: string) {
+export async function getCurrentManifest(canonicalAddress: string) {
   const canonical = canonicalAddress.trim().toLowerCase();
   let current = getCachedManifest(canonical);
   if (registryStatus().configured) {
@@ -144,6 +144,11 @@ export async function assertCurrentManifestDeviceActive(canonicalAddress: string
       throw new ManifestStateError("Autorité de révocation indisponible ou incohérente.", 503);
     }
   }
+  return current;
+}
+
+export async function assertCurrentManifestDeviceActive(canonicalAddress: string, deviceId: string) {
+  const current = await getCurrentManifest(canonicalAddress);
   if (current && !activeDevices(current).some(device => device.deviceId === deviceId)) {
     throw new ManifestStateError("Cet appareil a été révoqué ou n’est pas autorisé par le manifeste Quantic courant.", 401);
   }
