@@ -31,6 +31,7 @@ type freshQuorum struct {
 	pqDevice       string
 	pqKemPin       string
 	pqDsaPin       string
+	localProof *dualLocalProof
 }
 
 func (a *remoteAnchor) fresh(op string, p anchorRequest, scheduled, compact bool) (manifestVote, error) {
@@ -86,6 +87,7 @@ func (q *freshQuorum) accept(votes []manifestVote, now int64) error {
 			continue
 		}
 		if q.dualRootPin != "" {
+			if q.localProof != nil && q.localProof.sequence != v.ProfileSequence { continue }
 			expected, err := q.expectedDualDigest(v.ProfileSequence)
 			if err != nil || v.ProfileDigest != expected {
 				continue

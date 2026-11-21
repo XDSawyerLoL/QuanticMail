@@ -10,7 +10,7 @@ test('dual proof feed uses fixed four-cell batches, idle and busy',async()=>{
   const data=randomBytes(8192);let complete=false;let error;
   a.stream.write(data,e=>{error=e;complete=true;});
   for(let i=1;i<=40;i++){now=i*25;a.tick();for(const c of batches.at(-1))b.receive(c);b.tick();await new Promise(resolve=>setImmediate(resolve));}
-  assert.equal(error,undefined);assert.equal(complete,true);assert.deepEqual(Buffer.concat(chunks),data);
+  assert.ok(error==null);assert.equal(complete,true);assert.deepEqual(Buffer.concat(chunks),data);
   assert.ok(batches.every(p=>p.length===4&&p.every(c=>c.length===168)));
   a.stream.destroy();b.stream.destroy();
 });

@@ -14,6 +14,12 @@ static EVP_PKEY *pqgen(const char *alg) {
  EVP_PKEY_CTX_free(ctx);return k;
 }
 static EVP_PKEY *pqread(const unsigned char *p,long n){ const unsigned char *end=p+n; EVP_PKEY *k=d2i_AutoPrivateKey(NULL,&p,n);if(p!=end){EVP_PKEY_free(k);return NULL;}return k; }
+static int pqverifyroot(const unsigned char *der,long dn,const unsigned char *m,size_t mn,const unsigned char *sig,size_t sn){
+ const unsigned char *p=der; EVP_PKEY *k=d2i_PUBKEY(NULL,&p,dn);
+ EVP_MD_CTX *c=EVP_MD_CTX_new();
+ int ok=k&&p==der+dn&&EVP_PKEY_is_a(k,"ML-DSA-65")==1&&c&&EVP_DigestVerifyInit(c,NULL,NULL,NULL,k)>0&&EVP_DigestVerify(c,sig,sn,m,mn)==1;
+ EVP_MD_CTX_free(c);EVP_PKEY_free(k);return ok;
+}
 static int pqpriv(EVP_PKEY *k,unsigned char *out,int cap){PKCS8_PRIV_KEY_INFO *p=EVP_PKEY2PKCS8(k);if(!p)return -1;int n=i2d_PKCS8_PRIV_KEY_INFO(p,NULL);if(n>0&&n<=cap)i2d_PKCS8_PRIV_KEY_INFO(p,&out);else n=-1;PKCS8_PRIV_KEY_INFO_free(p);return n;}
 static int pqpub(EVP_PKEY *k,unsigned char *out,int cap){int n=i2d_PUBKEY(k,NULL);if(n<=0||n>cap)return -1;return i2d_PUBKEY(k,&out);}
 static int pqdec(EVP_PKEY *k,const unsigned char *ct,size_t n,unsigned char *out){EVP_PKEY_CTX *c=EVP_PKEY_CTX_new_from_pkey(NULL,k,NULL);size_t len=32;int ok=c&&EVP_PKEY_decapsulate_init(c,NULL)>0&&EVP_PKEY_decapsulate(c,out,&len,ct,n)>0&&len==32;EVP_PKEY_CTX_free(c);return ok;}
@@ -87,4 +93,9 @@ func (k pqKey) sign(m []byte) ([]byte, error) {
 		return nil, errors.New("ML-DSA refused")
 	}
 	return b, nil
+}
+
+func pqVerifyRoot(der, message, signature []byte) bool {
+	if len(der)!=1974 || len(message)==0 || len(signature)!=3309 { return false }
+	return C.pqverifyroot(ptr(der),C.long(len(der)),ptr(message),C.size_t(len(message)),ptr(signature),C.size_t(len(signature)))==1
 }

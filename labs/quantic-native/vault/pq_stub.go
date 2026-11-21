@@ -14,3 +14,5 @@ func (pqKey) close()                         {}
 func (pqKey) der(bool) ([]byte, error)       { return nil, pqUnavailable }
 func (pqKey) dec([]byte) ([]byte, error)     { return nil, pqUnavailable }
 func (pqKey) sign([]byte) ([]byte, error)    { return nil, pqUnavailable }
+
+func pqVerifyRoot([]byte, []byte, []byte) bool { return false }
