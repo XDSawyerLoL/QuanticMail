@@ -46,8 +46,6 @@ jobs:
           go build -trimpath -o ../QuanticNativePacer_v7_1_linux_amd64 .
       - name: Native Scattering mailbox traffic over UDP
         run: QUANTIC_SCATTERING_NATIVE_TEST="$GITHUB_WORKSPACE/labs/quantic-native/scattering/QuanticNativePacer_v7_1_linux_amd64" node --test tests/native-scattering-mailbox.test.mjs
-      - name: Pay synthetic quorum over native Scattering UDP
-        run: QUANTIC_PAY_SCATTERING_TEST="$GITHUB_WORKSPACE/labs/quantic-native/scattering/QuanticNativePacer_v7_1_linux_amd64" node --test tests/pay-scattering.test.mjs
       - name: Vault default and PQ build and tests
         working-directory: labs/quantic-native/vault
         run: |

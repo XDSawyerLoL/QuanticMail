@@ -24,6 +24,8 @@ jobs:
           go build -trimpath -o "$RUNNER_TEMP/Quantic-Pacer" .
           cd "$GITHUB_WORKSPACE"
           QUANTIC_INTEGRATED_SCATTERING_BINARY="$RUNNER_TEMP/Quantic-Pacer" node --experimental-transform-types --test --test-name-pattern="integrated native relay" tests/native-identity-bridge.test.mjs
+      - name: Pay synthetic quorum over native Scattering UDP (Node 24)
+        run: QUANTIC_PAY_SCATTERING_TEST="$RUNNER_TEMP/Quantic-Pacer" node --test tests/pay-scattering.test.mjs
       - run: npm run build
       - name: Build Hostinger static Mail surface
         run: |

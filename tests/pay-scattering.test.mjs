@@ -8,7 +8,8 @@ import {join,resolve} from 'node:path';
 import {startNativeScatteringLink} from './helpers/native-scattering-link.mjs';
 import {createPayScatteringClient} from '../lib/quantic/pay-scattering-client.mjs';
 import {createPayQuorumFlow} from '../lib/quantic/pay-quorum-flow.mjs';
-import {attestPayCheckpoint,summarizePayProofs,verifyHistoricalPayProof} from '../lib/quantic/pay-lab-checkpoint.mjs';
+import {verifyHistoricalPayProof} from '../lib/quantic/pay-lab-checkpoint.mjs';
+import {openPayWitnessStore} from '../lib/quantic/pay-witness-store.mjs';
 const sha=b=>createHash('sha256').update(b).digest('hex');
 const spki=k=>k.publicKey.export({format:'der',type:'spki'});
 const binary=process.env.QUANTIC_PAY_SCATTERING_TEST;
@@ -22,8 +23,9 @@ test('synthetic Pay proof and fresh before/after quorum travel through native UD
  const scope={signingPin:sha(spki(ec)),pqPin:sha(spki(pq))};
  const j=ec.publicKey.export({format:'jwk'});
  const point=Buffer.concat([Buffer.from([4]),Buffer.from(j.x,'base64url'),Buffer.from(j.y,'base64url')]);
- const authorities=Array.from({length:4},()=>({key:generateKeyPairSync('ed25519'),proofs:[]}));
+ const authorities=Array.from({length:4},(_,i)=>({key:generateKeyPairSync('ed25519'),directory:join(dir,'witness-'+i),store:null}));
  const trustedAuthorities=authorities.map(w=>({pin:sha(spki(w.key)),publicKey:spki(w.key).toString('base64url')}));
+ function openWitness(w,createNew){return openPayWitnessStore({directory:w.directory,createNew,scope,authorityPrivateKey:w.key.privateKey,expectedAuthorityPin:sha(spki(w.key))});}
  const token=randomBytes(32).toString('hex'),hits=[];
  let link;
  const server=createServer(async(req,res)=>{
@@ -34,19 +36,17 @@ test('synthetic Pay proof and fresh before/after quorum travel through native UD
    hits.push(req.url);
    let result;
    if(req.url==='/api/quantic/pay-lab/v1/checkpoint'){
-    result={simulationOnly:true,attestations:authorities.map(w=>attestPayCheckpoint({retainedProofs:w.proofs,request:x.checkpoint,authorityPrivateKey:w.key.privateKey}))};
+    result={simulationOnly:true,attestations:authorities.map(w=>w.store.vote(x.checkpoint))};
    }else if(req.url==='/api/quantic/pay-lab/v1/submit'){
-    const p=verifyHistoricalPayProof(x.proof,scope);assert.ok(Date.now()<x.proof.intent.Expires&&Date.now()>=x.proof.intent.Issued);
-    for(const w of authorities){
-     const summary=summarizePayProofs(w.proofs,scope);assert.equal(summary.root,x.prior.root);assert.equal(summary.count,x.prior.count);
-     assert.ok(!w.proofs.some(v=>v.intent.Nonce===p.nonce));w.proofs.push(structuredClone(x.proof));
-    }
+    verifyHistoricalPayProof(x.proof,scope);
+    for(const w of authorities){w.store.append(x.proof,x.prior);w.store.close();w.store=openWitness(w,false);}
     result={simulationOnly:true,accepted:true,realPaymentAuthorized:false};
    }else throw Error('wrong route');
    const b=Buffer.from(JSON.stringify(result));res.writeHead(200,{'Content-Type':'application/json','Content-Length':b.length});res.end(b);
   }catch{res.writeHead(400);res.end('{}');}
  });
  try{
+  for(const w of authorities)w.store=openWitness(w,true);
   await new Promise(r=>server.listen(0,'127.0.0.1',r));
   link=await startNativeScatteringLink({dir:join(dir,'link'),binary:resolve(binary),relayPort:server.address().port,profile:'pay-lab'});
   const port=Number(new URL(link.url).port);
@@ -60,7 +60,7 @@ test('synthetic Pay proof and fresh before/after quorum travel through native UD
   const result=await flow.confirm({payeeId:'demo-shop',amount:'2.50',explicitConsent:true});
   assert.equal(result.balanceCents,9750);assert.equal(result.witnessCount,4);assert.equal(result.realPaymentAuthorized,false);
   assert.deepEqual(hits,['/api/quantic/pay-lab/v1/checkpoint','/api/quantic/pay-lab/v1/submit','/api/quantic/pay-lab/v1/checkpoint']);
-  assert.ok(authorities.every(w=>w.proofs.length===1));
+  assert.ok(authorities.every(w=>w.store.summary().count===1));
   await link.close();await assert.rejects(flow.confirm({payeeId:'demo-shop',amount:'1',explicitConsent:true}));assert.equal(flow.snapshot().halted,true);assert.equal(flow.snapshot().balanceCents,9750);
- }finally{await link?.close();server.closeAllConnections();await new Promise(r=>server.close(r));await rm(dir,{recursive:true,force:true});}
+ }finally{await link?.close();for(const w of authorities)w.store?.close();server.closeAllConnections();await new Promise(r=>server.close(r));await rm(dir,{recursive:true,force:true});}
 });
