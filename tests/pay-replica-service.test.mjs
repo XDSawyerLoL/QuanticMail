@@ -65,6 +65,8 @@ for(const native of [false,true])test('permanent replica processes advance succe
   const sync=i=>synchronizePayReplica({network:chain.snapshot().network,targetPin:config.witnesses[i].pin,target:clients[i],peers:[0,1].map(j=>({authorityPin:config.witnesses[j].pin,client:clients[j]})),maxSteps:1});
   assert.equal((await sync(3)).applied,1);
   assert.equal((await clients[3].status()).root,chain.snapshot().root);
+  // Catch-up and a full gated transfer consume separate bounded epochs.
+  await renew();
   await stop(nodes[2]);
   await settle(ids[1],ids[2],7000,[0,1,3]);
   await start(nodes[2]);await renew();
