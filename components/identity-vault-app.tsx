@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
 import { randomToken } from "@/lib/quantic/crypto";
-import { getLocalIdentity, saveLocalIdentity, type LocalIdentity } from "@/lib/quantic/local-db";
+import { getLocalIdentity, installRecoveredIdentity, type LocalIdentity } from "@/lib/quantic/local-db";
 import { exportIdentityVault, importIdentityVault } from "@/lib/quantic/vault";
 
 function downloadTextFile(filename: string, text: string) {
@@ -26,6 +26,7 @@ export function IdentityVaultApp() {
   const [exportPassword, setExportPassword] = useState("");
   const [exportConfirm, setExportConfirm] = useState("");
   const [restorePassword, setRestorePassword] = useState("");
+  const [restoreAddress, setRestoreAddress] = useState("");
   const [restoreFile, setRestoreFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -78,12 +79,12 @@ export function IdentityVaultApp() {
       if (!restoreFile) throw new Error("Choisissez un fichier .quantic-vault.");
       if (restoreFile.size > 1_000_000) throw new Error("Ce fichier de coffre est anormalement volumineux.");
 
-      const restored = await importIdentityVault(await restoreFile.text(), restorePassword);
+      const restored = await importIdentityVault(await restoreFile.text(), restorePassword, restoreAddress || undefined);
       const local: LocalIdentity = {
         ...restored,
         authToken: randomToken(),
       };
-      await saveLocalIdentity(local);
+      await installRecoveredIdentity(local);
       setIdentity(local);
       setNotice(`Identité restaurée : ${local.canonicalAddress}. Retour vers QuanticMail…`);
       window.setTimeout(() => {
@@ -143,6 +144,8 @@ export function IdentityVaultApp() {
               <form className="qn-vault-form" onSubmit={restoreVault}>
                 <label htmlFor="vault-file">Fichier du coffre</label>
                 <input id="vault-file" type="file" accept=".quantic-vault,application/json" onChange={(e) => setRestoreFile(e.target.files?.[0] ?? null)} required />
+                <label htmlFor="restore-address">Adresse canonique d’origine (obligatoire pour les anciens coffres)</label>
+                <input id="restore-address" type="text" maxLength={74} value={restoreAddress} onChange={(e) => setRestoreAddress(e.target.value)} autoComplete="off" spellCheck={false} placeholder="identifiant~empreinte@quantic" />
                 <label htmlFor="restore-password">Mot de passe du coffre</label>
                 <input id="restore-password" type="password" minLength={10} maxLength={1024} value={restorePassword} onChange={(e) => setRestorePassword(e.target.value)} autoComplete="current-password" required />
                 <button disabled={busy}>{busy ? "Déchiffrement…" : "Restaurer mon identité"}</button>

@@ -356,3 +356,16 @@ export async function deleteLocalPreKey(preKeyId: string) {
     tx.onerror = () => reject(tx.error);
   });
 }
+
+/** Atomic insert, never replace a concurrently installed local identity. */
+export async function installRecoveredIdentity(identity: LocalIdentity) {
+  const pqc = identity.pqc ?? (await generateLocalPqcKeyMaterial());
+  const db = await openDb();
+  return new Promise<void>((resolve, reject) => {
+    const tx = db.transaction("identity", "readwrite");
+    const request = tx.objectStore("identity").add({ ...identity, pqc: pqc ?? undefined }, "current");
+    tx.oncomplete = () => resolve();
+    tx.onabort = () => reject(new Error("Restauration refusée : identité déjà installée ou stockage indisponible."));
+    tx.onerror = () => reject(request.error ?? tx.error);
+  });
+}

@@ -1,14 +1,14 @@
-import { fingerprintPublicKey } from "@/lib/quantic/crypto";
+
 import type { LocalIdentity } from "@/lib/quantic/local-db";
 
 const VAULT_FORMAT = "quantic-identity-vault";
-const VAULT_VERSION = 1;
+const VAULT_VERSION = 2;
 const PBKDF2_ITERATIONS = 600_000;
-const AAD = new TextEncoder().encode(`${VAULT_FORMAT}:v${VAULT_VERSION}`);
+const aad = (version: 1 | 2) => new TextEncoder().encode(`${VAULT_FORMAT}:v${version}`);
 
 type VaultEnvelope = {
   format: typeof VAULT_FORMAT;
-  version: typeof VAULT_VERSION;
+  version: 1 | 2;
   createdAt: string;
   kdf: {
     name: "PBKDF2";
@@ -25,6 +25,8 @@ type VaultEnvelope = {
 
 type VaultIdentityPayload = {
   handle: string;
+  canonicalAddress?: string;
+  fingerprint?: string;
   publicKey: JsonWebKey;
   privateKey: JsonWebKey;
   signingPublicKey: JsonWebKey;
@@ -145,7 +147,7 @@ function parseEnvelope(text: string): VaultEnvelope {
   const envelope = parsed as Partial<VaultEnvelope>;
   if (
     envelope.format !== VAULT_FORMAT ||
-    envelope.version !== VAULT_VERSION ||
+    (envelope.version !== 1 && envelope.version !== 2) ||
     envelope.kdf?.name !== "PBKDF2" ||
     envelope.kdf.hash !== "SHA-256" ||
     envelope.cipher?.name !== "AES-GCM" ||
@@ -165,14 +167,28 @@ function parseEnvelope(text: string): VaultEnvelope {
   return envelope as VaultEnvelope;
 }
 
+async function verifiedAddress(handle: string, signingPublicKey: JsonWebKey, canonicalAddress: string) {
+  if (!/^[a-z0-9][a-z0-9._-]{2,31}$/.test(handle)) throw new Error("Identifiant Quantic invalide dans le coffre.");
+  const match = /^([a-z0-9][a-z0-9._-]{2,31})~([0-9a-f]{10}|[0-9a-f]{32})@quantic$/.exec(canonicalAddress);
+  if (!match || match[1] !== handle) throw new Error("Adresse canonique invalide dans le coffre.");
+  const fingerprint = match[2];
+  const bytes = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`P-256:${signingPublicKey.x}:${signingPublicKey.y}`)));
+  const digest = Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("");
+  if (!digest.startsWith(fingerprint)) throw new Error("Adresse et clé de propriété incohérentes dans le coffre.");
+  return { canonicalAddress, fingerprint };
+}
+
 export async function exportIdentityVault(identity: LocalIdentity, password: string) {
   assertPassword(password, 14);
-  if (!identity.signingPublicKey || !identity.signingPrivateKey) {
+  if (identity.role === "secondary" || !identity.signingPublicKey || !identity.signingPrivateKey || !identity.canonicalAddress || !identity.fingerprint) {
     throw new Error("L’identité doit être migrée vers Quantic V0.7 avant export.");
   }
 
+  const names = await verifiedAddress(identity.handle, identity.signingPublicKey, identity.canonicalAddress);
+  if (names.fingerprint !== identity.fingerprint) throw new Error("Empreinte locale incohérente dans le coffre.");
   const payload: VaultIdentityPayload = {
     handle: identity.handle,
+    ...names,
     publicKey: identity.publicKey,
     privateKey: identity.privateKey,
     signingPublicKey: identity.signingPublicKey,
@@ -189,7 +205,7 @@ export async function exportIdentityVault(identity: LocalIdentity, password: str
     {
       name: "AES-GCM",
       iv: toArrayBuffer(iv),
-      additionalData: toArrayBuffer(AAD),
+      additionalData: toArrayBuffer(aad(VAULT_VERSION)),
     },
     key,
     toArrayBuffer(plaintext),
@@ -215,7 +231,7 @@ export async function exportIdentityVault(identity: LocalIdentity, password: str
   return JSON.stringify(envelope, null, 2);
 }
 
-export async function importIdentityVault(text: string, password: string) {
+export async function importIdentityVault(text: string, password: string, expectedAddress?: string) {
   assertPassword(password);
   const envelope = parseEnvelope(text);
 
@@ -229,7 +245,7 @@ export async function importIdentityVault(text: string, password: string) {
       {
         name: "AES-GCM",
         iv: toArrayBuffer(fromBase64(envelope.cipher.iv)),
-        additionalData: toArrayBuffer(AAD),
+        additionalData: toArrayBuffer(aad(envelope.version)),
       },
       key,
       toArrayBuffer(fromBase64(envelope.ciphertext)),
@@ -245,12 +261,23 @@ export async function importIdentityVault(text: string, password: string) {
     assertPrivateJwk(payload.signingPrivateKey, "Clé privée de propriété");
 
     await assertKeyPairs(payload);
-    const fingerprint = await fingerprintPublicKey(payload.signingPublicKey);
+    const expected = expectedAddress?.trim();
+    if (envelope.version === 1 && !expected) {
+      throw new Error("Ancien format : renseignez l’adresse Quantic canonique complète d’origine dans le coffre.");
+    }
+    if (envelope.version === 2 && (typeof payload.canonicalAddress !== "string" || typeof payload.fingerprint !== "string")) {
+      throw new Error("Adresse ou empreinte manquante dans le coffre.");
+    }
+    const recorded = envelope.version === 1 ? expected : payload.canonicalAddress;
+    if (!recorded) throw new Error("Adresse manquante dans le coffre.");
+    const names = await verifiedAddress(payload.handle, payload.signingPublicKey, recorded);
+    if (envelope.version === 2 && names.fingerprint !== payload.fingerprint) throw new Error("Empreinte incohérente dans le coffre.");
+    if (expected && expected !== names.canonicalAddress) throw new Error("Adresse de récupération différente dans le coffre.");
     return {
       handle: payload.handle,
       address: `${payload.handle}@quantic`,
-      canonicalAddress: `${payload.handle}~${fingerprint}@quantic`,
-      fingerprint,
+      ...names,
+      role: "root" as const,
       publicKey: payload.publicKey,
       privateKey: payload.privateKey,
       signingPublicKey: payload.signingPublicKey,
