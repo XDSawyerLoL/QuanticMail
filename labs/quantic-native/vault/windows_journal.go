@@ -16,6 +16,6 @@ func winOpenReplay(path,sign,enc,app string)(*replayLog,error){
  if e=lockReplay(f);e!=nil{return nil,e}
  st,e:=f.Stat();if e!=nil||!st.Mode().IsRegular(){return nil,windowsStorageRefusal}
  j,e:=parseReplayHandle(f,h,st.Size());if e!=nil{return nil,e}
- j.release=func(){winClose(hs)};ok=true
+ j.release=func(){winClose(hs)};j.resultWrite=winWritePrivate;j.resultRead=winReadPrivate;ok=true
  return j,nil
 }

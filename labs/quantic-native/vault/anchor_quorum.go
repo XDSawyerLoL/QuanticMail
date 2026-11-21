@@ -35,8 +35,11 @@ func newQuorumAnchor(path string) (*quorumAnchor, error) {
 		return nil, e
 	}
 	defer f.Close()
+ return parseQuorumAnchor(io.LimitReader(f,65537),remoteFromConfig)
+}
+func parseQuorumAnchor(reader io.Reader,makeRemote func(anchorConfig)(*remoteAnchor,error))(*quorumAnchor,error){
 	var configs []anchorConfig
-	d := json.NewDecoder(io.LimitReader(f, 65537))
+	d := json.NewDecoder(reader)
 	d.DisallowUnknownFields()
 	var extra any
 	if d.Decode(&configs) != nil || d.Decode(&extra) != io.EOF || len(configs) != 4 {
@@ -51,13 +54,14 @@ func newQuorumAnchor(path string) (*quorumAnchor, error) {
 		}
 		urls[c.URL] = true
 		pins[i] = c.ServerPin
-		a, e := remoteFromConfig(c)
+		a, e := makeRemote(c)
 		if e != nil {
 			return nil, e
 		}
 		q.members[i] = a
 	}
-	q.pin, e = quorumPin(pins)
+	var e error
+ q.pin, e = quorumPin(pins)
 	if e != nil {
 		return nil, e
 	}

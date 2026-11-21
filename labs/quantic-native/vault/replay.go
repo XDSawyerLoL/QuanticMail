@@ -22,6 +22,8 @@ type replayLog struct {
 	anchor   checkpointAnchor
 	anchorID string
 	release func()
+	resultWrite func(string,[]byte) error
+	resultRead func(string,int)([]byte,error)
 }
 
 func replayBinding(sign, enc, app string) ([]byte, error) {

@@ -24,11 +24,12 @@ func recoveryAAD(j *replayLog,k,req [32]byte)[]byte{
 func(p *pqKeys) saveResult(j *replayLog,k,req [32]byte,r reply)error{
  if p.recovery==nil||j.failed||!r.OK||len(j.seen)>=replayCap{return portableRefusal}
  path:=recoveryPath(j,k)
- if e:=checkPortableDirectory(filepath.Dir(path));e!=nil{return e}
  raw,e:=json.Marshal(r);if e!=nil{return e};defer clear(raw)
  if len(raw)>recoveryMax-28{return portableRefusal}
  nonce:=make([]byte,p.recovery.NonceSize());if _,e=rand.Read(nonce);e!=nil{return e}
  sealed:=p.recovery.Seal(nonce,nonce,raw,recoveryAAD(j,k,req))
+ if j.resultWrite!=nil{return j.resultWrite(path,sealed)}
+ if e:=checkPortableDirectory(filepath.Dir(path));e!=nil{return e}
  f,e:=os.OpenFile(path,os.O_CREATE|os.O_EXCL|os.O_WRONLY,0600);if e!=nil{return e}
  n,e:=f.Write(sealed);if e==nil&&n!=len(sealed){e=io.ErrShortWrite}
  if e==nil{e=f.Sync()};ce:=f.Close();if e==nil{e=ce};if e!=nil{return e}
@@ -38,12 +39,18 @@ func(p *pqKeys) readResult(j *replayLog,k,req [32]byte)(reply,error){
  var r reply
  if p.recovery==nil||j.failed{return r,portableRefusal}
  path:=recoveryPath(j,k)
+ if j.resultRead!=nil{data,e:=j.resultRead(path,recoveryMax);if e!=nil{return r,e};return p.decodeResult(j,k,req,data)}
  if e:=checkPortableDirectory(filepath.Dir(path));e!=nil{return r,e}
  st,e:=os.Lstat(path);if e!=nil||!st.Mode().IsRegular()||!privatePortableFile(st)||st.Size()>recoveryMax{return r,portableRefusal}
  f,e:=os.Open(path);if e!=nil{return r,e};defer f.Close()
  actual,e:=f.Stat();if e!=nil||!os.SameFile(st,actual){return r,portableRefusal}
  data,e:=io.ReadAll(io.LimitReader(f,recoveryMax+1))
- if e!=nil||len(data)>recoveryMax||len(data)<p.recovery.NonceSize()+p.recovery.Overhead(){return r,portableRefusal}
+ if e!=nil{return r,portableRefusal}
+ return p.decodeResult(j,k,req,data)
+}
+func(p *pqKeys) decodeResult(j *replayLog,k,req [32]byte,data []byte)(reply,error){
+ var r reply
+ if len(data)>recoveryMax||len(data)<p.recovery.NonceSize()+p.recovery.Overhead(){return r,portableRefusal}
  n:=p.recovery.NonceSize();raw,e:=p.recovery.Open(nil,data[:n],data[n:],recoveryAAD(j,k,req));if e!=nil{return r,portableRefusal};defer clear(raw)
  d:=json.NewDecoder(bytes.NewReader(raw));d.DisallowUnknownFields();var extra any
  if d.Decode(&r)!=nil||d.Decode(&extra)!=io.EOF||!r.OK{return reply{},portableRefusal}

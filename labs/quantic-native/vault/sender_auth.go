@@ -48,6 +48,10 @@ func loadSenderTrust(path string)(*senderTrust,error){
  f,e:=os.Open(path);if e!=nil{return nil,e};defer f.Close()
  current,e:=f.Stat();if e!=nil||!os.SameFile(info,current){return nil,portableRefusal}
  raw,e:=io.ReadAll(io.LimitReader(f,131073));if e!=nil||len(raw)>131072{return nil,portableRefusal}
+ return parseSenderTrust(raw)
+}
+func parseSenderTrust(raw []byte)(*senderTrust,error){
+ if len(raw)>131072{return nil,portableRefusal}
  d:=json.NewDecoder(bytes.NewReader(raw));d.DisallowUnknownFields()
  var list []senderContact;var extra any
  if d.Decode(&list)!=nil||d.Decode(&extra)!=io.EOF||len(list)<1||len(list)>32{return nil,portableRefusal}

@@ -59,11 +59,14 @@ func newRemoteAnchor(path string) (*remoteAnchor, error) {
 	return remoteFromConfig(c)
 }
 func remoteFromConfig(c anchorConfig) (*remoteAnchor, error) {
+ return remoteFromConfigReader(c,os.ReadFile)
+}
+func remoteFromConfigReader(c anchorConfig,read func(string)([]byte,error)) (*remoteAnchor,error) {
 	u, e := url.Parse(c.URL)
 	if e != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" || !hashRE.MatchString(c.ServerPin) {
 		return nil, errors.New("invalid anchor endpoint or pin")
 	}
-	ca, e := os.ReadFile(c.ServerCA)
+	ca, e := read(c.ServerCA)
 	if e != nil {
 		return nil, e
 	}
@@ -71,7 +74,9 @@ func remoteFromConfig(c anchorConfig) (*remoteAnchor, error) {
 	if !roots.AppendCertsFromPEM(ca) {
 		return nil, errors.New("invalid authority CA")
 	}
-	cert, e := tls.LoadX509KeyPair(c.ClientCert, c.ClientKey)
+	certPEM,e:=read(c.ClientCert);if e!=nil{return nil,e}
+ keyPEM,e:=read(c.ClientKey);if e!=nil{return nil,e};defer clear(keyPEM)
+ cert, e := tls.X509KeyPair(certPEM,keyPEM)
 	if e != nil {
 		return nil, e
 	}
