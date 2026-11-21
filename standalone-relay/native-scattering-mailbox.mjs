@@ -48,7 +48,7 @@ export async function startScatteringMailboxEndpoint(c,{windowsBootstrap}={}){
  }else{await reserve(c);}
  const secret=Buffer.from(c.secretHex,'hex'),epoch=Buffer.from(c.epochHex,'hex');
  const ab=cellKey(secret,epoch,'a-b'),ba=cellKey(secret,epoch,'b-a');secret.fill(0);epoch.fill(0);
- let cells,server,stopped=false,upstream,pending,busy=false,next=1,input=Buffer.alloc(0);
+ let cells,server,stopped=false,upstream,pending,busy=false,next=1,input=Buffer.alloc(0),relayResponse,waitingNext=false;
  const udp=createSocket('udp4');
  let resolveClosed;const closed=new Promise(resolve=>{resolveClosed=resolve;});
  function stop(){
@@ -77,13 +77,23 @@ export async function startScatteringMailboxEndpoint(c,{windowsBootstrap}={}){
  }
  async function onFrame(frame){
   if(c.role==='relay'){
-   check(!busy&&exact(frame,['kind','seq','op','token','body'])&&frame.kind==='request'&&frame.seq===next&&next<=OPS&&allowed.has(frame.op)&&tokenOK(frame.token));
+   check(!stopped&&exact(frame,['kind','seq','op','token','body'])&&frame.kind==='request'&&frame.seq===next&&next<=OPS&&allowed.has(frame.op)&&tokenOK(frame.token));
+   // The client receives a full response slightly before our last carrier ACK.
+   // Accept at most one next sequential request while that ACK is outstanding.
+   // Never execute parallel upstream operations or buffer unbounded requests.
+   if(busy){
+    check(relayResponse&&!waitingNext);
+    waitingNext=true;
+    try{await relayResponse;}finally{waitingNext=false;}
+    check(!stopped&&!busy&&frame.seq===next);
+   }
    const data=decode(frame.body,1);busy=true;next++;
    try{
     let result;try{result=await forward(frame,data);}catch{result={status:502,body:errorBody};}
     // The upstream response, not a volatile carrier ACK, is returned to the client.
-    await sendFrame({kind:'response',seq:frame.seq,status:result.status,body:result.body.toString('base64url')});
-   }finally{data.fill(0);busy=false;}
+    relayResponse=sendFrame({kind:'response',seq:frame.seq,status:result.status,body:result.body.toString('base64url')});
+    await relayResponse;
+   }finally{data.fill(0);relayResponse=undefined;busy=false;}
   }else{
    check(pending&&exact(frame,['kind','seq','status','body'])&&frame.kind==='response'&&frame.seq===pending.seq&&Number.isInteger(frame.status)&&frame.status>=200&&frame.status<=599);
    const body=decode(frame.body);const p=pending;pending=null;clearTimeout(p.timer);p.resolve({status:frame.status,body});

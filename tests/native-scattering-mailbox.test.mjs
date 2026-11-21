@@ -39,12 +39,15 @@ test('native Scattering pacers and sinks carry bounded mailbox HTTP operations o
   }
   await new Promise(r=>setTimeout(r,400));assert.ok(kids.every(p=>p.exitCode===null));
   assert.equal((await post(endpoints[0].httpPort,'/not-a-mailbox-route',{})).status,400);assert.equal(hits.length,0);
-  for(const op of ['send','pull','ack','recover']){
-   const payload={fixture:op,...(op==='send'?{syntheticCiphertext:'x'.repeat(8192)}:{})};
+  for(let i=0;i<16;i++){
+   const op=['send','pull','ack','recover'][i%4];
+   const payload={fixture:op,sequence:i,...(i===0?{syntheticCiphertext:'x'.repeat(8192)}:{})};
    const result=await post(endpoints[0].httpPort,base+op,payload);
    assert.deepEqual(result,{status:op==='send'?202:200,body:{op,ok:true}});assert.deepEqual(hits.at(-1),{path:base+op,token:'Bearer '+token,body:payload});
   }
-  assert.equal(hits.length,4);
+  assert.equal(hits.length,16);
+  assert.equal((await post(endpoints[0].httpPort,base+'pull',{})).status,503);
+  assert.equal(hits.length,16);
   if(windows){await assert.rejects(startScatteringMailboxEndpoint({...config,epochHex:randomBytes(32).toString('hex')},bootstrap));endpoints[0].close();}
   else{endpoints[0].close();const fresh=join(dir,'fresh');await mkdir(fresh,{mode:0o700});await assert.rejects(startScatteringMailboxEndpoint({...config,queueDir:fresh}));}
  }finally{
