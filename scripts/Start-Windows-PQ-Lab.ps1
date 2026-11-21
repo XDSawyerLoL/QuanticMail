@@ -1,7 +1,7 @@
 # Explicit laboratory launcher. No installation or production login.
 [CmdletBinding()]
 param(
- [Parameter(Mandatory=$true)][ValidateSet("Providers","Open","RecoverOpen","Seal","RecoverSeal","ProbeLoopback","Send","Receive","RecoverReceive","ConfirmReceipt","StartBridge","Provision","Dashboard","DashboardCheck","MigrationCheck","MigrationHistory","PayLab","PayLabCheck","PayProvision","PayNative")][string]$Operation,
+ [Parameter(Mandatory=$true)][ValidateSet("Providers","Open","RecoverOpen","Seal","RecoverSeal","ProbeLoopback","Send","Receive","RecoverReceive","ConfirmReceipt","StartBridge","Provision","Dashboard","DashboardCheck","MigrationCheck","MigrationHistory","PayLab","PayLabCheck","PayProvision","PayNative","PayQuorumDemo","PayQuorumCheck")][string]$Operation,
  [Parameter(Mandatory=$true)][ValidatePattern('^[a-fA-F0-9]{64}$')][string]$ExpectedManifestSha256,
  [string]$TrustedBinarySha256,
  [string]$PrivateDirectory,
@@ -54,6 +54,12 @@ if ($Operation -eq "PayProvision") {
 if ($Operation -eq "PayNative") {
  if (-not $PrivateDirectory -or $PaySigningPin -cnotmatch '^[a-f0-9]{64}$' -or $PayPQPin -cnotmatch '^[a-f0-9]{64}$') { throw "Independent Pay laboratory public pins required." }
  & $node (Join-Path $root "scripts\quantic-pay-native.mjs") $vault $PrivateDirectory $PaySigningPin $PayPQPin
+ exit $LASTEXITCODE
+}
+if ($Operation -in @("PayQuorumDemo","PayQuorumCheck")) {
+ $payArgs=@((Join-Path $root "scripts\quantic-pay-quorum-local.mjs"))
+ if ($Operation -eq "PayQuorumCheck") { $payArgs+="--self-test" }
+ & $node @payArgs
  exit $LASTEXITCODE
 }
 if ($Operation -in @("PayLab","PayLabCheck")) {
