@@ -27,6 +27,6 @@ export function QuanticPayApp(){
    {error&&<p className="qn-error" role="alert">{error}</p>}
    <h2>Historique de test</h2>{state.history.length===0?<p className="qn-footnote">Aucune opération.</p>:<div className="qn-pay-history" aria-live="polite">{state.history.map(m=><article key={m.id}><strong>{formatDemoAmount(m.cents)}</strong><span>{payee(m.payeeId)}</span><small>{m.id} · {labels[m.status]} · sans valeur monétaire</small></article>)}</div>}</section>
   </div>
-  <p className="qn-footnote">Future intégration : consentement lié à l'identité, coffre natif et prestataire de paiement autorisé. Les standards, signatures financières et interfaces officielles ne sont pas implémentés dans ce laboratoire.</p>
+  <p className="qn-footnote">Future intégration : consentement lié à l’identité, coffre natif et prestataire de paiement autorisé. Les standards, signatures financières et interfaces officielles ne sont pas implémentés dans ce laboratoire.</p>
  </section></main>
 }
