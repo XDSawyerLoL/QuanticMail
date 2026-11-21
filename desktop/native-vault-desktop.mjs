@@ -26,7 +26,7 @@ async function choose(dialog,title){
   return !r.canceled&&r.filePaths.length===1?r.filePaths[0]:null;
 }
 const message=(dialog,options)=>dialog.showMessageBox({title:'QuanticMail · Coffre natif local',noLink:true,...options});
-export async function runNativeDesktop(dialog,{connect=connectNativeVault}={}){
+export async function runNativeDesktop(dialog,{connect=connectNativeVault,mailboxConnect}={}){
   let controller,output;
   try{
     const action=await message(dialog,{type:'info',message:'Mode local expérimental',detail:'Identités de test uniquement. Aucune connexion à la page Web. Le terminal du coffre demandera le mot de passe et le consentement. Les anciennes clés restent intactes.',buttons:['Lire une enveloppe','Signer une inscription','Quitter'],defaultId:2,cancelId:2});
@@ -37,15 +37,36 @@ export async function runNativeDesktop(dialog,{connect=connectNativeVault}={}){
     if(config?.labOnly!==true)throw Error('lab only');
     if(config.pqMode!==undefined){
       if(config.pqMode.enabled!==true)throw Error('invalid PQ mode');
-      const choice=await message(dialog,{type:'info',message:'QuanticMail · mode hybride authentifié',detail:'Utilise les attestations de deux identités et le coffre natif. Échange par fichiers et dépôt explicite sur relais local expérimental. Pas d’envoi public.',buttons:['Ouvrir un message signé','Préparer un message chiffré','Transmettre un fichier déjà signé','Annuler'],defaultId:3,cancelId:3});
+      const choice=await message(dialog,{type:'info',message:'QuanticMail · mode hybride authentifié',detail:'Utilise les attestations de deux identités et le coffre natif. Échange par fichiers et dépôt explicite sur relais local expérimental. Pas d’envoi public.',buttons:['Ouvrir un message signé','Préparer un message chiffré','Transmettre un fichier déjà signé','Recevoir du relais','Annuler'],defaultId:4,cancelId:4});
+      if(choice.response===3){
+        const cfg=config.nativeRelay;
+        if(!cfg||cfg.address!==config.pqMode.address||cfg.deviceId!==config.pqMode.deviceId)throw Error('native account mismatch');
+        const factory=mailboxConnect??(await import('./native-mailbox-client.mjs')).createNativeMailboxClient;
+        const client=await factory(cfg);
+        const item=await client.pull();
+        if(!item){await message(dialog,{type:'info',message:'Aucun message en attente',buttons:['Fermer']});return 'completed';}
+        const approval=await message(dialog,{type:'warning',message:'Recevoir et enregistrer le message ?',detail:'Le fichier de réception sera EN CLAIR, privé mais non chiffré. Le coffre peut consommer le droit de rejeu. Aucun accusé ne sera envoyé avant enregistrement.',buttons:['Annuler','Continuer'],defaultId:0,cancelId:0});
+        if(approval.response!==1)return 'cancelled';
+        const save=await dialog.showSaveDialog({title:'Fichier privé EN CLAIR de réception'});
+        if(save.canceled||!save.filePath)return 'cancelled';
+        if(!isAbsolute(save.filePath))throw Error('absolute output required');
+        output=await open(save.filePath,'wx',0o600);
+        controller=await connect(config);
+        const payload=await controller.openHybrid(item.record),detail=safeMailDisplay(payload);
+        await output.writeFile(JSON.stringify({id:item.id,digest:item.digest,payload})+'\n','utf8');
+        await output.sync();await output.close();output=undefined;
+        controller.close();controller=undefined;
+        await client.ack(item.id,item.digest);
+        await message(dialog,{type:'info',message:'Message déchiffré, enregistré et confirmé',detail,buttons:['Fermer']});return 'completed';
+      }
       if(choice.response!==0&&choice.response!==1&&choice.response!==2)return 'cancelled';
       const path=await choose(dialog,choice.response===1?'Brouillon privé (JSON : context, payload)':'Enveloppe native signée');
       if(!path)return 'cancelled';
       const record=JSON.parse(await readLocal(path,choice.response===1));
       if(choice.response===2){
-        if(!config.nativeRelay)throw Error('local relay configuration required');
-        const {createNativeMailboxClient}=await import('./native-mailbox-client.mjs');
-        const client=createNativeMailboxClient(config.nativeRelay);
+        if(!config.nativeRelay||config.nativeRelay.address!==config.pqMode.address||config.nativeRelay.deviceId!==config.pqMode.deviceId)throw Error('native account mismatch');
+        const factory=mailboxConnect??(await import('./native-mailbox-client.mjs')).createNativeMailboxClient;
+        const client=await factory(config.nativeRelay);
         const c=record.context;
         if(!/^[a-z0-9][a-z0-9._-]{2,31}~[a-f0-9]{32}@quantic$/.test(c?.to)||!/^d-[a-f0-9]{32}$/.test(c?.toDeviceId))throw Error('invalid recipient');
         const confirm=await message(dialog,{type:'warning',message:'Transmettre le fichier chiffré vers '+c.to,detail:'Aucune nouvelle signature. Le relais vérifiera les deux identités. Un nouvel essai doit réutiliser exactement ce fichier.',buttons:['Annuler','Transmettre'],defaultId:0,cancelId:0});

@@ -49,3 +49,20 @@ test('message display neutralizes directional overrides and rejects other payloa
  assert.equal(safeMailDisplay({subject:'x\u202e',body:'hello'}),'Objet : x<U+202E>\n\nhello');
  assert.throws(()=>safeMailDisplay({body:'message'}));
 });
+
+test('native mailbox receive requires local consent, saves before ack and refuses wrong account',()=>fixture(async({cfg,dir})=>{
+ const path=join(dir,'received.json'),payload={subject:'test',body:'received'},item={id:'test-id',digest:'test-digest',record:{}};
+ const address='alice~'+'a'.repeat(32)+'@quantic',deviceId='d-'+'b'.repeat(32);
+ const config={labOnly:true,pqMode:{enabled:true,address,deviceId},nativeRelay:{address,deviceId}};
+ await writeFile(cfg,JSON.stringify(config),{mode:0o600});
+ let ack=0,opens=0,clients=0;
+ const mailboxConnect=async()=>{clients++;return {pull:async()=>item,ack:async(id,digest)=>{assert.equal(id,item.id);assert.equal(digest,item.digest);assert.deepEqual(JSON.parse(await readFile(path,'utf8')),{id,digest,payload});ack++;}};};
+ const connect=async()=>({openHybrid:async()=>{opens++;return payload;},close(){}});
+ assert.equal(await runNativeDesktop(dialogFor({files:[cfg],responses:[0,3,0],save:path}),{connect,mailboxConnect}),'cancelled');
+ assert.equal(opens,0);assert.equal(ack,0);
+ assert.equal(await runNativeDesktop(dialogFor({files:[cfg],responses:[0,3,1],save:path}),{connect,mailboxConnect}),'completed');
+ assert.equal(opens,1);assert.equal(ack,1);
+ await writeFile(cfg,JSON.stringify({...config,nativeRelay:{...config.nativeRelay,deviceId:'d-'+'c'.repeat(32)}}));
+ assert.equal(await runNativeDesktop(dialogFor({files:[cfg],responses:[0,3,1]}),{connect,mailboxConnect}),'failed');
+ assert.equal(clients,2);
+}));
