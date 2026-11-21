@@ -18,7 +18,7 @@ const spki=k=>k.publicKey.export({format:'der',type:'spki'});
 const pair=type=>({cl:type==='ec'?generateKeyPairSync('ec',{namedCurve:'prime256v1'}):generateKeyPairSync(type),pq:generateKeyPairSync('ml-dsa-65')});
 const pub=k=>({pin:sha(spki(k.cl)),publicKey:spki(k.cl).toString('base64url'),pqPin:sha(spki(k.pq)),pqPublicKey:spki(k.pq).toString('base64url')});
 async function port(){const s=createServer();await new Promise(r=>s.listen(0,'127.0.0.1',r));const p=s.address().port;await new Promise(r=>s.close(r));return p;}
-for(const native of [false,true])test('16 member admission and financial quorum includes independent persistent '+(native?'native UDP':'HTTP')+' voter',{skip:process.platform!=='linux'||(native&&!process.env.QUANTIC_PAY_SCATTERING_TEST),timeout:300000},async()=>{
+for(const native of [false,true])test('16 member admission and financial quorum includes independent persistent '+(native?'native UDP':'HTTP')+' voter',{skip:process.platform!=='linux'||(native&&!process.env.QUANTIC_PAY_SCATTERING_TEST),timeout:300000},async t=>{
  const dir=realpathSync(mkdtempSync(join(tmpdir(),'pay-committee-vote-')));let proc,link,epoch=0;
  const wallets=[pair('ec'),pair('ec')],witnesses=Array.from({length:16},()=>pair('ed25519'));
  const config={admissionPolicy:'round-v3',wallets:wallets.map((w,i)=>({id:i?'demo-bob':'demo-alice',initialCents:i?0:10000,...pub(w)})),witnesses:witnesses.map(pub)};
@@ -45,17 +45,21 @@ for(const native of [false,true])test('16 member admission and financial quorum 
   const draft={proposals:[{intent,signature:sign('sha256',raw,{key:wallets[0].cl.privateKey,dsaEncoding:'ieee-p1363'}).toString('base64url'),pqSignature:sign(null,raw,wallets[0].pq.privateKey).toString('base64url')}],admissionTime:now};
   const a=createPayRoundLab(lab.admissionRoundConfig([])),scope=a.scope,value=lab.draft([],draft).scope;
   const others=Array.from({length:10},(_,i)=>a.openAuthority(credentials(i+1)));
+  t.diagnostic('admission prepare started');
   const remote=await client.admissionPrepare({scope,input:{draft,round:0}});
   await stop();await start();
   assert.deepEqual(await client.admissionPrepare({scope,input:{draft,round:0}}),remote);
   const prepared={scope,round:0,value,votes:[remote,...others.map(n=>n.prepare({round:0,value}))]};
   assert.throws(()=>a.prepared({...prepared,votes:prepared.votes.slice(1)}));
+  t.diagnostic('admission commit begins at age ms='+String(Date.now()-now));
   const c={scope,round:0,value,votes:[await client.admissionCommit({scope,input:{draft,certificate:prepared}}),...others.map(n=>n.commit(prepared))]};
   const admission={...draft,admissionCertificate:{prepared,commit:c}},info=lab.admit([],admission);
-  // Admission freshness is intentionally not bypassed. Local and network
-  // phases must complete within the signed admission window.
+  // No fake clock: new prepare is limited to intake; certified completion
+  // must still occur before the original payer expiry.
   client=await renew();
+  t.diagnostic('admission installation begins at age ms='+String(Date.now()-now));
   await client.admit(admission);
+  t.diagnostic('admission installed at age ms='+String(Date.now()-now));
   const b=createPayRoundLab(info.config),fscope=b.scope,fvalue=info.candidates[0].value;
   const members=Array.from({length:10},(_,i)=>b.openAuthority(credentials(i+1)));
   const first={scope:fscope,round:0,value:fvalue,votes:[await client.prepare({scope:fscope,input:{round:0,value:fvalue}}),...members.map(n=>n.prepare({round:0,value:fvalue}))]};

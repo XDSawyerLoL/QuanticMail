@@ -24,12 +24,6 @@ jobs:
           go build -trimpath -o "$RUNNER_TEMP/Quantic-Pacer" .
           cd "$GITHUB_WORKSPACE"
           QUANTIC_INTEGRATED_SCATTERING_BINARY="$RUNNER_TEMP/Quantic-Pacer" node --experimental-transform-types --test --test-name-pattern="integrated native relay" tests/native-identity-bridge.test.mjs
-      - name: Pay synthetic quorum over native Scattering UDP (Node 24)
-        run: QUANTIC_PAY_SCATTERING_TEST="$RUNNER_TEMP/Quantic-Pacer" node --test tests/pay-scattering.test.mjs tests/pay-witness-service.test.mjs tests/pay-round-service.test.mjs tests/pay-replica-service.test.mjs tests/pay-committee-recovery-service.test.mjs tests/pay-committee-vote-service.test.mjs
-      - name: Pay 16 independent authority processes over native Scattering UDP (Node 24)
-        run: QUANTIC_PAY_COMMITTEE_DISTRIBUTED_TEST="$RUNNER_TEMP/Quantic-Pacer" node --test --test-name-pattern='native UDP' tests/pay-committee-distributed.test.mjs
-      - name: Pay five adversarial fixture services over native Scattering UDP (Node 24)
-        run: QUANTIC_PAY_COMMITTEE_DISTRIBUTED_TEST="$RUNNER_TEMP/Quantic-Pacer" node --test --test-name-pattern='native UDP' tests/pay-committee-byzantine-network.test.mjs
       - run: npm run build
       - name: Build Hostinger static Mail surface
         run: |
@@ -79,6 +73,40 @@ jobs:
       - name: Validate production mail compose
         run: MAIL_SERVER_HOSTNAME=mx.example.com docker compose -f docker-compose.production.yml config >/dev/null
 
+
+  pay-native-network:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - suite: legacy
+            files: tests/pay-scattering.test.mjs tests/pay-witness-service.test.mjs tests/pay-round-service.test.mjs tests/pay-replica-service.test.mjs
+          - suite: recovery
+            files: tests/pay-committee-recovery-service.test.mjs
+          - suite: vote
+            files: tests/pay-committee-vote-service.test.mjs
+          - suite: distributed
+            files: tests/pay-committee-distributed.test.mjs
+          - suite: byzantine
+            files: tests/pay-committee-byzantine-network.test.mjs
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.8.0
+      - name: Build native carrier
+        run: |
+          cd labs/quantic-native/scattering/native
+          go build -trimpath -o "$RUNNER_TEMP/Quantic-Pacer" .
+      - name: Mandatory native Pay network suite
+        env:
+          PAY_SUITE_FILES: ${{ matrix.files }}
+        run: |
+          export QUANTIC_PAY_SCATTERING_TEST="$RUNNER_TEMP/Quantic-Pacer"
+          export QUANTIC_PAY_COMMITTEE_DISTRIBUTED_TEST="$RUNNER_TEMP/Quantic-Pacer"
+          node --test --test-concurrency=1 $PAY_SUITE_FILES
 
   node22-runtime-compat:
     runs-on: ubuntu-latest
