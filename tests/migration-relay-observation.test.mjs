@@ -1,11 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {generateKeyPairSync,sign} from 'node:crypto';
+import {generateKeyPairSync,sign,createHash,randomBytes} from 'node:crypto';
 import {mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {startRelayServer} from '../standalone-relay/server.ts';
 import {captureLoopbackRelayObservation,reconcileRelayObservationLab} from '../lib/quantic/migration-relay-observation-lab.mjs';
+import {appendMigrationAuditLabRecord} from '../lib/quantic/migration-audit-journal-lab.mjs';
 const headers=token=>({'content-type':'application/json',...(token?{authorization:'Bearer '+token}:{})});
 async function account(base,handle){
  const encryption=generateKeyPairSync('ec',{namedCurve:'prime256v1'});
@@ -61,6 +62,31 @@ test('real durable loopback relay: read-only pending envelope audit survives rel
   assert.equal(result.legacyDeletionAuthorized,false);
   assert.equal(result.queuedOutboundPreserved,true);
   assert.equal(result.historicalPrekeysPreserved,true);
+  // The receipt journal retains only bounded flags and digests, never the
+  // relay token, historical message body, or incoming ciphertext.
+  const journalFiles=new Map();
+  const auditStore={
+   async probe(name){return journalFiles.has(name)?'present':'absent';},
+   async read(name){return Buffer.from(journalFiles.get(name));},
+   async write(name,bytes){assert.equal(journalFiles.has(name),false);journalFiles.set(name,Buffer.from(bytes));}
+  };
+  const auditKey=randomBytes(32),auditScope={rootPin:'f'.repeat(64),transactionId:'e'.repeat(32)};
+  const reportFacts={relayIdSha256:createHash('sha256').update(relay.relayId).digest('hex'),
+   observedWindowSha256:createHash('sha256').update(JSON.stringify([result.envelopes,result.receipts])).digest('hex'),
+   observedRelayWindowStable:result.observedRelayWindowStable,
+   observedRelayWindowNotAtCap:result.observedRelayWindowNotAtCap,
+   pendingIncomingVisible:result.pendingIncomingVisible,
+   pendingReceiptsVisible:result.pendingReceiptsVisible};
+  await appendMigrationAuditLabRecord(auditStore,auditKey,auditScope,{sequence:0,phase:'prepared',
+   facts:{sourceManifestSha256:'1'.repeat(64),candidateManifestSha256:'2'.repeat(64)}});
+  await appendMigrationAuditLabRecord(auditStore,auditKey,auditScope,{sequence:1,phase:'snapshot-verified',
+   facts:{historicalCollectionsMatch:true,outboxPreserved:true,prekeysPreserved:true}});
+  const receipt=await appendMigrationAuditLabRecord(auditStore,auditKey,auditScope,{
+   sequence:2,phase:'relay-observed',facts:reportFacts});
+  assert.equal(receipt.created,true);assert.equal(receipt.liveRestoreAuthorized,false);
+  assert.equal(journalFiles.size,3);
+  assert.equal([...journalFiles.values()].some(buf=>buf.includes(Buffer.from(bob.token))),false);
+  auditKey.fill(0);
   // The audit never acknowledges or consumes the real relay test envelope.
   assert.equal((await observed()).envelopes.length,1);
   await send('client-message-0002');
