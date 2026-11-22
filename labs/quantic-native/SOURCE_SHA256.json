@@ -67,7 +67,7 @@
   "vault/registry_lease.py": "b8c0ceaa258daba882a543070559986c51f36beb945e63adcae33328d2b105c4",
   "vault/replay_test.go": "3dbb49444b7f31c56f6813a2ecd265e2444123586448fc256f36aba2ba095bc8",
   "vault/replay.go": "4bdc65f1a5e8d736cbc7e2af90c460dfeb1fb86e2519ba056a7097bd34060694",
-  "vault/result_recovery_test.go": "768791204194870b93073c14931ce2a0a15bb223232cad3d72660c34fef06f04",
+  "vault/result_recovery_test.go": "913308149e8e8568d72eb4266544c420730b732c0ce310e16b89a55e80fe9419",
   "vault/result_recovery.go": "97329095a88711334990c698bb0d2cfba327399b2281587bb785e5cccc129d41",
   "vault/scheduled_registry.py": "f103f392693c880fa3a1950be0943cd2e2e81bb5590a97dca84d17c1cc8bff61",
   "vault/secret.go": "763f1ff38145a3ac397e2a9b20cf2375b48ab7262d8a08dec7ae02facecfbd75",
@@ -112,6 +112,6 @@
   "vault/windows_scattering_test.go": "1b8ca9c6ecd3bc9796587ed5e167c1e6eaef8b5873073406acb2d94b60e33dc4",
   "vault/windows_import.go": "b16821bcc801f38d6228c762b40317c7e3cadd66ffc95e455810825808d9c35d",
   "vault/windows_import_test.go": "76a73c5ae1e0d6723313a4c236931d201dfac2e8eba8986a336d5668af7b10eb",
-  "vault/windows_pay.go": "3388ea13929208814bbd62c89e541c3c50edc7923925aa2685d80c267dc3930d",
+  "vault/windows_pay.go": "83725d6466863573a244d2ff24a7d6bb1595f8a3d63bbf88bb61f4e0d724e88e",
   "vault/windows_pay_test.go": "1c457daa5e9131c5c6e4fbd89193451c4676189b3714c475b2603fbc99ec5156"
 }
