@@ -77,6 +77,21 @@ test('durable votes and certified cross-shard recovery survive restart without d
   const insufficient=structuredClone(checkpoint);insufficient.certificate.commit.votes.pop();
   assert.throws(()=>lab.verifyCheckpoint(insufficient,anchor));
   assert.deepEqual(voters[0][0].checkpoint(),checkpoint);
+  // A separate observer rehydrates just the certified state, not the
+  // authority's next-height vote lock. It cannot sign even with valid keys.
+  const restoredLab=openShardedPayLab(config),restored=restoredLab.openShard(ids[0],{checkpoint,anchor});
+  assert.deepEqual(restored.snapshot(),observers[0].snapshot());
+  assert.throws(()=>restored.openAuthority(opts(0,0).credentials));
+  assert.throws(()=>restored.proposal(ops));
+  assert.throws(()=>restored.proposal(conflict));
+  const nextOps=[{kind:'debit',proof:proof(1)}],next=certify(0,nextOps,false);
+  const receipts=restored.finalize(nextOps,next.certificate);
+  assert.deepEqual(receipts,next.receipts);
+  assert.deepEqual(restored.snapshot(),observers[0].snapshot());
+  certify(1,[{kind:'claim',receipt:receipts[0]}],false);
+  const latest=voters[0][10].snapshot();
+  assert.throws(()=>openShardedPayLab(config).openShard(ids[0],{checkpoint,anchor:{...anchor,height:latest.height,root:latest.root}}));
+  assert.equal(observers[0].snapshot().balances['demo-alice']+observers[1].snapshot().balances['demo-bob'],2000);
   t.diagnostic('SHARD_CHECKPOINT_V1 '+JSON.stringify({height:anchor.height,bytes:Buffer.byteLength(JSON.stringify(checkpoint)),verified:true}));
   // Detect external writes even when meta height/root are unchanged.
   const live=observers[0],other=new DatabaseSync(join(opts(0,16).directory,'shard.sqlite'));
