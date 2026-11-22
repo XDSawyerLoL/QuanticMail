@@ -36,7 +36,7 @@ test('real shard votes require fresh three-of-four local grants and actual final
   const started=performance.now();
   for(const k of keys.slice(0,11))signers.push(gate.openAuthority({credentials:credentials(k),witnessClients:witnesses.slice(0,3)}));
   const active=signers.slice(1),prepared={scope:gate.scope,round:0,value,votes:active.map(s=>s.prepare({value,candidate:operations}))};
-  const rival=gate.openAuthority({credentials:credentials(keys[14]),witnessClients:[witnesses[1],witnesses[2],witnesses[3]]});signers.push(rival);
+  const rival=gate.openAuthority({credentials:credentials(keys[14]),witnessClients:witnesses.slice(0,3)});signers.push(rival);
   assert.throws(()=>rival.prepare({value:alternate,candidate:conflict}));
   assert.throws(()=>active[0].commit({...prepared,votes:prepared.votes.slice(0,10)}));
   const certificate={prepared,commit:{scope:gate.scope,round:0,value,votes:active.map(s=>s.commit(prepared))}};
