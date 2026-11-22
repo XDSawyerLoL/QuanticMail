@@ -82,6 +82,55 @@ une relecture indépendante après redémarrage, un gel ou un journal
 transactionnel des écritures concurrentes et la réconciliation de la
 file distante avant une éventuelle bascule atomique.
 
+## Windows : relecture durable isolée après redémarrage (données synthétiques)
+
+Nouveau laboratoire : `lib/quantic/migration-durable-lab.mjs`,
+`labs/quantic-native/vault/windows_migration_storage.go` et
+`scripts/migration-windows-readback-lab.mjs`. Le contrôleur Windows
+natif reçoit **uniquement deux instantanés AES-256-GCM déjà chiffrés**,
+`source.sealed` et `candidate.sealed`, dans un **nouveau** répertoire
+NTFS privé. Le contrôle existant du coffre impose propriétaire/ACL,
+absence de lien dur ou de reparse point, création sans écrasement et
+synchronisation du fichier. Chaque enveloppe est liée à son rôle
+source/candidat et à l'empreinte de racine historique indépendante par
+les données authentifiées AES-GCM ; les clés AES ne sont pas écrites
+sur disque ni passées en argument à l'exécutable Go.
+
+Le test Windows démarre **un nouveau processus Node**, relit les deux
+enveloppes au travers de l'exécutable natif, vérifie son SHA-256 fourni
+séparément, déchiffre avec la clé reçue par `stdin`, puis exécute
+`reconcileHistoricalCollections`. Il vérifie également le refus de
+réutilisation du dossier, le refus d'écrasement, l'interdiction d'accès
+à un fichier quelconque du coffre, le refus d'une cible corrompue et
+la **récupérabilité intacte de la copie source**, sans effacement.
+Test : `node --test tests/migration-windows-durable.test.mjs`, avec
+`QUANTIC_WINDOWS_VAULT_TEST` pointant vers le binaire Go Windows
+compilé et pinné par SHA-256. Le workflow `native-vault-lab.yml`
+exécute ce test sur un runner Windows réel après compilation.
+
+**Portée strictement limitée :** données synthétiques ; aucun compte,
+aucune archive privée Web ni clé de production importée. La taille
+maximale du JSON déchiffré est **96 000 octets**, donc ce laboratoire
+ne sait pas encore restaurer une archive réelle jusqu'à 16 Mio.
+La source du test est une copie de référence chiffrée, pas une
+preuve de verrouillage des écritures dans IndexedDB. La récupération
+désigne ici la **lecture de la copie de référence intacte**, pas un
+retour arrière transactionnel d'une identité effectivement migrée.
+Le flush du fichier ne garantit pas une durabilité absolue du répertoire
+face à une panne d'alimentation. Il manque aussi le contrôle des relais
+distants, les écritures concurrentes, un journal/commit atomique, le
+redémarrage après coupure électrique et l'essai sur deux machines
+physiques. Le même utilisateur Windows, l'administrateur ou un malware
+dans la session peuvent encore interférer avec le laboratoire.
+
+Le rapport maintient
+`liveRegistrationAuthorized:false`,
+`liveRestoreAuthorized:false`,
+`legacyDeletionAuthorized:false`,
+`durableTargetVerified:false` et
+`remoteQueueReconciled:false`. **Ne pas utiliser pour de vraies
+identités, ni fusionner en production sans une revue indépendante.**
+
 ## Pourquoi ne pas encore basculer les vrais comptes ?
 
 La continuité des clés **n'est pas** la continuité de la boîte complète.
