@@ -4,6 +4,7 @@ package main
 
 import (
  "bytes"
+ "encoding/json"
  "io"
  "os"
  "path/filepath"
@@ -45,7 +46,22 @@ func winMigrationIO(args []string)(bool,error){
  b,e:=io.ReadAll(io.LimitReader(os.Stdin,migrationMaxSealed+1))
  if e!=nil{return true,e};defer clear(b)
  if len(b)<64||len(b)>migrationMaxSealed{return true,portableRefusal}
- // Format and authenticated decryption are verified by an independent Node
- // process with an out-of-band key; only opaque bytes cross the Windows helper.
+ // Refuse malformed, non-canonical or plaintext input even in the lab. This
+ // validates the envelope structure only; AES-GCM auth is checked on readback.
+ var p struct{
+  Format string `json:"format"`
+  Version int `json:"version"`
+  IV string `json:"iv"`
+  Ciphertext string `json:"ciphertext"`
+  Tag string `json:"tag"`
+ }
+ d:=json.NewDecoder(bytes.NewReader(b));d.DisallowUnknownFields()
+ if d.Decode(&p)!=nil{return true,portableRefusal}
+ var trailing any
+ if d.Decode(&trailing)!=io.EOF{return true,portableRefusal}
+ canonical,e:=json.Marshal(p);if e!=nil||!bytes.Equal(canonical,b)||p.Format!="quantic-native-migration-collections-lab/v1"||p.Version!=1{return true,portableRefusal}
+ iv,e:=decode(p.IV,12,12);if e!=nil{return true,portableRefusal};defer clear(iv)
+ tag,e:=decode(p.Tag,16,16);if e!=nil{return true,portableRefusal};defer clear(tag)
+ ciphertext,e:=decode(p.Ciphertext,1,96016);if e!=nil{return true,portableRefusal};defer clear(ciphertext)
  return true,winWritePrivate(path,b)
 }
