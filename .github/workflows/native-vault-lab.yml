@@ -123,6 +123,11 @@ jobs:
         run: |
           node --experimental-transform-types --test tests/migration-signed-full-relay.test.mjs
           if ($LASTEXITCODE -ne 0) { throw "Complete signed relay mailbox snapshot failed" }
+      - name: Durable laboratory relay write fence persists after restart and refuses concurrent writes
+        shell: pwsh
+        run: |
+          node --experimental-transform-types --test tests/migration-relay-durable-fence.test.mjs
+          if ($LASTEXITCODE -ne 0) { throw "Durable relay migration fence failed" }
       - name: Windows private migration snapshots and independent post-restart readback
         shell: msys2 {0}
         run: |
