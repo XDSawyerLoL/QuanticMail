@@ -53,6 +53,35 @@ mTLS vérifiant un quorum indépendant ; le module ne prouve pas à lui seul
 que la fonction fournie est honnête. Les fixtures utilisent des sources
 simulées, pas des comptes ni des hôtes physiques réels.
 
+## Réconciliation exacte de la copie historique (laboratoire)
+
+`lib/quantic/migration-reconcile.mjs` compare en lecture seule deux
+captures **distinctes** : les enregistrements historiques déchiffrés et
+leur copie relue depuis le stockage cible. Les messages (`id`), contacts
+(`handle`), préclés (`preKeyId`) et envois en attente (`id`) sont
+comparés intégralement après normalisation de l'ordre des champs. Les
+enregistrements absents, modifiés, supplémentaires ou dupliqués
+entraînent un refus. Le rapport ne contient ni identifiants de ligne, ni
+contenus de courrier, ni clés privées. Des références d'objets source
+partagées avec la cible sont refusées afin d'éviter un contrôle trivial.
+
+Tests : `node --test tests/migration-reconcile.test.mjs`
+(inclus aussi dans `npm test`). Ce comparateur n'effectue aucune écriture
+et ne valide **ni** la persistance après redémarrage, **ni** l'exhaustivité
+des messages encore détenus par les relais distants, **ni** la
+synchronisation face aux modifications concurrentes. Il ne prend pas en
+charge une conversion du schéma des enregistrements : celle-ci
+nécessiterait une procédure de correspondance vérifiable dédiée.
+Les anciennes préclés restent historiques et ne doivent pas être remises
+à l'état disponible.
+
+Même si toutes les collections correspondent, les autorisations de
+restauration, d'inscription en production et de suppression restent à
+`false`. Une vraie migration exige ensuite une copie contrôlée,
+une relecture indépendante après redémarrage, un gel ou un journal
+transactionnel des écritures concurrentes et la réconciliation de la
+file distante avant une éventuelle bascule atomique.
+
 ## Pourquoi ne pas encore basculer les vrais comptes ?
 
 La continuité des clés **n'est pas** la continuité de la boîte complète.
