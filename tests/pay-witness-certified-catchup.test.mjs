@@ -8,6 +8,7 @@ import {openShardedPayLab} from '../lib/quantic/pay-sharded-lab.mjs';
 import {openDurableShard} from '../lib/quantic/pay-sharded-durable-lab.mjs';
 import {openShardWitnessBridgeLab} from '../lib/quantic/pay-shard-witness-bridge-lab.mjs';
 const sha=b=>createHash('sha256').update(b).digest('hex');
+const hash=x=>sha(Buffer.from(JSON.stringify(x)));
 function key(type='ed25519'){
  const cl=type==='ec'?generateKeyPairSync('ec',{namedCurve:'prime256v1'}):generateKeyPairSync(type),pq=generateKeyPairSync('ml-dsa-65');
  const a=cl.publicKey.export({type:'spki',format:'der'}),b=pq.publicKey.export({type:'spki',format:'der'});
@@ -58,9 +59,14 @@ test('three current witnesses safely restore one rolled-back witness from certif
   assert.deepEqual(nodes[0].status(),original);
   const oldChallenge=randomBytes(32).toString('hex'),oldSignatures=nodes.slice(1).map(x=>x.attestState(oldChallenge));
   const peers=nodes.slice(1).map((x,i)=>({attestState:()=>oldSignatures[i]}));
+  const signedCp=db.certifiedCheckpoint(2),header=signedCp.header;
+  const signedRoot=hash(['quantic-shard-block/v1',header.network,header.shard,
+   header.height,header.previous,header.operationsRoot,header.stateRoot]);
+  const steps=[{request:{anchor:anchor(nodes[0].status()),mode:'vote',value:signedRoot},
+   proof:{checkpoint:signedCp}}];
   assert.throws(()=>nodes[0].catchUp({
-   target:anchor(nodes[1].status()),steps:[],peers
-  }));
+   target:anchor(nodes[1].status()),steps,peers
+  }),'replayed signed peer states with the wrong challenge must be rejected');
   assert.deepEqual(nodes[0].status(),original);
   const repaired=bridge.repairLagging(db,nodes);
   assert.equal(repaired.repaired,1);
