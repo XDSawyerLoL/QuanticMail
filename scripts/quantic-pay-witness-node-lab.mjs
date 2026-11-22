@@ -36,15 +36,18 @@ try{
  }});
  // The TLS engine installs the keys into its native secure context before
  // these temporary JS buffers are wiped. This is NOT hardware key custody.
- const tlsKey=readWitnessPrivateFileLab(identity.keyPath,{maxBytes:65536});
- const tlsCert=readWitnessPrivateFileLab(identity.certPath,{maxBytes:65536});
- const tlsCA=readWitnessPrivateFileLab(identity.caPath,{maxBytes:65536});
+ let tlsKey=null,tlsCert=null,tlsCA=null;
  try{
+  tlsKey=readWitnessPrivateFileLab(identity.keyPath,{maxBytes:65536});
+  tlsCert=readWitnessPrivateFileLab(identity.certPath,{maxBytes:65536});
+  tlsCA=readWitnessPrivateFileLab(identity.caPath,{maxBytes:65536});
   server=await startPayWitnessMtlsServerLab({
    witness,host:host??'127.0.0.1',port,
    tls:{key:tlsKey,cert:tlsCert,ca:tlsCA},allowedClientCertPins
   });
- }finally{tlsKey.fill(0);tlsCert.fill(0);tlsCA.fill(0);}
+ }finally{
+  tlsKey?.fill(0);tlsCert?.fill(0);tlsCA?.fill(0);
+ }
  process.stdout.write(JSON.stringify({event:'ready',host:server.host,port:server.port,
   witnessPin:credentials.pin,scope:bridge.scope,simulationOnly:true})+'\n');
 }catch(e){
