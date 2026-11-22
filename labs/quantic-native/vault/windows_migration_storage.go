@@ -28,7 +28,7 @@ func migrationLabCheck(dir string) error {
 func winMigrationIO(args []string)(bool,error){
  if len(args)<2{return false,nil}
  op:=args[1]
- if op!="--windows-migration-init-lab"&&op!="--windows-migration-write-lab"&&op!="--windows-migration-read-lab"{return false,nil}
+ if op!="--windows-migration-init-lab"&&op!="--windows-migration-write-lab"&&op!="--windows-migration-read-lab"&&op!="--windows-migration-probe-lab"{return false,nil}
  if op=="--windows-migration-init-lab"{
   if len(args)!=3{return true,portableRefusal}
   if e:=winCreatePrivateDirectory(args[2]);e!=nil{return true,e}
@@ -36,6 +36,7 @@ func winMigrationIO(args []string)(bool,error){
  }
  if len(args)!=4{return true,portableRefusal}
  if args[3]!="source.sealed"&&args[3]!="candidate.sealed"{return winMigrationChunkIO(op,args[2],args[3])}
+ if op=="--windows-migration-probe-lab"{return true,portableRefusal}
  dir:=args[2]
  if e:=migrationLabCheck(dir);e!=nil{return true,e}
  path:=filepath.Join(dir,args[3])
