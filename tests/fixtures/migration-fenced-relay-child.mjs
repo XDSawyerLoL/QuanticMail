@@ -3,7 +3,7 @@
 import {startRelayServer} from "../../standalone-relay/server.ts";
 const dir=process.argv[2];
 if(!dir||!process.env.QUANTIC_SYNTHETIC_OPERATOR_SECRET)throw Error("Synthetic fixture only");
-const server=await startRelayServer({host:"127.0.0.1",port:0,dataDir:dir,
+const server=await startRelayServer({host:"127.0.0.1",port:Number(process.argv[3]??0),dataDir:dir,
  migrationSnapshotLab:true,migrationLabOperatorSecret:process.env.QUANTIC_SYNTHETIC_OPERATOR_SECRET});
 process.stdout.write(JSON.stringify({url:server.url,relayId:server.relayId})+"\n");
 let closing=false;
