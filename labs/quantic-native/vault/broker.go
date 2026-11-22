@@ -283,20 +283,19 @@ func serveGuardedPQ(s signer, key agreementKey, backend string, in io.Reader, ou
 			if recipient.Expires<=time.Now().UnixMilli(){clear(plain);break}
 			if !journal.beginContact(recipient){clear(plain);break}
 			reqHash:=recoveryRequest(q)
-			var result reply
-			if q.Recover {
-				clear(plain)
-				result,err=pq.readResult(journal,h,reqHash)
-				if err==nil&&(result.HybridEnvelope==nil||result.SenderAuth==nil||result.Message!=nil){err=portableRefusal}
-			} else {
-				var v pqEnvelope;var auth senderAuth
-				v,auth,err=pq.sealOutgoing(s,c,recipient,plain);clear(plain)
-				if err==nil{result=reply{OK:true,HybridEnvelope:&v,SenderAuth:&auth};err=pq.saveResult(journal,h,reqHash,result)}
-			}
-			if err!=nil{journal.endContact();break}
-			if !journal.seen[h]{err=consume(h)}
+			result,err:=pq.authorizedMailResult(journal,h,reqHash,q.Recover,func()(reply,error){
+				if recipient.Expires<=time.Now().UnixMilli(){return reply{},portableRefusal}
+				v,auth,e:=pq.sealOutgoing(s,c,recipient,plain)
+				if e!=nil{return reply{},e}
+				return reply{OK:true,HybridEnvelope:&v,SenderAuth:&auth},nil
+			})
+			clear(plain)
+			if err==nil&&(result.HybridEnvelope==nil||result.SenderAuth==nil||result.Message!=nil){err=portableRefusal}
+			// Recheck the fresh contact policy before releasing either a new
+			// result or an explicitly recovered one.
+			if err==nil{err=journal.anchor.check(journal.anchorID,len(journal.seen),journal.tail)}
 			journal.endContact()
-			if err!=nil{return err}
+			if err!=nil{if journal.failed{return err};break}
 			if recipient.Expires<=time.Now().UnixMilli(){return portableRefusal}
 			r=result
 		case "mail-open-hybrid-lab":
@@ -313,27 +312,19 @@ func serveGuardedPQ(s signer, key agreementKey, backend string, in io.Reader, ou
 			if (q.Recover||!already(h)) && approve("Déchiffrement hybride de laboratoire, expéditeur connu : "+q.PQContext.From+" / "+q.PQContext.FromDeviceID+" / "+hex.EncodeToString(h[:])) {
 				contact,valid:=senders.contact(*q.PQContext,time.Now().UnixMilli());if !valid||!journal.beginContact(contact){break}
 				reqHash:=recoveryRequest(q)
-				var result reply
-				if q.Recover {
-					result,err=pq.readResult(journal,h,reqHash)
-					if err==nil&&(result.Message==nil||result.HybridEnvelope!=nil||result.SenderAuth!=nil){err=portableRefusal}
-				} else {
-					var plain []byte
-					plain,err=pq.open(key,*q.PQContext,*v)
-					if err==nil{
-						msg:=b64.EncodeToString(plain);clear(plain)
-						result=reply{OK:true,Message:&msg}
-						err=pq.saveResult(journal,h,reqHash,result)
-					}
-				}
-				if err==nil{
-					if !journal.seen[h]{err=consume(h)}
-					journal.endContact()
-					if err!=nil{return err}
-					if contact.Expires<=time.Now().UnixMilli(){return portableRefusal}
-					r=result
-				}
+				result,err:=pq.authorizedMailResult(journal,h,reqHash,q.Recover,func()(reply,error){
+					if contact.Expires<=time.Now().UnixMilli(){return reply{},portableRefusal}
+					plain,e:=pq.open(key,*q.PQContext,*v)
+					if e!=nil{return reply{},e}
+					msg:=b64.EncodeToString(plain);clear(plain)
+					return reply{OK:true,Message:&msg},nil
+				})
+				if err==nil&&(result.Message==nil||result.HybridEnvelope!=nil||result.SenderAuth!=nil){err=portableRefusal}
+				if err==nil{err=journal.anchor.check(journal.anchorID,len(journal.seen),journal.tail)}
 				journal.endContact()
+				if err!=nil{if journal.failed{return err};break}
+				if contact.Expires<=time.Now().UnixMilli(){return portableRefusal}
+				r=result
 			}
 
 		case "public":
