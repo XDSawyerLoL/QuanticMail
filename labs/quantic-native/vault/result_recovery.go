@@ -46,7 +46,13 @@ func(p *pqKeys) readResult(j *replayLog,k,req [32]byte)(reply,error){
  actual,e:=f.Stat();if e!=nil||!os.SameFile(st,actual){return r,portableRefusal}
  data,e:=io.ReadAll(io.LimitReader(f,recoveryMax+1))
  if e!=nil{return r,portableRefusal}
- return p.decodeResult(j,k,req,data)
+ r,e=p.decodeResult(j,k,req,data)
+ if e!=nil{return reply{},e}
+ // A complete authenticated file may survive a crash before its initial
+ // fsync finished. Re-establish local durability before releasing it.
+ if e=f.Sync();e!=nil{return reply{},e}
+ if e=syncPortableDirectory(filepath.Dir(path));e!=nil{return reply{},e}
+ return r,nil
 }
 func(p *pqKeys) decodeResult(j *replayLog,k,req [32]byte,data []byte)(reply,error){
  var r reply
@@ -67,6 +73,7 @@ func(p *pqKeys) authorizedMailResult(j *replayLog,k,req [32]byte,recover bool,op
  if j==nil||j.anchor==nil||j.failed||p.recovery==nil{return reply{},portableRefusal}
  if recover{
   if !j.seen[k]{return reply{},portableRefusal}
+  if e:=j.anchor.check(j.anchorID,len(j.seen),j.tail);e!=nil{return reply{},e}
   return p.readResult(j,k,req)
  }
  if operation==nil||j.has(k){return reply{},portableRefusal}
