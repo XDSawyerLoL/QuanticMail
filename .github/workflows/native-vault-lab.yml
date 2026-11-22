@@ -118,6 +118,11 @@ jobs:
         run: |
           node --experimental-transform-types --test tests/migration-relay-observation.test.mjs tests/migration-audit-journal-lab.test.mjs
           if ($LASTEXITCODE -ne 0) { throw "Read-only relay migration audit failed" }
+      - name: Signed complete relay mailbox snapshot (>100) and concurrent-arrival refusal
+        shell: pwsh
+        run: |
+          node --experimental-transform-types --test tests/migration-signed-full-relay.test.mjs
+          if ($LASTEXITCODE -ne 0) { throw "Complete signed relay mailbox snapshot failed" }
       - name: Windows private migration snapshots and independent post-restart readback
         shell: msys2 {0}
         run: |
