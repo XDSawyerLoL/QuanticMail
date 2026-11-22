@@ -1,7 +1,7 @@
 //go:build windows && cgo && pqopenssl
 
 package main
-import("testing";"path/filepath";"strings";"crypto/ecdsa";"crypto/sha256";"math/big";"time")
+import("testing";"crypto/ed25519";"crypto/rand";"crypto/x509";"encoding/json";"sort";"path/filepath";"strings";"crypto/ecdsa";"crypto/sha256";"math/big";"time")
 func TestWindowsPayLab(t *testing.T){
  dir:=filepath.Join(t.TempDir(),"pay-only");pw:=[]byte("synthetic payment lab storage password")
  r,e:=provisionPayLab(dir,pw);if e!=nil{t.Fatal(e)}
@@ -71,4 +71,54 @@ func TestWindowsAnchoredPayLab(t *testing.T){
    if _,e=authorizeAnchoredPay(j,k,intent,clock,true);e==nil||len(j.seen)!=2{t.Fatal("nonce reuse after reopen")}
   })
  }
+}
+
+func TestNativeFinancialPermitVerification(t *testing.T){
+ type authority struct{ pub nativePermitMember; cl ed25519.PrivateKey; pq pqKey }
+ var keys []authority
+ for n:=0;n<16;n++{
+  public,priv,e:=ed25519.GenerateKey(rand.Reader);if e!=nil{t.Fatal(e)}
+  der,e:=x509.MarshalPKIXPublicKey(public);if e!=nil{t.Fatal(e)}
+  pq,e:=pqGenerate("ML-DSA-65");if e!=nil{t.Fatal(e)};defer pq.close()
+  dp,e:=pq.der(false);if e!=nil{t.Fatal(e)}
+  keys=append(keys,authority{nativePermitMember{hexHash(der),hexHash(dp),b64.EncodeToString(der),b64.EncodeToString(dp)},priv,pq})
+ }
+ sort.Slice(keys,func(i,j int)bool{return keys[i].pub.Pin<keys[j].pub.Pin})
+ pins:=make([][2]string,0,16);members:=make([]nativePermitMember,0,16)
+ for _,k:=range keys{pins=append(pins,[2]string{k.pub.Pin,k.pub.PQPin});members=append(members,k.pub)}
+ shard,payer:="demo-east","demo-alice"
+ policy:=permitHash([]any{"quantic-native-pay-policy/lab/v1",shard,payer,pins})
+ quorum:=strings.Repeat("a",64)
+ dir:=filepath.Join(t.TempDir(),"certified-pay");pw:=[]byte("synthetic certified financial vault password")
+ info,e:=provisionPayLabPolicy(dir,pw,quorum,policy);if e!=nil{t.Fatal(e)}
+ s,d:=info["signingPin"],info["pqPin"]
+ raw,e:=winReadPrivate(filepath.Join(dir,"pay.vault"),50000);if e!=nil{t.Fatal(e)}
+ if k,e:=openPayLabKeysMode(raw,pw,s,d,payMode(quorum));e==nil{k.close();t.Fatal("certified downgrade")}
+ if k,e:=openPayLabKeys(raw,pw,s,d);e==nil{k.close();t.Fatal("legacy downgrade")}
+ k,e:=openPayLabKeysMode(raw,pw,s,d,certifiedPayMode(quorum,policy));if e!=nil{t.Fatal(e)};defer k.close()
+ now:=time.Now().UnixMilli();intent:=payLabIntent{"demo-shop",200,strings.Repeat("f",64),now,now+120000}
+ network,root:=strings.Repeat("b",64),strings.Repeat("c",64)
+ digest:=hexHash(payLabTranscript(intent,s,d))
+ yes,no:=true,false
+ p:=nativePermit{Policy:policy,Network:network,Shard:shard,Payer:payer,Root:root,IntentDigest:digest,Height:1,Available:900,Authorities:members,SimulationOnly:&yes,RealPaymentAuthorized:&no}
+ domain:=permitHash([]any{"quantic-native-permit-round/lab/v1",network,shard,payer})
+ scope:=permitHash([]any{"quantic-pay-committee-round/v3",domain,2,root,pins,16,11,true,nil,true})
+ value:=permitHash([]any{"quantic-native-pay-permit/lab/v1",policy,network,shard,payer,1,root,900,digest,true})
+ zero:=0
+ makeQC:=func(phase string)nativePermitQC{
+  q:=nativePermitQC{Scope:scope,Value:value,Round:&zero}
+  for _,key:=range keys[:11]{msg,_:=json.Marshal([]any{"quantic-pay-round-vote/v1",scope,phase,0,value,key.pub.Pin,key.pub.PQPin});sig,e:=key.pq.sign(msg);if e!=nil{t.Fatal(e)};q.Votes=append(q.Votes,nativePermitVote{key.pub.Pin,key.pub.PQPin,b64.EncodeToString(ed25519.Sign(key.cl,msg)),b64.EncodeToString(sig)})}
+  return q
+ }
+ p.Certificate.Prepared=makeQC("prepare");p.Certificate.Commit=makeQC("commit")
+ pack:=func(p nativePermit)[]byte{b,e:=json.Marshal(p);if e!=nil{t.Fatal(e)};return b}
+ if e=verifyNativePayPermit(pack(p),policy,s,d,intent,now);e!=nil{t.Fatal("valid certificate refused",e)}
+ changed:=intent;changed.Cents++
+ if verifyNativePayPermit(pack(p),policy,s,d,changed,now)==nil{t.Fatal("amount substitution")}
+ if verifyNativePayPermit(pack(p),policy,s,d,intent,intent.Expires)==nil{t.Fatal("expired permit")}
+ if verifyNativePayPermit(pack(p),strings.Repeat("e",64),s,d,intent,now)==nil{t.Fatal("policy substitution")}
+ bad:=p;bad.Available=199;if verifyNativePayPermit(pack(bad),policy,s,d,intent,now)==nil{t.Fatal("insufficient balance")}
+ bad=p;bad.Certificate.Commit.Votes=bad.Certificate.Commit.Votes[:10];if verifyNativePayPermit(pack(bad),policy,s,d,intent,now)==nil{t.Fatal("short quorum")}
+ bad=p;bad.Certificate.Commit.Votes=append([]nativePermitVote(nil),p.Certificate.Commit.Votes...);bad.Certificate.Commit.Votes[0]=bad.Certificate.Commit.Votes[1];if verifyNativePayPermit(pack(bad),policy,s,d,intent,now)==nil{t.Fatal("duplicate vote")}
+ bad=p;bad.Certificate.Prepared.Votes=append([]nativePermitVote(nil),p.Certificate.Prepared.Votes...);bad.Certificate.Prepared.Votes[0].PQSignature=strings.Repeat("A",4412);if verifyNativePayPermit(pack(bad),policy,s,d,intent,now)==nil{t.Fatal("forged PQ vote")}
 }
