@@ -243,6 +243,63 @@ transition d'identité auditée et réversible.
 Test : `node --experimental-transform-types --test
 tests/migration-signed-full-relay.test.mjs`.
 
+## Barrière d'écriture persistée par relais de laboratoire
+
+Le mode isolé `migrationSnapshotLab:true` accepte maintenant, **uniquement
+sur le serveur local de test à `127.0.0.1` sans PostgreSQL**, la
+configuration d'un secret opérateur **indépendant** (`migrationLabOperatorSecret`).
+Sans ce secret fort (32 caractères minimum), aucune fermeture/réouverture
+du relais n'est autorisée. La route de capture simple reste en lecture seule.
+
+Le laboratoire ajoute trois endpoints, protégés par
+`X-Quantic-Lab-Operator` (secret fourni hors bande), et sans CORS :
+`POST /api/quantic/lab/freeze`, `GET /api/quantic/lab/fence-status`,
+`POST /api/quantic/lab/release?fenceId=...`. Le secret opérateur n'est
+jamais persisté et n'est pas le jeton de boîte mail. Le verrou est
+**global au processus de laboratoire**, pas uniquement à une adresse.
+
+La fermeture est insérée dans la file de mutations sérialisées
+`RelayRuntime`. Une fois les opérations déjà acceptées et enregistrées,
+le relais **sauvegarde atomiquement dans `relay-state.json` le
+contenu de ses files et l'enregistrement `migrationLabFence`**
+(identifiant aléatoire, empreinte de relais, date, phase `frozen`).
+Le serveur refuse ensuite toutes les routes classiques (423) et le
+moteur bloque également ses `mutate` et ses `read` ordinaires,
+certaines lectures historiques pouvant effectuer des nettoyages.
+Seule la capture spécifiquement non mutante du laboratoire reste
+disponible. À la relance, le même fichier recharge le verrou ; tenter
+un redémarrage sans le mode laboratoire le **refuse** plutôt que
+désactiver silencieusement la protection.
+
+Une capture signée prise pendant le gel contient désormais
+`fenceId`, inclus dans la signature ECDSA P-256 et lié à la clé
+indépendamment identifiée du relais. Deux captures sous des verrous
+différents ne peuvent pas être considérées identiques. Après
+vérification, un opérateur autorisé peut **annuler le gel**
+(`release`) grâce à l'identifiant exact du verrou. Cette ouverture
+ne migre aucun compte et ne supprime aucune ancienne clé.
+
+Le test `tests/migration-relay-durable-fence.test.mjs` vérifie
+la fermeture, le rejet des envois et des ACK, les captures signées
+à travers un redémarrage, le maintien du verrou après arrêt,
+le refus de faux opérateurs et la réouverture contrôlée.
+
+**Limites cruciales** : il s'agit d'un verrou de laboratoire
+**mono-relais / mono-processus**, sans prise en charge d'un cluster,
+des autres relais fédérés ou de PostgreSQL. La sauvegarde disque
+utilise un fichier temporaire synchronisé et un renommage, mais
+n'établit pas encore une preuve de durabilité après coupure
+d'alimentation (fsync du répertoire, cas limites du système de fichiers).
+Les fichiers de boîtes expirés ne sont pas récupérés, aucun
+accusé de conservation distribué n'est produit, aucune identité
+réelle n'est restaurée. `remoteQueueReconciled:false`,
+`liveRestoreAuthorized:false` et
+`legacyDeletionAuthorized:false` demeurent impératifs.
+La prochaine étape est une **coordination cryptographique multi-relais**
+sur la base de ces verrous locaux, suivie d'un protocole de
+quorum/rollback résistant aux déconnexions et d'une migration réelle
+testée sans perte de préclés ou de courrier.
+
 ## Pourquoi ne pas encore basculer les vrais comptes ?
 
 La continuité des clés **n'est pas** la continuité de la boîte complète.
