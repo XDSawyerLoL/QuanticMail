@@ -113,6 +113,12 @@ jobs:
           node-version: 24.8.0
       - name: Windows trusted client workflow regressions
         run: node --test tests/native-windows-desktop.test.mjs tests/native-vault-controller.test.mjs tests/native-windows-mail-flow.test.mjs
+      - name: Windows private migration snapshots and independent post-restart readback
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          export QUANTIC_WINDOWS_VAULT_TEST="$(cygpath -w "$RUNNER_TEMP/Vault-PQ-provider-lab.exe")"
+          node.exe --test tests/migration-durable-codec.test.mjs tests/migration-windows-durable.test.mjs
       - name: Stage isolated portable Windows laboratory
         shell: msys2 {0}
         run: |
