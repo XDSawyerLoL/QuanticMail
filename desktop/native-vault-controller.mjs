@@ -102,7 +102,14 @@ export async function connectNativeVault({binary,binarySha256,vault,journal,quor
   async function signNativeEnrollment(challenge){
     // Broker independently validates the same scope and prompts for the
     // approval locally. Never trust renderer-supplied permission flags.
-    validateNativeEnrollmentRequest(challenge,{signingPin,encryptionPin,encryptionPublicKey:enc?.jwk});
+    // The native PQ migration path refuses challenges without the original
+    // ownership SPKI pin obtained independently of the untrusted archive.
+    if(pqMode)check(pinRE.test(pqMode.historicalRootPin),'trusted historical ownership root pin required');
+    validateNativeEnrollmentRequest(challenge,{
+      signingPin,encryptionPin,encryptionPublicKey:enc?.jwk,
+      expectedAddress:pqMode?.address,
+      expectedRootPin:pqMode?.historicalRootPin
+    });
     const r=await call({op:'enroll-proof',enrollment:challenge,approved:true});
     check(typeof r.enrollmentProof==='string'&&/^[0-9a-f]{128}$/.test(r.enrollmentProof)
       &&verify('sha256',Buffer.from(challenge),
