@@ -119,6 +119,15 @@ test('rehearsal refuses unauthorized archive roots, substituted PQ roots, stale 
   return current;
  };
  await assert.rejects(rehearse({peerSource:rollback}));
+ let count=0;
+ const swappedIdentityOnReread=async(a,d)=>{
+  count++;
+  // The second read of the new device returns a different, still
+  // cryptographically valid device on the same authority.
+  if(count===4)return f.expected.peerSource(a,f.oldId);
+  return f.expected.peerSource(a,d);
+ };
+ await assert.rejects(rehearse({peerSource:swappedIdentityOnReread}));
  const oldProfileSwap=async(a,d)=>{
   const current=await f.expected.peerSource(a,d);
   current.bundle.profile.payload.devices.find(x=>x.deviceId===f.oldId).mlKemPublicKeySpki
