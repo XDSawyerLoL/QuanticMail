@@ -10,7 +10,6 @@ import (
  "os"
  "path/filepath"
  "regexp"
- "strconv"
 )
 
 // Only synthetic encrypted 16MiB/80KiB migration lab chunks.
@@ -54,13 +53,20 @@ func migrationChunkValid(name string,raw []byte)bool{
  ct,e:=decode(p.Ciphertext,1,81936);if e!=nil{return false};defer clear(ct)
  // The manifest contains an encrypted 1-block metadata record; no untrusted
  // plaintext, public key, path or arbitrary file type can be staged here.
- _,e=strconv.ParseUint(m[1][:16],16,64)
- return e==nil
+ return true
 }
 func winMigrationChunkIO(op,dir,name string)(bool,error){
  if !migrationChunkName.MatchString(name){return true,portableRefusal}
  if e:=migrationLabCheck(dir);e!=nil{return true,e}
  path:=filepath.Join(dir,name)
+ if op=="--windows-migration-probe-lab"{
+  _,e:=os.Lstat(path)
+  if os.IsNotExist(e){_,e=os.Stdout.Write([]byte("absent"));return true,e}
+  if e!=nil{return true,e}
+  raw,e:=winReadPrivate(path,migrationMaxSealed);if e!=nil{return true,e};defer clear(raw)
+  if !migrationChunkValid(name,raw){return true,portableRefusal}
+  _,e=os.Stdout.Write([]byte("present"));return true,e
+ }
  if op=="--windows-migration-read-lab"{
   raw,e:=winReadPrivate(path,migrationMaxSealed);if e!=nil{return true,e};defer clear(raw)
   if !migrationChunkValid(name,raw){return true,portableRefusal}
