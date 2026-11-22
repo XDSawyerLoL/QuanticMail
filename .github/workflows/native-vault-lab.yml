@@ -186,6 +186,9 @@ jobs:
           $package = Join-Path $env:RUNNER_TEMP "QuanticMail-Windows-PQ-Lab"
           $manifestPin = (Get-FileHash -LiteralPath "$package\SHA256SUMS.txt" -Algorithm SHA256).Hash
           $binaryPin = (Get-FileHash -LiteralPath "$package\bin\Vault-PQ-lab.exe" -Algorithm SHA256).Hash
+          $direct = Join-Path $env:RUNNER_TEMP ("qs-migrate-direct-" + $env:GITHUB_SHA.Substring(0,12))
+          & "$package\runtime\node.exe" "$package\scripts\migration-windows-smoke-lab.mjs" "$package\bin\Vault-PQ-lab.exe" $binaryPin.ToLowerInvariant() $direct "--synthetic-only"
+          if ($LASTEXITCODE -ne 0) { throw "Direct packaged native smoke failed" }
           $private = Join-Path $env:RUNNER_TEMP ("qs-migrate-" + $env:GITHUB_SHA.Substring(0,12))
           $shell = (Get-Process -Id $PID).Path
           $result = & $shell -NoProfile -NonInteractive -File "$package\Start-Windows-PQ-Lab.ps1" -Operation MigrationSmoke -PrivateDirectory $private -ExpectedManifestSha256 $manifestPin -TrustedBinarySha256 $binaryPin
