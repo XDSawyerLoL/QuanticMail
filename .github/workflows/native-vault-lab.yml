@@ -191,8 +191,12 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Direct packaged native smoke failed" }
           $private = Join-Path $env:RUNNER_TEMP ("qs-migrate-" + $env:GITHUB_SHA.Substring(0,12))
           $shell = (Get-Process -Id $PID).Path
-          $result = & $shell -NoProfile -NonInteractive -File "$package\Start-Windows-PQ-Lab.ps1" -Operation MigrationSmoke -PrivateDirectory $private -ExpectedManifestSha256 $manifestPin -TrustedBinarySha256 $binaryPin
-          if ($LASTEXITCODE -ne 0) { throw "Packaged migration readback failed" }
+          $ErrorActionPreference = "Continue"
+          $result = & $shell -NoProfile -NonInteractive -File "$package\Start-Windows-PQ-Lab.ps1" -Operation MigrationSmoke -PrivateDirectory $private -ExpectedManifestSha256 $manifestPin -TrustedBinarySha256 $binaryPin 2>&1
+          $firstExitCode = $LASTEXITCODE
+          $result | ForEach-Object { Write-Host $_ }
+          $ErrorActionPreference = "Stop"
+          if ($firstExitCode -ne 0) { throw "Packaged migration readback failed" }
           $report = ($result | Select-Object -Last 1 | ConvertFrom-Json)
           if ($report.status -ne "synthetic-windows-migration-smoke-passed" -or -not $report.windowsPrivateStorage -or -not $report.separateReadbackProcess -or $report.exactCollections -ne 4 -or $report.liveRestoreAuthorized -or $report.legacyDeletionAuthorized) { throw "Missing synthetic migration guarantees" }
           $savedPreference = $ErrorActionPreference
