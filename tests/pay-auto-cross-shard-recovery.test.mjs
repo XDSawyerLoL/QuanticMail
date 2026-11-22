@@ -65,7 +65,7 @@ test('automatic cross-shard recovery resumes after outage; three fresh witnesses
   let online=false;
   const sourceFacade={snapshot:()=>sdb.snapshot(),certifiedCheckpoint:h=>sdb.certifiedCheckpoint(h),committedBlock:h=>sdb.committedBlock(h),recoverReceipts:h=>sdb.recoverReceipts(h),finalize:(ops,cert)=>sdb.finalize(ops,cert)};
   const destFacade={snapshot:()=>{if(!online)throw Error('destination network interrupted');return ddb.snapshot();},certifiedCheckpoint:h=>{if(!online)throw Error('destination network interrupted');return ddb.certifiedCheckpoint(h);},committedBlock:h=>{if(!online)throw Error('destination network interrupted');return ddb.committedBlock(h);},checkpoint:()=>{if(!online)throw Error('destination network interrupted');return ddb.checkpoint();},proposal:ops=>{if(!online)throw Error('destination network interrupted');return ddb.proposal(ops);},finalize:(ops,cert)=>{if(!online)throw Error('destination network interrupted');return ddb.finalize(ops,cert);}};
-  worker=openCrossShardRecoveryWorkerLab({ledger,config,source:sourceFacade,destination:destFacade,sourceShard:east,destinationShard:west,sourceBridge:bridgeA,destinationBridge:bridgeB,sourceWitnesses,destinationWitnesses,destinationValidators:nodes,intervalMs:100});
+  worker=openCrossShardRecoveryWorkerLab({ledger,config,source:sourceFacade,destination:destFacade,sourceShard:east,destinationShard:west,sourceBridge:bridgeA,destinationBridge:bridgeB,sourceWitnesses,destinationWitnesses:destWitnesses,destinationValidators:nodes,intervalMs:100});
   assert.equal(worker.start().status,'deferred');
   assert.equal(ddb.snapshot().balances['demo-shop'],0);
   online=true;
