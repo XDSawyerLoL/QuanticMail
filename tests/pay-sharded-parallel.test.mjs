@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {fork} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {generateKeyPairSync,createHash,sign,randomBytes} from 'node:crypto';
+import {packShardReceipts,unpackShardReceipts} from '../lib/quantic/pay-shard-receipt-wire-lab.mjs';
 import {openShardedPayLab} from '../lib/quantic/pay-sharded-lab.mjs';
 const sha=b=>createHash('sha256').update(b).digest('hex');
 function key(type){
@@ -31,7 +32,21 @@ test('four separate shard processes certify batches in parallel then exchange ce
   const input=ids.map((_,i)=>Array.from({length:8},()=>tx(i))),start=performance.now();
   const debits=await Promise.all(clients.map((c,i)=>c({op:'certify',operations:input[i]}))),debitMs=performance.now()-start;
   assert.equal(total(debits),3968);for(const d of debits)assert.equal(d.receipts.length,8);
-  const claims=ids.map((_,i)=>debits[(i+3)%4].receipts.map(receipt=>({kind:'claim',receipt})));
+  const bundles=debits.map(d=>packShardReceipts(d.receipts));
+  const decoded=bundles.map(unpackShardReceipts);
+  for(let i=0;i<4;i++){
+   assert.deepEqual(decoded[i],debits[i].receipts);
+   for(const r of decoded[i])lab.verifyDebit(r);
+   assert.ok(bundles[i].length<Buffer.byteLength(JSON.stringify(debits[i].receipts))*.15);
+   assert.throws(()=>unpackShardReceipts(bundles[i].subarray(0,-1)));
+   assert.throws(()=>unpackShardReceipts(Buffer.concat([bundles[i],Buffer.alloc(1)])));
+   assert.throws(()=>packShardReceipts([decoded[i][0],decoded[i][0]]));
+   const tampered=Buffer.from(bundles[i]);tampered[tampered.length-1]^=1;
+   assert.throws(()=>lab.verifyDebit(unpackShardReceipts(tampered).at(-1)));
+  }
+  const jsonBytes=debits.reduce((n,d)=>n+Buffer.byteLength(JSON.stringify(d.receipts)),0),binaryBytes=bundles.reduce((n,b)=>n+b.length,0);
+  t.diagnostic('SHARD_RECEIPT_BUNDLE_V1 '+JSON.stringify({transfers:32,jsonBytes,binaryBytes,reduction:1-binaryBytes/jsonBytes}));
+  const claims=ids.map((_,i)=>decoded[(i+3)%4].map(receipt=>({kind:'claim',receipt})));
   const t1=performance.now(),credits=await Promise.all(clients.map((c,i)=>c({op:'certify',operations:claims[i]}))),creditMs=performance.now()-t1;
   assert.equal(total(credits),4000);for(const [i,c] of credits.entries()){assert.equal(c.snapshot.height,2);assert.equal(c.snapshot.balances[accounts[i]],1000);}
   await Promise.all(clients.map((c,i)=>assert.rejects(c({op:'certify',operations:claims[i]}))));
