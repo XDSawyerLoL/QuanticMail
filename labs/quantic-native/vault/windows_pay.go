@@ -23,12 +23,15 @@ import (
 )
 
 const payMagic = "QV-PAY-SIMULATION-LAB-V1\x00"
+const anchoredPayMagic = "QV-PAY-ANCHORED-SIMULATION-LAB-V1\x00"
+func payMode(quorum string)string{return anchoredPayMagic+quorum+"\x00"}
 
 type payLabKeys struct{ classical *ecdsa.PrivateKey; pq pqKey; pqPublic []byte }
 func (k *payLabKeys) close(){k.pq.close();k.classical.D.SetInt64(0)}
 func (k *payLabKeys) pins()(string,string){return publicPin(&k.classical.PublicKey),hexHash(k.pqPublic)}
 
-func sealPayLabKeys(k *payLabKeys,pw []byte)([]byte,error){
+func sealPayLabKeys(k *payLabKeys,pw []byte)([]byte,error){return sealPayLabKeysMode(k,pw,payMagic)}
+func sealPayLabKeysMode(k *payLabKeys,pw []byte,magic string)([]byte,error){
  if !validPortablePassword(pw){return nil,portableRefusal}
  scalar:=k.classical.D.FillBytes(make([]byte,32));defer clear(scalar)
  der,e:=k.pq.der(true);if e!=nil{return nil,e};defer clear(der)
@@ -37,13 +40,16 @@ func sealPayLabKeys(k *payLabKeys,pw []byte)([]byte,error){
  if _,e=rand.Read(salt);e!=nil{return nil,e}
  if _,e=rand.Read(iv);e!=nil{return nil,e}
  a,e:=portableAEAD(pw,salt);if e!=nil{return nil,e}
- header:=append(append([]byte(payMagic),salt...),iv...)
+ header:=append(append([]byte(magic),salt...),iv...)
  return a.Seal(header,iv,plain,header),nil
 }
 
 func openPayLabKeys(raw,pw []byte,signPin,pqPin string)(*payLabKeys,error){
- h:=len(payMagic)
- if !validPortablePassword(pw)||!hashRE.MatchString(signPin)||!hashRE.MatchString(pqPin)||len(raw)<h+44||len(raw)>50000||string(raw[:h])!=payMagic{return nil,portableRefusal}
+ return openPayLabKeysMode(raw,pw,signPin,pqPin,payMagic)
+}
+func openPayLabKeysMode(raw,pw []byte,signPin,pqPin,magic string)(*payLabKeys,error){
+ h:=len(magic)
+ if !validPortablePassword(pw)||!hashRE.MatchString(signPin)||!hashRE.MatchString(pqPin)||len(raw)<h+44||len(raw)>50000||string(raw[:h])!=magic{return nil,portableRefusal}
  a,e:=portableAEAD(pw,raw[h:h+16]);if e!=nil{return nil,e}
  plain,e:=a.Open(nil,raw[h+16:h+28],raw[h+28:],raw[:h+28]);if e!=nil{return nil,portableRefusal};defer clear(plain)
  var parts [][]byte
@@ -65,7 +71,9 @@ func parsePayScalar(raw []byte)(*ecdsa.PrivateKey,error){
  return ecdsaFromBytes(raw,x,y)
 }
 
-func provisionPayLab(dir string,pw []byte)(map[string]string,error){
+func provisionPayLab(dir string,pw []byte)(map[string]string,error){return provisionPayLabMode(dir,pw,"")}
+func provisionPayLabMode(dir string,pw []byte,quorum string)(map[string]string,error){
+ if quorum!=""&&!hashRE.MatchString(quorum){return nil,portableRefusal}
  if !validPortablePassword(pw){return nil,portableRefusal}
  if _,_,e:=winPathParts(filepath.Join(dir,"pay.vault"));e!=nil{return nil,e}
  if _,_,e:=winPathParts(filepath.Join(dir,"pay-receipt-"+strings.Repeat("a",64)+".json"));e!=nil{return nil,e}
@@ -73,10 +81,16 @@ func provisionPayLab(dir string,pw []byte)(map[string]string,error){
  pq,e:=pqGenerate("ML-DSA-65");if e!=nil{priv.D.SetInt64(0);return nil,e}
  dp,e:=pq.der(false);if e!=nil{pq.close();priv.D.SetInt64(0);return nil,e}
  k:=&payLabKeys{priv,pq,dp};defer k.close()
- raw,e:=sealPayLabKeys(k,pw);if e!=nil{return nil,e}
+ magic:=payMagic;if quorum!=""{magic=payMode(quorum)}
+ raw,e:=sealPayLabKeysMode(k,pw,magic);if e!=nil{return nil,e}
  if e=winCreatePrivateDirectory(dir);e!=nil{return nil,e}
  if e=winWritePrivate(filepath.Join(dir,"pay.vault"),raw);e!=nil{return nil,e}
  s,d:=k.pins()
+ if quorum!=""{
+  if e=winInitReplay(filepath.Join(dir,"pay-journal.log"),s,d,quorum);e!=nil{return nil,e}
+  id,e:=anchorID(s,d,quorum);if e!=nil{return nil,e}
+  return map[string]string{"mode":"fictional-anchored-pay-lab","signingPin":s,"pqPin":d,"quorumPin":quorum,"anchorId":id,"status":"stored-not-enrolled"},nil
+ }
  return map[string]string{"mode":"fictional-pay-lab","signingPin":s,"pqPin":d,"status":"stored-not-enrolled"},nil
 }
 
@@ -149,6 +163,12 @@ func writePayQuorumConfig(dir,pin string,raw []byte)error{
 }
 func windowsPayCLI(args []string)(bool,error){
  if len(args)<2{return false,nil}
+ if args[1]=="--provision-windows-pay-anchored-lab"{
+  if len(args)!=4||!hashRE.MatchString(args[3])||!winApprove("Create FICTIONAL anchored Pay vault, quorum "+args[3]+". No real payments."){return true,portableRefusal}
+  pw,e:=winConfirmSecret("New independent anchored Pay passphrase: ");if e!=nil{return true,e};defer clear(pw)
+  result,e:=provisionPayLabMode(args[2],pw,args[3]);if e!=nil{return true,e}
+  return true,json.NewEncoder(os.Stdout).Encode(result)
+ }
  if args[1]=="--configure-windows-pay-quorum-lab"{
   if len(args)!=4||!hashRE.MatchString(args[3]){return true,portableRefusal}
   raw,e:=io.ReadAll(io.LimitReader(os.Stdin,32769));if e!=nil{return true,e};defer clear(raw)
@@ -172,7 +192,8 @@ func windowsPayCLI(args []string)(bool,error){
   result,e:=provisionPayLab(args[2],pw);if e!=nil{return true,e}
   return true,json.NewEncoder(os.Stdout).Encode(result)
  }
- if args[1]!="--sign-windows-pay-lab"{return false,nil}
+ anchored:=args[1]=="--sign-windows-pay-anchored-lab"
+ if args[1]!="--sign-windows-pay-lab"&&!anchored{return false,nil}
  // Only a locally displayed synthetic recipient and exact amount; no arbitrary signing.
  if len(args)!=9{return true,portableRefusal}
  dir,s,d:=args[2],args[3],args[4]
@@ -183,11 +204,39 @@ func windowsPayCLI(args []string)(bool,error){
  hs,e:=winLockDirectory(dir,true);if e!=nil{return true,e};defer winClose(hs)
  raw,e:=winReadPrivate(filepath.Join(dir,"pay.vault"),50000);if e!=nil{return true,e}
  pw,e:=winConsoleLine("Pay laboratory passphrase: ",true);if e!=nil{return true,e};defer clear(pw)
- k,e:=openPayLabKeys(raw,pw,s,d);clear(pw);if e!=nil{return true,e};defer k.close()
+ magic:=payMagic
+ var q *quorumAnchor
+ if anchored{q,e=winLoadQuorum(dir);if e!=nil{return true,e};magic=payMode(q.pin)}
+ k,e:=openPayLabKeysMode(raw,pw,s,d,magic);clear(pw);if e!=nil{return true,e};defer k.close()
  approved:=winApprove(fmt.Sprintf("SIMULATION ONLY: %d.%02d fictional EUR to %s; request %s. No money moves.",i.Cents/100,i.Cents%100,i.Payee,i.Nonce))
- proof,e:=signPayLab(k,i,time.Now().UnixMilli(),approved);if e!=nil{return true,e}
+ var proof payLabProof
+ if anchored{
+  if !approved{return true,portableRefusal}
+  j,e:=winOpenReplay(filepath.Join(dir,"pay-journal.log"),s,d,q.pin);if e!=nil{return true,e};defer j.close()
+  id,e:=anchorID(s,d,q.pin);if e!=nil{return true,e}
+  if e=j.attachAnchor(q,id);e!=nil{return true,e}
+  proof,e=authorizeAnchoredPay(j,k,i,func()int64{return time.Now().UnixMilli()},approved)
+  if e!=nil{return true,e}
+ }else{
+  proof,e=signPayLab(k,i,time.Now().UnixMilli(),approved);if e!=nil{return true,e}
+ }
  // Release only after exclusive write and exact readback.
  receipt,e:=commitPayLabProof(dir,proof);if e!=nil{return true,e}
  _,e=os.Stdout.Write(append(receipt,'\n'))
  return true,e
+}
+
+// Two durable CAS records: nonce uniqueness plus the exact signed intent.
+// The external witnesses authorize journal progression, NOT financial
+// settlement or balance consensus. Partial reservations burn the nonce.
+// The legacy command cannot open an anchored vault (different AEAD header).
+func authorizeAnchoredPay(j *replayLog,k *payLabKeys,i payLabIntent,clock func()int64,approved bool)(payLabProof,error){
+ if j==nil||j.anchor==nil||k==nil||clock==nil||!approved||!i.valid(clock())||len(j.seen)>replayCap-2{return payLabProof{},portableRefusal}
+ s,d:=k.pins()
+ nonce:=replayID("pay-anchored-nonce/v1",[]byte(i.Nonce))
+ intent:=replayID("pay-anchored-intent/v1",payLabTranscript(i,s,d))
+ if j.has(nonce)||j.has(intent){return payLabProof{},portableRefusal}
+ if e:=j.consume(nonce);e!=nil{return payLabProof{},e}
+ if e:=j.consume(intent);e!=nil{return payLabProof{},e}
+ return signPayLab(k,i,clock(),approved)
 }
