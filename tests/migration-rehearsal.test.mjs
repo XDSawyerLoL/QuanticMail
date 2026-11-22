@@ -23,7 +23,7 @@ const signed=(root,payload)=>({
 });
 function fixture(){
  const root=ec(),enc=ec(),oldSigner=ec(),nativeEnc=ec(),nativeSigner=ec(),preKey=ec();
- const oldKem=kem(),pqRoot=dsa(),nativeKem=kem(),nativeDsa=dsa();
+ const oldKem=kem(),oldDsa=dsa(),pqRoot=dsa(),nativeKem=kem(),nativeDsa=dsa();
  const date=new Date(Date.now()-5000).toISOString();
  const address='alice~'+fingerprint(root)+'@quantic';
  const oldId=deviceId(enc),newId=deviceId(nativeEnc);
@@ -42,7 +42,7 @@ function fixture(){
   identityMlDsaAlgorithm:'ML-DSA-65',identityMlDsaPublicKeySpki:pqSpki(pqRoot),
   devices:[
    {deviceId:oldId,mlKemAlgorithm:'ML-KEM-768',mlKemPublicKeySpki:pqSpki(oldKem),
-    mlDsaAlgorithm:'ML-DSA-65',mlDsaPublicKeySpki:pqSpki(pqRoot)},
+    mlDsaAlgorithm:'ML-DSA-65',mlDsaPublicKeySpki:pqSpki(oldDsa)},
    {deviceId:newId,mlKemAlgorithm:'ML-KEM-768',mlKemPublicKeySpki:pqSpki(nativeKem),
     mlDsaAlgorithm:'ML-DSA-65',mlDsaPublicKeySpki:pqSpki(nativeDsa)}
   ],issuedAt:date};
@@ -62,8 +62,8 @@ function fixture(){
    deviceSigningPublicKey:jwk(oldSigner),deviceSigningPrivateKey:privateJwk(oldSigner),
    manifest:historical,authToken:'NEVER_LEAVE_SOURCE',
    pqc:{version:1,mlKemPublicKeySpki:pqSpki(oldKem),
-    mlKemPrivateKeyPkcs8:pkcs8(oldKem),mlDsaPublicKeySpki:pqSpki(pqRoot),
-    mlDsaPrivateKeyPkcs8:pkcs8(pqRoot),createdAt:date}},
+    mlKemPrivateKeyPkcs8:pkcs8(oldKem),mlDsaPublicKeySpki:pqSpki(oldDsa),
+    mlDsaPrivateKeyPkcs8:pkcs8(oldDsa),createdAt:date}},
   pending:null,prekeys:[],messages:[{id:'historical-1',direction:'in',from:'bob@quantic',
    to:address,subject:'archive encrypted',body:'historical plaintext',createdAt:date}],
   contacts:[{handle:'bob',address:'bob@quantic',firstSeenAt:date,lastSeenAt:date}],
@@ -90,6 +90,8 @@ test('trusted offline archive and current native hybrid keys are cross-checked; 
  assert.equal(report.oldDeviceStillActive,true);
  assert.equal(report.nativePublicKeysPinned,true);
  assert.equal(report.postQuantumHistoricalKeysMatched,true);
+ assert.equal(report.postQuantumAccountRootPrivateKeyVerified,false);
+ assert.ok(report.blockers.includes('pq-account-root-private-key-custody-not-established'));
  assert.equal(report.currentManifestSequence,2);
  assert.equal(report.historicalManifestSequence,1);
  assert.deepEqual(report.archiveCounts,{messages:1,contacts:1,prekeys:0,outbox:1});
