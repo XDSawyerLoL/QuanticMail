@@ -131,6 +131,69 @@ Le rapport maintient
 `remoteQueueReconciled:false`. **Ne pas utiliser pour de vraies
 identités, ni fusionner en production sans une revue indépendante.**
 
+## Copie par blocs 16 Mio, journal d'audit et relais local (22/11)
+
+Le format de laboratoire `migration-chunked-lab.mjs` accepte une
+**copie JSON de collections synthétiques jusqu'à 16 Mio**, scindée en
+blocs d'environ 80 Kio, authentifiés par AES-256-GCM. L'empreinte du
+contenu historique est figée dans un manifeste chiffré **avant** le
+premier bloc. Une reprise ne peut pas mélanger deux versions : elle
+relit et authentifie les blocs existants, écrit exclusivement les
+blocs absents, puis exige une relecture complète après redémarrage.
+`MigrationFullSmoke` couvre ce scénario sur Windows, y compris une
+interruption artificielle après trois blocs.
+
+Nouveau contrôle `migration-relay-observation-lab.mjs` : exclusivement
+sur le **relais local 127.0.0.1** avec un compte de laboratoire, il
+effectue deux lectures authentifiées **GET /api/quantic/pull** et
+**GET /api/quantic/receipts**, sans appeler ACK, POST, renouvellement
+de préclés ou migration. Le comparateur détecte disparition, ajout et
+modification d'enveloppes/reçus, confronte ces observations au maintien
+intégral des anciennes collections (outbox et préclés notamment), et
+ne renvoie aucun contenu de message ni identifiant dans son rapport.
+Un test avec le **véritable relais persistant**, redémarré entre les
+deux observations, vérifie le maintien des messages non acquittés et
+la détection d'une arrivée concurrente.
+
+Le relais existant limite la lecture à **100 éléments** pour les
+messages et 100 pour les reçus, sans pagination ni point de cohérence
+signé. Un résultat stable ou vide ne prouve donc **ni** l'exhaustivité
+de la file distante, **ni** son absence de changement concurrent,
+**ni** que le serveur contacté est authentifié par la seule
+empreinte passée au client. Le contrôle refuse le réseau distant
+et maintient inconditionnellement `remoteQueueReconciled:false`.
+Un futur fournisseur d'attestation lié à l'identité de relais, des
+curseurs/instantanés complets et une barrière de concurrence indépendante
+sont requis avant toute décision réelle.
+
+Le journal `migration-audit-journal-lab.mjs` enregistre sur NTFS,
+par création exclusive, des événements chiffrés AES-GCM à chaîne
+d'empreintes SHA-256 : **prepared**, **snapshot-verified**,
+**relay-observed**, puis éventuellement **blocked**. Le composant
+Windows `windows_migration_audit.go` refuse les noms non prévus,
+les formats étrangers et les remplacements. Seuls des compteurs,
+booléens et empreintes cryptographiques sont admissibles dans les
+faits du journal ; aucun secret, message ou token ne doit être stocké.
+Le scénario Windows de 16 Mio écrit une intention avant redémarrage,
+puis une preuve de comparaison après relecture. Une observation
+réelle du relais **ne fait pas partie** du scénario de 16 Mio :
+une preuve de relais ne peut donc pas être simulée pour compléter
+arbitrairement sa phase suivante.
+
+**Ce journal n'est pas un commit atomique de migration.** Il n'existe
+aucune transition vers une identité réelle, aucun ACK, aucune
+réactivation de préclé et aucun effacement. Les flags
+`liveRestoreAuthorized` et `legacyDeletionAuthorized`
+restent à `false` dans tous les scénarios. Le crash-process
+est testé ; la coupure électrique, la synchronisation durable du
+répertoire, les écritures Web concurrentes et l'attestation du
+relais distant restent à démontrer avant toute restauration réelle.
+
+Tests :
+`node --experimental-transform-types --test tests/migration-relay-observation.test.mjs tests/migration-audit-journal-lab.test.mjs`.
+Le workflow natif Windows inclut également ces régressions et
+`MigrationFullSmoke` avec journal local.
+
 ## Pourquoi ne pas encore basculer les vrais comptes ?
 
 La continuité des clés **n'est pas** la continuité de la boîte complète.
