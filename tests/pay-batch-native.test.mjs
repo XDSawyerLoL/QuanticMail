@@ -13,6 +13,7 @@ import {join,resolve} from 'node:path';
 import {reliableCellStream,POLICY} from '../labs/quantic-native/scattering/scattering-reliable-lab.mjs';
 import {cellKey} from '../labs/quantic-native/scattering/scattering-cell.mjs';
 import {splitScatteringLab,joinScatteringLab} from '../lib/quantic/scattering-stripes-lab.mjs';
+import {encodePayBatchBinary,decodePayBatchBinary} from '../lib/quantic/pay-batch-binary-lab.mjs';
 import {openPayBatchLab} from '../lib/quantic/pay-batch-lab.mjs';
 import {createRoundCirculationLab} from '../lib/quantic/pay-circulation-lab.mjs';
 const binary=process.env.QUANTIC_PAY_SCATTERING_TEST;
@@ -24,7 +25,7 @@ function key(type){
 }
 const raw=x=>Buffer.from(JSON.stringify(x));
 const parse=b=>JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(b));
-for(const lanes of [1,4])test('100 hybrid-signed synthetic transactions over '+lanes+' native UDP lane(s), 11/16 certification',{skip:!binary||process.platform!=='linux',timeout:150000},async t=>{
+for(const [lanes,encoding] of [[1,'json'],[1,'binary'],[4,'binary']])test('100 hybrid-signed synthetic transactions over '+lanes+' native UDP lane(s), '+encoding+', 11/16 certification',{skip:!binary||process.platform!=='linux',timeout:150000},async t=>{
  const root=await mkdtemp(join(tmpdir(),'pay-batch-udp-')),dirs=Array.from({length:2*lanes},(_,i)=>join(root,'lane-'+i)),sockets=[],cells=[],children=[],failures=[];
  let closing=false,wrongSize=0;const received=Array(2*lanes).fill(0),metrics={},sequence=Array(2*lanes).fill(0);
  try{
@@ -76,13 +77,14 @@ for(const lanes of [1,4])test('100 hybrid-signed synthetic transactions over '+l
    }finally{clearTimeout(timer);dst.off('data',onData);}
   }
   async function carry(side,label,obj){
-   const bytes=raw(obj),{manifest,parts}=splitScatteringLab(bytes,lanes),t0=performance.now();
+   const compact=encoding==='binary'&&label==='batch';
+   const bytes=compact?encodePayBatchBinary(obj):raw(obj),{manifest,parts}=splitScatteringLab(bytes,lanes),t0=performance.now();
    // Preflight every lane before transmitting any. Unused lanes remain active.
    for(let i=0;i<lanes;i++)assert.ok(sequence[2*i+side]+Math.ceil(parts[i].length/POLICY.payload)<=POLICY.maxSeq);
    const got=await Promise.all(parts.map((p,i)=>carryLane(2*i+side,p)));
    const joined=joinScatteringLab(manifest,got);assert.deepEqual(joined,bytes);
    metrics[label]={bytes:bytes.length,laneBytes:parts.map(p=>p.length),ms:performance.now()-t0};
-   return parse(joined);
+   return compact?decodePayBatchBinary(joined):parse(joined);
   }
   const input=await carry(0,'batch',{proofs,time:now,value:proposed.value});
   assert.equal(labs[1].propose(input.proofs,input.time).value,proposed.value);
@@ -99,7 +101,7 @@ for(const lanes of [1,4])test('100 hybrid-signed synthetic transactions over '+l
   assert.deepEqual(proposed.balances,{'demo-alice':9900,'demo-bob':100});
   assert.equal(wrongSize,0);assert.equal(failures.length,0);assert.ok(received.every(n=>n>0));
   const total=Object.values(metrics).reduce((s,v)=>s+v.ms,0);
-  t.diagnostic('BATCH_NATIVE_MULTILANE_V2 '+JSON.stringify({count:100,lanes,remoteVoters:1,localVoters:10,metrics,transferMs:total,transferOnlyTransactionsPerSecond:100000/total,received,wrongSize,sequence,simulationOnly:true}));
+  t.diagnostic('BATCH_NATIVE_MULTILANE_V3 '+JSON.stringify({count:100,lanes,encoding,remoteVoters:1,localVoters:10,metrics,transferMs:total,transferOnlyTransactionsPerSecond:100000/total,received,wrongSize,sequence,simulationOnly:true}));
  }finally{
   closing=true;for(const c of cells)c.stream.destroy();for(const s of sockets)s.close();
   await Promise.all(children.map(p=>new Promise(r=>{if(p.exitCode!==null||p.signalCode!==null)return r();p.once('close',r);p.kill();})));
