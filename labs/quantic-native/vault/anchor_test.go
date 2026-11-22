@@ -163,8 +163,9 @@ func TestAnchoredClassicalBrokerSignsOnlyAfterQuorum(t *testing.T) {
     if op=="enroll-proof"{
      p:=key.PublicKey().Bytes()
      dev:=sha256.Sum256([]byte("P-256:"+b64.EncodeToString(p[1:33])+":"+b64.EncodeToString(p[33:])))
-     raw,err:=json.Marshal([]any{"quantic-native-enrollment-lab-v1","alice~"+strings.Repeat("a",32)+"@quantic",strings.Repeat("b",64),1,strings.Repeat("c",64),"d-"+hex.EncodeToString(dev[:16]),publicPin(s.Public()),publicPin(key.PublicKey()),"synthetic device",strings.Repeat("d",64),time.Now().Add(20*time.Second).UnixMilli()})
-     if err!=nil{t.Fatal(err)}
+     raw,marshalErr:=json.Marshal([]any{"quantic-native-enrollment-lab-v1","alice~"+strings.Repeat("a",32)+"@quantic",strings.Repeat("b",64),1,strings.Repeat("c",64),"d-"+hex.EncodeToString(dev[:16]),publicPin(s.Public()),publicPin(key.PublicKey()),"synthetic device",strings.Repeat("d",64),time.Now().Add(20*time.Second).UnixMilli()})
+     if marshalErr!=nil{t.Fatal(marshalErr)}
+     if !validEnrollment(string(raw),s.Public(),key.PublicKey(),time.Now()){t.Fatal("invalid enrollment fixture")}
      body,_:=json.Marshal(request{Op:op,Enrollment:string(raw),Approved:true})
      var out bytes.Buffer
      err=serveGuarded(s,key,"test",strings.NewReader(string(body)+"\n"),&out,approve,j)
