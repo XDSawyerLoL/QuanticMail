@@ -180,6 +180,21 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Packaged native Pay quorum syntax failed" }
           & "$dir\runtime\node.exe" --check "$dir\scripts\quantic-pay-operator.mjs"
           if ($LASTEXITCODE -ne 0) { throw "Packaged Pay operator syntax failed" }
+      - name: Packaged Windows migration smoke across two processes
+        shell: pwsh
+        run: |
+          $package = Join-Path $env:RUNNER_TEMP "QuanticMail-Windows-PQ-Lab"
+          $manifestPin = (Get-FileHash -LiteralPath "$package\SHA256SUMS.txt" -Algorithm SHA256).Hash
+          $binaryPin = (Get-FileHash -LiteralPath "$package\bin\Vault-PQ-lab.exe" -Algorithm SHA256).Hash
+          $private = Join-Path $env:RUNNER_TEMP ("qs-migrate-" + $env:GITHUB_SHA.Substring(0,12))
+          $shell = (Get-Process -Id $PID).Path
+          $result = & $shell -NoProfile -NonInteractive -File "$package\Start-Windows-PQ-Lab.ps1" -Operation MigrationSmoke -PrivateDirectory $private -ExpectedManifestSha256 $manifestPin -TrustedBinarySha256 $binaryPin
+          if ($LASTEXITCODE -ne 0) { throw "Packaged migration readback failed" }
+          $report = ($result | Select-Object -Last 1 | ConvertFrom-Json)
+          if ($report.status -ne "synthetic-windows-migration-smoke-passed" -or -not $report.windowsPrivateStorage -or -not $report.separateReadbackProcess -or $report.exactCollections -ne 4 -or $report.liveRestoreAuthorized -or $report.legacyDeletionAuthorized) { throw "Missing synthetic migration guarantees" }
+          & $shell -NoProfile -NonInteractive -File "$package\Start-Windows-PQ-Lab.ps1" -Operation MigrationSmoke -PrivateDirectory $private -ExpectedManifestSha256 $manifestPin -TrustedBinarySha256 $binaryPin 2>&1 | Out-Null
+          if ($LASTEXITCODE -eq 0) { throw "Reused migration directory was accepted" }
+
       - name: Windows native Scattering mailbox loopback using packaged binaries
         shell: pwsh
         run: |
