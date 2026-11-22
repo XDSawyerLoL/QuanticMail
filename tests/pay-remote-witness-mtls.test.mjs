@@ -148,10 +148,39 @@ test('four independent witness processes enforce pinned mutual TLS, certified pr
   services[1]=await launch(1,false);clients[1]=services[1].client;
   assert.equal((await coordinator.fresh(db.snapshot())).witnesses,3);
   assert.equal((await services[0].client.status()).root,root1);
+  // Repair must be authorized by the recovering process's challenge and
+  // a fresh 3-of-4 hybrid quorum, not merely a caller-provided stale tip.
+  const cp2=db.certifiedCheckpoint(2),h2=cp2.header;
+  const root2=hash(['quantic-shard-block/v1',h2.network,h2.shard,
+   h2.height,h2.previous,h2.operationsRoot,h2.stateRoot]);
+  const target={epoch:0,height:2,root:root2,committee:coordinator.committee,tip:'0'.repeat(64)};
+  const steps=[{request:{anchor:request.anchor,mode:'vote',value:root1},
+   proof:{checkpoint:cp}}];
+  // The old height-1 block is not part of catch-up: prepare height 2.
+  steps[0]={request:{anchor:{...request.anchor,height:1,root:root1},
+    mode:'vote',value:root2},proof:{checkpoint:cp2}};
+  const tampered=structuredClone(steps);tampered[0].proof.checkpoint.header.stateRoot='f'.repeat(64);
+  await assert.rejects(()=>clients[0].beginRemoteCatchUp(target,tampered));
+  assert.equal((await clients[0].status()).height,1);
+  const challenge1=await clients[0].beginRemoteCatchUp(target,steps);
+  assert.match(challenge1.challenge,/^[a-f0-9]{64}$/);
+  const signed1=await Promise.all(clients.slice(1).map(peer=>peer.attestState(challenge1.challenge)));
+  await assert.rejects(()=>clients[0].finishRemoteCatchUp('f'.repeat(64),signed1));
+  assert.equal((await clients[0].status()).height,1);
+  const challenge2=await clients[0].beginRemoteCatchUp(target,steps);
+  const signed2=await Promise.all(clients.slice(1).map(peer=>peer.attestState(challenge2.challenge)));
+  const forged=structuredClone(signed2);forged[2].status.root='f'.repeat(64);
+  await assert.rejects(()=>clients[0].finishRemoteCatchUp(challenge2.challenge,forged));
+  assert.equal((await clients[0].status()).height,1);
+  const repaired=await coordinator.repairWitness(db,0);
+  assert.equal(repaired.verifiedSteps,1);
+  assert.equal((await clients[0].status()).height,2);
+  assert.equal((await coordinator.fresh(db.snapshot())).witnesses,4);
+  assert.equal((await coordinator.repairLagging(db)).repaired,0);
   t.diagnostic('REMOTE_WITNESS_MTLS_V1 '+JSON.stringify({independentProcesses:4,
    controllerAuthenticated:true,serverPins:4,untrustedClientRefused:true,
    malformedCertificatePreVoteRefused:true,threeOfFourLive:true,
-   twoOfFourRefused:true,rolledBackOrLaggingOneDoesNotForgeTip:true,simulationOnly:true}));
+   twoOfFourRefused:true,rolledBackOrLaggingOneDoesNotForgeTip:true,remoteWitnessRepaired:true,wrongChallengeRefused:true,simulationOnly:true}));
  }finally{
   for(const child of children)try{child.kill('SIGKILL');}catch{}
   try{db?.close();}catch{}
