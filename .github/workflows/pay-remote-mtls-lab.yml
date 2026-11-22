@@ -12,6 +12,7 @@ on:
       - "scripts/quantic-pay-witness-node-lab.mjs"
       - "tests/pay-remote-witness-mtls.test.mjs"
       - "tests/pay-cross-shard-async-remote-recovery.test.mjs"
+      - "tests/pay-eight-remote-witness-settlement.test.mjs"
       - "lib/quantic/pay-cross-shard-remote-recovery-worker-lab.mjs"
       - "scripts/quantic-pay-recovery-agent-lab.mjs"
       - ".github/workflows/pay-remote-mtls-lab.yml"
@@ -27,6 +28,7 @@ on:
       - "scripts/quantic-pay-witness-node-lab.mjs"
       - "tests/pay-remote-witness-mtls.test.mjs"
       - "tests/pay-cross-shard-async-remote-recovery.test.mjs"
+      - "tests/pay-eight-remote-witness-settlement.test.mjs"
       - "lib/quantic/pay-cross-shard-remote-recovery-worker-lab.mjs"
       - "scripts/quantic-pay-recovery-agent-lab.mjs"
       - ".github/workflows/pay-remote-mtls-lab.yml"
@@ -49,4 +51,4 @@ jobs:
       - name: Verify local test OpenSSL
         run: openssl version
       - name: Four isolated post-quantum witnesses with TLS client and server pinning
-        run: node --test tests/pay-remote-witness-mtls.test.mjs tests/pay-cross-shard-async-remote-recovery.test.mjs
+        run: node --test tests/pay-remote-witness-mtls.test.mjs tests/pay-cross-shard-async-remote-recovery.test.mjs tests/pay-eight-remote-witness-settlement.test.mjs
