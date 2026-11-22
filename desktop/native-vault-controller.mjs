@@ -6,6 +6,7 @@ import {createHash,createPublicKey,createPrivateKey,sign,verify} from 'node:cryp
 import {readFile,stat} from 'node:fs/promises';
 import {isAbsolute,win32} from 'node:path';
 import {createWindowsNativeStorage} from './native-windows-storage.mjs';
+import {validateNativeEnrollmentRequest} from '../lib/quantic/native-enrollment-request.mjs';
 const hash=b=>createHash('sha256').update(b).digest();
 const hex=b=>hash(b).toString('hex');
 const pinRE=/^[a-f0-9]{64}$/;
@@ -98,9 +99,21 @@ export async function connectNativeVault({binary,binarySha256,vault,journal,quor
     try{const frame=controllerFrame(nonce,++seq,body,key);const reply=receive();child.stdin.write(frame);const r=await reply;check(r.ok===true,'native operation refused');return r;}
     finally{busy=false;}
   }
+  async function signNativeEnrollment(challenge){
+    // Broker independently validates the same scope and prompts for the
+    // approval locally. Never trust renderer-supplied permission flags.
+    validateNativeEnrollmentRequest(challenge,{signingPin,encryptionPin,encryptionPublicKey:enc?.jwk});
+    const r=await call({op:'enroll-proof',enrollment:challenge,approved:true});
+    check(typeof r.enrollmentProof==='string'&&/^[0-9a-f]{128}$/.test(r.enrollmentProof)
+      &&verify('sha256',Buffer.from(challenge),
+      {key:signing.key,dsaEncoding:'ieee-p1363'},
+      Buffer.from(r.enrollmentProof,'hex')),'invalid enrollment proof');
+    return r.enrollmentProof;
+  }
+  let enc;
   try{
     const hello=await receive();nonce=b64(hello.session,32,32);
-    const p=await call({op:'public'});signing=publicPoint(p.signing);const enc=publicPoint(p.encryption);
+    const p=await call({op:'public'});signing=publicPoint(p.signing);enc=publicPoint(p.encryption);
     check(signing.pin===signingPin&&enc.pin===encryptionPin,'native vault point mismatch');
     if(pqMode){
       check(p.backend===(windows?'windows-software-pq-quorum-lab':'software-pq-quorum-lab'),'wrong native backend');
@@ -123,6 +136,10 @@ export async function connectNativeVault({binary,binarySha256,vault,journal,quor
       let mailBusy=false;
       async function exclusive(fn){check(!mailBusy&&!closed,'native session unavailable');mailBusy=true;try{return await fn();}catch(e){fail();throw e;}finally{mailBusy=false;}}
       return Object.freeze({
+        publicKeys:Object.freeze({signing:Object.freeze(signing.jwk),encryption:Object.freeze(enc.jwk)}),
+        // Enrollment is a separate, one-time locally approved native broker
+        // operation; it does NOT install a live account or revoke old keys.
+        async signEnrollment(challenge){return exclusive(()=>signNativeEnrollment(challenge));},
         async openHybrid(record,{recover=false}={}){return exclusive(async()=>{
           const c=record?.context;
           check(c?.to===pqMode.address&&c.toDeviceId===pqMode.deviceId,'wrong recipient');
@@ -151,14 +168,7 @@ export async function connectNativeVault({binary,binarySha256,vault,journal,quor
         try{return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(b64(r.message,1,8192)));}
         catch{fail();throw Error('invalid native plaintext');}
       },
-      async signEnrollment(challenge){
-        // Only the exact native enrollment domain. Broker independently verifies all fields and local consent.
-        const a=JSON.parse(challenge);
-        check(Array.isArray(a)&&a.length===11&&a[0]==='quantic-native-enrollment-lab-v1'&&a[6]===signingPin&&a[7]===encryptionPin&&Buffer.byteLength(challenge)<=2048,'invalid enrollment');
-        const r=await call({op:'enroll-proof',enrollment:challenge,approved:true});
-        check(typeof r.enrollmentProof==='string'&&/^[0-9a-f]{128}$/.test(r.enrollmentProof)&&verify('sha256',Buffer.from(challenge),{key:signing.key,dsaEncoding:'ieee-p1363'},Buffer.from(r.enrollmentProof,'hex')),'invalid enrollment proof');
-        return r.enrollmentProof;
-      },
+      signEnrollment:signNativeEnrollment,
       close(){fail();}
     });
   }catch(error){fail();throw error;}
