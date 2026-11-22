@@ -83,17 +83,28 @@ class PQ(Compact):
    if self.contact_feed:
     # The fixture is an authority publisher, never writes the witness contact DB.
     # Renew signed own lease alongside contact proof to keep test TTL bounded.
-    for i in indices:
+    # Refresh the independent identity lease on all four feeds, even when
+    # intentionally withholding this contact update from one witness.
+    # Otherwise the stale witness can lose its unrelated identity lease
+    # before the second-contact test, conflating two failure modes.
+    issued={}
+    for i in range(4):
      original,own_sig,*previous=self.feeds[i]
      outer=json.loads(original);lease=json.loads(base64.b64decode(outer['payload']))
-     lease.update(issued=time.time_ns()//1000000,expires=time.time_ns()//1000000+30000)
+     now=time.time_ns()//1000000
+     lease.update(issued=now,expires=now+30000);issued[i]=now
      encoded=json.dumps(lease,separators=(',',':')).encode()
      data=json.dumps(dict(payload=base64.b64encode(encoded).decode(),signature=base64.b64encode(self.registry_key.sign(b'quantic-registry-lease-lab/v1\0'+encoded)).decode())).encode()
      others=previous[0] or [] if previous else []
-     self.feeds[i]=(data,own_sig,[g for g in others if g['payload']['contactId']!=cid]+[grant])
+     updated=[g for g in others if g['payload']['contactId']!=cid]+[grant] if i in indices else others
+     self.feeds[i]=(data,own_sig,updated)
     end=time.monotonic()+12
     while time.monotonic()<end:
      good=True
+     for i in range(4):
+      with closing(sqlite3.connect(self.nodes[i]['db'])) as conn:
+       lease=conn.execute('SELECT issued,expires FROM registry_lease WHERE id=?',(self.id,)).fetchone()
+       good &= bool(lease and lease[0]==issued[i] and lease[1]>time.time_ns()//1000000)
      for i in indices:
       with closing(sqlite3.connect(self.nodes[i]['db'])) as conn:
        table=conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='contact_permission'").fetchone()
@@ -184,7 +195,16 @@ class PQ(Compact):
   self.assertEqual(self.counts(),[3]*4)
   print('contact-only revocation blocked incoming and outgoing; old signed permission refused',flush=True)
   # Revoking Bob must not disable Carol in the same scheduled snapshot.
-  a.request('mail-seal-hybrid-lab',pqContext={**outctx,'clientMessageId':'native-second-contact','to':second_addr,'toDeviceId':second_dev},message=b64(body));a.child.prompt(b'[taper OUI] : ',b'OUI');self.assertTrue(a.child.reply()['ok']);self.assertEqual(self.counts(),[4]*4)
+  a.request('mail-seal-hybrid-lab',pqContext={**outctx,'clientMessageId':'native-second-contact','to':second_addr,'toDeviceId':second_dev},message=b64(body));a.child.prompt(b'[taper OUI] : ',b'OUI');self.assertTrue(a.child.reply()['ok'])
+  counts=self.counts()
+  if counts!=[4]*4:
+   state=[]
+   for i,n in enumerate(self.nodes):
+    with closing(sqlite3.connect(n['db'])) as conn:
+     lease=conn.execute('SELECT expires FROM registry_lease WHERE id=?',(self.id,)).fetchone()
+     state.append(dict(witness=i,count=counts[i],leaseRemainingMs=lease[0]-time.time_ns()//1000000 if lease else None))
+   print('second-contact replication diagnostic',json.dumps(state),flush=True)
+  self.assertEqual(counts,[4]*4)
   print('second independent contact remains authorized after first contact revocation',flush=True)
   self.assertFalse(a.q('pq-proof-lab',pqChallenge=b64(ch))['ok']);rev=self.grant(pins,2,False);self.publish_profile(rev,(0,1,2));self.wait_profile(2,1,(0,1,2));print('PQ-only revocation; classical manifest unchanged',flush=True);a.request('pq-proof-lab',pqChallenge=b64(os.urandom(32)));a.child.prompt(b'[taper OUI] : ',b'OUI');self.assertNotEqual(a.child.p.wait(timeout=12),0);self.assertEqual(a.child.p.stdout.read(),b'');self.report()
 if __name__=='__main__':unittest.main(defaultTest='PQ.test_pq_gate',verbosity=2)
