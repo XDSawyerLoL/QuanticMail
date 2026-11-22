@@ -31,3 +31,34 @@ Dans le paquet Windows vérifié, lancer depuis PowerShell :
 ```
 
 Le dossier indiqué doit être nouveau, local et sur NTFS. Le lanceur exige les empreintes obtenues indépendamment de l'archive, vérifie le paquet puis crée uniquement des enregistrements fictifs. Les quatre collections sont chiffrées par AES-256-GCM, stockées sans écrasement par le composant Windows natif, relues dans un second processus et comparées intégralement. Le résultat attendu est `synthetic-windows-migration-smoke-passed`, sans aucune autorisation de migration ou de suppression réelle. Le laboratoire garde les fichiers pour inspection et refuse une seconde exécution dans le même dossier. Ce scénario ne vérifie ni les comptes réels, ni la continuité des relais distants, ni les coupures électriques, ni les archives supérieures à 96 Ko.
+
+## Copie de 16 Mio interrompue et journal natif — laboratoire
+
+Après vérification indépendante du paquet, utiliser sur Windows :
+```powershell
+.\Start-Windows-PQ-Lab.ps1 -Operation MigrationFullSmoke `
+  -ExpectedManifestSha256 VOTRE_MANIFEST_SHA256_VERIFIE `
+  -TrustedBinarySha256 VOTRE_SHA256_BINAIRE_VERIFIE `
+  -PrivateDirectory "C:\QuanticMigrationLab\Essai16Mio01"
+```
+
+Le dossier cible **doit être absent**. Le lanceur prépare des
+collections fictives représentant presque 16 Mio, crée une copie
+source et interrompt volontairement la cible après trois blocs
+chiffrés. Un autre processus reprend uniquement les blocs manquants,
+relit les deux copies via l'exécutable natif Windows et compare les
+quatre catégories. Deux étapes d'audit sont écrites dans des fichiers
+chiffrés NTFS non réinscriptibles, vérifiés par chaîne d'empreintes.
+Le verdict attendu comprend
+`status:synthetic-16mib-windows-restart-passed`,
+`localAuditJournalVerified:true`,
+`liveRestoreAuthorized:false` et
+`legacyDeletionAuthorized:false`.
+
+Le processus n'utilise ni compte ni clé réelle, n'acquitte aucun
+message distant et ne restaure aucune session. La reprise n'est pas
+garantie après panne d'alimentation et le journal n'est **pas**
+un commit transactionnel de production. Le contrôle séparé de la file
+du relais n'examine que deux fenêtres de 100 éléments maximum et
+n'atteste pas l'exhaustivité de la messagerie. Le programme et
+l'installateur demeurent des laboratoires **non signés**.
