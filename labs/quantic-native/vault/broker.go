@@ -348,18 +348,15 @@ func serveGuardedPQ(s signer, key agreementKey, backend string, in io.Reader, ou
 			}
 		case "prove":
 			if pending != nil && !pending.consumed && q.Challenge != nil && *q.Challenge == pending.pending && time.Since(pending.born) < 30*time.Second && q.Approved && approve("Signature du défi local de test") {
+				// Reserve the exact challenge before invoking a private provider.
+				// Legacy unanchored laboratory modes retain their existing behavior.
+				if journal != nil && journal.anchor != nil {
+					raw, err := json.Marshal(q.Challenge)
+					if err != nil { return err }
+					if err = consume(replayID("prove", raw)); err != nil { return err }
+				}
 				p, err := approveAndSign(s, *q.Challenge, time.Now(), q.Approved)
 				if err == nil && pending.verify(p, time.Now()) {
-					// All private outputs in anchored mode require a durable quorum vote.
-					if journal != nil && journal.anchor != nil {
-						raw, err := json.Marshal(q.Challenge)
-						if err != nil {
-							return err
-						}
-						if err = consume(replayID("prove", raw)); err != nil {
-							return err
-						}
-					}
 					r = reply{OK: true, Proof: &p}
 				}
 			}
@@ -367,10 +364,16 @@ func serveGuardedPQ(s signer, key agreementKey, backend string, in io.Reader, ou
 			enrollID := replayID("enroll", []byte(q.Enrollment))
 			if !enrolled && !already(enrollID) && q.Approved && validEnrollment(q.Enrollment, s.Public(), key.PublicKey(), time.Now()) && approve("Inscription de test : "+enrollmentDescription(q.Enrollment)) && validEnrollment(q.Enrollment, s.Public(), key.PublicKey(), time.Now()) {
 				h := sha256.Sum256([]byte(q.Enrollment))
+				anchored := journal != nil && journal.anchor != nil
+				if anchored {
+					if err := consume(enrollID); err != nil { return err }
+					// A slow quorum must not extend the signed enrollment's TTL.
+					if !validEnrollment(q.Enrollment, s.Public(), key.PublicKey(), time.Now()) { break }
+				}
 				sig, err := s.SignDigest(h)
 				if err == nil && len(sig) == 64 {
-					if err := consume(enrollID); err != nil {
-						return err
+					if !anchored {
+						if err := consume(enrollID); err != nil { return err }
 					}
 					enrolled = true
 					r = reply{OK: true, EnrollmentProof: hex.EncodeToString(sig)}
