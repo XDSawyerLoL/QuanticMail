@@ -17,6 +17,7 @@ on:
       - "tests/pay-eight-remote-witness-settlement.test.mjs"
       - "lib/quantic/pay-cross-shard-remote-recovery-worker-lab.mjs"
       - "scripts/quantic-pay-recovery-agent-lab.mjs"
+      - "scripts/quantic-pay-multihost-preflight-lab.mjs"
       - ".github/workflows/pay-remote-mtls-lab.yml"
   pull_request:
     branches: [main]
@@ -35,6 +36,7 @@ on:
       - "tests/pay-eight-remote-witness-settlement.test.mjs"
       - "lib/quantic/pay-cross-shard-remote-recovery-worker-lab.mjs"
       - "scripts/quantic-pay-recovery-agent-lab.mjs"
+      - "scripts/quantic-pay-multihost-preflight-lab.mjs"
       - ".github/workflows/pay-remote-mtls-lab.yml"
 
 permissions:
