@@ -113,6 +113,11 @@ jobs:
           node-version: 24.8.0
       - name: Windows trusted client workflow regressions
         run: node --test tests/native-windows-desktop.test.mjs tests/native-vault-controller.test.mjs tests/native-windows-mail-flow.test.mjs
+      - name: Verify relay mailbox remains unacknowledged across restart and audit journal refuses tampering
+        shell: pwsh
+        run: |
+          node --experimental-transform-types --test tests/migration-relay-observation.test.mjs tests/migration-audit-journal-lab.test.mjs
+          if ($LASTEXITCODE -ne 0) { throw "Read-only relay migration audit failed" }
       - name: Windows private migration snapshots and independent post-restart readback
         shell: msys2 {0}
         run: |
@@ -222,7 +227,7 @@ jobs:
           $result = & $shell -NoProfile -NonInteractive -File "$package\Start-Windows-PQ-Lab.ps1" -Operation MigrationFullSmoke -PrivateDirectory $private -ExpectedManifestSha256 $manifestPin -TrustedBinarySha256 $binaryPin
           if ($LASTEXITCODE -ne 0) { throw "16 MiB Windows encrypted recovery failed" }
           $report = ($result | Select-Object -Last 1 | ConvertFrom-Json)
-          if ($report.status -ne "synthetic-16mib-windows-restart-passed" -or -not $report.fullSizeVerified -or $report.resumedPreviouslyWrittenChunks -lt 3 -or -not $report.historicalCollectionsMatch -or -not $report.sourceIntact -or $report.liveRestoreAuthorized -or $report.legacyDeletionAuthorized) { throw "Incomplete 16 MiB reconciliation" }
+          if ($report.status -ne "synthetic-16mib-windows-restart-passed" -or -not $report.fullSizeVerified -or $report.resumedPreviouslyWrittenChunks -lt 3 -or -not $report.localAuditJournalVerified -or -not $report.historicalCollectionsMatch -or -not $report.sourceIntact -or $report.liveRestoreAuthorized -or $report.legacyDeletionAuthorized) { throw "Incomplete 16 MiB reconciliation" }
           Write-Host "Windows 16 MiB native interruption/restart reconciliation passed: $($report.chunkCount) sealed chunks per role"
 
       - name: Windows native Scattering mailbox loopback using packaged binaries
