@@ -248,8 +248,11 @@ export function createMigrationLabSnapshotHandler(
     }));return true;
    }
    if(operation==="freeze"){
-    check(req.method==="POST"&&url.searchParams.size===0);
-    const fence=await runtime.freezeMigrationLab(identity.relayId);
+    check(req.method==="POST"&&(url.searchParams.size===0||
+     url.searchParams.size===1&&url.searchParams.has("transactionId")));
+    const transactionId=url.searchParams.get("transactionId")??undefined;
+    check(transactionId===undefined||hexFence.test(transactionId));
+    const fence=await runtime.freezeMigrationLab(identity.relayId,transactionId);
     res.statusCode=200;res.end(JSON.stringify({
      labOnly:true,fence,liveRestoreAuthorized:false,legacyDeletionAuthorized:false
     }));return true;
