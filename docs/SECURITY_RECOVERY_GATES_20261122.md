@@ -62,6 +62,16 @@ QUANTIC_WEB_DURABLE_RELAY_ORIGIN=https://<independently-reviewed-relay>
 QUANTIC_WEB_DURABLE_RELAY_READY=1
 ```
 
+On the independently administered relay host also set:
+```
+QUANTIC_RELAY_REQUIRE_POSTGRES=1
+QUANTIC_RELAY_DATABASE_URL=postgresql://<privately-provisioned-DSN>
+```
+
+The backend now fails on startup when the explicit PostgreSQL-only
+switch is enabled without a database. No database URI or password may
+be committed to GitHub or included in error reports.
+
 Production requests otherwise receive HTTP 503, no process-local storage
 fallback; development intentionally retains the old flow for compatibility.
 Browser cookies, Origin and spoofable forwarding headers are not sent to
