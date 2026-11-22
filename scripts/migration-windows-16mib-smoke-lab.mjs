@@ -7,6 +7,7 @@ import {createHash,randomBytes} from 'node:crypto';
 import {execFileSync} from 'node:child_process';
 import {readFileSync} from 'node:fs';
 import {win32} from 'node:path';
+import {fileURLToPath} from 'node:url';
 import {stageChunkedMigrationSnapshot} from '../lib/quantic/migration-chunk-stage-lab.mjs';
 import {openChunkedMigrationSnapshot,migrationChunkFileName,MIGRATION_CHUNK_LAB_LIMITS} from '../lib/quantic/migration-chunked-lab.mjs';
 import {reconcileHistoricalCollections} from '../lib/quantic/migration-reconcile.mjs';
@@ -64,7 +65,7 @@ try{
   // Secret survives only in the trusted parent process, not on disk.
   // The restart is explicit; no autonomous recovery of lost secrets.
   stage='resume-in-new-process';
-  const reply=JSON.parse(execFileSync(process.execPath,[new URL(import.meta.url).pathname===undefined?'':new URL(import.meta.url).pathname,binary,pin,dir,'--resume'],{
+  const reply=JSON.parse(execFileSync(process.execPath,[fileURLToPath(import.meta.url),binary,pin,dir,'--resume'],{
    input:JSON.stringify({labOnly:true,key:secret.toString('hex'),...info}),
    windowsHide:true,timeout:240000,maxBuffer:8192,stdio:['pipe','pipe','ignore']
   }).toString('utf8'));
