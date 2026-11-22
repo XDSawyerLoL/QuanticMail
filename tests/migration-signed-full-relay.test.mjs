@@ -1,11 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {generateKeyPairSync,randomBytes,sign} from "node:crypto";
+import {appendMigrationAuditLabRecord} from "../lib/quantic/migration-audit-journal-lab.mjs";
 import {mkdtemp,rm} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {startRelayServer} from "../standalone-relay/server.ts";
-import {verifyMigrationLabMailbox,compareMigrationLabMailboxes} from "../standalone-relay/migration-attestation-lab.ts";
+import {verifyMigrationLabMailbox,compareMigrationLabMailboxes,signedMigrationLabAuditFacts} from "../standalone-relay/migration-attestation-lab.ts";
 
 const hdr=(token)=>({"content-type":"application/json",...(token?{"authorization":"Bearer "+token}:{})});
 async function register(base,handle){
@@ -87,6 +88,35 @@ test("signed full retained relay mailbox >100 rows, restart, drift and strict la
   assert.equal(stable.remoteQueueReconciled,false);
   assert.equal(stable.liveRestoreAuthorized,false);
   assert.equal(stable.legacyDeletionAuthorized,false);
+  const verifiedFacts=signedMigrationLabAuditFacts(first,second,{
+   ...scope,firstNonce:firstChallenge,secondNonce:secondChallenge
+  });
+  assert.equal(verifiedFacts.pendingIncomingVisible,110);
+  // Journal a verified cryptographic receipt, never unverified HTTP counts.
+  const evidence=new Map(),journalKey=randomBytes(32);
+  const journalScope={rootPin:"a".repeat(64),transactionId:"b".repeat(32)};
+  const safeStorage={
+   async probe(name){return evidence.has(name)?"present":"absent";},
+   async read(name){return Buffer.from(evidence.get(name));},
+   async write(name,packet){assert.equal(evidence.has(name),false);evidence.set(name,Buffer.from(packet));}
+  };
+  await appendMigrationAuditLabRecord(safeStorage,journalKey,journalScope,{
+   sequence:0,phase:"prepared",
+   facts:{sourceManifestSha256:"1".repeat(64),candidateManifestSha256:"2".repeat(64)}
+  });
+  await appendMigrationAuditLabRecord(safeStorage,journalKey,journalScope,{
+   sequence:1,phase:"snapshot-verified",
+   facts:{historicalCollectionsMatch:true,outboxPreserved:true,prekeysPreserved:true}
+  });
+  const journalReceipt=await appendMigrationAuditLabRecord(safeStorage,journalKey,journalScope,{
+   sequence:2,phase:"relay-observed",facts:verifiedFacts
+  });
+  assert.equal(journalReceipt.created,true);
+  assert.equal(journalReceipt.liveRestoreAuthorized,false);
+  assert.equal(journalReceipt.legacyDeletionAuthorized,false);
+  assert.equal(evidence.size,3);
+  assert.equal([...evidence.values()].some(p=>p.includes(Buffer.from(bob.authToken))),false);
+  journalKey.fill(0);
   // The audit never ACKs. All 110 envelopes remain queued after restart.
   const thirdChallenge=nonce();
   await send(relay,alice,bob,"qs-alice-000999");
