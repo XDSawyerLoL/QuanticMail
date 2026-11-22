@@ -46,8 +46,14 @@ test('1000 individually hybrid-signed synthetic operations, one 11/16 prepare an
   for(let i=0;i<all.length;i++){
    const b=sender.exportProof(manifest,all[i]);receiver.recover(manifest,all[i],b);recoveryBytes+=b.length;
    if([499,899,989,999].includes(i))samples.push({cached:i+1,missing:receiver.missing(manifest).length,recoveryBytes});
+   if(i===998){
+    const sketch=sender.sketch(manifest,32),reconstructed=receiver.fromSketch({sketch,time:now,value:proposal.value});
+    assert.deepEqual(reconstructed,manifest);assert.equal(receiver.missing(reconstructed).length,1);
+    assert.throws(()=>receiver.resolve(reconstructed));
+   }
   }
   assert.equal(receiver.missing(manifest).length,0);
+  assert.deepEqual(receiver.fromSketch({sketch:sender.sketch(manifest,32),time:now,value:proposal.value}),manifest);
   assert.deepEqual(receiver.resolve(manifest).balances,proposal.balances);
   assert.equal(receiver.resolve(manifest).value,proposal.value);
   assert.equal(receiver.stats().entries,1000);
