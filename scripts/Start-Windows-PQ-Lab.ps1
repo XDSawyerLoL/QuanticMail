@@ -1,7 +1,7 @@
 # Explicit laboratory launcher. No installation or production login.
 [CmdletBinding()]
 param(
- [Parameter(Mandatory=$true)][ValidateSet("Providers","Open","RecoverOpen","Seal","RecoverSeal","ProbeLoopback","Send","Receive","RecoverReceive","ConfirmReceipt","StartBridge","Provision","Dashboard","DashboardCheck","MigrationCheck","MigrationHistory","PayLab","PayLabCheck","PayProvision","PayNative","PayQuorumDemo","PayQuorumCheck","PayNativeQuorum","PayHistoryCheck","PayOperator","PayOperatorConfigure","StartPayBridge","PayCirculation","PayCirculationCheck")][string]$Operation,
+ [Parameter(Mandatory=$true)][ValidateSet("Providers","Open","RecoverOpen","Seal","RecoverSeal","ProbeLoopback","Send","Receive","RecoverReceive","ConfirmReceipt","StartBridge","Provision","Dashboard","DashboardCheck","MigrationCheck","MigrationHistory","MigrationSmoke","PayLab","PayLabCheck","PayProvision","PayNative","PayQuorumDemo","PayQuorumCheck","PayNativeQuorum","PayHistoryCheck","PayOperator","PayOperatorConfigure","StartPayBridge","PayCirculation","PayCirculationCheck")][string]$Operation,
  [Parameter(Mandatory=$true)][ValidatePattern('^[a-fA-F0-9]{64}$')][string]$ExpectedManifestSha256,
  [string]$TrustedBinarySha256,
  [string]$PrivateDirectory,
@@ -98,6 +98,11 @@ if ($Operation -in @("PayLab","PayLabCheck")) {
  $payArgs=@((Join-Path $root "scripts\quantic-pay-lab.mjs"))
  if ($Operation -eq "PayLabCheck") { $payArgs+="--self-test" }
  & $node @payArgs
+ exit $LASTEXITCODE
+}
+if ($Operation -eq "MigrationSmoke") {
+ if (-not $PrivateDirectory) { throw "NEW isolated synthetic migration lab directory required." }
+ & $node (Join-Path $root "scripts\migration-windows-smoke-lab.mjs") $vault $TrustedBinarySha256.ToLowerInvariant() $PrivateDirectory "--synthetic-only"
  exit $LASTEXITCODE
 }
 if ($Operation -in @("MigrationCheck","MigrationHistory")) {
