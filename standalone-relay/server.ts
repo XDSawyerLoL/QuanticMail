@@ -29,6 +29,8 @@ export type RelayServerOptions = {
   nativePeerSource?: (address: string, deviceId: string) => Promise<unknown>;
   /** Never enable outside an isolated 127.0.0.1, file-backed synthetic test relay. */
   migrationSnapshotLab?: boolean;
+  /** Out-of-band single-relay operator secret; never written to relay state. */
+  migrationLabOperatorSecret?: string;
 };
 
 export type RunningRelayServer = {
@@ -70,6 +72,10 @@ export async function startRelayServer(
   if(options.migrationSnapshotLab&&(
     host!=="127.0.0.1"||!!options.databaseUrl?.trim()||options.requirePostgres
   ))throw Error("Signed migration snapshots forbidden outside local file-backed laboratory.");
+  if(options.migrationLabOperatorSecret!==undefined&&(
+    !options.migrationSnapshotLab||options.migrationLabOperatorSecret.length<32
+    ||options.migrationLabOperatorSecret.length>256
+  ))throw Error("Invalid isolated migration laboratory operator configuration.");
 
   const databaseUrl = options.databaseUrl?.trim() || "";
   if(options.requirePostgres && !databaseUrl)
@@ -85,10 +91,10 @@ export async function startRelayServer(
     ? await postgresPersistence.loadOrCreateIdentity()
     : await loadOrCreateRelayIdentity(dataDir);
   const store = postgresPersistence?.stateStore ?? createFileRelayStateStore(dataDir);
-  const runtime = new RelayRuntime(store);
+  const runtime = new RelayRuntime(store,options.migrationSnapshotLab===true);
   await runtime.initialize();
   const migrationLabHandler = options.migrationSnapshotLab
-    ? createMigrationLabSnapshotHandler(runtime,relayIdentity) : null;
+    ? createMigrationLabSnapshotHandler(runtime,relayIdentity,options.migrationLabOperatorSecret) : null;
 
   let publicEndpoint = options.publicEndpoint ?? "";
   const relayHandler = createRelayRequestHandler(runtime, {
@@ -107,6 +113,16 @@ export async function startRelayServer(
     : null;
   const server = createServer((request, response) => {
     void (async () => {
+      // This local test relay is frozen as a WHOLE process: reject even
+      // unrecognized/compat/federation write routes, not only runtime.mutate.
+      // The runtime guard independently stops racing queued mutations.
+      if(runtime.isMigrationLabFrozen()&&!new URL(request.url??"/","http://127.0.0.1").pathname.startsWith("/api/quantic/lab/")){
+        response.statusCode=423;
+        response.setHeader("Cache-Control","no-store");
+        response.setHeader("Content-Type","application/json; charset=utf-8");
+        response.end(JSON.stringify({error:"Laboratory relay write fence active."}));
+        return;
+      }
       if (await rejectOverAuthBudget(request, response, postgresPersistence?.authRateLimiter)) return;
       if (pulseState && await pulseState.handler(request, response)) return;
       if (migrationLabHandler && await migrationLabHandler(request,response)) return;
@@ -162,7 +178,9 @@ export async function startRelayServer(
   const url = `http://${urlHost(host)}:${actualPort}`;
   if (!publicEndpoint) publicEndpoint = url;
 
-  await bootstrapDiscoveryPeers(
+  // The isolated relay has no federation peers. Do not launch discovery
+  // networking in a lab whose inbound/outbound writes may be frozen.
+  if(!options.migrationSnapshotLab)await bootstrapDiscoveryPeers(
     runtime,
     relayIdentity.relayId,
     options.bootstrapEndpoints ?? [],
@@ -178,17 +196,17 @@ export async function startRelayServer(
       });
     return retryTask;
   };
-  const retryTimer = setInterval(() => {
+  const retryTimer = options.migrationSnapshotLab ? null : setInterval(() => {
     void runFederationRetry();
   }, 1_000);
-  retryTimer.unref();
-  void runFederationRetry();
+  retryTimer?.unref();
+  if(!options.migrationSnapshotLab)void runFederationRetry();
 
   let closing: Promise<void> | null = null;
   const close = () => {
     if (!closing) {
       closing = (async () => {
-        clearInterval(retryTimer);
+        if(retryTimer)clearInterval(retryTimer);
         await closeHttpServer(server);
         if (retryTask) await retryTask;
         await runtime.flush();
