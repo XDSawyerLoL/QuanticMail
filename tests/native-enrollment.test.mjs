@@ -15,7 +15,10 @@ test('revoked candidate cannot be reintroduced',()=>{const l=lab(),p=structuredC
 test('PQ and classical native controllers accept only their own canonical, fresh enrollment challenge',()=>{
  const f=lab(),e=f.prepare(),ctx={signingPin:hash(f.s.publicKey.export({type:'spki',format:'der'})),
   encryptionPin:hash(f.e.publicKey.export({type:'spki',format:'der'})),
-  encryptionPublicKey:j(f.e),now:Date.now()};
+  encryptionPublicKey:j(f.e),
+  expectedAddress:f.options.manifest.payload.canonicalAddress,
+  expectedRootPin:f.options.expectedRootPin,
+  now:Date.now()};
  const valid=validateNativeEnrollmentRequest(e.challenge,ctx);
  assert.equal(valid.canonicalAddress,f.options.manifest.payload.canonicalAddress);
  assert.equal(valid.deviceId,e.deviceId);
@@ -29,11 +32,6 @@ test('PQ and classical native controllers accept only their own canonical, fresh
   [6,'f'.repeat(64)],[7,'f'.repeat(64)],[8,' changed label '],
   [9,'short'],[10,Date.now()+500000]
  ]) {
-  if(index===2){ // A different valid root pin is a different historical
-   // identity; the controller validates its format but cannot establish
-   // independent root ownership. That is the manifest/archival verifier's job.
-   continue;
-  }
   assert.throws(()=>validateNativeEnrollmentRequest(change(index,value),ctx),'mutated field '+index);
  }
  assert.throws(()=>validateNativeEnrollmentRequest(e.challenge,{...ctx,signingPin:'b'.repeat(64)}));
