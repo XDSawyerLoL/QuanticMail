@@ -195,8 +195,13 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Packaged migration readback failed" }
           $report = ($result | Select-Object -Last 1 | ConvertFrom-Json)
           if ($report.status -ne "synthetic-windows-migration-smoke-passed" -or -not $report.windowsPrivateStorage -or -not $report.separateReadbackProcess -or $report.exactCollections -ne 4 -or $report.liveRestoreAuthorized -or $report.legacyDeletionAuthorized) { throw "Missing synthetic migration guarantees" }
-          & $shell -NoProfile -NonInteractive -File "$package\Start-Windows-PQ-Lab.ps1" -Operation MigrationSmoke -PrivateDirectory $private -ExpectedManifestSha256 $manifestPin -TrustedBinarySha256 $binaryPin 2>&1 | Out-Null
-          if ($LASTEXITCODE -eq 0) { throw "Reused migration directory was accepted" }
+          $savedPreference = $ErrorActionPreference
+          $ErrorActionPreference = "Continue"
+          try {
+            & $shell -NoProfile -NonInteractive -File "$package\Start-Windows-PQ-Lab.ps1" -Operation MigrationSmoke -PrivateDirectory $private -ExpectedManifestSha256 $manifestPin -TrustedBinarySha256 $binaryPin 2>$null | Out-Null
+            $repeatExitCode = $LASTEXITCODE
+          } finally { $ErrorActionPreference = $savedPreference }
+          if ($repeatExitCode -eq 0) { throw "Reused migration directory was accepted" }
 
       - name: Windows native Scattering mailbox loopback using packaged binaries
         shell: pwsh
