@@ -24,7 +24,7 @@ export type SignedMigrationLabSnapshot={
  envelopeRoot:string;receiptRoot:string;
  classicalSigningPublicKey:JsonWebKey;p256Signature:string;
 };
-function digests(rows:Record<string,unknown>[]):RowDigest[]{
+function digests(rows:Array<{id:string}>):RowDigest[]{
  check(rows.length<=MAX);
  const seen=new Set<string>();
  return rows.map(row=>{
@@ -77,8 +77,8 @@ function validateProofShape(x:unknown):asserts x is SignedMigrationLabSnapshot{
   &&typeof p.p256Signature==="string"&&p.p256Signature.length>=80&&p.p256Signature.length<=132);
 }
 export function signMigrationLabMailbox(identity:RelayIdentity,records:{
- canonicalAddress:string;deviceId:string;envelopes:Record<string,unknown>[];
- receipts:Record<string,unknown>[];
+ canonicalAddress:string;deviceId:string;envelopes:Array<{id:string}>;
+ receipts:Array<{id:string}>;
 },nonce:string):SignedMigrationLabSnapshot{
  check(nonceRE.test(nonce)&&addressRE.test(records.canonicalAddress)&&deviceRE.test(records.deviceId));
  check(relayIdForPublicKey(identity.publicKeyJwk)===identity.relayId);
