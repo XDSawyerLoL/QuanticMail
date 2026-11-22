@@ -1,7 +1,7 @@
 //go:build windows && cgo && pqopenssl
 
 package main
-import("testing";"crypto/ed25519";"crypto/rand";"crypto/x509";"encoding/json";"sort";"path/filepath";"strings";"crypto/ecdsa";"crypto/sha256";"math/big";"time")
+import("testing";"crypto/ed25519";"crypto/rand";"crypto/x509";"encoding/json";"encoding/hex";"sort";"path/filepath";"strings";"crypto/ecdsa";"crypto/sha256";"math/big";"time")
 func TestWindowsPayLab(t *testing.T){
  dir:=filepath.Join(t.TempDir(),"pay-only");pw:=[]byte("synthetic payment lab storage password")
  r,e:=provisionPayLab(dir,pw);if e!=nil{t.Fatal(e)}
@@ -105,12 +105,12 @@ func TestNativeFinancialPermitVerification(t *testing.T){
  scope:=permitHash([]any{"quantic-pay-committee-round/v3",domain,2,root,pins,16,11,true,nil,true})
  value:=permitHash([]any{"quantic-native-pay-permit/lab/v1",policy,network,shard,payer,1,root,900,digest,true})
  zero:=0
- makeQC:=func(phase string)nativePermitQC{
-  q:=nativePermitQC{Scope:scope,Value:value,Round:&zero}
-  for _,key:=range keys[:11]{msg,_:=json.Marshal([]any{"quantic-pay-round-vote/v1",scope,phase,0,value,key.pub.Pin,key.pub.PQPin});sig,e:=key.pq.sign(msg);if e!=nil{t.Fatal(e)};q.Votes=append(q.Votes,nativePermitVote{key.pub.Pin,key.pub.PQPin,b64.EncodeToString(ed25519.Sign(key.cl,msg)),b64.EncodeToString(sig)})}
+ makeQC:=func(phase,sc,v string)nativePermitQC{
+  q:=nativePermitQC{Scope:sc,Value:v,Round:&zero}
+  for _,key:=range keys[:11]{msg,_:=json.Marshal([]any{"quantic-pay-round-vote/v1",sc,phase,0,v,key.pub.Pin,key.pub.PQPin});sig,e:=key.pq.sign(msg);if e!=nil{t.Fatal(e)};q.Votes=append(q.Votes,nativePermitVote{key.pub.Pin,key.pub.PQPin,b64.EncodeToString(ed25519.Sign(key.cl,msg)),b64.EncodeToString(sig)})}
   return q
  }
- p.Certificate.Prepared=makeQC("prepare");p.Certificate.Commit=makeQC("commit")
+ p.Certificate.Prepared=makeQC("prepare",scope,value);p.Certificate.Commit=makeQC("commit",scope,value)
  pack:=func(p nativePermit)[]byte{b,e:=json.Marshal(p);if e!=nil{t.Fatal(e)};return b}
  if e=verifyNativePayPermit(pack(p),policy,s,d,intent,now);e!=nil{t.Fatal("valid certificate refused",e)}
  changed:=intent;changed.Cents++
@@ -121,4 +121,23 @@ func TestNativeFinancialPermitVerification(t *testing.T){
  bad=p;bad.Certificate.Commit.Votes=bad.Certificate.Commit.Votes[:10];if verifyNativePayPermit(pack(bad),policy,s,d,intent,now)==nil{t.Fatal("short quorum")}
  bad=p;bad.Certificate.Commit.Votes=append([]nativePermitVote(nil),p.Certificate.Commit.Votes...);bad.Certificate.Commit.Votes[0]=bad.Certificate.Commit.Votes[1];if verifyNativePayPermit(pack(bad),policy,s,d,intent,now)==nil{t.Fatal("duplicate vote")}
  bad=p;bad.Certificate.Prepared.Votes=append([]nativePermitVote(nil),p.Certificate.Prepared.Votes...);bad.Certificate.Prepared.Votes[0].PQSignature=strings.Repeat("A",4412);if verifyNativePayPermit(pack(bad),policy,s,d,intent,now)==nil{t.Fatal("forged PQ vote")}
+ // A reserved permit commits to the exact escrowed transfer identifier,
+ // not a historical, potentially already-spent available balance.
+ transferBytes,_:=json.Marshal([]any{"quantic-shard-transfer/v1",network,payer,intent.Payee,intent.Cents,intent.Nonce})
+ reservationId:=permitHash([]any{"quantic-shard-id/v1",hex.EncodeToString(transferBytes)})
+ reservedPolicy:=permitHash([]any{"quantic-native-pay-reserved-policy/lab/v1",shard,payer,pins})
+ reservedNetwork:=permitHash([]any{"quantic-native-reserved-permit-round/lab/v1",network,shard,payer})
+ reservedScope:=permitHash([]any{"quantic-pay-committee-round/v3",reservedNetwork,2,root,pins,16,11,true,nil,true})
+ reservedValue:=permitHash([]any{"quantic-native-pay-reserved-permit/lab/v1",reservedPolicy,network,shard,payer,1,root,200,reservationId,digest,true})
+ p.Policy=reservedPolicy;p.ReservationId=reservationId;p.Available=200
+ p.Certificate.Prepared=makeQC("prepare",reservedScope,reservedValue)
+ p.Certificate.Commit=makeQC("commit",reservedScope,reservedValue)
+ if e=verifyNativePayPermit(pack(p),reservedPolicy,s,d,intent,now);e!=nil{t.Fatal("valid reserved permit refused",e)}
+ if verifyNativePayPermit(pack(p),policy,s,d,intent,now)==nil{t.Fatal("reserved/plain policy mix accepted")}
+ bad=p;bad.ReservationId=strings.Repeat("d",64)
+ if verifyNativePayPermit(pack(bad),reservedPolicy,s,d,intent,now)==nil{t.Fatal("reservation substituted")}
+ bad=p;bad.Available=201
+ if verifyNativePayPermit(pack(bad),reservedPolicy,s,d,intent,now)==nil{t.Fatal("incorrect reserved amount")}
+ bad=p;bad.Certificate.Commit.Votes=bad.Certificate.Commit.Votes[:10]
+ if verifyNativePayPermit(pack(bad),reservedPolicy,s,d,intent,now)==nil{t.Fatal("reserved quorum missing")}
 }
