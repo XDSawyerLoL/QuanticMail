@@ -13,7 +13,8 @@ export function proxy(request:NextRequest) {
   const state=decideQuanticDurableRoute(
     request.nextUrl.pathname,request.nextUrl.origin,
     process.env.QUANTIC_WEB_DURABLE_RELAY_ORIGIN,
-    process.env.NODE_ENV==="production"
+    process.env.NODE_ENV==="production",
+    process.env.QUANTIC_WEB_DURABLE_RELAY_READY==="1"
   );
   if(!preflight && state.kind==="refuse"){
     return NextResponse.json({error:"Relais durable indisponible. Aucune identité ou message enregistré en mémoire."},
