@@ -20,6 +20,8 @@ jobs:
         with:
           node-version: 24.8.0
       - run: npm install
+      - name: Assert packaged Electron embeds Node 24, not obsolete Node 22
+        run: node scripts/check-electron-embedded-node.cjs
       - run: npm test
       - name: Real authenticated mailbox through two independent native Scattering UDP links
         shell: bash
