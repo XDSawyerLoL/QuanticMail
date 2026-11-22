@@ -148,3 +148,18 @@ func replayID(domain string, data []byte) [32]byte {
 	return sha256.Sum256(append([]byte(domain+"\x00"), data...))
 }
 func hexHash(b []byte) string { h := sha256.Sum256(b); return hex.EncodeToString(h[:]) }
+
+// reservePrivateSignature consumes a one-shot, operation-bound authorization
+// before the private signing provider is called. Uncertain remote commits and
+// signing failures intentionally burn the challenge. No result recovery here.
+// This is an anchored broker boundary, not protection against an administrator
+// who can extract software keys or bypass the broker.
+func (j *replayLog) reservePrivateSignature(k [32]byte, sign func() ([]byte, error)) ([]byte, error) {
+	if j == nil || j.anchor == nil || sign == nil {
+		return nil, errors.New("anchored signing authorization required")
+	}
+	if e := j.consume(k); e != nil {
+		return nil, e
+	}
+	return sign()
+}
