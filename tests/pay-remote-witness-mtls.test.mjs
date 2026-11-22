@@ -120,7 +120,7 @@ test('four independent witness processes enforce pinned mutual TLS, certified pr
    credentials:{key:intruder.key,cert:intruder.cert,ca:intruder.ca},serverCertPin:serverCerts[0].pin});
   await assert.rejects(()=>rejected.status(),'unauthorized but CA-signed client');
   const wrongPin=openPayWitnessMtlsClientLab({url:services[0].url,
-   credentials:controller,serverCertPin:'f'.repeat(64)});
+   credentials:{key:controller.key,cert:controller.cert,ca:controller.ca},serverCertPin:'f'.repeat(64)});
   await assert.rejects(()=>wrongPin.status(),'pinned server identity mismatch');
   assert.equal((await clients[0].status()).height,0);
   certifyReserve(100);
