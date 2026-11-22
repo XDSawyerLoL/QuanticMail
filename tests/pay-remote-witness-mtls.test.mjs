@@ -140,8 +140,13 @@ test('four independent witness processes enforce pinned mutual TLS, certified pr
   await assert.rejects(()=>coordinator.fresh(db.snapshot()),'2/4 live witnesses must fail closed');
   // Reopen the exact original witness SQLite store in its own process.
   services[0]=await launch(0,false);clients[0]=services[0].client;
-  assert.equal((await coordinator.fresh(db.snapshot())).witnesses,3);
   assert.equal((await clients[0].status()).height,1);
+  await assert.rejects(()=>coordinator.fresh(db.snapshot()),
+   'a restarted stale witness must not substitute for a third current vote');
+  // Restore one of the *current* witnesses; only then does a valid 3/4
+  // signed tip reappear. The lagging server never claims newer state.
+  services[1]=await launch(1,false);clients[1]=services[1].client;
+  assert.equal((await coordinator.fresh(db.snapshot())).witnesses,3);
   assert.equal((await services[0].client.status()).root,root1);
   t.diagnostic('REMOTE_WITNESS_MTLS_V1 '+JSON.stringify({independentProcesses:4,
    controllerAuthenticated:true,serverPins:4,untrustedClientRefused:true,
