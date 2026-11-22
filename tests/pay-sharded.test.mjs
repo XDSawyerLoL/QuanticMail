@@ -12,7 +12,7 @@ test('three independent committees, certified cross-shard debit and claim, no mi
  const keys=Array.from({length:3},()=>Array.from({length:16},()=>pair('ed25519'))),shardIds=['demo-east','demo-west','demo-north'];
  const accounts=['demo-alice','demo-bob','demo-carol','demo-dan'],walletKeys=accounts.map(()=>pair('ec'));
  const config={shards:shardIds.map((id,i)=>({id,authorities:keys[i].map(({pin,pqPin,publicKey,pqPublicKey})=>({pin,pqPin,publicKey,pqPublicKey}))})),wallets:accounts.map((id,i)=>({id,shard:shardIds[i===3?0:i],initial:1000,publicKey:walletKeys[i].publicKey,pqPublicKey:walletKeys[i].pqPublicKey}))};
- const lab=openShardedPayLab(config),replicas=shardIds.map((id)=>Array.from({length:11},()=>openShardedPayLab(config).openShard(id))),coordinators=shardIds.map(lab.openShard);
+ const lab=openShardedPayLab(config),replicas=shardIds.map((id)=>Array.from({length:11},()=>openShardedPayLab(config).openShard(id))),coordinators=shardIds.map(id=>lab.openShard(id));
  assert.throws(()=>lab.openShard(shardIds[0]));
  const sum=()=>coordinators.reduce((n,s)=>n+Object.values(s.snapshot().balances).reduce((a,b)=>a+b,0),0);
  function tx(i,j,amount,nonce=randomBytes(32).toString('hex')){
