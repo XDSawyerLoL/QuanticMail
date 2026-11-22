@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports -- CommonJS runtime gate uses required Node require imports. */
 /* Verify the ACTUAL bundled Electron binary. Package.json versions alone
  * do not prove Node 24/ML-DSA support. Refuse release on runtime mismatch. */
 const {spawnSync}=require('node:child_process');
