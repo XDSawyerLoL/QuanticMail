@@ -93,6 +93,8 @@ jobs:
             files: tests/pay-committee-byzantine-network.test.mjs
           - suite: strict
             files: tests/pay-unanimous-service.test.mjs
+          - suite: batch-native
+            files: tests/pay-batch-native.test.mjs
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
