@@ -206,6 +206,9 @@ jobs:
             $repeatExitCode = $LASTEXITCODE
           } finally { $ErrorActionPreference = $savedPreference }
           if ($repeatExitCode -eq 0) { throw "Reused migration directory was accepted" }
+          # The rejected second invocation deliberately exits nonzero. The
+          # workflow itself succeeds only after the assertion above passes.
+          exit 0
 
       - name: Windows native Scattering mailbox loopback using packaged binaries
         shell: pwsh
