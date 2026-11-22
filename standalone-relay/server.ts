@@ -7,6 +7,7 @@ import { createDiscoveryRequestHandler } from "./discovery-http.ts";
 import { createDiscoveryResolveRequestHandler } from "./discovery-resolve-http.ts";
 import { retryPendingFederationReceipts } from "./federation-retry.ts";
 import { createRelayRequestHandler } from "./http.ts";
+import { createMigrationLabSnapshotHandler } from "./migration-attestation-lab.ts";
 import { rejectOverAuthBudget } from "./auth-rate-postgres.ts";
 import { loadOrCreateRelayIdentity } from "./identity.ts";
 import { createPostgresRelayPersistenceFromUrl } from "./postgres-storage.ts";
@@ -26,6 +27,8 @@ export type RelayServerOptions = {
   publicEndpoint?: string;
   bootstrapEndpoints?: string[];
   nativePeerSource?: (address: string, deviceId: string) => Promise<unknown>;
+  /** Never enable outside an isolated 127.0.0.1, file-backed synthetic test relay. */
+  migrationSnapshotLab?: boolean;
 };
 
 export type RunningRelayServer = {
@@ -64,6 +67,9 @@ export async function startRelayServer(
   const dataDir = options.dataDir ?? "./data";
   validateServerPort(port);
   if(options.nativePeerSource&&host!=="127.0.0.1")throw Error("Native laboratory requires loopback relay.");
+  if(options.migrationSnapshotLab&&(
+    host!=="127.0.0.1"||!!options.databaseUrl?.trim()||options.requirePostgres
+  ))throw Error("Signed migration snapshots forbidden outside local file-backed laboratory.");
 
   const databaseUrl = options.databaseUrl?.trim() || "";
   if(options.requirePostgres && !databaseUrl)
@@ -81,6 +87,8 @@ export async function startRelayServer(
   const store = postgresPersistence?.stateStore ?? createFileRelayStateStore(dataDir);
   const runtime = new RelayRuntime(store);
   await runtime.initialize();
+  const migrationLabHandler = options.migrationSnapshotLab
+    ? createMigrationLabSnapshotHandler(runtime,relayIdentity) : null;
 
   let publicEndpoint = options.publicEndpoint ?? "";
   const relayHandler = createRelayRequestHandler(runtime, {
@@ -101,6 +109,7 @@ export async function startRelayServer(
     void (async () => {
       if (await rejectOverAuthBudget(request, response, postgresPersistence?.authRateLimiter)) return;
       if (pulseState && await pulseState.handler(request, response)) return;
+      if (migrationLabHandler && await migrationLabHandler(request,response)) return;
       if (await compatRegisterHandler(request, response)) return;
       if (await directSignalingHandler(request, response)) return;
       if (await discoveryHandleHandler(request, response)) return;
