@@ -63,6 +63,21 @@ test('durable votes and certified cross-shard recovery survive restart without d
    close(o);const tc=performance.now();observers[0]=open(0,16);assert.equal(observers[0].metrics().replayedBlocks,h);cold.push(performance.now()-tc);
   }
   assert.equal(observers[0].snapshot().balances['demo-alice']+observers[1].snapshot().balances['demo-bob'],2000);
+  // The fixture obtains the anchor from a separate witness replica, not
+  // by reading the untrusted checkpoint's own claimed height/root.
+  const witness=voters[0][10].snapshot(),anchor={network:lab.network,shard:ids[0],height:witness.height,root:witness.root};
+  const checkpoint=observers[0].checkpoint(),verified=lab.verifyCheckpoint(checkpoint,anchor);
+  assert.deepEqual(verified.balances,witness.balances);assert.equal(verified.spent,witness.spent);assert.equal(verified.claimed,witness.claimed);
+  assert.throws(()=>lab.verifyCheckpoint(checkpoint,{...anchor,height:anchor.height-1}));
+  assert.throws(()=>lab.verifyCheckpoint(checkpoint,{...anchor,root:'f'.repeat(64)}));
+  const edited=structuredClone(checkpoint);edited.balances['demo-alice']++;
+  assert.throws(()=>lab.verifyCheckpoint(edited,anchor));
+  const missingNonce=structuredClone(checkpoint);missingNonce.spent.pop();
+  assert.throws(()=>lab.verifyCheckpoint(missingNonce,anchor));
+  const insufficient=structuredClone(checkpoint);insufficient.certificate.commit.votes.pop();
+  assert.throws(()=>lab.verifyCheckpoint(insufficient,anchor));
+  assert.deepEqual(voters[0][0].checkpoint(),checkpoint);
+  t.diagnostic('SHARD_CHECKPOINT_V1 '+JSON.stringify({height:anchor.height,bytes:Buffer.byteLength(JSON.stringify(checkpoint)),verified:true}));
   // Detect external writes even when meta height/root are unchanged.
   const live=observers[0],other=new DatabaseSync(join(opts(0,16).directory,'shard.sqlite'));
   other.exec("UPDATE blocks SET digest='corrupt' WHERE height=2");other.close();
