@@ -12,6 +12,7 @@ import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {reliableCellStream,POLICY} from '../labs/quantic-native/scattering/scattering-reliable-lab.mjs';
 import {cellKey} from '../labs/quantic-native/scattering/scattering-cell.mjs';
+import {splitScatteringLab,joinScatteringLab} from '../lib/quantic/scattering-stripes-lab.mjs';
 import {openPayBatchLab} from '../lib/quantic/pay-batch-lab.mjs';
 import {createRoundCirculationLab} from '../lib/quantic/pay-circulation-lab.mjs';
 const binary=process.env.QUANTIC_PAY_SCATTERING_TEST;
@@ -23,9 +24,9 @@ function key(type){
 }
 const raw=x=>Buffer.from(JSON.stringify(x));
 const parse=b=>JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(b));
-test('100 hybrid-signed synthetic transactions cross native UDP to one independent verifier with 11/16 certification',{skip:!binary||process.platform!=='linux',timeout:150000},async t=>{
- const root=await mkdtemp(join(tmpdir(),'pay-batch-udp-')),dirs=[join(root,'a'),join(root,'b')],sockets=[],cells=[],children=[],failures=[];
- let closing=false,wrongSize=0;const received=[0,0],metrics={},sequence=[0,0];
+for(const lanes of [1,4])test('100 hybrid-signed synthetic transactions over '+lanes+' native UDP lane(s), 11/16 certification',{skip:!binary||process.platform!=='linux',timeout:150000},async t=>{
+ const root=await mkdtemp(join(tmpdir(),'pay-batch-udp-')),dirs=Array.from({length:2*lanes},(_,i)=>join(root,'lane-'+i)),sockets=[],cells=[],children=[],failures=[];
+ let closing=false,wrongSize=0;const received=Array(2*lanes).fill(0),metrics={},sequence=Array(2*lanes).fill(0);
  try{
   await Promise.all(dirs.map(d=>mkdir(d,{mode:0o700})));
   const a=key('ec'),b=key('ec'),witnesses=Array.from({length:16},()=>key('ed25519'));
@@ -37,27 +38,31 @@ test('100 hybrid-signed synthetic transactions cross native UDP to one independe
   });
   const proposed=labs[0].propose(proofs,now);
   const authorities=witnesses.slice(0,11).map((w,i)=>(i===10?labs[1]:labs[0]).openAuthority({authorityPin:w.pub.pin,classicalPrivateKey:w.cl.privateKey,pqPrivateKey:w.pq.privateKey}));
-  const secret=randomBytes(32),epoch=randomBytes(32),ab=cellKey(secret,epoch,'a-b'),ba=cellKey(secret,epoch,'b-a');secret.fill(0);epoch.fill(0);
-  for(let i=0;i<2;i++){
-   const c=reliableCellStream({sendKey:i?ba:ab,recvKey:i?ab:ba,dir:dirs[i],compactPacing:true,dualProofPacing:true});
+  for(let lane=0;lane<lanes;lane++){
+   const secret=randomBytes(32),epoch=randomBytes(32),ab=cellKey(secret,epoch,'a-b'),ba=cellKey(secret,epoch,'b-a');secret.fill(0);epoch.fill(0);
+   for(let side=0;side<2;side++){
+   const i=2*lane+side;
+   const c=reliableCellStream({sendKey:side?ba:ab,recvKey:side?ab:ba,dir:dirs[i],compactPacing:true,dualProofPacing:true});
    c.stream.on('error',e=>failures.push(e.message));cells.push(c);
    const sock=createSocket('udp4');sockets.push(sock);
    await new Promise((res,rej)=>{sock.once('error',rej);sock.bind(0,'127.0.0.1',res);});
    sock.on('message',m=>{received[i]++;if(m.length!==168)wrongSize++;c.receive(m);});
   }
-  ab.fill(0);ba.fill(0);
-  for(let i=0;i<2;i++){
-   const p=spawn(resolve(binary),['-target','127.0.0.1:'+sockets[1-i].address().port,'-queue-dir',dirs[i],'-period-us','5000','-poll','10ms','-wait-mode','native'],{stdio:'ignore'});children.push(p);
+   ab.fill(0);ba.fill(0);
+  }
+  for(let i=0;i<2*lanes;i++){
+   const p=spawn(resolve(binary),['-target','127.0.0.1:'+sockets[i^1].address().port,'-queue-dir',dirs[i],'-period-us','5000','-poll','10ms','-wait-mode','native'],{stdio:'ignore'});children.push(p);
    p.on('error',e=>failures.push(e.message));p.on('exit',()=>{if(!closing)failures.push('pacer exited');});
   }
   await new Promise(r=>setTimeout(r,400));
   // Exact length is fixture knowledge, not a network API. Transport ACK is volatile.
-  async function carry(from,label,obj){
-   const bytes=raw(obj),src=cells[from].stream,dst=cells[1-from].stream;
+  async function carryLane(from,bytes){
+   if(bytes.length===0)return Buffer.alloc(0);
+   const src=cells[from].stream,dst=cells[from^1].stream;
    const needed=Math.ceil(bytes.length/POLICY.payload);
    assert.ok(sequence[from]+needed<=POLICY.maxSeq);sequence[from]+=needed;
    assert.ok(bytes.length>0&&bytes.length<=600000);
-   const chunks=[];let count=0,t0=performance.now(),onData;
+   const chunks=[];let count=0,onData;
    const read=new Promise((res,rej)=>{
     onData=b=>{count+=b.length;if(count>bytes.length){rej(Error('fixture overflow'));return;}chunks.push(b);if(count===bytes.length)res(Buffer.concat(chunks,count));};
     dst.on('data',onData);
@@ -67,8 +72,17 @@ test('100 hybrid-signed synthetic transactions cross native UDP to one independe
    try{
     const [got]=await Promise.race([Promise.all([read,write]),deadline]);
     assert.deepEqual(got,bytes);assert.equal(failures.length,0);
-    metrics[label]={bytes:bytes.length,ms:performance.now()-t0};return parse(got);
+    return got;
    }finally{clearTimeout(timer);dst.off('data',onData);}
+  }
+  async function carry(side,label,obj){
+   const bytes=raw(obj),{manifest,parts}=splitScatteringLab(bytes,lanes),t0=performance.now();
+   // Preflight every lane before transmitting any. Unused lanes remain active.
+   for(let i=0;i<lanes;i++)assert.ok(sequence[2*i+side]+Math.ceil(parts[i].length/POLICY.payload)<=POLICY.maxSeq);
+   const got=await Promise.all(parts.map((p,i)=>carryLane(2*i+side,p)));
+   const joined=joinScatteringLab(manifest,got);assert.deepEqual(joined,bytes);
+   metrics[label]={bytes:bytes.length,laneBytes:parts.map(p=>p.length),ms:performance.now()-t0};
+   return parse(joined);
   }
   const input=await carry(0,'batch',{proofs,time:now,value:proposed.value});
   assert.equal(labs[1].propose(input.proofs,input.time).value,proposed.value);
@@ -85,7 +99,7 @@ test('100 hybrid-signed synthetic transactions cross native UDP to one independe
   assert.deepEqual(proposed.balances,{'demo-alice':9900,'demo-bob':100});
   assert.equal(wrongSize,0);assert.equal(failures.length,0);assert.ok(received.every(n=>n>0));
   const total=Object.values(metrics).reduce((s,v)=>s+v.ms,0);
-  t.diagnostic('BATCH_NATIVE_V1 '+JSON.stringify({count:100,remoteVoters:1,localVoters:10,metrics,transferMs:total,transferOnlyTransactionsPerSecond:100000/total,received,wrongSize,sequence,simulationOnly:true}));
+  t.diagnostic('BATCH_NATIVE_MULTILANE_V2 '+JSON.stringify({count:100,lanes,remoteVoters:1,localVoters:10,metrics,transferMs:total,transferOnlyTransactionsPerSecond:100000/total,received,wrongSize,sequence,simulationOnly:true}));
  }finally{
   closing=true;for(const c of cells)c.stream.destroy();for(const s of sockets)s.close();
   await Promise.all(children.map(p=>new Promise(r=>{if(p.exitCode!==null||p.signalCode!==null)return r();p.once('close',r);p.kill();})));
