@@ -8,6 +8,7 @@ import { getLocalIdentity, installRecoveredIdentity, inspectLocalMigration, capt
 import type { MigrationInventory } from "@/lib/quantic/migration-inventory";
 import {prepareMigrationArchive,sealMigrationArchive,openMigrationArchive,migrationArchiveSummary,reconcileMigrationSnapshot,migrationRootPin,ARCHIVE_MAX_BYTES} from "@/lib/quantic/migration-archive";
 import { exportIdentityVault, importIdentityVault } from "@/lib/quantic/vault";
+import {publicIdentityView,type PublicIdentityView} from "@/lib/quantic/public-identity-view.mjs";
 
 function downloadTextFile(filename: string, text: string) {
   const blob = new Blob([text], { type: "application/json;charset=utf-8" });
@@ -23,7 +24,7 @@ function downloadTextFile(filename: string, text: string) {
 
 export function IdentityVaultApp() {
   const router = useRouter();
-  const [identity, setIdentity] = useState<LocalIdentity | null>(null);
+  const [identity, setIdentity] = useState<PublicIdentityView | null>(null);
   const [inventory, setInventory] = useState<MigrationInventory | null>(null);
   const [inventoryError, setInventoryError] = useState(false);
   const [historicalRootPin,setHistoricalRootPin]=useState("");
@@ -44,7 +45,7 @@ export function IdentityVaultApp() {
     void (async () => {
       try {
         const current=await getLocalIdentity();
-        setIdentity(current);
+        setIdentity(current?publicIdentityView(current):null);
         if(current?.signingPublicKey){
           try{setHistoricalRootPin(await migrationRootPin(current.signingPublicKey));}catch{setHistoricalRootPin("");}
         }
@@ -67,9 +68,14 @@ export function IdentityVaultApp() {
       if (exportPassword !== exportConfirm) {
         throw new Error("Les deux mots de passe du coffre ne correspondent pas.");
       }
-      const vault = await exportIdentityVault(identity, exportPassword);
-      const fingerprint = identity.fingerprint ?? "identity";
-      downloadTextFile(`${identity.handle}-${fingerprint}.quantic-vault`, vault);
+      // Fetch secret-bearing JWKs only for the explicit export action.
+      // Never store private keys or bearer credentials in React state.
+      const source=await getLocalIdentity();
+      if(!source||source.canonicalAddress!==identity.canonicalAddress||
+         source.fingerprint!==identity.fingerprint)throw Error("Identité locale modifiée.");
+      const vault = await exportIdentityVault(source, exportPassword);
+      const fingerprint = source.fingerprint ?? "identity";
+      downloadTextFile(`${source.handle}-${fingerprint}.quantic-vault`, vault);
       setNotice("Coffre chiffré créé. Conserve ce fichier et son mot de passe séparément.");
       setExportPassword("");
       setExportConfirm("");
@@ -136,7 +142,7 @@ export function IdentityVaultApp() {
         authToken: randomToken(),
       };
       await installRecoveredIdentity(local);
-      setIdentity(local);
+      setIdentity(publicIdentityView(local));
       setNotice(`Identité restaurée : ${local.canonicalAddress}. Retour vers QuanticMail…`);
       window.setTimeout(() => {
         router.push("/");
