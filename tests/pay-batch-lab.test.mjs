@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {generateKeyPairSync,createHash,sign,randomBytes} from 'node:crypto';
 import {performance} from 'node:perf_hooks';
 import {encodePayBatchBinary,decodePayBatchBinary} from '../lib/quantic/pay-batch-binary-lab.mjs';
+import {openPayReferenceLab} from '../lib/quantic/pay-reference-lab.mjs';
 import {openPayBatchLab} from '../lib/quantic/pay-batch-lab.mjs';
 import {createRoundCirculationLab} from '../lib/quantic/pay-circulation-lab.mjs';
 const sha=b=>createHash('sha256').update(b).digest('hex');
@@ -32,6 +33,37 @@ test('1000 individually hybrid-signed synthetic operations, one 11/16 prepare an
  const tampered=Buffer.from(compact);tampered[tampered.length-10]^=1;
  assert.throws(()=>lab.propose(decodePayBatchBinary(tampered).proofs,now));
  t.diagnostic('BATCH_BINARY_V1 '+JSON.stringify({operations:proofs.length,jsonBytes:Buffer.byteLength(JSON.stringify(batch)),binaryBytes:compact.length}));
+ // Two independently initialized caches. No signature or balance check is skipped.
+ const sender=openPayReferenceLab({config}),receiver=openPayReferenceLab({config});
+ try{
+  const manifest=sender.publish(batch),all=receiver.missing(manifest);
+  assert.equal(manifest.length,48078);assert.equal(all.length,1000);
+  assert.throws(()=>receiver.resolve(manifest));
+  const first=sender.exportProof(manifest,all[0]),corrupt=Buffer.from(first);corrupt[corrupt.length-1]^=1;
+  assert.throws(()=>receiver.recover(manifest,all[0],corrupt));
+  assert.equal(receiver.stats().entries,0);
+  let recoveryBytes=0;const samples=[];
+  for(let i=0;i<all.length;i++){
+   const b=sender.exportProof(manifest,all[i]);receiver.recover(manifest,all[i],b);recoveryBytes+=b.length;
+   if([499,899,989,999].includes(i))samples.push({cached:i+1,missing:receiver.missing(manifest).length,recoveryBytes});
+  }
+  assert.equal(receiver.missing(manifest).length,0);
+  assert.deepEqual(receiver.resolve(manifest).balances,proposal.balances);
+  assert.equal(receiver.resolve(manifest).value,proposal.value);
+  assert.equal(receiver.stats().entries,1000);
+  const altered=Buffer.from(manifest);altered[44]^=1;
+  assert.throws(()=>receiver.resolve(altered));
+  const wrongScope=Buffer.from(manifest);wrongScope[4]^=1;
+  assert.throws(()=>receiver.missing(wrongScope));
+  assert.throws(()=>receiver.missing(manifest.subarray(0,-1)));
+  const duplicate=Buffer.from(manifest);duplicate.copyWithin(126,78,126);
+  assert.throws(()=>receiver.missing(duplicate));
+  assert.throws(()=>sender.publish({...batch,proofs:[proofs[0],proofs[0]]}));
+  const total=receiver.stats().bytes;
+  receiver.recover(manifest,all[0],first);assert.equal(receiver.stats().bytes,total);
+  t.diagnostic('BATCH_REFERENCE_V1 '+JSON.stringify({operations:1000,fullBinaryBytes:compact.length,manifestBytes:manifest.length,coldRecoveryBytes:recoveryBytes,samples,fullCacheReduction:1-manifest.length/compact.length}));
+  receiver.clear();assert.equal(receiver.stats().bytes,0);assert.throws(()=>receiver.resolve(manifest));
+ }finally{sender.clear();receiver.clear();}
  assert.deepEqual(proposal.balances,{'demo-alice':9000,'demo-bob':500,'demo-shop':500});
  assert.equal(lab.propose([...proofs].reverse(),now).value,proposal.value);
  const nodes=keys.slice(0,11).map(k=>openPayBatchLab({config}).openAuthority({authorityPin:k.pub.pin,classicalPrivateKey:k.cl.privateKey,pqPrivateKey:k.pq.privateKey}));
