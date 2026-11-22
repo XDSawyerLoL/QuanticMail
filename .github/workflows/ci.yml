@@ -81,6 +81,21 @@ jobs:
         run: MAIL_SERVER_HOSTNAME=mx.example.com docker compose -f docker-compose.production.yml config >/dev/null
 
 
+
+  windows-electron-node24:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.8.0
+      - run: npm install
+      - name: Confirm the actual Windows Electron EXE embeds Node 24
+        run: node scripts/check-electron-embedded-node.cjs
+      - name: Verify Windows-native desktop guards (synthetic test)
+        run: node --test tests/native-windows-desktop.test.mjs
+
   pay-native-network:
     runs-on: ubuntu-latest
     timeout-minutes: 20
