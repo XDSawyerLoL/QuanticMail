@@ -10,6 +10,7 @@ import (
  "os"
  "path/filepath"
  "regexp"
+ "strings"
 )
 
 // Only synthetic encrypted 16MiB/80KiB migration lab chunks.
@@ -56,6 +57,7 @@ func migrationChunkValid(name string,raw []byte)bool{
  return true
 }
 func winMigrationChunkIO(op,dir,name string)(bool,error){
+ if strings.HasPrefix(name,"a-"){return winMigrationAuditIO(op,dir,name)}
  if !migrationChunkName.MatchString(name){return true,portableRefusal}
  if e:=migrationLabCheck(dir);e!=nil{return true,e}
  path:=filepath.Join(dir,name)
