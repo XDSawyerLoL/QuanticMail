@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {generateKeyPairSync,createHash,sign,randomBytes} from 'node:crypto';
 import {performance} from 'node:perf_hooks';
+import {encodePayBatchBinary,decodePayBatchBinary} from '../lib/quantic/pay-batch-binary-lab.mjs';
 import {openPayBatchLab} from '../lib/quantic/pay-batch-lab.mjs';
 import {createRoundCirculationLab} from '../lib/quantic/pay-circulation-lab.mjs';
 const sha=b=>createHash('sha256').update(b).digest('hex');
@@ -21,6 +22,16 @@ test('1000 individually hybrid-signed synthetic operations, one 11/16 prepare an
  }
  const start=performance.now(),proofs=Array.from({length:1000},(_,i)=>tx(1,i%2?'demo-bob':'demo-shop')),signed=performance.now();
  const proposal=lab.propose(proofs,now),projected=performance.now();
+ const batch={proofs,time:now,value:proposal.value};
+ const compact=encodePayBatchBinary(batch),decoded=decodePayBatchBinary(compact);
+ assert.deepEqual(decoded,batch);
+ assert.equal(lab.propose(decoded.proofs,decoded.time).value,proposal.value);
+ assert.ok(compact.length<Buffer.byteLength(JSON.stringify(batch))*.7);
+ assert.throws(()=>decodePayBatchBinary(compact.subarray(0,-1)));
+ assert.throws(()=>decodePayBatchBinary(Buffer.concat([compact,Buffer.alloc(1)])));
+ const tampered=Buffer.from(compact);tampered[tampered.length-10]^=1;
+ assert.throws(()=>lab.propose(decodePayBatchBinary(tampered).proofs,now));
+ t.diagnostic('BATCH_BINARY_V1 '+JSON.stringify({operations:proofs.length,jsonBytes:Buffer.byteLength(JSON.stringify(batch)),binaryBytes:compact.length}));
  assert.deepEqual(proposal.balances,{'demo-alice':9000,'demo-bob':500,'demo-shop':500});
  assert.equal(lab.propose([...proofs].reverse(),now).value,proposal.value);
  const nodes=keys.slice(0,11).map(k=>openPayBatchLab({config}).openAuthority({authorityPin:k.pub.pin,classicalPrivateKey:k.cl.privateKey,pqPrivateKey:k.pq.privateKey}));
