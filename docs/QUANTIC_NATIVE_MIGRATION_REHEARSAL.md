@@ -34,8 +34,11 @@ Ce champ ne modifie pas l'ouverture des messages déjà autorisés.
    Crypto Profile hybride signé, et les checkpoints frais de l'autorité.
 4. Les clés publiques postquantiques conservées de l'ancien appareil,
    qui doivent correspondre **exactement** à celles de son profil
-   actuel. La racine ML-DSA conservée doit aussi correspondre à
-   l'empreinte postquantique de confiance.
+   actuel. La racine ML-DSA du **compte** est vérifiée séparément
+   contre l'empreinte postquantique de confiance : elle ne doit pas être
+   confondue avec la clé ML-DSA de l'appareil historique. Si l'archive
+   ne contient pas aussi la clé privée de cette racine, sa garde reste
+   explicitement à établir avant toute mise à jour du profil.
 5. Une seconde lecture des deux appareils par la source d'autorité
    approuvée, pour détecter un changement de racine, de registre,
    de profil ou d'identifiant pendant l'examen.
