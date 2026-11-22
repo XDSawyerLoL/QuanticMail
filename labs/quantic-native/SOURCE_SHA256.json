@@ -115,5 +115,6 @@
   "vault/windows_pay.go": "566cc16edf655f1e91869877cc9cef0b1deb679d66206af1b782f98a52867af2",
   "vault/windows_pay_test.go": "6351f020ce50b6a8f6144ed9a7b54e1ae19e3c054a2e6e05d724ee55d25b1d29",
   "vault/windows_migration_storage.go": "76124a8a44d428a95fdf9c4fec44d2054edc346b208bdee33828319704d1114b",
-  "vault/windows_migration_chunks.go": "8fad6d72f7ddc7bd6a0676815d0644947d0851a5d0a58d07763686d0347ef779"
+  "vault/windows_migration_chunks.go": "8d5499a139221bc1a5c5550dc595b0cc7f3578760b7a672e9870d7ca79aaaef2",
+  "vault/windows_migration_audit.go": "26ca724194d9b36873fc122cae3ddd43d4dd07fd7604e4d7503f7e59273b0076"
 }
