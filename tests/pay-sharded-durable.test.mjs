@@ -50,6 +50,24 @@ test('durable votes and certified cross-shard recovery survive restart without d
   assert.deepEqual(observers.map(s=>s.snapshot().balances),[{'demo-alice':700},{'demo-bob':1300}]);
   assert.throws(()=>observers[1].proposal([{kind:'claim',receipt}]));
   assert.throws(()=>observers[0].finalize(ops,debit.certificate));
+  // Benchmark warm access against verified cold starts at multiple heights.
+  const cold=[],warm=[];
+  for(let h=2;h<=8;h++){
+   // Fresh nonces, all transfers remain synthetic and one cent each.
+   const transfer=certify(0,[{kind:'debit',proof:proof(1)}],false);
+   certify(1,[{kind:'claim',receipt:transfer.receipts[0]}],false);
+   const o=observers[0],before=o.metrics(),ts=performance.now();
+   for(let j=0;j<12;j++)assert.equal(o.snapshot().height,h);
+   warm.push(performance.now()-ts);
+   const after=o.metrics();assert.equal(after.replayedBlocks,before.replayedBlocks);assert.equal(after.cacheHits-before.cacheHits,12);
+   close(o);const tc=performance.now();observers[0]=open(0,16);assert.equal(observers[0].metrics().replayedBlocks,h);cold.push(performance.now()-tc);
+  }
+  assert.equal(observers[0].snapshot().balances['demo-alice']+observers[1].snapshot().balances['demo-bob'],2000);
+  // Detect external writes even when meta height/root are unchanged.
+  const live=observers[0],other=new DatabaseSync(join(opts(0,16).directory,'shard.sqlite'));
+  other.exec("UPDATE blocks SET digest='corrupt' WHERE height=2");other.close();
+  assert.throws(()=>live.snapshot());assert.ok(live.metrics().externalInvalidations>=1);
+  t.diagnostic('SHARD_CACHE_V1 '+JSON.stringify({heights:7,warmReadsPerHeight:12,coldMs:cold,warmMs:warm}));
   // Corruption detection, not an adversarial whole-database rollback test.
   close(observers[0]);const db=new DatabaseSync(join(opts(0,16).directory,'shard.sqlite'));db.exec("UPDATE blocks SET digest = 'corrupt' WHERE height=1");db.close();
   assert.throws(()=>open(0,16));
