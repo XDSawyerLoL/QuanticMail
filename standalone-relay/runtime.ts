@@ -17,13 +17,16 @@ export type RelayStateStore = {
  */
 export type MigrationLabFence = {
   version:1;phase:"frozen";fenceId:string;relayId:string;frozenAt:string;
+  /** Securely random coordinator intent, never a live identity identifier. */
+  transactionId?:string;
 };
 const hex32=/^[a-f0-9]{32}$/,hex64=/^[a-f0-9]{64}$/;
 function parseMigrationLabFence(value:unknown):MigrationLabFence|null{
   if(value===undefined||value===null)return null;
   if(!value||typeof value!=="object"||Array.isArray(value))throw Error("Migration lab fence invalid.");
   const v=value as MigrationLabFence;
-  if(Object.keys(v).length!==5||v.version!==1||v.phase!=="frozen"
+  if(Object.keys(v).length!==(v.transactionId===undefined?5:6)
+   ||(v.transactionId!==undefined&&!hex32.test(v.transactionId))||v.version!==1||v.phase!=="frozen"
    ||!hex32.test(v.fenceId)||!hex64.test(v.relayId)
    ||typeof v.frozenAt!=="string"||!Number.isFinite(Date.parse(v.frozenAt)))
      throw Error("Migration lab fence invalid.");
@@ -113,15 +116,17 @@ export class RelayRuntime {
 
   /** Serialized after previously accepted mutations, and written to disk
    * before returning the identifier. Restart preserves the fence. */
-  freezeMigrationLab(relayId:string):Promise<MigrationLabFence>{
+  freezeMigrationLab(relayId:string,transactionId?:string):Promise<MigrationLabFence>{
     this.ensureInitialized();
-    if(!this.migrationLabEnabled||!hex64.test(relayId))
+    if(!this.migrationLabEnabled||!hex64.test(relayId)
+      ||(transactionId!==undefined&&!hex32.test(transactionId)))
       throw Error("Migration lab freeze not permitted.");
     return this.queueTransaction(async()=>{
       if(this.migrationLabFence)throw Error("Migration laboratory already frozen.");
       const fence:MigrationLabFence={version:1,phase:"frozen",
         relayId,fenceId:randomBytes(16).toString("hex"),
-        frozenAt:new Date().toISOString()};
+        frozenAt:new Date().toISOString(),
+        ...(transactionId?{transactionId}:{})};
       await this.saveWithFence(fence);
       this.migrationLabFence=fence;
       return structuredClone(fence);
