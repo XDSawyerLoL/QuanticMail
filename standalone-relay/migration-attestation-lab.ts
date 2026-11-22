@@ -156,6 +156,34 @@ export function compareMigrationLabMailboxes(
   legacyDeletionAuthorized:false,labOnly:true
  });
 }
+/**
+ * Derive the only remote-audit facts allowed in the existing encrypted,
+ * append-only migration journal. Both signatures MUST verify first.
+ * Stable captures can never set remoteQueueReconciled or authorize cutover.
+ */
+export function signedMigrationLabAuditFacts(
+ first:unknown,second:unknown,
+ scope:{relayId:string;canonicalAddress:string;deviceId:string;firstNonce:string;secondNonce:string}
+){
+ const report=compareMigrationLabMailboxes(first,second,scope);
+ const before=verifyMigrationLabMailbox(first,{
+  relayId:scope.relayId,canonicalAddress:scope.canonicalAddress,
+  deviceId:scope.deviceId,nonce:scope.firstNonce
+ });
+ const after=verifyMigrationLabMailbox(second,{
+  relayId:scope.relayId,canonicalAddress:scope.canonicalAddress,
+  deviceId:scope.deviceId,nonce:scope.secondNonce
+ });
+ return Object.freeze({
+  relayIdSha256:hash(scope.relayId),
+  observedWindowSha256:hash(JSON.stringify([before,after])),
+  observedRelayWindowStable:report.observedSignedSnapshotsStable,
+  observedRelayWindowNotAtCap:!report.observedAtCapacity,
+  pendingIncomingVisible:report.envelopes.after,
+  pendingReceiptsVisible:report.receipts.after,
+  // Deliberately no permission to call ACK, activate prekeys or migrate.
+ });
+}
 /** Never exposed on public or PostgreSQL relay instances. Enforces bearer
  * authentication and exact loopback source, no CORS/Origin nor redirects.
  * One synchronous runtime.read operation snapshots BOTH queues atomically
