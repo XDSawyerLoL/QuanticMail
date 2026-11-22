@@ -22,14 +22,13 @@ export function createRecoveryWorkerLab(){
 `,{mode:0o600});chmodSync(adapter,0o600);
   async function cycle(){
    const child=spawn(process.execPath,[runner],{env:{...process.env,QUANTIC_PAY_RECOVERY_MODULE:adapter,QUANTIC_PAY_RECOVERY_HEARTBEAT_MS:'100'},stdio:['ignore','pipe','pipe']});
-   const events=[],lines=[];let stderr='';
+   const events=[];let buffer='',stderr='';
    child.stderr.setEncoding('utf8');child.stderr.on('data',s=>{stderr+=s});
    child.stdout.setEncoding('utf8');child.stdout.on('data',s=>{
-    lines.push(s);const joined=lines.join('');let index;
-    while((index=joined.indexOf('\n'))>=0){
-     const one=joined.slice(0,index);const record=JSON.parse(one);events.push(record);
-     lines.splice(0,lines.length,joined.slice(index+1));
-     break;
+    buffer+=s;let index;
+    while((index=buffer.indexOf('\\n'))>=0){
+     const line=buffer.slice(0,index);buffer=buffer.slice(index+1);
+     if(line)events.push(JSON.parse(line));
     }
    });
    try{
