@@ -21,6 +21,7 @@ export type RelayServerOptions = {
   dataDir?: string;
   databaseUrl?: string;
   sharedAuthRateLimit?: boolean;
+  requirePostgres?: boolean;
   identitySecret?: string;
   publicEndpoint?: string;
   bootstrapEndpoints?: string[];
@@ -65,6 +66,8 @@ export async function startRelayServer(
   if(options.nativePeerSource&&host!=="127.0.0.1")throw Error("Native laboratory requires loopback relay.");
 
   const databaseUrl = options.databaseUrl?.trim() || "";
+  if(options.requirePostgres && !databaseUrl)
+    throw new Error("Durable production relay requires PostgreSQL; no filesystem or memory fallback.");
   if (options.sharedAuthRateLimit && !databaseUrl) throw new Error("Le contrôle partagé exige PostgreSQL.");
   const postgresPersistence = databaseUrl
     ? await createPostgresRelayPersistenceFromUrl(databaseUrl, {
