@@ -55,7 +55,7 @@ try{
  if(!worker||typeof worker.start!=='function'||typeof worker.stats!=='function'
    ||typeof worker.last!=='function'||typeof worker.close!=='function')
   fail('adapter did not supply the required worker interface');
- const initial=worker.start();
+ const initial=await worker.start();
  output('ready',{status:initial?.status??'starting',laboratoryOnly:true});
  heartbeat=setInterval(status,heartbeatMs);
  // A deferred tick is expected during outages: the worker retries, while
