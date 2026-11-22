@@ -10,6 +10,7 @@ import {
   canonicalRouteManifestText,
 } from "../lib/quantic/federation-core.mjs";
 import { canonicalManifestText } from "../lib/quantic/manifest-core.mjs";
+import type { QuanticIdentityManifest } from "../lib/quantic/manifest-types.ts";
 import { federationForwardNonce } from "../standalone-relay/federation-client.ts";
 import { verifyRelayHello } from "../standalone-relay/identity.ts";
 import { startRelayServer } from "../standalone-relay/server.ts";
@@ -335,7 +336,7 @@ test("durable standalone relay denies revoked linked device on send, pull, ack a
  const linkedEncJwk=publicJwk(linkedEnc),linkedSignJwk=publicJwk(linkedSign);
  const linkedId=deviceId(linkedEncJwk);
  const now=new Date().toISOString();
- function signedManifest(payload:typeof alice.manifest.payload){
+ function signedManifest(payload:QuanticIdentityManifest["payload"]){
   return {format:"quantic-identity-manifest",version:1,payload,signature:sign("sha256",
    Buffer.from(canonicalManifestText(payload),"utf8"),
    {key:alice.owner.privateKey,dsaEncoding:"ieee-p1363"}).toString("base64")};
@@ -370,7 +371,7 @@ test("durable standalone relay denies revoked linked device on send, pull, ack a
    body({certificate:certificate(),authToken:linkedToken}));
   assert.equal(registered.status,201,await registered.text());
   const root=alice.manifest.payload;
-  const linked={deviceId:linkedId,label:"linked test device",kind:"linked",
+  const linked={deviceId:linkedId,label:"linked test device",kind:"linked" as const,
    publicKey:linkedEncJwk,deviceSigningPublicKey:linkedSignJwk,issuedAt:now};
   const active={...root,sequence:2,devices:[...root.devices,linked],issuedAt:now};
   const published=await fetch(relay.url+"/api/quantic/manifest",
@@ -380,7 +381,7 @@ test("durable standalone relay denies revoked linked device on send, pull, ack a
    "&deviceId="+encodeURIComponent(linkedId);
   assert.equal((await fetch(pullUrl(),{headers:{authorization:"Bearer "+linkedToken}})).status,200);
   const revoked={...active,sequence:3,devices:root.devices,
-   revocations:[{deviceId:linkedId,revokedAt:new Date(Date.now()+1000).toISOString(),reason:"lost"}],
+   revocations:[{deviceId:linkedId,revokedAt:new Date(Date.now()+1000).toISOString(),reason:"lost" as const}],
    issuedAt:new Date(Date.now()+1000).toISOString()};
   const revocation=await fetch(relay.url+"/api/quantic/manifest",
    body({manifest:signedManifest(revoked)}));
