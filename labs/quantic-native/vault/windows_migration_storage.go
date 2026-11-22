@@ -34,7 +34,8 @@ func winMigrationIO(args []string)(bool,error){
   if e:=winCreatePrivateDirectory(args[2]);e!=nil{return true,e}
   return true,winWritePrivate(filepath.Join(args[2],migrationLabMarkerFile),[]byte(migrationLabMarker))
  }
- if len(args)!=4||(args[3]!="source.sealed"&&args[3]!="candidate.sealed"){return true,portableRefusal}
+ if len(args)!=4{return true,portableRefusal}
+ if args[3]!="source.sealed"&&args[3]!="candidate.sealed"{return winMigrationChunkIO(op,args[2],args[3])}
  dir:=args[2]
  if e:=migrationLabCheck(dir);e!=nil{return true,e}
  path:=filepath.Join(dir,args[3])
