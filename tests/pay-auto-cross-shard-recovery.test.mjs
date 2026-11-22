@@ -75,6 +75,7 @@ test('automatic cross-shard recovery resumes after outage; three fresh witnesses
   assert.equal(ddb.snapshot().pendingInbound,0);
   assert.equal(worker.stats().claimed,1);
   worker.stop();
+  const earlierWitness=Buffer.from(readFileSync(join(root,'wa-0','fence.sqlite')));
   const latestSource=Buffer.from(readFileSync(join(root,'db-'+east,'shard.sqlite')));
   // Further ABORT after a second, separately certified reservation.
   const q=proof(400),rv=[{kind:'reserve',proof:q}];
@@ -105,6 +106,31 @@ test('automatic cross-shard recovery resumes after outage; three fresh witnesses
   assert.equal(worker.runOnce().status,'caught-up');
   assert.equal(worker.stats().claimed,1);
   assert.equal(ddb.snapshot().balances['demo-shop']+sdb.snapshot().balances['demo-alice'],1000);
-  t.diagnostic('AUTO_CROSS_SHARD_RECOVERY_V1 '+JSON.stringify({outageRetried:true,committedAndCredited:600,abortedAndReleased:400,rolledBackSourceRefused:true,postRecoveryHeight:ddb.snapshot().height,duplicateCredits:0,simulationOnly:true}));
+  // Restore a *witness* disk to height 2 while the other three remain
+  // certified at height 4. The live poller must repair it using a fresh,
+  // independently verified 3/4 tip and BOTH missing certified blocks.
+  sourceWitnesses[0].close();
+  writeFileSync(join(root,'wa-0','fence.sqlite'),earlierWitness);
+  const recoveredWitness=bridgeA.openWitness({directory:join(root,'wa-0'),credentials:{
+   pin:wa[0].pub.pin,classicalPrivateKey:wa[0].cl.privateKey,pqPrivateKey:wa[0].pq.privateKey
+  }});
+  sourceWitnesses[0]=recoveredWitness;witnesses.push(recoveredWitness);
+  assert.equal(recoveredWitness.status().height,2);
+  assert.equal(bridgeA.fresh(sdb.snapshot(),sourceWitnesses).witnesses,3);
+  assert.equal(worker.runOnce().status,'caught-up');
+  assert.equal(bridgeA.fresh(sdb.snapshot(),sourceWitnesses).witnesses,4);
+  assert.equal(recoveredWitness.status().height,4);
+  // Simulate a worker-process lifecycle boundary: no cached cursor and
+  // no new finality votes are required to scan the persisted history again.
+  worker.close();
+  worker=openCrossShardRecoveryWorkerLab({ledger,config,source:sourceFacade,destination:destFacade,
+   sourceShard:east,destinationShard:west,sourceBridge:bridgeA,destinationBridge:bridgeB,
+   sourceWitnesses,destinationWitnesses:destWitnesses,destinationValidators:nodes,intervalMs:100});
+  assert.equal(worker.start().status,'caught-up');
+  assert.equal(worker.stats().claimed,0);
+  assert.equal(worker.stats().released,0);
+  assert.equal(ddb.snapshot().balances['demo-shop']+sdb.snapshot().balances['demo-alice'],1000);
+  worker.stop();
+  t.diagnostic('AUTO_CROSS_SHARD_RECOVERY_V1 '+JSON.stringify({outageRetried:true,committedAndCredited:600,abortedAndReleased:400,rolledBackSourceRefused:true,postRecoveryHeight:ddb.snapshot().height,duplicateCredits:0,staleWitnessRepaired:true,workerRestartIdempotent:true,simulationOnly:true}));
  }finally{worker?.close();for(const v of [...nodes,...voters,...witnesses])try{v.close();}catch{}try{sdb?.close();}catch{}try{ddb?.close();}catch{}rmSync(root,{recursive:true,force:true});}
 });
