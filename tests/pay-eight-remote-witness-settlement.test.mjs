@@ -12,6 +12,7 @@ import {openRemoteShardWitnessCoordinatorLab} from '../lib/quantic/pay-shard-wit
 import {openPayWitnessMtlsClientLab} from '../lib/quantic/pay-witness-mtls-lab.mjs';
 import {openRemoteCrossShardRecoveryWorkerLab} from '../lib/quantic/pay-cross-shard-remote-recovery-worker-lab.mjs';
 const runner=fileURLToPath(new URL('../scripts/quantic-pay-witness-node-lab.mjs',import.meta.url));
+const preflightRunner=fileURLToPath(new URL('../scripts/quantic-pay-multihost-preflight-lab.mjs',import.meta.url));
 const sha=b=>createHash('sha256').update(b).digest('hex');
 const hash=x=>sha(Buffer.from(JSON.stringify(x)));
 function keys(type='ed25519'){
@@ -116,10 +117,11 @@ test('eight network witness processes resume an atomic cross-shard payment after
    }
    assert.ok(ready,'witness startup timeout: '+error);
    assert.equal(ready.witnessPin,k.pub.pin);
-   const client=openPayWitnessMtlsClientLab({url:'https://127.0.0.1:'+ready.port+'/v1/witness',
+   const url='https://127.0.0.1:'+ready.port+'/v1/witness';
+   const client=openPayWitnessMtlsClientLab({url,
     credentials:{key:controller.key,cert:controller.cert,ca:controller.ca},
     serverCertPin:serverCerts[index].pin});
-   return {processNode,client};
+   return {processNode,client,url};
   }
   async function stop(p){
    if(p.exitCode!==null)return;
@@ -139,6 +141,33 @@ test('eight network witness processes resume an atomic cross-shard payment after
   const p=walletProof(600);
   certify(source,sourceDb,[{kind:'reserve',proof:p}],keysA);
   await sourceBridge.synchronize(sourceDb);
+  // An operator preflight can attest the LIVE four remote TLS endpoints
+  // against an independently certified financial checkpoint. Duplicate
+  // pins and loopback masquerading as multi-host fail closed.
+  const initial=sourceDb.snapshot();
+  const preflightConfig={config,options:mode,shard:east,witnesses:witnessA.map(w=>w.pub),
+   peers:servers.slice(0,4).map((s,i)=>({url:s.url,serverCertPin:serverCerts[i].pin})),
+   tls:{keyPath:join(root,'settlement-client.key'),certPath:join(root,'settlement-client.crt'),
+    caPath:join(root,'ca.crt')},checkpoint:sourceDb.checkpoint(),
+   anchor:{network:ledger.network,shard:east,height:initial.height,root:initial.root},
+   allowSingleHostLab:true};
+  const preflightPath=join(root,'remote-preflight.json');
+  const verifyPreflight=cfg=>{
+   secret('remote-preflight.json',JSON.stringify(cfg));
+   return JSON.parse(execFileSync(process.execPath,[preflightRunner],{
+    cwd:root,encoding:'utf8',env:{...process.env,
+     QUANTIC_PAY_MULTHOST_PREFLIGHT_CONFIG:preflightPath}}).trim());
+  };
+  const witnessed=verifyPreflight(preflightConfig);
+  assert.equal(witnessed.event,'preflight-passed');
+  assert.equal(witnessed.verifiedWitnesses,4);
+  assert.equal(witnessed.physicalIndependenceVerified,false);
+  assert.equal(witnessed.realPaymentAuthorized,false);
+  assert.throws(()=>verifyPreflight({...preflightConfig,allowSingleHostLab:false}),
+   'loopback must not be labeled multi-host');
+  const copy=structuredClone(preflightConfig);
+  copy.peers[3].serverCertPin=copy.peers[2].serverCertPin;
+  assert.throws(()=>verifyPreflight(copy),'reused TLS server identity');
   const sourceAnchor=sourceDb.snapshot(),sourceCommit={
    checkpoint:sourceDb.checkpoint(),anchor:{network:ledger.network,shard:east,
     height:sourceAnchor.height,root:sourceAnchor.root}};
@@ -193,7 +222,7 @@ test('eight network witness processes resume an atomic cross-shard payment after
   assert.equal(sourceDb.snapshot().balances['demo-alice']+destDb.snapshot().balances['demo-shop'],1000);
   t.diagnostic('EIGHT_WITNESS_REMOTE_SETTLEMENT_V1 '+JSON.stringify({witnessProcesses:8,
    sourceQuorum:4,destinationQuorum:4,recipientOutageRefused:true,
-   recoveredCredit:600,duplicateCredit:0,workerRestartIdempotent:true,simulationOnly:true}));
+   recoveredCredit:600,duplicateCredit:0,workerRestartIdempotent:true,operatorPreflightPassed:true,simulationOnly:true}));
  }finally{
   try{await worker?.close();}catch{}
   for(const n of [...validators,...voters])try{n.close();}catch{}
