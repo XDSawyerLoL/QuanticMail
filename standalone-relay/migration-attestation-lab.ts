@@ -58,7 +58,7 @@ function unsigned(proof:SignedMigrationLabSnapshot){
  };
 }
 function validateRows(rows:unknown,kind:string):asserts rows is RowDigest[]{
- check(Array.isArray(rows)&&rows.length<=MAX);
+ if(!Array.isArray(rows)||rows.length>MAX)throw Error("Signed relay migration snapshot refused");
  let previous="";
  for(const row of rows){
   check(row&&Object.getPrototypeOf(row)===Object.prototype&&Object.keys(row).length===2
@@ -204,8 +204,8 @@ export function createMigrationLabSnapshotHandler(runtime:RelayRuntime,identity:
    check([...q.keys()].length===3&&q.has("handle")&&q.has("deviceId")&&q.has("nonce")
     &&q.getAll("handle").length===1&&q.getAll("deviceId").length===1&&q.getAll("nonce").length===1);
    const token=req.headers.authorization;
-   check(typeof token==="string"&&token.startsWith("Bearer ")
-    &&token.length>=31&&token.length<=263);
+   if(typeof token!=="string"||!token.startsWith("Bearer ")
+    ||token.length<31||token.length>263)throw Error("Signed relay migration snapshot refused");
    const handle=q.get("handle")??"",deviceId=q.get("deviceId")??"",nonce=q.get("nonce")??"";
    check(addressRE.test(handle)&&deviceRE.test(deviceId)&&nonceRE.test(nonce));
    // No await or network access inside the synchronous capture callback.
