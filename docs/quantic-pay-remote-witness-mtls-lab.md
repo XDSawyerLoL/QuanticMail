@@ -21,6 +21,14 @@ redundancy.
   private signing key, ML-DSA-65 private signing key, TLS server key and cert.
 - The private config, private keys and certificates must be regular files
   owned by the process account, mode **0600 on Unix**, with no symlinks.
+  The loader opens these files through descriptor-based, no-follow reads,
+  compares the opened inode against the path, refuses hardlinked files,
+  requires a private immediate parent directory (mode 0700 on Unix),
+  imposes a 64 KiB limit on individual key/cert files, and clears temporary
+  PEM buffers after importing them into Node's native cryptographic context.
+  This mitigates accidental filesystem/key substitution but does not protect
+  against root compromise, process memory extraction, or another process
+  running as the same OS account.
 - Each server has a CA-trusted TLS server certificate with the correct
   DNS/IP SAN and **a distinct SHA-256 DER certificate pin** configured at
   the client. The server separately allowlists the orchestrator's TLS client
@@ -125,6 +133,11 @@ COMMIT/ABORT outcomes, refuses overlapping settlement scans, and
 reconstructs progress from certified ledger blocks after restart.
 The existing `scripts/quantic-pay-recovery-agent-lab.mjs` now awaits
 the first async recovery scan before reporting a ready status.
+  During long network outages, scheduled scans use a bounded monotonic
+  exponential backoff (up to 30 seconds) instead of hammering offline
+  peers; a manually requested run still checks live quorum authorization.
+  The controller never converts an outage or a timeout into an automatic
+  COMMIT or ABORT decision.
 
 **Scope remains laboratory only.** The destination financial validators
 and durable ledgers are still locally provisioned; this is not yet a
