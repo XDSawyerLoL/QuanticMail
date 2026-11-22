@@ -141,3 +141,40 @@ func TestNativeFinancialPermitVerification(t *testing.T){
  bad=p;bad.Certificate.Commit.Votes=bad.Certificate.Commit.Votes[:10]
  if verifyNativePayPermit(pack(bad),reservedPolicy,s,d,intent,now)==nil{t.Fatal("reserved quorum missing")}
 }
+
+func TestWindowsPayQuorumImportBinding(t *testing.T){
+ pins:=[]string{strings.Repeat("1",64),strings.Repeat("2",64),strings.Repeat("3",64),strings.Repeat("4",64)}
+ qpin,e:=quorumPin(pins);if e!=nil{t.Fatal(e)}
+ policy:=strings.Repeat("f",64)
+ config:=func(dir string)[]byte{
+  var cc []anchorConfig
+  for index:=0;index<4;index++{
+   n:=string(rune('0'+index))
+   cc=append(cc,anchorConfig{
+    URL:"https://127.0.0.1:944"+n,
+    ServerPin:pins[index],
+    ServerCA:filepath.Join(dir,"pay-ca-"+n+".pem"),
+    ClientCert:filepath.Join(dir,"pay-client-cert-"+n+".pem"),
+    ClientKey:filepath.Join(dir,"pay-client-key-"+n+".pem"),
+   })
+  }
+  b,e:=json.Marshal(cc);if e!=nil{t.Fatal(e)};return b
+ }
+ pw:=[]byte("synthetic quorum financial storage password")
+ dir:=filepath.Join(t.TempDir(),"new-pay")
+ if _,e=provisionPayLabPolicy(dir,pw,qpin,policy);e!=nil{t.Fatal(e)}
+ raw:=config(dir)
+ if e=writePayQuorumConfig(dir,strings.Repeat("a",64),raw);e==nil{t.Fatal("wrong config fingerprint accepted")}
+ if e=writePayQuorumConfig(dir,hexHash(raw),raw);e!=nil{t.Fatal("valid anchored configuration refused",e)}
+ history,e:=readPayLabHistory(dir);if e!=nil||len(history)!=0{t.Fatal("journal blocked private inventory",e)}
+ if e=writePayQuorumConfig(dir,hexHash(raw),raw);e==nil{t.Fatal("quorum overwritten")}
+ if q,e:=winLoadPayQuorum(dir);e==nil||q!=nil{t.Fatal("missing pinned TLS materials accepted")}
+ other:=filepath.Join(t.TempDir(),"wrong-pay")
+ if _,e=provisionPayLabPolicy(other,pw,strings.Repeat("a",64),policy);e!=nil{t.Fatal(e)}
+ bad:=config(other)
+ if e=writePayQuorumConfig(other,hexHash(bad),bad);e==nil{t.Fatal("substituted quorum authority accepted")}
+ anchored:=filepath.Join(t.TempDir(),"anchored-pay")
+ if _,e=provisionPayLabMode(anchored,pw,qpin);e!=nil{t.Fatal(e)}
+ correct:=config(anchored)
+ if e=writePayQuorumConfig(anchored,hexHash(correct),correct);e!=nil{t.Fatal("anchored import refused",e)}
+}
