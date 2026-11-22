@@ -55,3 +55,41 @@ func TestAuthorizedMailResultProviderFailureBurnsReservation(t *testing.T){
  if _,err=p.authorizedMailResult(j,k,req,false,op);err==nil||calls!=1{t.Fatal("retry invoked provider")}
  if _,err=p.authorizedMailResult(j,k,req,true,op);err==nil||calls!=1{t.Fatal("missing result recovered")}
 }
+
+func TestAuthorizedMailRecoveryAcrossReopen(t *testing.T){
+ for _,stage:=range []string{"orphan","reserved","truncated","complete","failed-write"}{
+  t.Run(stage,func(t *testing.T){
+   path,s,e,app:=testJournal(t)
+   j,err:=openReplay(path,s,e,app);if err!=nil{t.Fatal(err)}
+   id,_:=anchorID(s,e,app);a:=&fakeAnchor{tail:j.tail};if err=j.attachAnchor(a,id);err!=nil{j.close();t.Fatal(err)}
+   block,_:=aes.NewCipher(make([]byte,32));g,_:=cipher.NewGCM(block);p:=&pqKeys{recovery:g}
+   k,req:=[32]byte{1},[32]byte{2};msg:="synthetic durable result";want:=reply{OK:true,Message:&msg};calls:=0
+   op:=func()(reply,error){calls++;return want,nil}
+   switch stage{
+   case "orphan":
+    if err=p.saveResult(j,k,req,want);err!=nil{j.close();t.Fatal(err)}
+   case "reserved":
+    if err=j.consume(k);err!=nil{j.close();t.Fatal(err)}
+   case "truncated":
+    if err=j.consume(k);err!=nil{j.close();t.Fatal(err)}
+    if err=os.WriteFile(recoveryPath(j,k),[]byte{1,2,3},0600);err!=nil{j.close();t.Fatal(err)}
+   case "complete":
+    if _,err=p.authorizedMailResult(j,k,req,false,op);err!=nil{j.close();t.Fatal(err)}
+   case "failed-write":
+    j.resultWrite=func(string,[]byte)error{return errors.New("simulated fsync failure")}
+    if _,err=p.authorizedMailResult(j,k,req,false,op);err==nil{j.close();t.Fatal("failed write released result")}
+   }
+   j.close();j,err=openReplay(path,s,e,app);if err!=nil{t.Fatal(err)};defer j.close()
+   if err=j.attachAnchor(a,id);err!=nil{t.Fatal(err)}
+   before:=calls;count:=len(j.seen)
+   got,err:=p.authorizedMailResult(j,k,req,true,op)
+   if stage=="complete"{
+    if err!=nil||got.Message==nil||*got.Message!=msg{t.Fatal("durable result not recovered",err)}
+    a.fail=true;if _,err=p.authorizedMailResult(j,k,req,true,op);err==nil{t.Fatal("stale anchor allowed recovery")};a.fail=false
+    if _,err=p.authorizedMailResult(j,k,[32]byte{3},true,op);err==nil{t.Fatal("altered request accepted")}
+   }else if err==nil{t.Fatal("uncommitted or incomplete result released")}
+   if stage!="orphan"{if _,err=p.authorizedMailResult(j,k,req,false,op);err==nil{t.Fatal("spent operation repeated")}}
+   if calls!=before||len(j.seen)!=count{t.Fatal("recovery invoked provider or consumed an authorization")}
+  })
+ }
+}
