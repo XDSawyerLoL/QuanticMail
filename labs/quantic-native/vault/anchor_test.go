@@ -1,6 +1,13 @@
 package main
 
 import (
+	"bytes"
+	"crypto/ecdh"
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
+	"io"
+	"time"
 	"crypto/sha256"
 	"errors"
 	"strings"
@@ -135,4 +142,49 @@ func TestPrivateSignatureFailureBurnsAuthorization(t *testing.T) {
 	if err=j.attachAnchor(a,id);err!=nil { t.Fatal(err) }
 	if _,err=j.reservePrivateSignature(k,sign);err==nil||calls!=1||!j.seen[k] { t.Fatal("failed provider reservation not retained") }
 	if _,err=j.reservePrivateSignature(k,sign);err==nil||calls!=1 { t.Fatal("spent challenge reused") }
+}
+
+func TestAnchoredClassicalBrokerSignsOnlyAfterQuorum(t *testing.T) {
+ for _,op:=range []string{"prove","enroll-proof"} {
+  for _,refused:=range []bool{false,true} {
+   name:=op+"/accepted";if refused{name=op+"/refused"}
+   t.Run(name,func(t *testing.T){
+    s,_,_:=fixture(t)
+    key,err:=ecdh.P256().GenerateKey(rand.Reader);if err!=nil{t.Fatal(err)}
+    path,sp,ep,app:=testJournal(t)
+    j,err:=openReplay(path,sp,ep,app);if err!=nil{t.Fatal(err)};defer j.close()
+    id,_:=anchorID(sp,ep,app)
+    q:=&quorumAnchor{}
+    var ws [4]*fakeAnchor
+    for i:=range ws{ws[i]=&fakeAnchor{tail:j.tail};q.members[i]=ws[i]}
+    if err=j.attachAnchor(q,id);err!=nil{t.Fatal(err)}
+    if refused{ws[0].fail=true;ws[1].fail=true}
+    approve:=func(string)bool{return true}
+    if op=="enroll-proof"{
+     p:=key.PublicKey().Bytes()
+     dev:=sha256.Sum256([]byte("P-256:"+b64.EncodeToString(p[1:33])+":"+b64.EncodeToString(p[33:])))
+     raw,err:=json.Marshal([]any{"quantic-native-enrollment-lab-v1","alice~"+strings.Repeat("a",32)+"@quantic",strings.Repeat("b",64),1,strings.Repeat("c",64),"d-"+hex.EncodeToString(dev[:16]),publicPin(s.Public()),publicPin(key.PublicKey()),"synthetic device",strings.Repeat("d",64),time.Now().Add(20*time.Second).UnixMilli()})
+     if err!=nil{t.Fatal(err)}
+     body,_:=json.Marshal(request{Op:op,Enrollment:string(raw),Approved:true})
+     var out bytes.Buffer
+     err=serveGuarded(s,key,"test",strings.NewReader(string(body)+"\n"),&out,approve,j)
+     if !refused{var r reply;if json.Unmarshal(out.Bytes(),&r)!=nil||!r.OK{t.Fatal("valid enrollment refused",out.String())}}
+    }else{
+     inR,inW:=io.Pipe();outR,outW:=io.Pipe();done:=make(chan error,1)
+     go func(){e:=serveGuarded(s,key,"test",inR,outW,approve,j);outW.Close();inR.Close();done<-e}()
+     defer inW.Close();defer outR.Close()
+     enc:=json.NewEncoder(inW);dec:=json.NewDecoder(outR)
+     if err=enc.Encode(request{Op:"issue"});err!=nil{t.Fatal(err)}
+     var issued reply;if err=dec.Decode(&issued);err!=nil||!issued.OK||issued.Challenge==nil{t.Fatal("issue failed",err)}
+     if err=enc.Encode(request{Op:op,Challenge:issued.Challenge,Approved:true});err!=nil{t.Fatal(err)}
+     var r reply;readErr:=dec.Decode(&r);inW.Close();err=<-done
+     if !refused&&(readErr!=nil||!r.OK||r.Proof==nil){t.Fatal("valid proof refused",readErr)}
+    }
+    if refused{if err==nil||s.calls!=0||!j.failed{t.Fatal("private signer reached on refused quorum",err,s.calls)}}else{
+     if err!=nil||s.calls!=1||len(j.seen)!=1{t.Fatal("unexpected signer/journal result",err,s.calls)}
+     for _,w:=range ws{if w.count!=1||w.tail!=j.tail{t.Fatal("witness state not committed")}}
+    }
+   })
+  }
+ }
 }
