@@ -5,6 +5,8 @@ import {mkdtemp,rm} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {startRelayServer} from "../standalone-relay/server.ts";
+import {RelayRuntime} from "../standalone-relay/runtime.ts";
+import {createEmptyRelayState} from "../lib/quantic/relay-state.ts";
 import {verifyMigrationLabMailbox,compareMigrationLabMailboxes} from "../standalone-relay/migration-attestation-lab.ts";
 
 const operator=randomBytes(48).toString("base64url");
@@ -128,4 +130,33 @@ test("operator secret cannot enable laboratory fence on public or production-con
   await assert.rejects(startRelayServer({host:"127.0.0.1",port:0,dataDir:dir,
    migrationSnapshotLab:true,migrationLabOperatorSecret:"1234"}),/Invalid isolated migration/i);
  }finally{await rm(dir,{recursive:true,force:true});}
+});
+
+test("failed durable freeze or rollback cannot falsely change the active fence state",async()=>{
+ let disk=createEmptyRelayState(),failNext=false;
+ const store={
+  async load(){return structuredClone(disk);},
+  async save(value){
+   if(failNext){failNext=false;throw Error("synthetic disk sync failure");}
+   disk=structuredClone(value);
+  }
+ };
+ const runtime=new RelayRuntime(store,true);
+ await runtime.initialize();
+ failNext=true;
+ await assert.rejects(runtime.freezeMigrationLab("f".repeat(64)),/synthetic disk sync/);
+ assert.equal(runtime.isMigrationLabFrozen(),false);
+ assert.equal("migrationLabFence" in disk,false);
+ const pinned=await runtime.freezeMigrationLab("f".repeat(64));
+ assert.equal(runtime.isMigrationLabFrozen(),true);
+ assert.equal(disk.migrationLabFence.fenceId,pinned.fenceId);
+ failNext=true;
+ await assert.rejects(runtime.releaseMigrationLab(pinned.fenceId),/synthetic disk sync/);
+ assert.equal(runtime.isMigrationLabFrozen(),true);
+ assert.equal(disk.migrationLabFence.fenceId,pinned.fenceId);
+ const restarted=new RelayRuntime(store,true);await restarted.initialize();
+ assert.equal(restarted.getMigrationLabFence().fenceId,pinned.fenceId);
+ await restarted.releaseMigrationLab(pinned.fenceId);
+ assert.equal(restarted.isMigrationLabFrozen(),false);
+ assert.equal("migrationLabFence" in disk,false);
 });
