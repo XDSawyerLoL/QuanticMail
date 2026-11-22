@@ -292,7 +292,7 @@ func verifyNativePayPermit(raw []byte,policy,s,d string,i payLabIntent,now int64
  if reserved{
   if !hashRE.MatchString(p.ReservationId)||p.Available!=int64(i.Cents){return portableRefusal}
   intentBytes,_:=json.Marshal([]any{"quantic-shard-transfer/v1",p.Network,p.Payer,i.Payee,i.Cents,i.Nonce})
-  if p.ReservationId!=permitHash([]any{"quantic-shard-id/v1",hex.EncodeToString(intentBytes)}){return portableRefusal}
+  if p.ReservationId!=permitHash([]any{"quantic-shard-id/v1",fmt.Sprintf("%x",intentBytes)}){return portableRefusal}
  }
  type member struct{cl ed25519.PublicKey;pq []byte;pqPin string}
  members:=map[string]member{};seen:=map[string]bool{};pins:=make([][2]string,0,16);last:=""
