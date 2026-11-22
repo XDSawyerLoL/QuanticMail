@@ -14,7 +14,13 @@ maximum **30 secondes**. Le *broker* natif vérifie indépendamment la
 demande et exige une approbation locale. Le contrôleur postquantique
 `desktop/native-vault-controller.mjs` expose désormais
 `signEnrollment(challenge)` et les clés publiques natives, comme le
-contrôleur classique. **Il ne transmet jamais les clés privées à la page Web.**
+contrôleur classique. L'opération d'inscription en mode PQ exige également
+`pqMode.historicalRootPin` (SHA-256 de la clé publique de propriété
+historique SPKI), enregistrée indépendamment du défi et de l'archive
+fournie. Le défi doit désigner exactement `pqMode.address`.
+**En l'absence de cette empreinte de confiance, l'inscription est refusée.**
+Ce champ ne modifie pas l'ouverture des messages déjà autorisés.
+**Le contrôleur ne transmet jamais les clés privées à la page Web.**
 
 `lib/quantic/migration-rehearsal.mjs` croise :
 
