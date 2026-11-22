@@ -14,6 +14,10 @@ import {reliableCellStream,POLICY} from '../labs/quantic-native/scattering/scatt
 import {cellKey} from '../labs/quantic-native/scattering/scattering-cell.mjs';
 import {splitScatteringLab,joinScatteringLab} from '../lib/quantic/scattering-stripes-lab.mjs';
 import {encodePayBatchBinary,decodePayBatchBinary} from '../lib/quantic/pay-batch-binary-lab.mjs';
+import {openPayReferenceLab} from '../lib/quantic/pay-reference-lab.mjs';
+import {openHybridSessionLab} from '../lib/quantic/scattering-session-lab.mjs';
+import {packSession,unpackSession} from '../lib/quantic/scattering-session-wire-lab.mjs';
+import {openCompactSender,openCompactReceiver,openOpaqueRouter,COMPACT_MUX} from '../lib/quantic/scattering-mux-compact-lab.mjs';
 import {openPayBatchLab} from '../lib/quantic/pay-batch-lab.mjs';
 import {createRoundCirculationLab} from '../lib/quantic/pay-circulation-lab.mjs';
 const binary=process.env.QUANTIC_PAY_SCATTERING_TEST;
@@ -25,8 +29,8 @@ function key(type){
 }
 const raw=x=>Buffer.from(JSON.stringify(x));
 const parse=b=>JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(b));
-for(const [lanes,encoding] of [[1,'json'],[1,'binary'],[4,'binary']])test('100 hybrid-signed synthetic transactions over '+lanes+' native UDP lane(s), '+encoding+', 11/16 certification',{skip:!binary||process.platform!=='linux',timeout:150000},async t=>{
- const root=await mkdtemp(join(tmpdir(),'pay-batch-udp-')),dirs=Array.from({length:2*lanes},(_,i)=>join(root,'lane-'+i)),sockets=[],cells=[],children=[],failures=[];
+for(const [lanes,encoding] of [[1,'json'],[1,'binary'],[4,'binary'],[1,'hybrid-reference']])test('100 hybrid-signed synthetic transactions over '+lanes+' native UDP lane(s), '+encoding+', 11/16 certification',{skip:!binary||process.platform!=='linux',timeout:180000},async t=>{
+ const root=await mkdtemp(join(tmpdir(),'pay-batch-udp-')),dirs=Array.from({length:2*lanes},(_,i)=>join(root,'lane-'+i)),sockets=[],cells=[],children=[],failures=[],cleanup=[];
  let closing=false,wrongSize=0;const received=Array(2*lanes).fill(0),metrics={},sequence=Array(2*lanes).fill(0);
  try{
   await Promise.all(dirs.map(d=>mkdir(d,{mode:0o700})));
@@ -86,24 +90,68 @@ for(const [lanes,encoding] of [[1,'json'],[1,'binary'],[4,'binary']])test('100 h
    metrics[label]={bytes:bytes.length,laneBytes:parts.map(p=>p.length),ms:performance.now()-t0};
    return compact?decodePayBatchBinary(joined):parse(joined);
   }
-  const input=await carry(0,'batch',{proofs,time:now,value:proposed.value});
+  let input,carryObject=carry;
+  if(encoding==='hybrid-reference'){
+   // This fixture authenticates the coordinator and remote witness with
+   // independently provisioned pins; it does not exercise Identity Vault custody.
+   const coordinator=key('ed25519'),w=witnesses[10],identity=k=>({local:{classical:k.cl.publicKey,pq:k.pq.publicKey},privateKeys:{classical:k.cl.privateKey,pq:k.pq.privateKey}});
+   const A=identity(coordinator),B=identity(w),context={channel:randomBytes(48).toString('hex'),generation:0,previous:'0'.repeat(96)};
+   const initiator=openHybridSessionLab({role:'initiator',...A,peer:B.local,context}),responder=openHybridSessionLab({role:'responder',...B,peer:A.local,context});
+   cleanup.push(()=>initiator.close(),()=>responder.close());
+   const setupStart=performance.now(),hello=packSession('hello',initiator.begin()),reply=packSession('response',responder.respond(unpackSession('hello',await carryLane(0,hello)))),finish=packSession('finish',initiator.finish(unpackSession('response',await carryLane(1,reply))));
+   responder.accept(unpackSession('finish',await carryLane(0,finish)));
+   const sa=initiator.take(),sb=responder.take();assert.deepEqual(sa,sb);
+   metrics.handshake={bytes:hello.length+reply.length+finish.length,ms:performance.now()-setupStart};
+   const labels=[randomBytes(16),randomBytes(16)],spare=randomBytes(16);
+   const send=[openCompactSender({...sa,label:labels[0],direction:'a-b'}),openCompactSender({...sb,label:labels[1],direction:'b-a'})];
+   const recv=[openCompactReceiver({...sb,label:labels[0],direction:'a-b'}),openCompactReceiver({...sa,label:labels[1],direction:'b-a'})];
+   const routers=labels.map(l=>openOpaqueRouter([l,spare]));sa.secret.fill(0);sb.secret.fill(0);
+   cleanup.push(...[...send,...recv,...routers].map(o=>()=>o.close()));
+   async function secureCarry(side,label,bytes){
+    assert.ok(Buffer.isBuffer(bytes)&&bytes.length>0);
+    const start=performance.now(),frames=[];
+    for(let o=0;o<bytes.length;o+=COMPACT_MUX.payload){
+     routers[side].enqueue(labels[side],send[side].seal(bytes.subarray(o,o+COMPACT_MUX.payload)));
+     frames.push(routers[side].nextSlot());
+    }
+    const wire=Buffer.concat(frames),got=await carryLane(side,wire),decoded=[];
+    for(let o=0;o<got.length;o+=128){const chunk=recv[side].open(got.subarray(o,o+128));assert.ok(chunk);decoded.push(chunk);}
+    const b=Buffer.concat(decoded);assert.deepEqual(b,bytes);
+    metrics[label]={bytes:bytes.length,wireBytes:wire.length,ms:performance.now()-start};return b;
+   }
+   carryObject=async(side,label,obj)=>parse(await secureCarry(side,label,raw(obj)));
+   const source=openPayReferenceLab({config}),destination=openPayReferenceLab({config});cleanup.push(()=>source.clear(),()=>destination.clear());
+   const first=proofs.slice(0,99),warm={proofs:first,time:now,value:labs[0].propose(first,now).value};
+   const seed=decodePayBatchBinary(await secureCarry(0,'initialProofDistribution',encodePayBatchBinary(warm)));
+   destination.publish(seed);
+   const manifest=source.publish({proofs,time:now,value:proposed.value});
+   const metadata=Buffer.alloc(40);metadata.writeBigUInt64BE(BigInt(now));Buffer.from(proposed.value,'hex').copy(metadata,8);
+   const sketch=await secureCarry(0,'reconciliation',Buffer.concat([metadata,source.sketch(manifest,32)]));
+   const rebuilt=destination.fromSketch({sketch:sketch.subarray(40),time:Number(sketch.readBigUInt64BE(0)),value:sketch.subarray(8,40).toString('hex')});
+   assert.deepEqual(rebuilt,manifest);const missing=destination.missing(rebuilt);assert.equal(missing.length,1);assert.throws(()=>destination.resolve(rebuilt));
+   const request=await secureCarry(1,'missingReference',Buffer.from(missing[0],'hex'));assert.equal(request.length,48);
+   const recovered=await secureCarry(0,'missingProof',source.exportProof(manifest,request.toString('hex')));
+   destination.recover(rebuilt,missing[0],recovered);assert.equal(destination.missing(rebuilt).length,0);assert.equal(destination.resolve(rebuilt).value,proposed.value);
+   const recoveredProofs=Array.from({length:100},(_,i)=>decodePayBatchBinary(destination.exportProof(rebuilt,rebuilt.subarray(78+i*48,78+(i+1)*48).toString('hex'))).proofs[0]);
+   input={proofs:recoveredProofs,time:now,value:proposed.value};
+  }else input=await carry(0,'batch',{proofs,time:now,value:proposed.value});
   assert.equal(labs[1].propose(input.proofs,input.time).value,proposed.value);
   const local=authorities.slice(0,10),remote=authorities[10];
-  const rv=await carry(1,'prepareVote',remote.prepare(input));
+  const rv=await carryObject(1,'prepareVote',remote.prepare(input));
   const prepared={scope:labs[0].scope,round:0,value:proposed.value,votes:[...local.map(n=>n.prepare({proofs,time:now,value:proposed.value})),rv]};
-  const remotePrepared=await carry(0,'prepareCertificate',prepared);
-  const cv=await carry(1,'commitVote',remote.commit(remotePrepared));
+  const remotePrepared=await carryObject(0,'prepareCertificate',prepared);
+  const cv=await carryObject(1,'commitVote',remote.commit(remotePrepared));
   const commit={scope:labs[0].scope,round:0,value:proposed.value,votes:[...local.map(n=>n.commit(prepared)),cv]};
   const cert={prepared,commit};
-  const remoteFinal=await carry(0,'finalCertificate',cert);
+  const remoteFinal=await carryObject(0,'finalCertificate',cert);
   remote.learn(remoteFinal);for(const n of local)n.learn(cert);
   const r=proposed.receipt(99,cert);assert.equal(labs[1].verifyReceipt(r).included,true);
   assert.deepEqual(proposed.balances,{'demo-alice':9900,'demo-bob':100});
   assert.equal(wrongSize,0);assert.equal(failures.length,0);assert.ok(received.every(n=>n>0));
   const total=Object.values(metrics).reduce((s,v)=>s+v.ms,0);
-  t.diagnostic('BATCH_NATIVE_MULTILANE_V3 '+JSON.stringify({count:100,lanes,encoding,remoteVoters:1,localVoters:10,metrics,transferMs:total,transferOnlyTransactionsPerSecond:100000/total,received,wrongSize,sequence,simulationOnly:true}));
+  t.diagnostic('BATCH_NATIVE_MULTILANE_V4 '+JSON.stringify({count:100,lanes,encoding,remoteVoters:1,localVoters:10,metrics,transferMs:total,transferOnlyTransactionsPerSecond:100000/total,warmTransferMs:encoding==='hybrid-reference'?total-metrics.initialProofDistribution.ms-metrics.handshake.ms:null,received,wrongSize,sequence,simulationOnly:true}));
  }finally{
-  closing=true;for(const c of cells)c.stream.destroy();for(const s of sockets)s.close();
+  closing=true;for(const f of cleanup.reverse())f();for(const c of cells)c.stream.destroy();for(const s of sockets)s.close();
   await Promise.all(children.map(p=>new Promise(r=>{if(p.exitCode!==null||p.signalCode!==null)return r();p.once('close',r);p.kill();})));
   await rm(root,{recursive:true,force:true});
  }
