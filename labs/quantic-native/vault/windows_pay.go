@@ -272,7 +272,7 @@ type nativePermitMember struct{Pin,PQPin,PublicKey,PQPublicKey string}
 type nativePermitVote struct{Pin,PQPin,Signature,PQSignature string}
 type nativePermitQC struct{Scope,Value string;Round *int;Votes []nativePermitVote}
 type nativePermit struct{
- Policy,Network,Shard,Payer,Root,IntentDigest string
+ Policy,Network,Shard,Payer,Root,IntentDigest,ReservationId string
  Height int
  Available int64
  Authorities []nativePermitMember
@@ -288,6 +288,12 @@ func verifyNativePayPermit(raw []byte,policy,s,d string,i payLabIntent,now int64
  dec:=json.NewDecoder(bytes.NewReader(raw));dec.DisallowUnknownFields();var extra any
  if dec.Decode(&p)!=nil||dec.Decode(&extra)!=io.EOF||p.SimulationOnly==nil||!*p.SimulationOnly||p.RealPaymentAuthorized==nil||*p.RealPaymentAuthorized||p.Policy!=policy||!hashRE.MatchString(p.Network)||!hashRE.MatchString(p.Root)||!payDemoID.MatchString(p.Shard)||!payDemoID.MatchString(p.Payer)||p.Payer==i.Payee||p.Height<1||p.Height>=256||p.Available<int64(i.Cents)||p.Available>256000000000||len(p.Authorities)!=16{return portableRefusal}
  digest:=hexHash(payLabTranscript(i,s,d));if p.IntentDigest!=digest{return portableRefusal}
+ reserved:=p.ReservationId!=""
+ if reserved{
+  if !hashRE.MatchString(p.ReservationId)||p.Available!=int64(i.Cents){return portableRefusal}
+  intentBytes,_:=json.Marshal([]any{"quantic-shard-transfer/v1",p.Network,p.Payer,i.Payee,i.Cents,i.Nonce})
+  if p.ReservationId!=permitHash([]any{"quantic-shard-id/v1",hex.EncodeToString(intentBytes)}){return portableRefusal}
+ }
  type member struct{cl ed25519.PublicKey;pq []byte;pqPin string}
  members:=map[string]member{};seen:=map[string]bool{};pins:=make([][2]string,0,16);last:=""
  for _,a:=range p.Authorities{
@@ -297,10 +303,15 @@ func verifyNativePayPermit(raw []byte,policy,s,d string,i payLabIntent,now int64
   pq,e:=decode(a.PQPublicKey,1974,1974);if e!=nil||hexHash(pq)!=a.PQPin{return portableRefusal}
   members[a.Pin]=member{k,pq,a.PQPin};seen[a.Pin]=true;seen[a.PQPin]=true;last=a.Pin;pins=append(pins,[2]string{a.Pin,a.PQPin})
  }
- if permitHash([]any{"quantic-native-pay-policy/lab/v1",p.Shard,p.Payer,pins})!=policy{return portableRefusal}
- network:=permitHash([]any{"quantic-native-permit-round/lab/v1",p.Network,p.Shard,p.Payer})
+ policyDomain,roundDomain,valueDomain:="quantic-native-pay-policy/lab/v1","quantic-native-permit-round/lab/v1","quantic-native-pay-permit/lab/v1"
+ if reserved{policyDomain,roundDomain,valueDomain="quantic-native-pay-reserved-policy/lab/v1","quantic-native-reserved-permit-round/lab/v1","quantic-native-pay-reserved-permit/lab/v1"}
+ if permitHash([]any{policyDomain,p.Shard,p.Payer,pins})!=policy{return portableRefusal}
+ network:=permitHash([]any{roundDomain,p.Network,p.Shard,p.Payer})
  scope:=permitHash([]any{"quantic-pay-committee-round/v3",network,p.Height+1,p.Root,pins,16,11,true,nil,true})
- value:=permitHash([]any{"quantic-native-pay-permit/lab/v1",policy,p.Network,p.Shard,p.Payer,p.Height,p.Root,p.Available,digest,true})
+ valueArgs:=[]any{valueDomain,policy,p.Network,p.Shard,p.Payer,p.Height,p.Root,p.Available}
+ if reserved{valueArgs=append(valueArgs,p.ReservationId)}
+ valueArgs=append(valueArgs,digest,true)
+ value:=permitHash(valueArgs)
  for _,phase:=range []string{"prepare","commit"}{
   q:=p.Certificate.Prepared;if phase=="commit"{q=p.Certificate.Commit}
   if q.Round==nil||*q.Round!=0||q.Scope!=scope||q.Value!=value||len(q.Votes)<11||len(q.Votes)>16{return portableRefusal}
