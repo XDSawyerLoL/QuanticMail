@@ -14,6 +14,7 @@ import {reliableCellStream,POLICY} from '../labs/quantic-native/scattering/scatt
 import {cellKey} from '../labs/quantic-native/scattering/scattering-cell.mjs';
 import {splitScatteringLab,joinScatteringLab} from '../lib/quantic/scattering-stripes-lab.mjs';
 import {encodePayBatchBinary,decodePayBatchBinary} from '../lib/quantic/pay-batch-binary-lab.mjs';
+import {packPayCertificate,unpackPayCertificate,packPayFinal,unpackPayFinal,packPayVote,unpackPayVote} from '../lib/quantic/pay-certificate-wire-lab.mjs';
 import {openPayReferenceLab} from '../lib/quantic/pay-reference-lab.mjs';
 import {openHybridSessionLab} from '../lib/quantic/scattering-session-lab.mjs';
 import {packSession,unpackSession} from '../lib/quantic/scattering-session-wire-lab.mjs';
@@ -119,7 +120,12 @@ for(const [lanes,encoding] of [[1,'json'],[1,'binary'],[4,'binary'],[1,'hybrid-r
     const b=Buffer.concat(decoded);assert.deepEqual(b,bytes);
     metrics[label]={bytes:bytes.length,wireBytes:wire.length,ms:performance.now()-start};return b;
    }
-   carryObject=async(side,label,obj)=>parse(await secureCarry(side,label,raw(obj)));
+   carryObject=async(side,label,obj)=>{
+    if(label==='prepareVote'||label==='commitVote')return unpackPayVote(await secureCarry(side,label,packPayVote(obj)));
+    if(label==='prepareCertificate')return unpackPayCertificate(await secureCarry(side,label,packPayCertificate(obj,16)),16);
+    if(label==='finalCertificate')return unpackPayFinal(await secureCarry(side,label,packPayFinal(obj,16)),16);
+    throw Error('unexpected consensus message');
+   };
    const source=openPayReferenceLab({config}),destination=openPayReferenceLab({config});cleanup.push(()=>source.clear(),()=>destination.clear());
    const first=proofs.slice(0,99),warm={proofs:first,time:now,value:labs[0].propose(first,now).value};
    const seed=decodePayBatchBinary(await secureCarry(0,'initialProofDistribution',encodePayBatchBinary(warm)));
