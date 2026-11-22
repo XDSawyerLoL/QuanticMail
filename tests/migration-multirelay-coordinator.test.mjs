@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {spawn} from "node:child_process";
 import {once} from "node:events";
 import {generateKeyPairSync,randomBytes,sign} from "node:crypto";
-import {mkdtemp,readFile,rm} from "node:fs/promises";
+import {mkdtemp,readFile,rm,mkdir,writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {fileURLToPath} from "node:url";
@@ -104,6 +104,15 @@ test("two independent relay processes: all freeze, signed mailbox, restart, no A
   assert.equal((await send(f.nodes[0],f.authors[0],f.targets[0],"multi-first-0000001")).status,202);
   assert.equal((await send(f.nodes[1],f.authors[1],f.targets[1],"multi-second-000001")).status,202);
   const directory=join(f.dir,"coord-success");
+  await mkdir(directory,{recursive:true});
+  const lock=join(directory,".coordinator-active.lock");
+  await writeFile(lock,"synthetic stale operation lock");
+  await assert.rejects(
+   freezeAndVerifyMultiRelayLab({directory,participants:f.participants}),
+   /EEXIST/,
+   "two coordinators must never mutate the same intent simultaneously"
+  );
+  await rm(lock);
   const result=await freezeAndVerifyMultiRelayLab({directory,participants:f.participants});
   assert.equal(result.status,"synthetic-all-relays-frozen-and-attested");
   assert.equal(result.relayCount,2);assert.equal(result.verifiedEvidenceCount,2);
