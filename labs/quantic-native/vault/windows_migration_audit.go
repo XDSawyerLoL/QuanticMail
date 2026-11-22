@@ -40,8 +40,8 @@ func migrationAuditValidate(name string,raw []byte)bool{
  var extra any
  if d.Decode(&extra)!=io.EOF{return false}
  encoded,e:=json.Marshal(p)
- if e!=nil||!bytes.Equal(encoded,raw)||p.Format!=migrationAuditFormat||p.Version!=1||p.TransactionID!=m[1]
-  ||p.Sequence<0||p.Sequence>31||fmt.Sprintf("%03d",p.Sequence)!=m[2]||!hashRE.MatchString(p.PreviousHash){return false}
+ if e!=nil||!bytes.Equal(encoded,raw)||p.Format!=migrationAuditFormat||p.Version!=1||p.TransactionID!=m[1]||
+  p.Sequence<0||p.Sequence>31||fmt.Sprintf("%03d",p.Sequence)!=m[2]||!hashRE.MatchString(p.PreviousHash){return false}
  want:="blocked"
  if p.Sequence==0{want="prepared"}else if p.Sequence==1{want="snapshot-verified"}else if p.Sequence==2{want="relay-observed"}
  if p.Phase!=want{return false}
