@@ -210,6 +210,21 @@ jobs:
           # workflow itself succeeds only after the assertion above passes.
           exit 0
 
+      - name: 16 MiB synthetic Windows restoration, interrupted copy and independent restart
+        shell: pwsh
+        timeout-minutes: 10
+        run: |
+          $package = Join-Path $env:RUNNER_TEMP "QuanticMail-Windows-PQ-Lab"
+          $manifestPin = (Get-FileHash -LiteralPath "$package\SHA256SUMS.txt" -Algorithm SHA256).Hash
+          $binaryPin = (Get-FileHash -LiteralPath "$package\bin\Vault-PQ-lab.exe" -Algorithm SHA256).Hash
+          $private = Join-Path $env:RUNNER_TEMP ("qs-16mib-" + $env:GITHUB_SHA.Substring(0,12))
+          $shell = (Get-Process -Id $PID).Path
+          $result = & $shell -NoProfile -NonInteractive -File "$package\Start-Windows-PQ-Lab.ps1" -Operation MigrationFullSmoke -PrivateDirectory $private -ExpectedManifestSha256 $manifestPin -TrustedBinarySha256 $binaryPin
+          if ($LASTEXITCODE -ne 0) { throw "16 MiB Windows encrypted recovery failed" }
+          $report = ($result | Select-Object -Last 1 | ConvertFrom-Json)
+          if ($report.status -ne "synthetic-16mib-windows-restart-passed" -or -not $report.fullSizeVerified -or $report.resumedPreviouslyWrittenChunks -lt 3 -or -not $report.historicalCollectionsMatch -or -not $report.sourceIntact -or $report.liveRestoreAuthorized -or $report.legacyDeletionAuthorized) { throw "Incomplete 16 MiB reconciliation" }
+          Write-Host "Windows 16 MiB native interruption/restart reconciliation passed: $($report.chunkCount) sealed chunks per role"
+
       - name: Windows native Scattering mailbox loopback using packaged binaries
         shell: pwsh
         run: |
