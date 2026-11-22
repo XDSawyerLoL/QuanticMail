@@ -686,6 +686,36 @@ export function enqueueEnvelope(input: {
   return { id: envelope.id, queuedAt: envelope.createdAt, duplicate: false };
 }
 
+/**
+ * Strictly laboratory-only, read-only view of ALL records retained for one
+ * authenticated mailbox, not the public 100-element pull window. Invocation
+ * must be guarded by the loopback-only server opt-in. No queue pruning, ACK,
+ * prekey claim, identity migration, token export or state mutation.
+ * The relay imposes 500 queued envelopes/receipts per device; this view
+ * says nothing about historical entries already acknowledged or expired.
+ */
+export function readMigrationLabMailbox(
+  locatorInput: string,
+  authToken: string | null,
+  deviceId: string,
+) {
+  const auth=authenticateDevice(locatorInput,authToken,deviceId);
+  const key=mailboxKey(auth.identity.canonicalAddress,auth.deviceId);
+  const envelopes=state.queues.get(key) ?? [];
+  const receipts=state.receipts.get(key) ?? [];
+  if(envelopes.length>MAX_QUEUE||receipts.length>MAX_RECEIPTS)
+    throw new RelayError("File de laboratoire hors limites.",503);
+  // Independent copies prevent a caller from mutating the relay state.
+  return {
+    canonicalAddress:auth.identity.canonicalAddress,
+    deviceId:auth.deviceId,
+    envelopes:structuredClone(envelopes),
+    receipts:structuredClone(receipts),
+    queueCapacity:MAX_QUEUE,
+    receiptCapacity:MAX_RECEIPTS,
+  };
+}
+
 export function pullEnvelopes(
   locatorInput: string,
   authToken: string | null,
