@@ -300,6 +300,73 @@ sur la base de ces verrous locaux, suivie d'un protocole de
 quorum/rollback résistant aux déconnexions et d'une migration réelle
 testée sans perte de préclés ou de courrier.
 
+## Coordination multi-relais dans des processus distincts (laboratoire)
+
+`lib/quantic/migration-multirelay-coordinator-lab.mjs` coordonne désormais
+**2 à 4 relais de laboratoire indépendants**, tous liés à
+`http://127.0.0.1:<port>`. Chaque relais possède son propre répertoire,
+sa propre identité et sa propre clé de signature ECDSA P-256. La liste
+des empreintes `relayId` est fournie indépendamment du réseau, sans
+confiance dans une réponse de statut seule.
+
+**Séquence de laboratoire :** vérification des identités et des files non
+gelées ; écriture synchronisée d'une intention aléatoire
+`transactionId` dans `coordinator-intent.json` ; fermeture séquentielle
+des relais avec ce même identifiant ; relecture de chaque statut ;
+capture et vérification de deux instantanés signés complets par
+relais, liés à son `fenceId` ; sauvegarde locale des empreintes des
+preuves ; dernière vérification de toutes les fermetures. Aucun
+jeton, secret opérateur, message ni clé privée ne figure dans le
+journal du coordinateur. Les fichiers du journal sont remplacés par
+écriture temporaire, synchronisation, renommage et synchronisation
+du répertoire lorsque disponible.
+
+Une réponse HTTP de fermeture **perdue après l'enregistrement** ne
+provoque pas un nouveau verrou : la reprise consulte
+`fence-status` et exige que le `transactionId` corresponde à celui
+de l'intention persistée, puis reprend à partir des relais non
+encore fermés. Si un relais est injoignable, le coordinateur
+**ne prétend pas avoir réussi** et laisse les verrous déjà appliqués
+actifs. Il faut soit reprendre avec les mêmes paramètres, soit
+effectuer un **rollback explicitement demandé**. Une réouverture
+partielle produit `synthetic-rollback-incomplete` et reste
+réessayable après rétablissement des relais. Les fichiers de preuve
+sont vérifiés cryptographiquement, mais seules leurs empreintes
+sont conservées.
+
+Une seule opération est autorisée à la fois par répertoire de
+coordination grâce à `.coordinator-active.lock` créé exclusivement.
+Une coupure brutale du coordinateur peut laisser ce fichier :
+**ne pas le supprimer automatiquement**. L'opérateur doit vérifier
+que le processus est arrêté, inspecter les verrous distants et
+décider consciemment de reprendre ou d'annuler. Une suppression
+automatique risquerait deux coordinateurs concurrents.
+
+Les tests `tests/migration-multirelay-coordinator.test.mjs`
+démarrent **deux vrais serveurs dans deux processus système distincts**
+(avec états et clés de relais différents). Ils vérifient les gels
+persistants après redémarrage, les signatures indépendantes, un
+envoi interdit, une perte de réponse HTTP pourtant enregistrée par
+le premier relais, la récupération, la panne du second relais lors
+d'un rollback, puis l'annulation complète. Le test vérifie aussi
+que le fichier du coordinateur ne contient aucun secret et qu'un
+second opérateur ne peut pas acquérir le verrou de fichier.
+
+**Ce n'est pas un protocole de consensus ou un commit distribué.**
+Pendant la fermeture séquentielle, un autre relais peut encore
+recevoir des messages. Une fois tous les relais observés gelés,
+la preuve ne porte que sur les files **encore retenues** sur ces
+relais précis. Les relais fédérés non listés, les messages déjà
+expirés/acquittés et les coupures d'alimentation ne sont pas
+couverts ; les journaux locaux ne forment pas un journal de quorum
+indépendant. La coordination n'envoie jamais un ACK et retourne
+toujours `remoteQueueReconciled:false`,
+`liveRestoreAuthorized:false`, `legacyDeletionAuthorized:false`.
+Il reste à établir une barrière de réception à l'échelle de tous
+les relais possibles, une preuve de conservation des messages
+en vol et un mécanisme de convergence après partition réseau,
+avant toute migration réelle.
+
 ## Pourquoi ne pas encore basculer les vrais comptes ?
 
 La continuité des clés **n'est pas** la continuité de la boîte complète.
