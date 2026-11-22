@@ -75,6 +75,15 @@ test('async remote-compatible settlement worker safely retries an outage and res
    destinationValidators:nodes,intervalMs:100});
   assert.equal((await worker.start()).status,'deferred');
   assert.equal(ddb.snapshot().balances['demo-shop'],0);
+  assert.equal(worker.stats().consecutiveFailures,1);
+  // Simulate a prolonged outage without flooding offline peers. A 100ms
+  // poll interval must no longer create ten unsuccessful network scans/sec.
+  await sleep(1200);
+  const prolonged=worker.stats();
+  assert.ok(prolonged.attempts>=2&&prolonged.attempts<=6,
+   JSON.stringify(prolonged));
+  assert.ok(prolonged.consecutiveFailures>=2);
+  assert.equal(ddb.snapshot().balances['demo-shop'],0);
   online=true;
   for(let i=0;i<70&&ddb.snapshot().balances['demo-shop']!==600;i++)await sleep(100);
   assert.equal(ddb.snapshot().balances['demo-shop'],600,JSON.stringify(worker.last()));
@@ -138,6 +147,6 @@ test('async remote-compatible settlement worker safely retries an outage and res
   assert.equal(worker.stats().released,0);
   assert.equal(ddb.snapshot().balances['demo-shop']+sdb.snapshot().balances['demo-alice'],1000);
   worker.stop();
-  t.diagnostic('ASYNC_REMOTE_SETTLEMENT_RECOVERY_V1 '+JSON.stringify({outageRetried:true,committedAndCredited:600,abortedAndReleased:400,rolledBackSourceRefused:true,postRecoveryHeight:ddb.snapshot().height,duplicateCredits:0,staleWitnessRepaired:true,workerRestartIdempotent:true,simulationOnly:true}));
+  t.diagnostic('ASYNC_REMOTE_SETTLEMENT_RECOVERY_V1 '+JSON.stringify({outageRetried:true,committedAndCredited:600,abortedAndReleased:400,rolledBackSourceRefused:true,postRecoveryHeight:ddb.snapshot().height,duplicateCredits:0,staleWitnessRepaired:true,workerRestartIdempotent:true,prolongedOutageBackoff:true,simulationOnly:true}));
  }finally{await worker?.close();for(const v of [...nodes,...voters,...witnesses])try{v.close();}catch{}try{sdb?.close();}catch{}try{ddb?.close();}catch{}rmSync(root,{recursive:true,force:true});}
 });
