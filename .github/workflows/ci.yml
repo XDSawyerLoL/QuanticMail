@@ -6,6 +6,11 @@ on:
   pull_request:
     branches: [main]
 
+# Keep the newest validation on a feature branch; preserve main runs.
+concurrency:
+  group: ${{ github.workflow }}-${{ (github.event_name == 'pull_request' || startsWith(github.ref, 'refs/heads/feat/')) && (github.head_ref || github.ref_name) || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || startsWith(github.ref, 'refs/heads/feat/') }}
+
 jobs:
   build:
     runs-on: ubuntu-latest
