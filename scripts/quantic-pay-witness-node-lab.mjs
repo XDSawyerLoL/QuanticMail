@@ -3,20 +3,12 @@
 // All witness signing keys and the SQLite fence stay in THIS process.
 // The orchestrator has TLS client credentials only. Configuration is explicit
 // and owner-private; no administrative API or remote private-key fetch exists.
-import {readFileSync,realpathSync,statSync} from 'node:fs';
-import {isAbsolute} from 'node:path';
-import {createPrivateKey,createHash} from 'node:crypto';
 import {openShardWitnessBridgeLab} from '../lib/quantic/pay-shard-witness-bridge-lab.mjs';
 import {startPayWitnessMtlsServerLab} from '../lib/quantic/pay-witness-mtls-lab.mjs';
+import {readWitnessPrivateFileLab,loadWitnessPrivateKeyLab} from '../lib/quantic/pay-witness-private-file-lab.mjs';
+import {isAbsolute} from 'node:path';
 
 const fail=()=>{throw Error('Quantic Pay remote witness node refused configuration');};
-function privatePath(path){
- if(typeof path!=='string'||!isAbsolute(path)||realpathSync(path)!==path)fail();
- const st=statSync(path);
- if(!st.isFile()||(process.platform!=='win32'
-   &&(st.uid!==process.getuid()||(st.mode&0o077)!==0)))fail();
- return readFileSync(path);
-}
 const cfgPath=process.env.QUANTIC_PAY_WITNESS_CONFIG;
 let server=null,witness=null,closing=false;
 async function close(code=0){
@@ -28,7 +20,9 @@ async function close(code=0){
 process.on('SIGINT',()=>{void close(0);});
 process.on('SIGTERM',()=>{void close(0);});
 try{
- const raw=privatePath(cfgPath),data=JSON.parse(raw.toString('utf8'));
+ const raw=readWitnessPrivateFileLab(cfgPath);
+ let data;
+ try{data=JSON.parse(raw.toString('utf8'));}finally{raw.fill(0);}
  if(!data||typeof data!=='object'||Array.isArray(data))fail();
  const {config,options,shard,witnesses,credentials,identity,
   allowedClientCertPins,directory,createNew,host,port}=data;
@@ -37,15 +31,20 @@ try{
  const bridge=openShardWitnessBridgeLab({config,options,shard,witnesses});
  witness=bridge.openWitness({directory,createNew,credentials:{
   pin:credentials.pin,
-  classicalPrivateKey:createPrivateKey(privatePath(credentials.classicalKeyPath)),
-  pqPrivateKey:createPrivateKey(privatePath(credentials.pqKeyPath))
+  classicalPrivateKey:loadWitnessPrivateKeyLab(credentials.classicalKeyPath),
+  pqPrivateKey:loadWitnessPrivateKeyLab(credentials.pqKeyPath)
  }});
- server=await startPayWitnessMtlsServerLab({
-  witness,host:host??'127.0.0.1',port,
-  tls:{key:privatePath(identity.keyPath),cert:privatePath(identity.certPath),
-   ca:privatePath(identity.caPath)},
-  allowedClientCertPins
- });
+ // The TLS engine installs the keys into its native secure context before
+ // these temporary JS buffers are wiped. This is NOT hardware key custody.
+ const tlsKey=readWitnessPrivateFileLab(identity.keyPath,{maxBytes:65536});
+ const tlsCert=readWitnessPrivateFileLab(identity.certPath,{maxBytes:65536});
+ const tlsCA=readWitnessPrivateFileLab(identity.caPath,{maxBytes:65536});
+ try{
+  server=await startPayWitnessMtlsServerLab({
+   witness,host:host??'127.0.0.1',port,
+   tls:{key:tlsKey,cert:tlsCert,ca:tlsCA},allowedClientCertPins
+  });
+ }finally{tlsKey.fill(0);tlsCert.fill(0);tlsCA.fill(0);}
  process.stdout.write(JSON.stringify({event:'ready',host:server.host,port:server.port,
   witnessPin:credentials.pin,scope:bridge.scope,simulationOnly:true})+'\n');
 }catch(e){
