@@ -18,3 +18,16 @@ The manifest generator explicitly uses GNU sha256sum --binary. Both strict launc
 Unified laboratory operator dashboard: after independent whole-package verification, call Start-Windows-PQ-Lab.ps1 -Operation Dashboard -ExpectedManifestSha256 EXPECTED_MANIFEST_HASH -TrustedBinarySha256 EXPECTED_VAULT_HASH from a local Windows console. Graphical action selection uses existing terminal approval tools. Synthetic identity/authority/relay configuration and independent native carrier processes are still prerequisites. This is not a signed single-file installer.
 
 The dashboard now generates its own local Ed25519 controller key inside a new ACL-guarded vault, without an externally supplied controller secret. Public identity address and independently obtained quorum pin are still required; this does not create a remotely enrolled account. The generated controller is written before the final local completion marker; no overwrite, no legacy key import. Existing controller custody is owner/SYSTEM ACL only (same-user compromise not protected). CI tests generated key/marker/journal binding and overwrite refusal.
+
+## Démonstration synthétique Windows (une commande)
+
+Dans le paquet Windows vérifié, lancer depuis PowerShell :
+
+```powershell
+.\Start-Windows-PQ-Lab.ps1 -Operation MigrationSmoke `
+  -ExpectedManifestSha256 VOTRE_MANIFEST_SHA256_VERIFIE `
+  -TrustedBinarySha256 VOTRE_SHA256_BINAIRE_VERIFIE `
+  -PrivateDirectory "C:\QuanticMigrationLab\Essai01"
+```
+
+Le dossier indiqué doit être nouveau, local et sur NTFS. Le lanceur exige les empreintes obtenues indépendamment de l'archive, vérifie le paquet puis crée uniquement des enregistrements fictifs. Les quatre collections sont chiffrées par AES-256-GCM, stockées sans écrasement par le composant Windows natif, relues dans un second processus et comparées intégralement. Le résultat attendu est `synthetic-windows-migration-smoke-passed`, sans aucune autorisation de migration ou de suppression réelle. Le laboratoire garde les fichiers pour inspection et refuse une seconde exécution dans le même dossier. Ce scénario ne vérifie ni les comptes réels, ni la continuité des relais distants, ni les coupures électriques, ni les archives supérieures à 96 Ko.
