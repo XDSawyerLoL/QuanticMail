@@ -260,12 +260,14 @@ func serveGuardedPQ(s signer, key agreementKey, backend string, in io.Reader, ou
 				break
 			}
 			if approve("Preuve ML-DSA de laboratoire : " + hex.EncodeToString(h[:])) {
-				if sig, err := pq.proof(q.PQChallenge); err == nil {
-					if err = consume(h); err != nil {
-						return err
-					}
-					r = reply{OK: true, PQProof: b64.EncodeToString(sig)}
+				sig, err := journal.reservePrivateSignature(h, func() ([]byte, error) {
+					return pq.proof(q.PQChallenge)
+				})
+				if err != nil {
+					return err
 				}
+				seen[h] = true
+				r = reply{OK: true, PQProof: b64.EncodeToString(sig)}
 			}
 		case "mail-seal-hybrid-lab":
 			if pq==nil||journal==nil||journal.anchor==nil||q.PQContext==nil||q.PQEnvelope!=nil||q.SenderAuth!=nil{break}
