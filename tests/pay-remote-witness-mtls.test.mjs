@@ -100,7 +100,7 @@ test('four independent witness processes enforce pinned mutual TLS, certified pr
    assert.ok(ready,'witness did not start: '+stderr);
    assert.equal(ready.witnessPin,k.pub.pin);
    const url='https://127.0.0.1:'+ready.port+'/v1/witness';
-   const client=openPayWitnessMtlsClientLab({url,credentials:controller,serverCertPin:serverCerts[i].pin});
+   const client=openPayWitnessMtlsClientLab({url,credentials:{key:controller.key,cert:controller.cert,ca:controller.ca},serverCertPin:serverCerts[i].pin});
    return {child,client,url};
   }
   async function stop(child){
@@ -117,7 +117,7 @@ test('four independent witness processes enforce pinned mutual TLS, certified pr
   const coordinator=openRemoteShardWitnessCoordinatorLab({config,options,shard:east,witnesses:wk.map(x=>x.pub),clients});
   assert.notEqual(services[0].child.pid,services[1].child.pid);
   const rejected=openPayWitnessMtlsClientLab({url:services[0].url,
-   credentials:intruder,serverCertPin:serverCerts[0].pin});
+   credentials:{key:intruder.key,cert:intruder.cert,ca:intruder.ca},serverCertPin:serverCerts[0].pin});
   await assert.rejects(()=>rejected.status(),'unauthorized but CA-signed client');
   const wrongPin=openPayWitnessMtlsClientLab({url:services[0].url,
    credentials:controller,serverCertPin:'f'.repeat(64)});
