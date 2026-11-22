@@ -27,7 +27,8 @@ func TestEncryptedRecoveryResult(t *testing.T){
 func TestAuthorizedMailResultReservationAndRecovery(t *testing.T){
  for _,refused:=range []int{0,1,2}{
   t.Run(string(rune('0'+refused)),func(t *testing.T){
-   path,s,e,app:=testJournal(t);j,err:=openReplay(path,s,e,app);if err!=nil{t.Fatal(err)};defer j.close()
+   path,s,e,app:=testJournal(t)
+   if err:=os.Chmod(filepath.Dir(path),0700);err!=nil{t.Fatal(err)};j,err:=openReplay(path,s,e,app);if err!=nil{t.Fatal(err)};defer j.close()
    id,_:=anchorID(s,e,app);q:=&quorumAnchor{};var ws [4]*fakeAnchor
    for i:=range ws{ws[i]=&fakeAnchor{tail:j.tail};q.members[i]=ws[i]}
    if err=j.attachAnchor(q,id);err!=nil{t.Fatal(err)}
@@ -46,7 +47,8 @@ func TestAuthorizedMailResultReservationAndRecovery(t *testing.T){
  }
 }
 func TestAuthorizedMailResultProviderFailureBurnsReservation(t *testing.T){
- path,s,e,app:=testJournal(t);j,err:=openReplay(path,s,e,app);if err!=nil{t.Fatal(err)};defer j.close()
+ path,s,e,app:=testJournal(t)
+   if err:=os.Chmod(filepath.Dir(path),0700);err!=nil{t.Fatal(err)};j,err:=openReplay(path,s,e,app);if err!=nil{t.Fatal(err)};defer j.close()
  id,_:=anchorID(s,e,app);a:=&fakeAnchor{tail:j.tail};if err=j.attachAnchor(a,id);err!=nil{t.Fatal(err)}
  block,_:=aes.NewCipher(make([]byte,32));g,_:=cipher.NewGCM(block);p:=&pqKeys{recovery:g}
  k,req:=[32]byte{1},[32]byte{2};calls:=0
@@ -60,6 +62,7 @@ func TestAuthorizedMailRecoveryAcrossReopen(t *testing.T){
  for _,stage:=range []string{"orphan","reserved","truncated","complete","failed-write"}{
   t.Run(stage,func(t *testing.T){
    path,s,e,app:=testJournal(t)
+   if err:=os.Chmod(filepath.Dir(path),0700);err!=nil{t.Fatal(err)}
    j,err:=openReplay(path,s,e,app);if err!=nil{t.Fatal(err)}
    id,_:=anchorID(s,e,app);a:=&fakeAnchor{tail:j.tail};if err=j.attachAnchor(a,id);err!=nil{j.close();t.Fatal(err)}
    block,_:=aes.NewCipher(make([]byte,32));g,_:=cipher.NewGCM(block);p:=&pqKeys{recovery:g}
