@@ -194,6 +194,55 @@ Tests :
 Le workflow natif Windows inclut également ces régressions et
 `MigrationFullSmoke` avec journal local.
 
+## Attestation intégrale signée de file locale (laboratoire)
+
+Le relais autonome dispose maintenant d'un mode **explicitement opt-in**,
+`migrationSnapshotLab:true`, accepté uniquement lorsque le serveur est
+lié à `127.0.0.1` et utilise son stockage de laboratoire **sans PostgreSQL**.
+Ce mode est désactivé par défaut et interdit sur un relais public. La
+route `GET /api/quantic/lab/migration-snapshot` exige le jeton du
+propriétaire du périphérique, un `nonce` inédit, et refuse les
+requêtes Cross-Origin. Elle est réservée aux identités fictives de test.
+
+Contrairement aux anciens endpoints `/pull` et `/receipts`, qui
+n'exposent que **100 éléments**, le mode laboratoire lit d'un coup
+**toutes les entrées encore conservées en mémoire sur un relais unique**,
+dans les limites actuelles de **500 enveloppes et 500 reçus** par boîte.
+Le contrôle refuse les ensembles trop volumineux (12 Mio de données
+sérialisées par catégorie) au lieu d'émettre une preuve partielle.
+La lecture passe par `RelayRuntime.read`, attend les écritures déjà
+soumises au processus, et capture les deux catégories sans mutation
+entre les deux instantanés internes.
+
+Le serveur renvoie uniquement une liste ordonnée d'empreintes SHA-256,
+des compteurs et des racines SHA-256. L'ensemble, l'adresse canonique,
+l'identifiant d'appareil, le nonce, la date et la clé publique
+d'identité du relais sont **signés ECDSA P-256**. Le validateur
+`verifyMigrationLabMailbox` vérifie la signature et que l'identité
+cryptographique du signataire correspond à une **empreinte de relais
+confiée indépendamment** au vérificateur. Le comparateur
+`compareMigrationLabMailboxes` refuse le réemploi d'un nonce et
+détecte les entrées apparues, modifiées ou disparues entre deux
+captations. Les tests créent plus de 100 messages fictifs, redémarrent
+le vrai relais avec son stockage durable, et vérifient que toutes
+les empreintes persistent et qu'un nouvel arrivant est détecté.
+
+**Portée de la preuve :** exhaustive pour les entrées *encore stockées
+dans un seul relais de laboratoire au moment de la capture*, pas pour
+l'historique complet, un ensemble de relais fédérés, les messages
+déjà acquittés/expirés, ni les écritures arrivées juste après la
+signature. Aucune barrière de concurrence durable ou consensus
+entre relais n'est encore réalisé. Ainsi, même avec deux attestations
+valides et identiques, les indicateurs `remoteQueueReconciled`,
+`liveRestoreAuthorized` et `legacyDeletionAuthorized`
+demeurent **toujours faux**. Cela n'est pas une preuve suffisante
+pour une bascule réelle ; celle-ci exigera une clôture transactionnelle
+du flux de réception, un accusé de conservation répliqué et une
+transition d'identité auditée et réversible.
+
+Test : `node --experimental-transform-types --test
+tests/migration-signed-full-relay.test.mjs`.
+
 ## Pourquoi ne pas encore basculer les vrais comptes ?
 
 La continuité des clés **n'est pas** la continuité de la boîte complète.
