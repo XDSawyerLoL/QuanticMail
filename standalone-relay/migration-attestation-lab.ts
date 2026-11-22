@@ -13,6 +13,9 @@ const nonceRE=/^[A-Za-z0-9_-]{24,96}$/;
 const addressRE=/^[a-z0-9][a-z0-9._-]{2,31}~(?:[a-f0-9]{10}|[a-f0-9]{32})@quantic$/;
 const deviceRE=/^d-[a-f0-9]{10}(?:[a-f0-9]{22})?$/;
 const MAX=500;
+// Refuse pathological full queues rather than hashing hundreds of MiB
+// on the relay event loop. Larger queues require a separate streaming design.
+const MAX_CAPTURE_BYTES=12*1024*1024;
 const check=(ok:unknown)=>{if(!ok)throw Error("Signed relay migration snapshot refused");};
 const hash=(s:string)=>createHash("sha256").update(s).digest("hex");
 type RowDigest={idHash:string;recordHash:string};
@@ -27,13 +30,17 @@ export type SignedMigrationLabSnapshot={
 function digests(rows:Array<{id:string}>):RowDigest[]{
  check(rows.length<=MAX);
  const seen=new Set<string>();
+ let processed=0;
  return rows.map(row=>{
   check(row&&Object.getPrototypeOf(row)===Object.prototype
    &&typeof row.id==="string"&&row.id.length>0&&row.id.length<=128
    &&!seen.has(row.id));
   seen.add(row.id);
+  const serialized=JSON.stringify(row);
+  processed+=Buffer.byteLength(serialized);
+  check(processed<=MAX_CAPTURE_BYTES);
   return {idHash:hash("quantic-relay-row-id/v1:"+row.id),
-   recordHash:hash("quantic-relay-row/v1:"+JSON.stringify(row))};
+   recordHash:hash("quantic-relay-row/v1:"+serialized)};
  }).sort((a,b)=>a.idHash.localeCompare(b.idHash));
 }
 function root(rows:RowDigest[],kind:string){
