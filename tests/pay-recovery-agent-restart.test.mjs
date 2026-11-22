@@ -26,7 +26,7 @@ export function createRecoveryWorkerLab(){
    child.stderr.setEncoding('utf8');child.stderr.on('data',s=>{stderr+=s});
    child.stdout.setEncoding('utf8');child.stdout.on('data',s=>{
     buffer+=s;let index;
-    while((index=buffer.indexOf('\\n'))>=0){
+    while((index=buffer.indexOf('\n'))>=0){
      const line=buffer.slice(0,index);buffer=buffer.slice(index+1);
      if(line)events.push(JSON.parse(line));
     }
