@@ -19,8 +19,8 @@ const keypair=()=>({
  sig:generateKeyPairSync("ec",{namedCurve:"prime256v1"})
 });
 const ids={alice:keypair(),bob:keypair()};
-async function startChild(dir,secret){
- const child=spawn(process.execPath,["--experimental-transform-types",fixture,dir],{
+async function startChild(dir,secret,port=0){
+ const child=spawn(process.execPath,["--experimental-transform-types",fixture,dir,String(port)],{
   env:{...process.env,QUANTIC_SYNTHETIC_OPERATOR_SECRET:secret},
   stdio:["ignore","pipe","pipe"],windowsHide:true
  });
@@ -36,15 +36,15 @@ async function startChild(dir,secret){
   child.once("exit",(code)=>reject(Error("Relay test child quit "+code+" "+logs.slice(-1500))));
  });
  try{
-  const result=await Promise.race([
-   ready,new Promise((_,reject)=>setTimeout(()=>reject(Error("relay startup timeout "+logs.slice(-1000))),22000))
-  ]);
+  let timeout;
+  const deadline=new Promise((_,reject)=>{timeout=setTimeout(()=>reject(Error("relay startup timeout "+logs.slice(-1000))),22000);timeout.unref();});
+  const result=await Promise.race([ready,deadline]).finally(()=>clearTimeout(timeout));
   assert.match(result.relayId,/^[0-9a-f]{64}$/);
   return{child,dir,secret,...result};
  }catch(e){child.kill();throw e;}
 }
 async function stopChild(node){
- if(!node||node.child.exitCode!==null)return;
+ if(!node||node.child.exitCode!==null||node.child.signalCode!==null)return;
  const waiting=once(node.child,"exit");
  node.child.kill("SIGTERM");
  await waiting;
@@ -62,8 +62,8 @@ async function enroll(node,handle,keys){
  }).toString("base64");
  const r=await fetch(node.url+"/api/quantic/register",{method:"POST",headers:head(),
   body:JSON.stringify({handle,publicKey,signingPublicKey,authToken,challenge,signature})});
- assert.equal(r.status,201,await r.text());
- const {canonicalAddress,rootDeviceId}=await r.json().catch(()=>({}));
+ assert.equal(r.status,201);
+ const {canonicalAddress,rootDeviceId}=await r.json();
  return{canonicalAddress,deviceId:rootDeviceId,authToken,publicKey};
 }
 async function createFixture(){
@@ -119,7 +119,8 @@ test("two independent relay processes: all freeze, signed mailbox, restart, no A
   assert.equal(journal.includes("synthetic-opaque"),false);
   for(let i=0;i<2;i++){
    await stopChild(f.nodes[i]);
-   const after=await startChild(f.nodes[i].dir,f.nodes[i].secret);
+   const originalPort=Number(new URL(f.nodes[i].url).port);
+   const after=await startChild(f.nodes[i].dir,f.nodes[i].secret,originalPort);
    assert.equal(after.relayId,f.nodes[i].relayId);f.nodes[i]=after;
   }
   assert.equal((await inspectMultiRelayLab({directory,participants:f.participants})).allVerified,true);
