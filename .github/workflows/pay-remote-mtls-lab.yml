@@ -1,0 +1,46 @@
+name: Quantic Pay remote mTLS laboratory
+on:
+  push:
+    branches: [main, "feat/**"]
+    paths:
+      - "lib/quantic/pay-witness-mtls-lab.mjs"
+      - "lib/quantic/pay-shard-witness-mtls-coordinator-lab.mjs"
+      - "lib/quantic/pay-quorum-fence-lab.mjs"
+      - "lib/quantic/pay-shard-witness-bridge-lab.mjs"
+      - "lib/quantic/pay-sharded-lab.mjs"
+      - "lib/quantic/pay-sharded-durable-lab.mjs"
+      - "scripts/quantic-pay-witness-node-lab.mjs"
+      - "tests/pay-remote-witness-mtls.test.mjs"
+      - ".github/workflows/pay-remote-mtls-lab.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "lib/quantic/pay-witness-mtls-lab.mjs"
+      - "lib/quantic/pay-shard-witness-mtls-coordinator-lab.mjs"
+      - "lib/quantic/pay-quorum-fence-lab.mjs"
+      - "lib/quantic/pay-shard-witness-bridge-lab.mjs"
+      - "lib/quantic/pay-sharded-lab.mjs"
+      - "lib/quantic/pay-sharded-durable-lab.mjs"
+      - "scripts/quantic-pay-witness-node-lab.mjs"
+      - "tests/pay-remote-witness-mtls.test.mjs"
+      - ".github/workflows/pay-remote-mtls-lab.yml"
+
+permissions:
+  contents: read
+concurrency:
+  group: remote-mtls-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  isolated-witnesses:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.8.0
+      - name: Verify local test OpenSSL
+        run: openssl version
+      - name: Four isolated post-quantum witnesses with TLS client and server pinning
+        run: node --test tests/pay-remote-witness-mtls.test.mjs
