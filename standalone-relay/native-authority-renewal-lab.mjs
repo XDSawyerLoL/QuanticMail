@@ -5,7 +5,7 @@
 // There is no HTTP update endpoint and no automatic timestamp fabrication.
 import {createHash,createPublicKey,randomBytes,verify} from 'node:crypto';
 import {lstat,readFile,open,rename,unlink} from 'node:fs/promises';
-import {join,resolve} from 'node:path';
+import {join,resolve,dirname} from 'node:path';
 const refuse=()=>{throw Error('Native authority signed snapshot renewal refused');};
 const check=x=>{if(!x)refuse();};
 const hash=b=>createHash('sha256').update(b).digest('hex');
@@ -17,8 +17,7 @@ const exact=(o,fields)=>check(o&&typeof o==='object'&&!Array.isArray(o)
 const json=(b,max)=>{check(Buffer.isBuffer(b)&&b.length>1&&b.length<=max);return JSON.parse(b.toString('utf8'));};
 async function checked(path,max,{directory=false}={}){
  const s=await lstat(path);
- check(!s.isSymbolicLink()&&s.nlink===(directory?2:s.nlink)
-  &&(s.mode&0o077)===0&&s[directory?'isDirectory':'isFile']());
+ check(!s.isSymbolicLink()&&(s.mode&0o077)===0&&s[directory?'isDirectory':'isFile']());
  if(!directory)check(s.nlink===1&&s.size>=1&&s.size<=max);
  return s;
 }
@@ -63,8 +62,8 @@ async function durableHead(path,value){
   await fd.writeFile(Buffer.from(JSON.stringify(value)));
   await fd.sync();await fd.close();fd=undefined;
   await rename(tmp,path);
-  const parent=await open(join(path,'..'),'r').catch(()=>null); // replaced below by dirname
-  if(parent)await parent.close();
+  const parent=await open(dirname(path),'r');
+  try{await parent.sync();}finally{await parent.close();}
  }catch(e){
   try{await fd?.close();}catch{}
   await unlink(tmp).catch(()=>{});
@@ -125,6 +124,8 @@ export async function createSignedAuthorityRenewalLab({
   const handle=await open(headPath,'wx',0o600);
   try{await handle.writeFile(JSON.stringify(initialHead));await handle.sync();}
   finally{await handle.close();}
+  const parent=await open(directory,'r');
+  try{await parent.sync();}finally{await parent.close();}
   saved=await readPrivate(headPath,4096);
  }
  const head=json(saved,4096);
