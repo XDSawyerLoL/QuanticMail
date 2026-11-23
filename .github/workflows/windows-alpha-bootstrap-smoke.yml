@@ -48,7 +48,7 @@ jobs:
           & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -STA -ExecutionPolicy Bypass -File $nested -SelfTest
           exit $LASTEXITCODE
           '@
-          foreach($name in @("Start-Windows-PQ-Lab.ps1","Test-Windows-PQ-Package.ps1","Quantic-Sillage-Alpha.ps1")) {
+          foreach($name in @("Start-Windows-PQ-Lab.ps1","Test-Windows-PQ-Package.ps1","Quantic-Sillage-Alpha.ps1","Quantic-Sillage-Compose.ps1","Quantic-Sillage-Advanced.ps1")) {
             if ($name -eq "Start-Windows-PQ-Lab.ps1") {
               [IO.File]::WriteAllText((Join-Path $root $name),$script)
             } elseif ($name -eq "Quantic-Sillage-Alpha.ps1") {
@@ -58,7 +58,7 @@ jobs:
             }
           }
           Copy-Item "$root\bin\Quantic-Sillage-Launcher.exe" "$root\bin\Vault-PQ-lab.exe"
-          $names=@("Quantic-Sillage-Alpha.ps1","Start-Windows-PQ-Lab.ps1","Test-Windows-PQ-Package.ps1","bin/Vault-PQ-lab.exe")
+          $names=@("Quantic-Sillage-Alpha.ps1","Quantic-Sillage-Compose.ps1","Quantic-Sillage-Advanced.ps1","Start-Windows-PQ-Lab.ps1","Test-Windows-PQ-Package.ps1","bin/Vault-PQ-lab.exe")
           $manifest=($names|ForEach-Object {
             $filename=Join-Path $root ($_.Replace('/','\'))
             $digest=(Get-FileHash -LiteralPath $filename -Algorithm SHA256).Hash.ToLowerInvariant()
