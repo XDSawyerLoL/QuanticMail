@@ -442,3 +442,8 @@ jobs:
           } finally { $ErrorActionPreference = $previousPreference }
           if ($invalidExit -eq 0) { throw "Installed launcher accepted a false manifest digest" }
           Write-Host "Independent Windows install/PQ smoke passed (unsigned synthetic laboratory only): $actual"
+          # The previous external process intentionally exited nonzero to prove
+          # fail-closed behavior. After ALL assertions pass, clear that status
+          # for the enclosing pwsh task; otherwise GitHub reports a false failure.
+          # This does not bypass any required check above.
+          exit 0
