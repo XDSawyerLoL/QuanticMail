@@ -113,6 +113,11 @@ jobs:
           node-version: 24.8.0
       - name: Windows trusted client workflow regressions
         run: node --test tests/native-windows-desktop.test.mjs tests/native-vault-controller.test.mjs tests/native-windows-mail-flow.test.mjs
+      - name: Integrated Windows PQ compose and send (durable wire and fail-closed transport)
+        shell: pwsh
+        run: |
+          node --experimental-transform-types --test tests/native-windows-integrated-mail.test.mjs
+          if ($LASTEXITCODE -ne 0) { throw "Windows end-to-end compose/send lab refused" }
       - name: Verify relay mailbox remains unacknowledged across restart and audit journal refuses tampering
         shell: pwsh
         run: |
