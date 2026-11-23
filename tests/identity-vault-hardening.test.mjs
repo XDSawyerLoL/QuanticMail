@@ -4,10 +4,23 @@ import { createRequire } from "node:module";
 import { consumeRateLimit } from "../lib/security/rate-limit.ts";
 import { hasTrustedOrigin } from "../lib/security/origin.ts";
 const { navigationTarget, MAIL_ORIGIN, PORTAL_ORIGIN } = createRequire(import.meta.url)("../desktop/navigation-policy.cjs");
-test("desktop requires exact HTTPS origins", () => {
-  assert.equal(navigationTarget(MAIL_ORIGIN+"/mail"),"mail");
-  assert.equal(navigationTarget(PORTAL_ORIGIN+"/"),"portal");
-  for (const url of [PORTAL_ORIGIN+".example.com", PORTAL_ORIGIN+"@example.com", MAIL_ORIGIN+":8443", MAIL_ORIGIN.replace("https:","http:"), "file:///tmp/a", "javascript:void(0)", "https://user@quanticmail.onrender.com", "https://example.com"]) assert.equal(navigationTarget(url),"deny");
+test("retired Electron desktop blocks every URL including former trusted HTTPS origins", () => {
+  assert.equal(MAIL_ORIGIN, null);
+  assert.equal(PORTAL_ORIGIN, null);
+  for (const url of [
+    "https://quanticmail.onrender.com/mail",
+    "https://mediumorchid-badger-314305.hostingersite.com/",
+    "https://quanticmail.onrender.com:8443/",
+    "http://quanticmail.onrender.com/",
+    "https://quanticmail.onrender.com.evil.example/",
+    "https://quanticmail.onrender.com@example.com/",
+    "https://user@quanticmail.onrender.com/",
+    "file:///tmp/a",
+    "javascript:void(0)",
+    "https://example.com/",
+    null,
+    undefined,
+  ]) assert.equal(navigationTarget(url), "deny");
 });
 test("origin comparison does not trust same host with different scheme or origin suffix", () => {
   const r = (value) => ({headers:new Headers({origin:value}),nextUrl:new URL("https://quanticmail.onrender.com")});
