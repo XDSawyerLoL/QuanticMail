@@ -40,7 +40,9 @@ $actions=@(
  @{Id="PayOperator";Title="Quantic Pay - portefeuille avec quatre temoins";Hint="Coffre configure et quatre ponts actifs requis. Simulation.";Scope=$true},
  @{Id="StartPayBridge";Title="Quantic Pay - demarrer pont dedie";Hint="Transport Pay uniquement. Dossier Scattering distinct deja configure.";Scope=$true},
  @{Id="PayOperatorConfigure";Title="Quantic Pay - importer configuration";Hint="Nouveau coffre fictif, configuration privee et empreinte independante.";Scope=$true},
- @{Id="PayCirculation";Title="Quantic Pay - circulation multi-portefeuilles";Hint="Transferts signes et tests du quorum en memoire. Cles fictives ephemeres."}
+ @{Id="PayCirculation";Title="Quantic Pay - circulation multi-portefeuilles";Hint="Transferts signes et tests du quorum en memoire. Cles fictives ephemeres."},
+ @{Id="MailPreflight";Title="Quantic Mail - verifier les deux PC (hors ligne)";Hint="Verifie 4 autorites publiques, contact signe attendu et carrier prive. Aucune connexion ni transmission.";Scope=$true},
+ @{Id="MailAttest";Title="Quantic Mail - verifier les quatre autorites en direct";Hint="Exige trois attestations mTLS fraiches sur quatre avant confirmation. N'envoie aucun mail.";Scope=$true}
 )
 function New-OperationArguments($Action,[string]$Directory,[string]$InputName,[string]$OutputName) {
  $a=@("-Operation",$Action.Id,"-ExpectedManifestSha256",$ExpectedManifestSha256,"-TrustedBinarySha256",$TrustedBinarySha256.ToLowerInvariant())
@@ -121,7 +123,7 @@ $run.Add_Click({
 $choice.SelectedIndex=0
 if ($SelfTest) {
  try {
-  if($choice.Items.Count -ne 27 -or -not $inputName.Enabled -or -not $outputName.Enabled){throw "Dashboard initialization failed"}
+  if($choice.Items.Count -ne 29 -or -not $inputName.Enabled -or -not $outputName.Enabled){throw "Dashboard initialization failed"}
   $a=New-OperationArguments $actions[0] "C:\Quantic Lab\vault" "draft-test.json" "wire-test.json"
   if($a -notcontains "C:\Quantic Lab\vault\draft-test.json" -or $a -notcontains "C:\Quantic Lab\vault\wire-test.json"){throw "Wrong arguments"}
   $rejected=$false
@@ -150,6 +152,13 @@ try {
    $signPin=Read-Host "Empreinte SHA256 P-256 du coffre Pay"
    $pqPin=Read-Host "Empreinte SHA256 ML-DSA-65 du coffre Pay"
    $operationArgs+=@("-PaySigningPin",$signPin,"-PayPQPin",$pqPin)
+  }
+  if ($script:selectedAction -in @("MailPreflight","MailAttest")) {
+   Write-Host "Precontrole lecture seule: aucun compte ni cle historique n'est modifie."
+   $carrier=Read-Host "Dossier prive du transport Scattering deja provisionne"
+   $trust=Read-Host "Fichier JSON public de confiance approuve independamment"
+   $pin=Read-Host "Empreinte SHA256 verifiee independamment de ce fichier de confiance"
+   $operationArgs+=@("-CarrierDirectory",$carrier,"-TrustFile",$trust,"-ExpectedTrustSha256",$pin)
   }
   if ($script:selectedAction -eq "ProvisionPair") {
    Write-Host "DEMONSTRATION FICTIVE : deux coffres locaux distincts, sans inscription distante."
