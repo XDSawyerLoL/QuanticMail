@@ -2,6 +2,15 @@
 
 État au 23 novembre 2026. **Laboratoire uniquement — aucune identité réelle, migration ou transaction.**
 
+## État du parcours graphique de test — 23 novembre 2026
+
+Sur la branche UX de la PR #57, le lanceur ouvre le tableau de bord **sans console PowerShell en arrière-plan**.
+Le premier parcours Quantic Mail est **« Rédiger un message (sans terminal) »** : choix d'un coffre **de test déjà provisionné**, sélection d'un contact présent dans le carnet local, objet et texte. Aucun nom `draft-nom.json` n'est demandé ; le nom technique est choisi automatiquement, avec refus de tout écrasement et relecture du fichier.
+
+**Limite critique : le brouillon enregistré est en clair dans un dossier privé NTFS.** Ses ACL protègent contre des comptes non autorisés dans le modèle de test, mais pas contre un malware opérant sous le même compte. Le logiciel demande un accord explicite et interdit de considérer cette fonction comme adaptée à de vrais messages ou à un déploiement. Le chiffrement des brouillons au repos et la signature/envoi sans console nécessitent un futur dialogue natif de secrets et d'approbations, sans contournement du coffre. Aucune transmission ni création d'identité réelle n'est effectuée par le composeur.
+
+Les opérations historiques de laboratoire restent accessibles après un consentement explicite ouvrant **une console technique distincte**. Elles ne font pas partie du parcours standard. L'installateur demeure non signé.
+
 ## Fichier installable
 
 Le workflow `.github/workflows/native-vault-lab.yml` compile le coffre Go/OpenSSL ML-KEM-768/ML-DSA-65, le pacer Scattering natif, les scripts du contrôleur et l'interface Windows Forms. Il assemble d'abord un paquet local vérifiable par `SHA256SUMS.txt`, puis fabrique un installateur NSIS unique :
