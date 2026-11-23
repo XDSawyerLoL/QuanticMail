@@ -25,8 +25,16 @@ func TestNativeWindowsDirectoryChanges(t *testing.T){
         select{
         case ev:=<-events:
             if ev.Path==target&&(ev.Kind==Created||ev.Kind==Written){received=true}
+        case err:=<-done:
+            cancel()
+            t.Fatalf("watcher stopped before reporting file: %v",err)
         case <-deadline:
-            cancel();t.Fatal("Windows failed to report file modification")
+            cancel()
+            select{
+            case err:=<-done:t.Logf("watcher after cancel: %v",err)
+            case <-time.After(3*time.Second):t.Log("watcher did not stop after cancel")
+            }
+            t.Fatal("Windows failed to report file modification")
         }
     }
     cancel()
