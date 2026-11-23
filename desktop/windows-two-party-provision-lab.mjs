@@ -34,7 +34,16 @@ function validatePublicProvision(raw,expectedAddress){
  const s=ecPoint(signing),e=ecPoint(encryption);
  refuse(s.pin===raw.signingPin&&e.pin===raw.encryptionPin
   &&deviceIdForPublicKeyNode(e.jwk,32)===raw.deviceId);
- refuse(sha(b64(raw.kemPublic,1206))===raw.kemPin&&sha(b64(raw.dsaPublic,1974))===raw.dsaPin);
+ for(const [encoded,n,pin,kind] of [
+  [raw.kemPublic,1206,raw.kemPin,'ml-kem-768'],
+  [raw.dsaPublic,1974,raw.dsaPin,'ml-dsa-65']
+ ]){
+  const spki=b64(encoded,n);
+  const publicKey=createPublicKey({key:spki,format:'der',type:'spki'});
+  refuse(publicKey.asymmetricKeyType===kind
+   &&publicKey.export({format:'der',type:'spki'}).equals(spki)
+   &&sha(spki)===pin);
+ }
  b64(raw.controllerPublic,32);
  // Only public pins and device identifiers are needed for handoff.
  return Object.freeze({address:expectedAddress,deviceId:raw.deviceId,
