@@ -4,7 +4,7 @@
 // authenticated tunnels; this laboratory does not expose an Internet listener.
 import {createHash,createPrivateKey,createPublicKey,X509Certificate} from 'node:crypto';
 import {lstat,readFile} from 'node:fs/promises';
-import {resolve,join,basename,dirname} from 'node:path';
+import {resolve,join,basename} from 'node:path';
 import {startNativeCheckpointAuthority} from './native-checkpoint-server.mjs';
 const check=x=>{if(!x)throw Error('Pinned native authority laboratory refused');};
 const sha=b=>createHash('sha256').update(b).digest('hex');
