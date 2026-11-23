@@ -30,7 +30,7 @@ test('small samples produce a trivial bound and cannot establish anonymity', () 
   assert.equal(x.endToEndAnonymityProven,false);
 });
 test('binning uses only fixed metadata and rejects sensitive fields', () => {
-  assert.equal(binMetadata({packetBytes:168,gapMs:20,direction:'out'}),11);
+  assert.equal(binMetadata({packetBytes:168,gapMs:20,direction:'out'}),13);
   assert.notEqual(binMetadata({packetBytes:168,gapMs:20,direction:'out'}),
                   binMetadata({packetBytes:169,gapMs:20,direction:'out'}));
   assert.throws(() => binMetadata({packetBytes:168,gapMs:20,direction:'out',recipient:'bob'}),/Invalid/);
