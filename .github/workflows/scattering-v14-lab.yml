@@ -1,0 +1,25 @@
+name: Scattering V1.4 research lab
+on:
+  push:
+    paths:
+      - 'research/scattering-v14/**'
+      - '.github/workflows/scattering-v14-lab.yml'
+  pull_request:
+    paths:
+      - 'research/scattering-v14/**'
+      - '.github/workflows/scattering-v14-lab.yml'
+permissions:
+  contents: read
+jobs:
+  v14:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Run protocol and UDP loopback tests
+        run: node --test research/scattering-v14/tests/v14.test.mjs
+      - name: Reproduce seeded adversarial benchmark
+        run: node research/scattering-v14/scripts/run-audit.mjs 5000
