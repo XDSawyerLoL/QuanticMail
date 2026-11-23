@@ -345,11 +345,13 @@ jobs:
           }
           # Exercise exactly the new native binary from the *installed*
           # directory, without allowing interactive dialogs in CI.
-          & $expectedLauncher $manifestPin.ToLowerInvariant() $vaultPin --self-test
-          if ($LASTEXITCODE -ne 0) { throw "Installed native launcher refused authentic build" }
-          & $expectedLauncher $manifestPin.ToLowerInvariant() ("0"*64) --self-test
+          $manifestLower = $manifestPin.ToLowerInvariant()
+          $vaultLower = $vaultPin.ToLowerInvariant()
+          & $expectedLauncher $manifestLower $vaultLower --self-test
+          if ($LASTEXITCODE -ne 0) { throw "Installed native launcher refused authentic build (code $LASTEXITCODE)" }
+          & $expectedLauncher $manifestLower ("0"*64) --self-test
           if ($LASTEXITCODE -eq 0) { throw "Native launcher accepted incorrect vault pin" }
-          & $expectedLauncher $manifestPin.ToLowerInvariant() $vaultPin --smoke-ui
+          & $expectedLauncher $manifestLower $vaultLower --smoke-ui
           if ($LASTEXITCODE -ne 0) { throw "Native launcher failed to open full local GUI initialization chain" }
           $shell = (Get-Process -Id $PID).Path
           & $shell -NoProfile -NonInteractive -File (Join-Path $installed "Start-Windows-PQ-Lab.ps1") -Operation Providers -ExpectedManifestSha256 $manifestPin -TrustedBinarySha256 $vaultPin
