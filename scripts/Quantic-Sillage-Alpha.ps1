@@ -44,6 +44,20 @@ $actions=@(
  @{Id="MailPreflight";Title="Quantic Mail - verifier les deux PC (hors ligne)";Hint="Verifie 4 autorites publiques, contact signe attendu et carrier prive. Aucune connexion ni transmission.";Scope=$true},
  @{Id="MailAttest";Title="Quantic Mail - verifier les quatre autorites en direct";Hint="Exige trois attestations mTLS fraiches sur quatre avant confirmation. N'envoie aucun mail.";Scope=$true}
 )
+# User-controlled pages are never rendered. Modules group existing local actions.
+function Get-AlphaModule([string]$Id) {
+ switch -Regex ($Id) {
+  '^(SealAndSend|RecoverSealAndSend|Seal|RecoverSeal|Send|Receive|Open|RecoverOpen|RecoverReceive|ConfirmReceipt|MailPreflight|MailAttest)$' { return "QUANTIC MAIL" }
+  '^(Provision|ProvisionPair)$' { return "QUANTIC ID" }
+  '^Migration' { return "IDENTITY VAULT" }
+  '^(StartBridge|ProbeLoopback)$' { return "SCATTERING" }
+  '^(Pay|StartPayBridge)' { return "QUANTIC PAY - LAB" }
+  '^(Providers)$' { return "DIAGNOSTIC" }
+  default { throw "Unknown native operation; fail closed." }
+ }
+}
+$modules=@("QUANTIC MAIL","QUANTIC ID","IDENTITY VAULT","SCATTERING","QUANTIC PAY - LAB","DIAGNOSTIC")
+foreach ($action in $actions) { if ((Get-AlphaModule $action.Id) -notin $modules) { throw "Unknown module." } }
 function New-OperationArguments($Action,[string]$Directory,[string]$InputName,[string]$OutputName) {
  $a=@("-Operation",$Action.Id,"-ExpectedManifestSha256",$ExpectedManifestSha256,"-TrustedBinarySha256",$TrustedBinarySha256.ToLowerInvariant())
  if ($Action.Scope) {
@@ -65,8 +79,8 @@ function New-OperationArguments($Action,[string]$Directory,[string]$InputName,[s
 $form=New-Object Windows.Forms.Form
 $form.Text="Quantic Sillage | Alpha privee"
 $form.StartPosition="CenterScreen"
-$form.ClientSize=New-Object Drawing.Size(720,520)
-$form.MinimumSize=New-Object Drawing.Size(736,559)
+$form.ClientSize=New-Object Drawing.Size(760,622)
+$form.MinimumSize=New-Object Drawing.Size(776,661)
 $form.BackColor=[Drawing.Color]::FromArgb(19,25,35)
 $form.ForeColor=[Drawing.Color]::WhiteSmoke
 $form.Font=New-Object Drawing.Font("Segoe UI",10)
@@ -78,33 +92,46 @@ function Text-At([int]$X,[int]$Y,[int]$W) {
  $c=New-Object Windows.Forms.TextBox;$c.SetBounds($X,$Y,$W,28)
  $form.Controls.Add($c);return $c
 }
-$heading=Label-At "QUANTIC SILLAGE" 22 18 670 36
+$heading=Label-At "QUANTIC SILLAGE" 22 18 712 36
 $heading.Font=New-Object Drawing.Font("Segoe UI",21,[Drawing.FontStyle]::Bold)
-$null=Label-At "Identity Vault / Quantic Mail / Scattering / Pay Lab" 24 58 670 25
-$notice=Label-At "LABORATOIRE - identites de test uniquement. Aucun compte reel ni migration." 24 90 670 38
+$null=Label-At "Interface locale | Mail / Quantic ID / Vault / Scattering / Pay" 24 58 710 25
+$notice=Label-At "ALPHA - identites de test uniquement. Aucun compte reel ni migration." 24 90 710 38
 $notice.ForeColor=[Drawing.Color]::Khaki
-$null=Label-At "Operation" 24 132 670 22
+$null=Label-At "Module" 24 132 710 22
+$module=New-Object Windows.Forms.ComboBox
+$module.DropDownStyle="DropDownList";$module.SetBounds(24,157,712,30)
+foreach ($m in $modules) { $null=$module.Items.Add($m) }
+$form.Controls.Add($module)
+$null=Label-At "Operation native" 24 197 710 22
 $choice=New-Object Windows.Forms.ComboBox
-$choice.DropDownStyle="DropDownList";$choice.SetBounds(24,157,672,30)
-foreach ($a in $actions) { $null=$choice.Items.Add($a.Title) }
+$choice.DropDownStyle="DropDownList";$choice.SetBounds(24,221,712,30)
 $form.Controls.Add($choice)
-$hint=Label-At "" 24 196 672 45
-$null=Label-At "Dossier prive du coffre (ou du transport pour le pont)" 24 245 672 23
-$directory=Text-At 24 270 672
-$il=Label-At "Fichier prive" 24 309 672 22
-$inputName=Text-At 24 333 672
-$ol=Label-At "Nouvelle enveloppe" 24 372 672 22
-$outputName=Text-At 24 396 672
+$hint=Label-At "" 24 262 712 45
+$null=Label-At "Dossier prive du coffre (ou du transport pour le pont)" 24 316 712 23
+$directory=Text-At 24 341 712
+$il=Label-At "Fichier prive" 24 380 712 22
+$inputName=Text-At 24 404 712
+$ol=Label-At "Nouvelle enveloppe" 24 443 712 22
+$outputName=Text-At 24 467 712
 $run=New-Object Windows.Forms.Button;$run.Text="Continuer dans le terminal securise"
 $run.ForeColor=[Drawing.Color]::Black;$run.BackColor=[Drawing.Color]::FromArgb(196,223,244)
-$run.SetBounds(24,459,485,38);$form.Controls.Add($run)
+$run.SetBounds(24,533,513,42);$form.Controls.Add($run)
 $quit=New-Object Windows.Forms.Button;$quit.Text="Fermer";$quit.ForeColor=[Drawing.Color]::Black
-$quit.SetBounds(526,459,170,38);$form.Controls.Add($quit)
+$quit.SetBounds(556,533,180,42);$form.Controls.Add($quit)
 $quit.DialogResult=[Windows.Forms.DialogResult]::Cancel;$form.CancelButton=$quit
 $form.AcceptButton=$run
 $script:selectedArguments=$null;$script:selectedAction=$null
+$script:shownActions=@()
+$module.Add_SelectedIndexChanged({
+ $choice.Items.Clear()
+ $script:shownActions=@($actions | Where-Object { (Get-AlphaModule $_.Id) -ceq $module.SelectedItem })
+ if ($script:shownActions.Count -lt 1) { throw "Empty native module." }
+ foreach ($a in $script:shownActions) { $null=$choice.Items.Add($a.Title) }
+ $choice.SelectedIndex=0
+})
 $choice.Add_SelectedIndexChanged({
- $a=$actions[$choice.SelectedIndex]
+ if ($choice.SelectedIndex -lt 0) { return }
+ $a=$script:shownActions[$choice.SelectedIndex]
  $hint.Text=$a.Hint
  $directory.Enabled=[bool]$a.Scope
  $inputName.Enabled=[bool]$a.Input
@@ -114,23 +141,29 @@ $choice.Add_SelectedIndexChanged({
 })
 $run.Add_Click({
  try {
-  $a=$actions[$choice.SelectedIndex]
+  $a=$script:shownActions[$choice.SelectedIndex]
   $script:selectedArguments=New-OperationArguments $a $directory.Text $inputName.Text $outputName.Text
   $script:selectedAction=$a.Id
   $form.DialogResult=[Windows.Forms.DialogResult]::OK
  }catch{[Windows.Forms.MessageBox]::Show($_.Exception.Message,"Parametres refuses","OK","Warning")|Out-Null}
 })
-$choice.SelectedIndex=0
+$module.SelectedIndex=0
 if ($SelfTest) {
  try {
-  if($choice.Items.Count -ne 29 -or -not $inputName.Enabled -or -not $outputName.Enabled){throw "Dashboard initialization failed"}
+  if($actions.Count -ne 29 -or $script:shownActions.Count -lt 3 -or -not $inputName.Enabled -or -not $outputName.Enabled){throw "Dashboard initialization failed"}
   $a=New-OperationArguments $actions[0] "C:\Quantic Lab\vault" "draft-test.json" "wire-test.json"
   if($a -notcontains "C:\Quantic Lab\vault\draft-test.json" -or $a -notcontains "C:\Quantic Lab\vault\wire-test.json"){throw "Wrong arguments"}
   $rejected=$false
   try{$null=New-OperationArguments $actions[3] "C:\Quantic Lab\vault" "..\wire-test.json" ""}catch{$rejected=$true}
   if(-not $rejected){throw "Path traversal accepted"}
-  $choice.SelectedIndex=13
+  $module.SelectedItem="DIAGNOSTIC"
+  if ($script:shownActions.Count -ne 1 -or $script:shownActions[0].Id -ne "Providers") { throw "Diagnostic module wrong" }
   if($directory.Enabled -or $inputName.Enabled -or $outputName.Enabled){throw "Diagnostic fields enabled"}
+  foreach ($m in $modules) {
+   $module.SelectedItem=$m
+   if ($script:shownActions.Count -lt 1) { throw "Missing module: $m" }
+  }
+  $module.SelectedItem="QUANTIC MAIL"
   Write-Output "Dashboard controls and operation mapping verified"
  }finally{$form.Dispose()}
  exit 0
