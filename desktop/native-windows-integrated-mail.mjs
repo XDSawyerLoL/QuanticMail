@@ -1,7 +1,7 @@
 // Explicit Windows PQ synthetic compose -> durable native wire -> relay deposit.
 // Never bypass the independent pinned native vault or retransmit automatically.
 // A failed/unknown transport outcome must preserve the exact original wire.
-import {createHash,timingSafeEqual} from 'node:crypto';
+import {timingSafeEqual} from 'node:crypto';
 import {win32} from 'node:path';
 import {normalizeNativeRecord,nativeRecordDigest} from '../lib/quantic/native-mailbox.mjs';
 import {connectNativeVault} from './native-vault-controller.mjs';
