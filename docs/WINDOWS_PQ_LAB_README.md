@@ -62,3 +62,23 @@ un commit transactionnel de production. Le contrôle séparé de la file
 du relais n'examine que deux fenêtres de 100 éléments maximum et
 n'atteste pas l'exhaustivité de la messagerie. Le programme et
 l'installateur demeurent des laboratoires **non signés**.
+
+## Envoi intégré depuis un brouillon déjà préparé (laboratoire)
+
+Le lanceur vérifié propose maintenant `SealAndSend` et `RecoverSealAndSend`
+avec les paramètres `PrivateDirectory`, `InputFile` (`draft-*.json`) et
+`OutputFile` (`wire-*.json` nouveau), en plus des empreintes vérifiées.
+L'identité synthétique, les deux autorités, les contacts et le relais
+Scattering doivent être provisionnés indépendamment avant l'opération.
+Le terminal demande deux approbations : chiffrer puis déposer.
+
+Le coffre natif scelle, le stockage NTFS sauvegarde sans écraser, les
+contenus chiffrés sont relus et authentifiés, **puis seulement** le relais
+reçoit un unique dépôt. Le fichier signé est conservé si l'utilisateur
+refuse le dépôt ou si le réseau échoue. En cas de transmission incertaine,
+utiliser `Send` avec le même fichier plutôt que re-sceller le brouillon.
+Aucun compte réel n'est migré ni activé par ces opérations.
+
+Détails et exemple de commande : `AUDIT_WINDOWS_SCATTERING_MAIL_FLOW.md`.
+Les tests unitaires injectent un coffre et un relais simulés ; ils ne
+prouvent pas encore l'envoi entre deux PC physiques distincts.
