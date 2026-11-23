@@ -2,7 +2,7 @@
 // This wraps the EXISTING native Windows key generator. It cannot mint an
 // independent quorum, authority attestation, contact certificate or relay.
 // Never use real user identities and never claim remote enrollment.
-import {createHash,createPublicKey,randomBytes} from 'node:crypto';
+import {createHash,createPublicKey} from 'node:crypto';
 import {spawn} from 'node:child_process';
 import {access,stat,readFile} from 'node:fs/promises';
 import {win32} from 'node:path';
