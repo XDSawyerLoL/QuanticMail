@@ -28,8 +28,8 @@ Section "Quantic Sillage laboratory"
  CreateShortCut "$SMPROGRAMS\Quantic Sillage\Alpha-${BUILD_ID}.lnk" "$INSTDIR\Quantic-Sillage-Alpha.exe" "" "$INSTDIR\Quantic-Sillage-Alpha.exe" 0 SW_SHOWNORMAL
  IfErrors failed
  ; Do not overwrite another build's desktop shortcut.
- IfFileExists "$DESKTOP\Quantic Sillage Alpha.lnk" keepdesktop 0
- CreateShortCut "$DESKTOP\Quantic Sillage Alpha.lnk" "$INSTDIR\Quantic-Sillage-Alpha.exe" "" "$INSTDIR\Quantic-Sillage-Alpha.exe" 0 SW_SHOWNORMAL
+ IfFileExists "$DESKTOP\Quantic Sillage Alpha-${BUILD_ID}.lnk" keepdesktop 0
+ CreateShortCut "$DESKTOP\Quantic Sillage Alpha-${BUILD_ID}.lnk" "$INSTDIR\Quantic-Sillage-Alpha.exe" "" "$INSTDIR\Quantic-Sillage-Alpha.exe" 0 SW_SHOWNORMAL
  IfErrors failed
  keepdesktop:
  IfErrors failed
