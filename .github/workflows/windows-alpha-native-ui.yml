@@ -64,7 +64,8 @@ jobs:
           node --check scripts/native-windows-compose-send.mjs
           if($LASTEXITCODE -ne 0){throw "GUI PQ send helper syntax rejected"}
           $helper = Get-Content -LiteralPath ./scripts/native-windows-compose-send.mjs -Raw
-          if($helper -notmatch "guiWindowsApproval:true" -or $helper -notmatch "sealed-awaiting-deposit-approval" -or $helper -notmatch "lines.next" -or $helper -notmatch "'delivery-unknown'") { throw "GUI send two-step native consent contract missing" }
+          $approval = Get-Content -LiteralPath ./desktop/native-windows-gui-approval.mjs -Raw
+          if($helper -notmatch "guiWindowsApproval:true" -or $helper -notmatch "makeGuiDepositApproval" -or $helper -notmatch "lines.next" -or $helper -notmatch "'delivery-unknown'" -or $approval -notmatch "sealed-awaiting-deposit-approval" -or $approval -notmatch "==='SEND'") { throw "GUI send two-step native consent contract missing" }
           $ui = Get-Content -LiteralPath ./scripts/Quantic-Sillage-Compose.ps1 -Raw
           if($ui -notmatch "Chiffrer et deposer" -or $ui -notmatch "Read-GUIReply" -or $ui -match '(?i)WebBrowser|WebView2|onrender.com') { throw "Native GUI send control missing or remote renderer found" }
           $source = Get-Content -LiteralPath $path -Raw
