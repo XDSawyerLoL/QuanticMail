@@ -23,6 +23,8 @@ jobs:
       - name: Assert packaged Electron embeds Node 24, not obsolete Node 22
         run: node scripts/check-electron-embedded-node.cjs
       - run: npm test
+      - name: Four independent pinned authority processes with mTLS quorum and crash cutoff
+        run: node --test tests/native-authority-operator-processes.test.mjs
       - name: Real authenticated mailbox through two independent native Scattering UDP links
         shell: bash
         run: |
