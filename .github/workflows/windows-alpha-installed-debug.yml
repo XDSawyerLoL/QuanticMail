@@ -1,0 +1,47 @@
+name: Diagnose installed Alpha Windows GUI startup
+
+on:
+  push:
+    branches: ['fix/**']
+    paths:
+      - '.github/workflows/windows-alpha-installed-debug.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  direct-packaged-gui:
+    runs-on: windows-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Restore exact previously compiled verified Windows package
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $dir=Join-Path $env:RUNNER_TEMP "QuanticMail-Debug"
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          gh run download 45174826809 --repo XDSawyerLoL/QuanticMail -n QuanticMail-Windows-PQ-Lab-unsigned -D $dir
+          if ($LASTEXITCODE -ne 0) { throw "Cannot load earlier trusted Windows package" }
+          if (-not (Test-Path "$dir\Start-Windows-PQ-Lab.ps1")) { throw "Missing native launcher" }
+      - name: Distinguish a packaged dashboard script error from GUI process bootstrap error
+        shell: pwsh
+        run: |
+          $dir=Join-Path $env:RUNNER_TEMP "QuanticMail-Debug"
+          $manifestPin=(Get-FileHash "$dir\SHA256SUMS.txt" -Algorithm SHA256).Hash.ToLowerInvariant()
+          $vaultPin=(Get-FileHash "$dir\bin\Vault-PQ-lab.exe" -Algorithm SHA256).Hash.ToLowerInvariant()
+          $shell=Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
+          $args=@("-NoLogo","-NoProfile","-STA","-ExecutionPolicy","Bypass","-File","$dir\Start-Windows-PQ-Lab.ps1","-Operation","DashboardCheck","-ExpectedManifestSha256",$manifestPin,"-TrustedBinarySha256",$vaultPin)
+          Write-Host "DIAGNOSTIC: direct PowerShell packaged dashboard check"
+          & $shell @args
+          $firstExit=$LASTEXITCODE
+          Write-Host "DIAGNOSTIC: direct PowerShell exit code $firstExit"
+          Write-Host "DIAGNOSTIC: native GUI launcher and child in smoke mode"
+          $p=Start-Process -FilePath "$dir\bin\Quantic-Sillage-Launcher.exe" -ArgumentList "$manifestPin $vaultPin --smoke-ui" -Wait -PassThru
+          Write-Host "DIAGNOSTIC: native GUI child exit code $($p.ExitCode)"
+          if ($firstExit -ne 0) { throw "Installed dashboard itself failed" }
+          if ($p.ExitCode -ne 0) { throw "Native bootstrap child creation differs from direct execution" }
