@@ -405,7 +405,14 @@ jobs:
           if (-not (Test-Path -LiteralPath $userUnexpected -PathType Leaf) -or -not (Test-Path -LiteralPath $vaultFile -PathType Leaf)) { throw "Private user files deleted" }
           Remove-Item -LiteralPath $userUnexpected -Force
           $p = Start-Process -FilePath $uninstallerCopy -ArgumentList $uninstallArgs -Wait -PassThru
-          if ($p.ExitCode -ne 0) { throw "Exact-package uninstall failed" }
+          if ($p.ExitCode -ne 0) {
+            Write-Host ("Uninstaller failed with native exit code: " + $p.ExitCode)
+            if (Test-Path -LiteralPath $uninstallDir) {
+              Get-ChildItem -LiteralPath $uninstallDir -Recurse -Force |
+                ForEach-Object { Write-Host ("Remaining CI synthetic entry: " + $_.FullName.Substring($uninstallDir.Length)) }
+            }
+            throw "Exact-package uninstall failed"
+          }
           if (Test-Path -LiteralPath (Join-Path $env:LOCALAPPDATA "QuanticSillage\Alpha-$build")) { throw "Uninstall left behind complete build" }
           if (-not (Test-Path -LiteralPath $vaultFile -PathType Leaf) -or -not (Test-Path -LiteralPath $other -PathType Leaf)) { throw "Uninstaller touched identity data or other build" }
           $registry= "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\QuanticSillageAlpha-$build"
