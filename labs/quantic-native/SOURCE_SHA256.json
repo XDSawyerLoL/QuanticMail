@@ -107,7 +107,7 @@
   "vault/windows_journal_test.go": "b74265ac0102ed76d87006a863fb23afcbe938d5dd5a7f8b99c2011ae94b6f03",
   "vault/windows_broker.go": "f2faeb83e48c0febc794618b0e52c1a6a6f3ad40c8a27a53bf168138e18cf4ab",
   "vault/windows_recovery_test.go": "ebb7f0681edefe56b42c50b87bf6ef21e8924efd501f95c76093565dbf68da49",
-  "vault/windows_client_io.go": "0e418b546f7f4f55cdad4ce8bad31787cacfcfa798eaf15e774af019775030f8",
+  "vault/windows_client_io.go": "bf3ed711a60e97b83010d965f7400c82a664b4212abe1c3dd27902c9e3f2c7e7",
   "vault/windows_scattering.go": "b0eb6c596fb98a35495ee05796c8762307a422630dbd1cc81a49c9d9c674fcc6",
   "vault/windows_scattering_test.go": "1b8ca9c6ecd3bc9796587ed5e167c1e6eaef8b5873073406acb2d94b60e33dc4",
   "vault/windows_import.go": "b16821bcc801f38d6228c762b40317c7e3cadd66ffc95e455810825808d9c35d",
