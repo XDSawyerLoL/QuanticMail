@@ -120,3 +120,103 @@ réception conservée après redémarrage et accusé contrôlé.
 
 **Aucune clé historique ni identité Web réelle ne doit être supprimée
 ou migrée pendant ce laboratoire.**
+
+## Renouvellement signé et monotone (format opérateur v2)
+
+Le mode historique `quantic-native-authority-operator-lab/v1` reste
+inchangé : instantanés figés, arrêt des attestations au-delà de
+30 secondes. **Le nouveau format v2** ajoute le champ
+`renewalPublicKey` (SPKI DER Ed25519, base64url) au
+`operator.json` épinglé hors bande. Cette clé appartient à un
+**opérateur d'approbation distinct** et ne doit pas être la clé
+`signer.pem` utilisée pour signer les attestations.
+
+L'autorité v2 utilise le répertoire privé
+`renewals/` (0700), et crée automatiquement
+`accepted-head.json` (0600). Le fichier contient
+`format: "quantic-native-authority-head/v1"`,
+`sequence` et `chainHash`. La racine de cette chaîne est dérivée
+de l'identifiant de l'autorité, du hash de `operator.json` et
+des empreintes épinglées de l'instantané et de la politique initiaux.
+Chaque version doit augmenter `sequence` **d'une unité**, inclure
+l'empreinte exacte du parent, et disposer de deux nouveaux fichiers
+`state.json` et `policy.json` privés, intégralement approuvés.
+
+### Une étape de renouvellement
+
+1. Un opérateur indépendant obtient un **nouvel instantané réel** de
+   l'état signé et sa politique, avec une valeur `savedAt` authentique.
+   Il vérifie son origine et les versions des manifestes ; le programme
+   ne prétend pas démontrer cette provenance à lui seul. Copier
+   l'ancien instantané et actualiser artificiellement sa date n'est
+   **pas** un renouvellement valide.
+2. Il prépare `renewals/000001/` (0700) avec
+   `state.json` et `policy.json` (0600). Le dossier suivant doit
+   s'appeler `000002`, etc. Aucun de ces fichiers ne peut être un
+   lien symbolique.
+3. Le signataire indépendant récupère et **vérifie hors bande**
+   `chainHash` de la dernière version acceptée. Sa clé Ed25519
+   PKCS#8 reste **hors du répertoire de l'autorité**, idéalement sur
+   une machine d'administration séparée.
+4. La commande suivante vérifie les fichiers préparés, la fraîcheur
+   de l'instantané (moins de 30 secondes), l'absence de recul de
+   version et la correspondance de la clé d'approbation. Elle crée
+   **en dernier** le fichier `approval.json` avec écriture exclusive
+   et synchronisation disque, sans modifier les deux instantanés :
+
+```bash
+node scripts/approve-native-authority-renewal-lab.mjs \
+  /srv/quantic-lab/authority-a \
+  HASH_OPERATOR_JSON_APPROUVE \
+  /autre/dossier/prive/renewal-signer.pem \
+  1 \
+  HASH_CHAINE_PRECEDENTE_APPROUVE \
+  --synthetic-only
+```
+
+5. À la prochaine requête mTLS, l'autorité lit la nouvelle approbation
+   Ed25519, contrôle la séquence, le parent, la date et les SHA-256
+   exacts des deux fichiers ; elle synchronise
+   `accepted-head.json` **avant** de signer une attestation avec le
+   nouvel état. Aucune URL d'administration ne permet de modifier cet
+   état à distance.
+
+Après un redémarrage, l'autorité reconstruit la chaîne jusqu'au numéro
+accepté. Une approbation falsifiée, une politique remplacée, un
+retour de version ou une erreur de disque entraîne un **refus**.
+Une génération partiellement préparée sans `approval.json` n'est
+pas consommée ; le serveur garde l'état précédent, qui peut cependant
+devenir périmé. Un fichier d'approbation partiel ou invalide
+ne doit pas être supprimé ou remplacé sans audit opérateur.
+
+Une seule instance v2 peut utiliser un répertoire : le fichier privé
+`.authority-active.lock` empêche un deuxième processus simultané.
+Un arrêt normal libère ce verrou. Après un crash, il reste en place
+et nécessite une vérification **manuelle** de l'arrêt du processus,
+de la dernière version enregistrée et de l'intégrité des répertoires.
+Il n'existe aucune reprise automatique du verrou.
+
+### Ce qui n'est pas encore acquis
+
+Ce mécanisme protège la **continuité d'une chaîne d'approbations
+locales** ; il ne prouve ni l'origine physique des instantanés ni
+l'indépendance réelle de quatre autorités. Le fichier de progression
+est conservé sur le même poste et n'est pas encore ancré dans un
+témoin append-only hors machine : la restauration d'une copie
+complète ancienne des fichiers par un administrateur malveillant
+reste un risque de rollback. Les opérateurs doivent conserver
+hors bande la dernière empreinte de chaîne.
+
+Le renouvellement demeure **supervisé**, même si le service utilise
+les nouvelles générations sans redémarrer. Il n'y a pas encore de
+pipeline fiable de publication en continu : en l'absence d'un
+instantané signé de moins de 30 secondes, la délivrance des
+attestations s'arrête au lieu de prolonger artificiellement la
+validité de l'ancien état.
+
+Les tests `tests/native-authority-renewal-lab.test.mjs` couvrent
+les signatures forgées, la perte de fraîcheur, la reprise de la
+progression après redémarrage, les refus de rollback et les accès
+concurrents. Le laboratoire `native-authority-operator-processes`
+exerce l'adoption réelle d'une génération signée par quatre
+processus HTTPS mTLS, ainsi que le verrou exclusif.
