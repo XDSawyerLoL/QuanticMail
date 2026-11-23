@@ -324,6 +324,22 @@ jobs:
           if ($p.ExitCode -ne 0) { throw "Native installation failed" }
           $installed = Join-Path $env:LOCALAPPDATA "QuanticSillage\Alpha-$build\app"
           & ./scripts/Test-Windows-PQ-Package.ps1 -PackageDirectory $installed -ExpectedManifestSha256 $manifestPin
+          $vaultPin = (Get-FileHash -LiteralPath (Join-Path $installed "bin\Vault-PQ-lab.exe") -Algorithm SHA256).Hash.ToLowerInvariant()
+          $menu = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Quantic Sillage\Alpha-$build.lnk"
+          $desktop = Join-Path ([Environment]::GetFolderPath('DesktopDirectory')) "Quantic Sillage Alpha-$build.lnk"
+          $expectedShell = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
+          $wsh = New-Object -ComObject WScript.Shell
+          foreach ($shortcutFile in @($menu,$desktop)) {
+            if (-not (Test-Path -LiteralPath $shortcutFile -PathType Leaf)) { throw "Missing local native shortcut: $shortcutFile" }
+            $shortcut = $wsh.CreateShortcut($shortcutFile)
+            if ($shortcut.TargetPath -ine $expectedShell) { throw "Unexpected executable in native shortcut" }
+            if (-not $shortcut.Arguments.Contains($manifestPin.ToLowerInvariant()) -or -not $shortcut.Arguments.Contains($vaultPin)) { throw "Native shortcut did not embed both expected SHA256 pins" }
+            if (-not $shortcut.Arguments.Contains("-Operation Dashboard") -or $shortcut.Arguments -match '(?i)https?://|onrender|hostingersite') { throw "Unexpected Web or missing native Dashboard action" }
+            if (-not $shortcut.Arguments.Contains((Join-Path $installed "Start-Windows-PQ-Lab.ps1"))) { throw "Shortcut points outside installed native package" }
+          }
+          $shell = (Get-Process -Id $PID).Path
+          & $shell -NoProfile -NonInteractive -File (Join-Path $installed "Start-Windows-PQ-Lab.ps1") -Operation Providers -ExpectedManifestSha256 $manifestPin -TrustedBinarySha256 $vaultPin
+          if ($LASTEXITCODE -ne 0) { throw "Installed native executable could not be started" }
           $p = Start-Process -FilePath $exe -ArgumentList "/S" -Wait -PassThru
           if ($p.ExitCode -eq 0) { throw "Installer overlaid an existing build" }
           & ./scripts/Test-Windows-PQ-Package.ps1 -PackageDirectory $installed -ExpectedManifestSha256 $manifestPin
