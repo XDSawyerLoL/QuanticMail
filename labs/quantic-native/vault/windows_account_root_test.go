@@ -58,6 +58,19 @@ func TestWindowsAccountRootDurabilityAndRefusal(t *testing.T){
  f:=filepath.Join(dir,"account-root.pq.vault")
  original,e:=winReadPrivate(f,16384);if e!=nil{t.Fatal(e)}
  if bytes.Contains(original,[]byte(syntheticRootPassword)){t.Fatal("plaintext passphrase in sidecar")}
+ // Simulate a fully valid alternate ML-DSA private key sealed under exactly
+ // the same lab password and AAD: only the independent root pin stops it.
+ alternate,e:=pqGenerate("ML-DSA-65");if e!=nil{t.Fatal(e)}
+ substituted,e:=winSealAccountRoot(alternate,binding,[]byte(syntheticRootPassword))
+ alternate.close()
+ if e!=nil{t.Fatal(e)}
+ if e=os.WriteFile(f,substituted,0600);e!=nil{t.Fatal(e)}
+ clear(substituted)
+ if _,e=winVerifyAccountRoot(dir,app,binding,rootPin,[]byte(syntheticRootPassword));e==nil{
+  t.Fatal("valid but unpinned replacement account root accepted")
+ }
+ if e=os.WriteFile(f,original,0600);e!=nil{t.Fatal(e)}
+ if _,e=winVerifyAccountRoot(dir,app,binding,rootPin,[]byte(syntheticRootPassword));e!=nil{t.Fatal("original not recoverable",e)}
  original[len(original)-1]^=1
  if e=os.WriteFile(f,original,0600);e!=nil{t.Fatal(e)}
  if _,e=winVerifyAccountRoot(dir,app,binding,rootPin,[]byte(syntheticRootPassword));e==nil{
