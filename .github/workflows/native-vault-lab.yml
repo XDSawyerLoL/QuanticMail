@@ -341,6 +341,10 @@ jobs:
           if (-not (Test-Path -LiteralPath $nativeApp -PathType Leaf)) { throw "Installed native double-clickable Alpha EXE missing" }
           $nativeTest = Start-Process -FilePath $nativeApp -ArgumentList "--self-test" -Wait -PassThru
           if ($nativeTest.ExitCode -ne 0) {
+            $report = Join-Path $env:RUNNER_TEMP "quantic-alpha-launcher-diagnostic.txt"
+            if (Test-Path -LiteralPath $report -PathType Leaf) {
+              Get-Content -LiteralPath $report | ForEach-Object { Write-Host ("Native GUI self-test: " + $_) }
+            }
             $vaultPin = (Get-FileHash -LiteralPath "$installed\bin\Vault-PQ-lab.exe" -Algorithm SHA256).Hash
             $ps = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
             & $ps -NoProfile -NonInteractive -STA -File "$installed\Start-Windows-PQ-Lab.ps1" -Operation DashboardCheck -ExpectedManifestSha256 $manifestPin -TrustedBinarySha256 $vaultPin
