@@ -55,7 +55,7 @@ function Label-At([string]$Text,[int]$Y){
  $l=New-Object Windows.Forms.Label;$l.Text=$Text;$l.SetBounds(24,$Y,660,24);$form.Controls.Add($l)
 }
 Label-At 'NOUVEAU MESSAGE DE TEST' 18
-Label-At 'Un brouillon enregistre ne constitue pas un message envoye.' 55
+Label-At 'TEST UNIQUEMENT : le brouillon est en clair dans un dossier prive NTFS. Pas de donnees reelles.' 55
 Label-At 'Mon coffre de test' 98
 $chosen=New-Object Windows.Forms.TextBox;$chosen.SetBounds(24,128,464,29);$chosen.ReadOnly=$true;$form.Controls.Add($chosen)
 $choose=New-Object Windows.Forms.Button;$choose.Text='Choisir mon coffre';$choose.SetBounds(500,125,180,35);$form.Controls.Add($choose)
@@ -93,11 +93,13 @@ $save.Add_Click({
  try{
   if(-not $script:privateDirectory -or $recipient.SelectedIndex -lt 0){throw 'Coffre et contact requis.'}
   if([string]::IsNullOrWhiteSpace($subject.Text) -or [string]::IsNullOrWhiteSpace($body.Text)){throw 'Objet et texte requis.'}
+  $informed=[Windows.Forms.MessageBox]::Show('Ce brouillon de test sera stocke en clair dans le coffre prive Windows. Il ne sera ni chiffre ni envoye. Ne saisissez aucune donnee reelle. Continuer ?','Avertissement sur le stockage','YesNo','Warning')
+  if($informed -ne [Windows.Forms.DialogResult]::Yes){return}
   $fields=@{to=[string]$recipient.SelectedItem;subject=$subject.Text;body=$body.Text}
   $json=ConvertTo-Json -InputObject $fields -Compress -Depth 3
   $result=Invoke-Composer $script:privateDirectory $json $false
   if($result.status -cne 'draft-saved-not-sent' -or $result.remoteDeliveryVerified -or $result.liveAccountEnrollmentAuthorized){throw 'Brouillon non confirme.'}
-  [Windows.Forms.MessageBox]::Show('Brouillon conserve dans le coffre prive de test. Il n est ni chiffre ni envoye. Le parcours d envoi graphique reste en developpement.','Brouillon enregistre','OK','Information')|Out-Null
+  [Windows.Forms.MessageBox]::Show('Brouillon de test conserve en clair dans le dossier prive NTFS. Il n est ni chiffre ni envoye. Le parcours d envoi graphique reste en developpement.','Brouillon enregistre','OK','Information')|Out-Null
   $form.Close()
  }catch{
   [Windows.Forms.MessageBox]::Show('Enregistrement refuse : verifiez le coffre, le contact et la longueur du texte. Aucun message envoye.','Operation non confirmee','OK','Warning')|Out-Null
