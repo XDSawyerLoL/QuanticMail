@@ -30,6 +30,14 @@ The optional `AnchorProposal` and `AnchorSigningBytes` APIs export a public-only
 - Each journal append invalidates the previous checkpoint. This library does not automatically obtain a new external signature, so no always-on remotely controlled service is ready.
 - This is a **future Identity Vault integration boundary**, not a current Quantic ID/ML-DSA implementation. See [STATE_ANCHOR_SECURITY.md](STATE_ANCHOR_SECURITY.md).
 
+## Native Identity Vault checkpoint protocol bridge (Alpha 1.3)
+
+The opt-in `VaultWitness` client speaks the **existing native Identity Vault** separate authority `/check` + `/advance` protocol from PR #48. It requires independent TLS 1.3 mTLS credentials, an exact server certificate pin and a separately provisioned witness identifier. The client binds the existing signed Control state anchor to Vault's monotonically advancing checkpoint and can detect rollback of **both the journal and a locally cached signed anchor**, as long as the remote witness is trusted and reachable.
+
+These are **laboratory, not production**, APIs. The code neither creates an external witness nor integrates Identity Vault's native signing keys; tests use a local TLS simulation of the protocol. There is no transactional recovery from uncertain remote advances and no network authorization gate.
+
+See [VAULT_WITNESS_BRIDGE.md](VAULT_WITNESS_BRIDGE.md) for the exact JSON, security boundaries and remaining failures.
+
 ## Local developer demo
 
 From quantic-control:
