@@ -28,6 +28,44 @@ jobs:
           gh run download 45174826809 --repo XDSawyerLoL/QuanticMail -n QuanticMail-Windows-PQ-Lab-unsigned -D $dir
           if ($LASTEXITCODE -ne 0) { throw "Cannot load earlier trusted Windows package" }
           if (-not (Test-Path "$dir\Start-Windows-PQ-Lab.ps1")) { throw "Missing native launcher" }
+      - name: Rebuild native GUI shell bootstrap into copied test package and refresh exact manifest
+        shell: pwsh
+        run: |
+          $dir=Join-Path $env:RUNNER_TEMP "QuanticMail-Debug"
+          $exe=Join-Path $dir "bin\Quantic-Sillage-Launcher.exe"
+          $env:CGO_ENABLED="0"
+          go build -trimpath -ldflags "-H windowsgui" -o $exe cmd/quantic-alpha-launcher/main.go
+          if ($LASTEXITCODE -ne 0) { throw "Native bootstrap rebuild failed" }
+          $manifest=Join-Path $dir "SHA256SUMS.txt"
+          $digest=(Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          $lines=@(Get-Content -LiteralPath $manifest)
+          $changed=0
+          $lines=@($lines | ForEach-Object {
+            if ($_ -match '\*\./bin/Quantic-Sillage-Launcher\.exe
+        shell: pwsh
+        run: |
+          $dir=Join-Path $env:RUNNER_TEMP "QuanticMail-Debug"
+          $manifestPin=(Get-FileHash "$dir\SHA256SUMS.txt" -Algorithm SHA256).Hash.ToLowerInvariant()
+          $vaultPin=(Get-FileHash "$dir\bin\Vault-PQ-lab.exe" -Algorithm SHA256).Hash.ToLowerInvariant()
+          $shell=Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
+          $args=@("-NoLogo","-NoProfile","-STA","-ExecutionPolicy","Bypass","-File","$dir\Start-Windows-PQ-Lab.ps1","-Operation","DashboardCheck","-ExpectedManifestSha256",$manifestPin,"-TrustedBinarySha256",$vaultPin)
+          Write-Host "DIAGNOSTIC: direct PowerShell packaged dashboard check"
+          & $shell @args
+          $firstExit=$LASTEXITCODE
+          Write-Host "DIAGNOSTIC: direct PowerShell exit code $firstExit"
+          Write-Host "DIAGNOSTIC: native GUI launcher and child in smoke mode"
+          $p=Start-Process -FilePath "$dir\bin\Quantic-Sillage-Launcher.exe" -ArgumentList "$manifestPin $vaultPin --smoke-ui" -Wait -PassThru
+          Write-Host "DIAGNOSTIC: native GUI child exit code $($p.ExitCode)"
+          if ($firstExit -ne 0) { throw "Installed dashboard itself failed" }
+          if ($p.ExitCode -ne 0) { throw "Native bootstrap child creation differs from direct execution" }
+) {
+              $changed++
+              "$digest *./bin/Quantic-Sillage-Launcher.exe"
+            } else { $_ }
+          })
+          if ($changed -ne 1) { throw "Native root file pin not in copied package manifest" }
+          [IO.File]::WriteAllLines($manifest,$lines,[Text.UTF8Encoding]::new($false))
+          & ./scripts/Test-Windows-PQ-Package.ps1 -PackageDirectory $dir -ExpectedManifestSha256 (Get-FileHash $manifest -Algorithm SHA256).Hash
       - name: Distinguish a packaged dashboard script error from GUI process bootstrap error
         shell: pwsh
         run: |
