@@ -413,3 +413,99 @@ jobs:
             ${{ runner.temp }}/Quantic-Sillage-Alpha-UNSIGNED.exe.sha256
           if-no-files-found: error
           retention-days: 7
+
+  # This runner does NOT build the EXE. It tests exactly what users download.
+  # Synthetic-only; no private identity, real payment or public publication.
+  native-windows-download-acceptance:
+    needs: native-windows-pq-provider
+    runs-on: windows-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Download unsigned installer built on the other Windows runner
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: Quantic-Sillage-Alpha-UNSIGNED-Installer
+          path: downloaded-alpha
+      - name: Install, launch GUI and safely uninstall on clean Windows machine
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exe = Join-Path $env:GITHUB_WORKSPACE 'downloaded-alpha\Quantic-Sillage-Alpha-UNSIGNED.exe'
+          $digest = "$exe.sha256"
+          if (-not (Test-Path -LiteralPath $exe -PathType Leaf) -or -not (Test-Path -LiteralPath $digest -PathType Leaf)) { throw 'Downloaded artifact incomplete' }
+          $pin = ([IO.File]::ReadAllText($digest)).Trim()
+          if ($pin -cnotmatch '^[a-f0-9]{64}$' -or (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant() -cne $pin) { throw 'Downloaded installer hash mismatch' }
+          if ((Get-AuthenticodeSignature -LiteralPath $exe).Status -ne 'NotSigned') { throw 'Alpha lab must be explicitly unsigned' }
+          $build = $env:GITHUB_SHA.Substring(0,12)
+          $root = Join-Path $env:LOCALAPPDATA "QuanticSillage\Alpha-$build"
+          if (Test-Path -LiteralPath $root) { throw 'Non-clean installation directory' }
+          $install = Start-Process -FilePath $exe -ArgumentList '/S' -Wait -PassThru
+          if ($install.ExitCode -ne 0) { throw "Downloaded installer failed: $($install.ExitCode)" }
+          $app = Join-Path $root 'app'
+          $manifest = Join-Path $app 'SHA256SUMS.txt'
+          $vault = Join-Path $app 'bin\Vault-PQ-lab.exe'
+          $launcher = Join-Path $app 'bin\Quantic-Sillage-Launcher.exe'
+          $uninstaller = Join-Path $root 'Uninstall-Quantic-Sillage-Alpha.exe'
+          foreach ($p in @($manifest,$vault,$launcher,$uninstaller)) {
+            if (-not (Test-Path -LiteralPath $p -PathType Leaf)) { throw "Missing installed component: $p" }
+          }
+          $manifestPin = (Get-FileHash -LiteralPath $manifest -Algorithm SHA256).Hash.ToLowerInvariant()
+          $vaultPin = (Get-FileHash -LiteralPath $vault -Algorithm SHA256).Hash.ToLowerInvariant()
+          & ./scripts/Test-Windows-PQ-Package.ps1 -PackageDirectory $app -ExpectedManifestSha256 $manifestPin
+          # The compiled Windows launcher must use GUI subsystem 2, not console 3.
+          $reader = [IO.BinaryReader]::new([IO.File]::OpenRead($launcher))
+          try {
+            if ($reader.ReadUInt16() -ne 0x5A4D) { throw 'Bad MZ signature' }
+            $null = $reader.BaseStream.Seek(0x3c,[IO.SeekOrigin]::Begin)
+            $offset = $reader.ReadInt32()
+            if ($offset -lt 64 -or $offset -gt 4096) { throw 'Invalid PE offset' }
+            $null = $reader.BaseStream.Seek($offset,[IO.SeekOrigin]::Begin)
+            if ($reader.ReadUInt32() -ne 0x4550) { throw 'Bad PE signature' }
+            $null = $reader.BaseStream.Seek(($offset+24+68),[IO.SeekOrigin]::Begin)
+            if ($reader.ReadUInt16() -ne 2) { throw 'Native Windows GUI subsystem not present' }
+          } finally { $reader.Dispose() }
+          $desktop = Join-Path ([Environment]::GetFolderPath('DesktopDirectory')) "Quantic Sillage Alpha-$build.lnk"
+          $menu = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Quantic Sillage\Alpha-$build.lnk"
+          $wsh = New-Object -ComObject WScript.Shell
+          foreach ($p in @($desktop,$menu)) {
+            if (-not (Test-Path -LiteralPath $p -PathType Leaf)) { throw 'Native shortcut missing' }
+            $link = $wsh.CreateShortcut($p)
+            if ($link.TargetPath -ine $launcher -or $link.Arguments.Trim() -cne "$manifestPin $vaultPin") { throw 'Native shortcut target or pins changed' }
+          }
+          # GUI executables must be awaited using Start-Process, not the & operator.
+          $p = Start-Process -FilePath $launcher -ArgumentList "$manifestPin $vaultPin --self-test" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw 'Downloaded native GUI failed bootstrap selftest' }
+          $p = Start-Process -FilePath $launcher -ArgumentList "$manifestPin $vaultPin --smoke-ui" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw 'Downloaded GUI could not initialize its installed interface' }
+          $p = Start-Process -FilePath $launcher -ArgumentList "$manifestPin $('0'*64) --self-test" -Wait -PassThru
+          if ($p.ExitCode -eq 0) { throw 'Untrusted vault pin accepted' }
+          $synthetic = Join-Path $env:RUNNER_TEMP "QS-Synthetic-$build"
+          $ps = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+          $reportLines = & $ps -NoProfile -NonInteractive -File (Join-Path $app 'Start-Windows-PQ-Lab.ps1') -Operation MigrationSmoke -PrivateDirectory $synthetic -ExpectedManifestSha256 $manifestPin -TrustedBinarySha256 $vaultPin
+          if ($LASTEXITCODE -ne 0) { throw 'Installed package failed synthetic history readback' }
+          $report = $reportLines | Select-Object -Last 1 | ConvertFrom-Json
+          if ($report.status -ne 'synthetic-windows-migration-smoke-passed' -or $report.exactCollections -ne 4 -or -not $report.separateReadbackProcess -or $report.liveRestoreAuthorized -ne $false -or $report.legacyDeletionAuthorized -ne $false) { throw 'Synthetic recovery gates not met' }
+          $again = Start-Process -FilePath $exe -ArgumentList '/S' -Wait -PassThru
+          if ($again.ExitCode -eq 0) { throw 'Installer overwrote an existing Alpha build' }
+          # Preserve unfamiliar files and independent private vaults when uninstalling.
+          $foreign = Join-Path $app 'user-keep.txt'
+          [IO.File]::WriteAllText($foreign,'foreign synthetic data')
+          $separateVault = Join-Path $env:LOCALAPPDATA "QuanticSillage\UnrelatedSyntheticVault-$build"
+          [IO.Directory]::CreateDirectory($separateVault) | Out-Null
+          $key = Join-Path $separateVault 'keep.bin'
+          [IO.File]::WriteAllBytes($key,[byte[]](13,42,64,99))
+          $keyDigest = (Get-FileHash -LiteralPath $key -Algorithm SHA256).Hash
+          $uninstall = Start-Process -FilePath $uninstaller -ArgumentList '/S' -Wait -PassThru
+          if ($uninstall.ExitCode -ne 0) { throw "Uninstall failed: $($uninstall.ExitCode)" }
+          if (Test-Path -LiteralPath $launcher) { throw 'Known application binary survived uninstall' }
+          if (Test-Path -LiteralPath $uninstaller) { throw 'Uninstaller survived uninstall' }
+          if (-not (Test-Path -LiteralPath $foreign -PathType Leaf) -or ([IO.File]::ReadAllText($foreign)) -cne 'foreign synthetic data') { throw 'Unknown local file removed or altered' }
+          if (-not (Test-Path -LiteralPath $key -PathType Leaf) -or (Get-FileHash -LiteralPath $key -Algorithm SHA256).Hash -ne $keyDigest) { throw 'External private vault removed or altered' }
+          if ((Test-Path -LiteralPath $desktop) -or (Test-Path -LiteralPath $menu)) { throw 'Old application shortcuts remain' }
+          Write-Host "Downloaded Windows GUI install/uninstall acceptance PASSED, synthetic-only: $pin"
+          exit 0
