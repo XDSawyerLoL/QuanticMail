@@ -300,6 +300,19 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+      - name: Build native double-clickable Alpha GUI EXE with immutable package pins
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          package="$(cygpath -u "$RUNNER_TEMP")/QuanticMail-Windows-PQ-Lab"
+          exe="$(cygpath -u "$RUNNER_TEMP")/Quantic-Sillage-Alpha-App.exe"
+          manifest_pin="$(sha256sum --binary "$package/SHA256SUMS.txt" | cut -d ' ' -f 1)"
+          vault_pin="$(sha256sum --binary "$package/bin/Vault-PQ-lab.exe" | cut -d ' ' -f 1)"
+          cd labs/quantic-native/alpha-launcher
+          go test -count=1 ./...
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="-H windowsgui -X main.expectedManifestSHA256=$manifest_pin -X main.expectedVaultSHA256=$vault_pin" -o "$exe" .
+          test -s "$exe"
+          file "$exe" || true
       - name: Compile single-file unsigned native laboratory installer
         shell: msys2 {0}
         run: |
@@ -311,7 +324,7 @@ jobs:
           manifest_pin="$(sha256sum --binary "$dir/SHA256SUMS.txt" | cut -d ' ' -f 1)"
           vault_pin="$(sha256sum --binary "$dir/bin/Vault-PQ-lab.exe" | cut -d ' ' -f 1)"
           export MSYS2_ARG_CONV_EXCL='*'
-          /ucrt64/bin/makensis.exe "/DOUTPUT_EXE=$(cygpath -w "$exe")" "/DPACKAGE_DIR=$(cygpath -w "$dir")" "/DBUILD_ID=$(printf %.12s "$GITHUB_SHA")" "/DMANIFEST_PIN=$manifest_pin" "/DVAULT_PIN=$vault_pin" "$(cygpath -w scripts/Quantic-Sillage-Alpha.nsi)"
+          /ucrt64/bin/makensis.exe "/DOUTPUT_EXE=$(cygpath -w "$exe")" "/DPACKAGE_DIR=$(cygpath -w "$dir")" "/DLAUNCHER_EXE=$(cygpath -w "$RUNNER_TEMP/Quantic-Sillage-Alpha-App.exe")" "/DBUILD_ID=$(printf %.12s "$GITHUB_SHA")" "/DMANIFEST_PIN=$manifest_pin" "/DVAULT_PIN=$vault_pin" "$(cygpath -w scripts/Quantic-Sillage-Alpha.nsi)"
           test -s "$exe"
       - name: Exercise single-file unsigned native laboratory installer
         shell: pwsh
@@ -324,6 +337,11 @@ jobs:
           if ($p.ExitCode -ne 0) { throw "Native installation failed" }
           $installed = Join-Path $env:LOCALAPPDATA "QuanticSillage\Alpha-$build\app"
           & ./scripts/Test-Windows-PQ-Package.ps1 -PackageDirectory $installed -ExpectedManifestSha256 $manifestPin
+          $nativeApp = Join-Path $env:LOCALAPPDATA "QuanticSillage\Alpha-$build\Quantic-Sillage-Alpha.exe"
+          if (-not (Test-Path -LiteralPath $nativeApp -PathType Leaf)) { throw "Installed native double-clickable Alpha EXE missing" }
+          $nativeTest = Start-Process -FilePath $nativeApp -ArgumentList "--self-test" -Wait -PassThru
+          if ($nativeTest.ExitCode -ne 0) { throw "Native GUI EXE failed installed self-test or integrity pin verification" }
+          Write-Host "Installed native Quantic Sillage Alpha EXE launched with embedded package pins"
           $p = Start-Process -FilePath $exe -ArgumentList "/S" -Wait -PassThru
           if ($p.ExitCode -eq 0) { throw "Installer overlaid an existing build" }
           & ./scripts/Test-Windows-PQ-Package.ps1 -PackageDirectory $installed -ExpectedManifestSha256 $manifestPin
