@@ -102,8 +102,8 @@
   "vault/windows_storage_test.go": "18b89948324caa6b6ae338be2cdad948b6f15e94fc7aafebad34781c8ad03114",
   "vault/windows_journal.go": "01ff8e9ef237441024afc71844bebcf4014434aa04d0562a332e23705eaa44c8",
   "vault/windows_console.go": "a44834947eb6239ab5562191ab44f02f1443638331d2ce956ef6e0a0735de5ed",
-  "vault/windows_provision.go": "63f359a713972791b2c6eafd590126a311a384f3c51dff40602bad1a2399fddc",
-  "vault/windows_provision_stub.go": "437cb9b981e021757eeb6119602043c64fd07e0f52acfdd20968528e398214bf",
+  "vault/windows_provision.go": "1d24db3f94d80ae6228553e6b1dcef0feb798fa6ce6a9eab81974a51f53338e5",
+  "vault/windows_provision_stub.go": "b9d797c70696c20c24241d207de9e55c01444ec698803bf92eaa3738e0b9c909",
   "vault/windows_journal_test.go": "b74265ac0102ed76d87006a863fb23afcbe938d5dd5a7f8b99c2011ae94b6f03",
   "vault/windows_broker.go": "67ba65ee80f832ae8b61b5e602de335d2c9f47cc085974435e5c558e79ac1ba4",
   "vault/windows_recovery_test.go": "ebb7f0681edefe56b42c50b87bf6ef21e8924efd501f95c76093565dbf68da49",
@@ -116,5 +116,7 @@
   "vault/windows_pay_test.go": "6351f020ce50b6a8f6144ed9a7b54e1ae19e3c054a2e6e05d724ee55d25b1d29",
   "vault/windows_migration_storage.go": "76124a8a44d428a95fdf9c4fec44d2054edc346b208bdee33828319704d1114b",
   "vault/windows_migration_chunks.go": "8d5499a139221bc1a5c5550dc595b0cc7f3578760b7a672e9870d7ca79aaaef2",
-  "vault/windows_migration_audit.go": "a99489335b08301f1db4498ee18896d00ab16db29aa5c8fd9c3f932a2150ec20"
+  "vault/windows_migration_audit.go": "a99489335b08301f1db4498ee18896d00ab16db29aa5c8fd9c3f932a2150ec20",
+  "vault/windows_account_root.go": "24cb1a13a28394a967fb60c24d800fe1ad572141f8b7cd039cc7e1704b0578d6",
+  "vault/windows_account_root_test.go": "16d377f1537e6f4e586208ae7c94ccd2b28aad7cea7648df710f1d33494cbd5b"
 }
