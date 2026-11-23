@@ -5,6 +5,11 @@ on:
     branches: ['feat/**', 'fix/**']
     paths:
       - 'scripts/Quantic-Sillage-Alpha.ps1'
+      - 'scripts/Quantic-Sillage-Compose.ps1'
+      - 'scripts/Quantic-Sillage-Advanced.ps1'
+      - 'scripts/native-windows-compose-draft.mjs'
+      - 'desktop/native-windows-draft.mjs'
+      - 'tests/native-windows-draft.test.mjs'
       - 'scripts/Quantic-Sillage-Alpha.nsi'
       - '.github/workflows/windows-alpha-native-ui.yml'
   pull_request:
@@ -27,6 +32,11 @@ jobs:
       - name: Verify Windows Forms syntax and categorized native actions
         shell: pwsh
         run: |
+          foreach($candidate in @('./scripts/Quantic-Sillage-Alpha.ps1','./scripts/Quantic-Sillage-Compose.ps1','./scripts/Quantic-Sillage-Advanced.ps1')) {
+            $tokens=$null; $errors=$null
+            $null=[Management.Automation.Language.Parser]::ParseFile((Resolve-Path $candidate).Path,[ref]$tokens,[ref]$errors)
+            if($errors.Count -gt 0){throw ("Invalid PowerShell "+$candidate+": "+($errors -join "; "))}
+          }
           $path = (Resolve-Path ./scripts/Quantic-Sillage-Alpha.ps1).Path
           $tok=$null; $errors=$null
           $null=[Management.Automation.Language.Parser]::ParseFile($path,[ref]$tok,[ref]$errors)
@@ -34,5 +44,11 @@ jobs:
           $runner = Join-Path $env:SystemRoot "System32/WindowsPowerShell/v1.0/powershell.exe"
           & $runner -NoProfile -STA -NonInteractive -File $path -ExpectedManifestSha256 ("a"*64) -TrustedBinarySha256 ("b"*64) -SelfTest
           if ($LASTEXITCODE -ne 0) { throw "Native Alpha UI modules or field constraints rejected" }
+          & $runner -NoProfile -STA -NonInteractive -File ./scripts/Quantic-Sillage-Compose.ps1 -ExpectedManifestSha256 ("a"*64) -TrustedBinarySha256 ("b"*64) -SelfTest
+          if($LASTEXITCODE -ne 0){throw "Native composer self-test failed"}
+          & $runner -NoProfile -STA -NonInteractive -File ./scripts/Quantic-Sillage-Advanced.ps1 -ExpectedManifestSha256 ("a"*64) -TrustedBinarySha256 ("b"*64) -SelfTest
+          if($LASTEXITCODE -ne 0){throw "Explicit advanced contract failed"}
+          node --test tests/native-windows-draft.test.mjs
+          if($LASTEXITCODE -ne 0){throw "Draft validation failed"}
           $source = Get-Content -LiteralPath $path -Raw
           if ($source -match "(?i)WebBrowser|WebView2|loadURL|onrender\.com") { throw "Remote renderer reintroduced" }
