@@ -77,7 +77,12 @@ test('two native key generations are independently validated and never treated a
  assert.deepEqual(steps.map(x=>x.path),[dir+'\\participant-a',dir+'\\participant-b']);
  assert.deepEqual(steps.map(x=>x.pin),[first.quorumPin,second.quorumPin]);
  assert.deepEqual(output,[{index:1,address:first.address},{index:2,address:second.address}]);
- assert.equal(JSON.stringify(result).includes('kemPublic'),false,'do not export arbitrary internal PQ key blobs');
+ assert.equal(result.participants[0].publicKeys.signingP256.kty,'EC');
+ assert.equal(result.participants[0].publicKeys.encryptionP256.crv,'P-256');
+ assert.equal(Buffer.from(result.participants[1].publicKeys.kemSpkiBase64url,'base64url').length,1206);
+ assert.equal(Buffer.from(result.participants[1].publicKeys.dsaSpkiBase64url,'base64url').length,1974);
+ assert.equal(JSON.stringify(result).includes('"d"'),false,'no classical private JWK');
+ assert.equal(JSON.stringify(result).includes('PRIVATE KEY'),false,'no private key export');
 });
 test('substituted native result, wrong PQ digest and wrong device ID block the second identity',async()=>{
  for(const alter of [
