@@ -347,12 +347,14 @@ jobs:
           # directory, without allowing interactive dialogs in CI.
           $manifestLower = $manifestPin.ToLowerInvariant()
           $vaultLower = $vaultPin.ToLowerInvariant()
-          & $expectedLauncher $manifestLower $vaultLower --self-test
-          if ($LASTEXITCODE -ne 0) { throw "Installed native launcher refused authentic build (code $LASTEXITCODE)" }
-          & $expectedLauncher $manifestLower ("0"*64) --self-test
-          if ($LASTEXITCODE -eq 0) { throw "Native launcher accepted incorrect vault pin" }
-          & $expectedLauncher $manifestLower $vaultLower --smoke-ui
-          if ($LASTEXITCODE -ne 0) { throw "Native launcher failed to open full local GUI initialization chain" }
+          # GUI-subsystem processes do not reliably set $LASTEXITCODE with &.
+          # Wait explicitly so the actual signed-code path is exercised.
+          $p = Start-Process -FilePath $expectedLauncher -ArgumentList "$manifestLower $vaultLower --self-test" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "Installed native launcher refused authentic build (code $($p.ExitCode))" }
+          $p = Start-Process -FilePath $expectedLauncher -ArgumentList "$manifestLower $('0'*64) --self-test" -Wait -PassThru
+          if ($p.ExitCode -eq 0) { throw "Native launcher accepted incorrect vault pin" }
+          $p = Start-Process -FilePath $expectedLauncher -ArgumentList "$manifestLower $vaultLower --smoke-ui" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "Native launcher failed to open full local GUI initialization chain (code $($p.ExitCode))" }
           $shell = (Get-Process -Id $PID).Path
           & $shell -NoProfile -NonInteractive -File (Join-Path $installed "Start-Windows-PQ-Lab.ps1") -Operation Providers -ExpectedManifestSha256 $manifestPin -TrustedBinarySha256 $vaultPin
           if ($LASTEXITCODE -ne 0) { throw "Installed native executable could not be started" }
