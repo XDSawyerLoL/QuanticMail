@@ -9,6 +9,7 @@ import {bindWindowsDesktopConfig} from '../desktop/native-windows-desktop.mjs';
 import {saveWindowsDraft} from '../desktop/native-windows-draft.mjs';
 import {composeAndSendWindowsLab} from '../desktop/native-windows-integrated-mail.mjs';
 import {connectNativeVault} from '../desktop/native-vault-controller.mjs';
+import {makeGuiDepositApproval} from '../desktop/native-windows-gui-approval.mjs';
 
 const reject=()=>{throw Error('Native GUI transaction refused');};
 const args=process.argv.slice(2);
@@ -36,7 +37,7 @@ function lineInput() {
   return new Promise((resolve,reject)=>{waiting={resolve,reject};});
  },close(){input.close();}};
 }
-let savedDraft=null, savedWire=null, stage=0;
+let savedDraft=null, savedWire=null, depositStageReached=false;
 let lines;
 try{
  if(process.platform!=='win32'||Number(process.versions.node.split('.')[0])<24||
@@ -58,15 +59,12 @@ try{
  const result=await composeAndSendWindowsLab(config,storage,{
   input:savedDraft,output:savedWire,
   connect:cfg=>connectNativeVault({...cfg,guiWindowsApproval:true}),
-  approve:async()=>{
-   stage++;
-   if(stage===1)return true; // Existing explicit GUI consent before starting.
-   if(stage!==2)return false;
-   reply({phase:'sealed-awaiting-deposit-approval'});
-   return (await lines.next())==='SEND';
-  }
+  approve:makeGuiDepositApproval(
+   phase=>{depositStageReached=true;reply(phase);},
+   ()=>lines.next()
+  )
  });
- if(stage>2)reject();
+
  if(result.status==='deposited'&&result.relayStatus==='queued'){
   reply({phase:'result',status:'queued-on-local-relay',remoteDeliveryVerified:false});
  }else if(result.status==='deposited'&&result.relayStatus==='acknowledged'){
@@ -79,7 +77,7 @@ try{
 }catch{
  // A failed network response might have deposited the exact signed wire.
  // No automatic retry and no data loss. Do not echo private names in logs.
- reply({phase:'result',status:savedWire&&stage===2?'delivery-unknown':'not-sent-confirmed',
+ reply({phase:'result',status:depositStageReached?'delivery-unknown':'not-sent-confirmed',
   draftPreserved:Boolean(savedDraft),wireMayExist:Boolean(savedWire),
   remoteDeliveryVerified:false});
  process.exitCode=1;
