@@ -155,11 +155,17 @@ jobs:
           set -euo pipefail
           export QUANTIC_WINDOWS_VAULT_TEST="$(cygpath -w "$RUNNER_TEMP/Vault-PQ-provider-lab.exe")"
           node.exe --test tests/migration-durable-codec.test.mjs tests/migration-windows-durable.test.mjs
+      - name: Build dedicated Windows GUI native launcher, without browser
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-H windowsgui" -o "$RUNNER_TEMP/Quantic-Sillage-Launcher.exe" cmd/quantic-alpha-launcher/main.go
+          test -s "$RUNNER_TEMP/Quantic-Sillage-Launcher.exe"
       - name: Stage isolated portable Windows laboratory
         shell: msys2 {0}
         run: |
           set -euo pipefail
-          bash scripts/package-windows-pq-lab.sh "$RUNNER_TEMP/Vault-PQ-provider-lab.exe" "$RUNNER_TEMP/QuanticMail-Windows-PQ-Lab" "$RUNNER_TEMP/Scattering-Pacer.exe" "$(cygpath -w "$(command -v node.exe)")"
+          bash scripts/package-windows-pq-lab.sh "$RUNNER_TEMP/Vault-PQ-provider-lab.exe" "$RUNNER_TEMP/QuanticMail-Windows-PQ-Lab" "$RUNNER_TEMP/Scattering-Pacer.exe" "$(cygpath -w "$(command -v node.exe)")" "$RUNNER_TEMP/Quantic-Sillage-Launcher.exe"
       - name: Verify complete package and detect tampering before execution
         shell: pwsh
         run: |
@@ -327,16 +333,24 @@ jobs:
           $vaultPin = (Get-FileHash -LiteralPath (Join-Path $installed "bin\Vault-PQ-lab.exe") -Algorithm SHA256).Hash.ToLowerInvariant()
           $menu = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Quantic Sillage\Alpha-$build.lnk"
           $desktop = Join-Path ([Environment]::GetFolderPath('DesktopDirectory')) "Quantic Sillage Alpha-$build.lnk"
-          $expectedShell = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
+          $expectedLauncher = Join-Path $installed "bin\Quantic-Sillage-Launcher.exe"
           $wsh = New-Object -ComObject WScript.Shell
           foreach ($shortcutFile in @($menu,$desktop)) {
             if (-not (Test-Path -LiteralPath $shortcutFile -PathType Leaf)) { throw "Missing local native shortcut: $shortcutFile" }
             $shortcut = $wsh.CreateShortcut($shortcutFile)
-            if ($shortcut.TargetPath -ine $expectedShell) { throw "Unexpected executable in native shortcut" }
+            if ($shortcut.TargetPath -ine $expectedLauncher) { throw "Shortcut does not target the native EXE" }
             if (-not $shortcut.Arguments.Contains($manifestPin.ToLowerInvariant()) -or -not $shortcut.Arguments.Contains($vaultPin)) { throw "Native shortcut did not embed both expected SHA256 pins" }
-            if (-not $shortcut.Arguments.Contains("-Operation Dashboard") -or $shortcut.Arguments -match '(?i)https?://|onrender|hostingersite') { throw "Unexpected Web or missing native Dashboard action" }
-            if (-not $shortcut.Arguments.Contains((Join-Path $installed "Start-Windows-PQ-Lab.ps1"))) { throw "Shortcut points outside installed native package" }
+            if ($shortcut.Arguments -match '(?i)https?://|onrender|hostingersite|powershell|[.]ps1') { throw "Unexpected Web or script in native shortcut" }
+            if ($shortcut.Arguments.Trim() -cne ($manifestPin.ToLowerInvariant()+" "+$vaultPin)) { throw "Unexpected native launcher arguments" }
           }
+          # Exercise exactly the new native binary from the *installed*
+          # directory, without allowing interactive dialogs in CI.
+          & $expectedLauncher $manifestPin.ToLowerInvariant() $vaultPin --self-test
+          if ($LASTEXITCODE -ne 0) { throw "Installed native launcher refused authentic build" }
+          & $expectedLauncher $manifestPin.ToLowerInvariant() ("0"*64) --self-test
+          if ($LASTEXITCODE -eq 0) { throw "Native launcher accepted incorrect vault pin" }
+          & $expectedLauncher $manifestPin.ToLowerInvariant() $vaultPin --smoke-ui
+          if ($LASTEXITCODE -ne 0) { throw "Native launcher failed to open full local GUI initialization chain" }
           $shell = (Get-Process -Id $PID).Path
           & $shell -NoProfile -NonInteractive -File (Join-Path $installed "Start-Windows-PQ-Lab.ps1") -Operation Providers -ExpectedManifestSha256 $manifestPin -TrustedBinarySha256 $vaultPin
           if ($LASTEXITCODE -ne 0) { throw "Installed native executable could not be started" }
