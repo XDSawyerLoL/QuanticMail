@@ -14,6 +14,7 @@ Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 [System.Windows.Forms.Application]::EnableVisualStyles()
 $actions=@(
+ @{Id="ComposeDraft";Title="Rediger un message (sans terminal)";Hint="Choisir mon coffre et mon contact, ecrire puis conserver un brouillon prive. Aucun envoi automatique.";Scope=$false},
  @{Id="SealAndSend";Title="1. Rediger et envoyer (coffre natif)";Hint="Brouillon existant -> chiffrement PQ -> sauvegarde verifiee -> deux validations -> depot local. Test uniquement.";Input="draft";Output=$true;Scope=$true},
  @{Id="RecoverSealAndSend";Title="Reprendre chiffrement et envoi interrompus";Hint="Recuperation exacte PQ ; nouveau wire-*.json puis depot controle. Pas de renvoi automatique.";Input="draft";Output=$true;Scope=$true},
  @{Id="Seal";Title="2. Preparer sans envoyer";Hint="Brouillon prive -> nouvelle enveloppe chiffree. Aucun envoi.";Input="draft";Output=$true;Scope=$true},
@@ -47,7 +48,7 @@ $actions=@(
 # User-controlled pages are never rendered. Modules group existing local actions.
 function Get-AlphaModule([string]$Id) {
  switch -Regex ($Id) {
-  '^(SealAndSend|RecoverSealAndSend|Seal|RecoverSeal|Send|Receive|Open|RecoverOpen|RecoverReceive|ConfirmReceipt|MailPreflight|MailAttest)$' { return "QUANTIC MAIL" }
+  '^(ComposeDraft|SealAndSend|RecoverSealAndSend|Seal|RecoverSeal|Send|Receive|Open|RecoverOpen|RecoverReceive|ConfirmReceipt|MailPreflight|MailAttest) { return "QUANTIC MAIL" }
   '^(Provision|ProvisionPair)$' { return "QUANTIC ID" }
   '^Migration' { return "IDENTITY VAULT" }
   '^(StartBridge|ProbeLoopback)$' { return "SCATTERING" }
@@ -113,7 +114,7 @@ $il=Label-At "Fichier prive" 24 380 712 22
 $inputName=Text-At 24 404 712
 $ol=Label-At "Nouvelle enveloppe" 24 443 712 22
 $outputName=Text-At 24 467 712
-$run=New-Object Windows.Forms.Button;$run.Text="Continuer dans le terminal securise"
+$run=New-Object Windows.Forms.Button;$run.Text="Rediger un brouillon"
 $run.ForeColor=[Drawing.Color]::Black;$run.BackColor=[Drawing.Color]::FromArgb(196,223,244)
 $run.SetBounds(24,533,513,42);$form.Controls.Add($run)
 $quit=New-Object Windows.Forms.Button;$quit.Text="Fermer";$quit.ForeColor=[Drawing.Color]::Black
@@ -133,6 +134,9 @@ $choice.Add_SelectedIndexChanged({
  if ($choice.SelectedIndex -lt 0) { return }
  $a=$script:shownActions[$choice.SelectedIndex]
  $hint.Text=$a.Hint
+ $run.Text=if($a.Id -eq 'ComposeDraft'){"Rediger mon message"}else{"Ouvrir le laboratoire technique"}
+ $simple=$a.Id -eq 'ComposeDraft'
+ foreach($control in @($directory,$il,$inputName,$ol,$outputName)){$control.Visible=-not $simple}
  $directory.Enabled=[bool]$a.Scope
  $inputName.Enabled=[bool]$a.Input
  $outputName.Enabled=[bool]$a.Output
@@ -140,17 +144,27 @@ $choice.Add_SelectedIndexChanged({
  $ol.Text=if($a.Output){"Nouvelle enveloppe (wire-nom.json)"}else{"Aucune sortie a saisir"}
 })
 $run.Add_Click({
- try {
+ try{
   $a=$script:shownActions[$choice.SelectedIndex]
+  if($a.Id -eq 'ComposeDraft'){
+   & (Join-Path $root 'Quantic-Sillage-Compose.ps1') -ExpectedManifestSha256 $ExpectedManifestSha256 -TrustedBinarySha256 $TrustedBinarySha256
+   return
+  }
+  $warn=[Windows.Forms.MessageBox]::Show('Ceci est une operation de laboratoire reservee aux tests. Elle ouvrira volontairement un terminal technique. Continuer ?','Mode technique','YesNo','Warning')
+  if($warn -ne [Windows.Forms.DialogResult]::Yes){return}
   $script:selectedArguments=New-OperationArguments $a $directory.Text $inputName.Text $outputName.Text
   $script:selectedAction=$a.Id
   $form.DialogResult=[Windows.Forms.DialogResult]::OK
- }catch{[Windows.Forms.MessageBox]::Show($_.Exception.Message,"Parametres refuses","OK","Warning")|Out-Null}
+ }catch{
+  [Windows.Forms.MessageBox]::Show('Operation indisponible : verifiez les conditions du coffre de test. Aucune migration ni envoi implicite.','Operation non confirmee','OK','Warning')|Out-Null
+ }
 })
 $module.SelectedIndex=0
 if ($SelfTest) {
  try {
-  if($actions.Count -ne 29 -or $script:shownActions.Count -lt 3 -or -not $inputName.Enabled -or -not $outputName.Enabled){throw "Dashboard initialization failed"}
+  if($actions.Count -ne 30 -or $script:shownActions[0].Id -ne 'ComposeDraft' -or $inputName.Visible -or $outputName.Visible){throw "Dashboard initialization failed"}
+  $choice.SelectedIndex=1
+  if(-not $inputName.Enabled -or -not $outputName.Enabled){throw "Advanced input fields missing"}
   $a=New-OperationArguments $actions[0] "C:\Quantic Lab\vault" "draft-test.json" "wire-test.json"
   if($a -notcontains "C:\Quantic Lab\vault\draft-test.json" -or $a -notcontains "C:\Quantic Lab\vault\wire-test.json"){throw "Wrong arguments"}
   $rejected=$false
@@ -168,62 +182,31 @@ if ($SelfTest) {
  }finally{$form.Dispose()}
  exit 0
 }
-try {
- while ($true) {
+function Quote-AdvancedArg([string]$Value){
+ if($Value.Contains('"') -or $Value.Contains([char]10) -or $Value.Contains([char]13)){throw 'Argument advanced non autorise'}
+ return '"'+$Value+'"'
+}
+try{
+ while($true){
   $script:selectedArguments=$null;$script:selectedAction=$null
-  if ($form.ShowDialog() -ne [Windows.Forms.DialogResult]::OK) { break }
-  $operationArgs=$script:selectedArguments
-  if ($script:selectedAction -in @("PayOperator","PayOperatorConfigure")) {
-   $configPin=Read-Host "Empreinte SHA256 independante de la configuration Pay"
-   $operationArgs+=@("-PayConfigPin",$configPin)
-   if ($script:selectedAction -eq "PayOperatorConfigure") {
-    $configSource=Read-Host "Chemin absolu de la configuration privee"
-    $operationArgs+=@("-InputFile",$configSource)
-   }
-  }
-  if ($script:selectedAction -in @("PayNative","PayHistoryCheck")) {
-   $signPin=Read-Host "Empreinte SHA256 P-256 du coffre Pay"
-   $pqPin=Read-Host "Empreinte SHA256 ML-DSA-65 du coffre Pay"
-   $operationArgs+=@("-PaySigningPin",$signPin,"-PayPQPin",$pqPin)
-  }
-  if ($script:selectedAction -in @("MailPreflight","MailAttest")) {
-   Write-Host "Precontrole lecture seule: aucun compte ni cle historique n'est modifie."
-   $carrier=Read-Host "Dossier prive du transport Scattering deja provisionne"
-   $trust=Read-Host "Fichier JSON public de confiance approuve independamment"
-   $pin=Read-Host "Empreinte SHA256 verifiee independamment de ce fichier de confiance"
-   $operationArgs+=@("-CarrierDirectory",$carrier,"-TrustFile",$trust,"-ExpectedTrustSha256",$pin)
-  }
-  if ($script:selectedAction -eq "ProvisionPair") {
-   Write-Host "DEMONSTRATION FICTIVE : deux coffres locaux distincts, sans inscription distante."
-   Write-Host "Le dossier parent doit exister et participant-a / participant-b doivent etre ABSENTS."
-   $addrA=Read-Host "Adresse canonique fictive du premier participant"
-   $pinA=Read-Host "Empreinte de quorum independently approuvee (participant A)"
-   $addrB=Read-Host "Adresse canonique fictive du second participant"
-   $pinB=Read-Host "Empreinte de quorum independently approuvee (participant B)"
-   $operationArgs+=@("-CanonicalAddress",$addrA,"-QuorumPin",$pinA,"-SecondCanonicalAddress",$addrB,"-SecondQuorumPin",$pinB)
-  }
-  if ($script:selectedAction -eq "Provision") {
-   Write-Host "Coffre de test uniquement. Les valeurs suivantes sont publiques et doivent provenir d'une preparation independante."
-   $quorum=Read-Host "Empreinte SHA256 du quorum"
-   $address=Read-Host "Adresse canonique de test"
-   $operationArgs+=@("-QuorumPin",$quorum,"-CanonicalAddress",$address)
-  }
-  if ($script:selectedAction -in @("MigrationCheck","MigrationHistory")) {
-   $picker=New-Object Windows.Forms.OpenFileDialog
-   $picker.Filter="Archive Quantic (*.qma)|*.qma"
-   try {
-    if ($picker.ShowDialog() -ne [Windows.Forms.DialogResult]::OK) { continue }
-    $archive=$picker.FileName
-   }finally{$picker.Dispose()}
-   $address=Read-Host "Adresse canonique historique"
-   $pin=Read-Host "Empreinte SHA256 independante de la cle de propriete historique"
-   $operationArgs+=@("-InputFile",$archive,"-CanonicalAddress",$address,"-TrustedRootPin",$pin)
-  }
-  Write-Host ""
-  Write-Host "Quantic Sillage - operation locale. Les validations du coffre restent obligatoires."
-  & $shell -NoProfile -File $launcher @operationArgs
-  $code=$LASTEXITCODE
-  Write-Host "Code de retour: $code. Un code nul n'est pas une preuve de livraison distante."
-  $null=Read-Host "Entree pour revenir au tableau de bord"
+  if($form.ShowDialog() -ne [Windows.Forms.DialogResult]::OK){break}
+  if(-not $script:selectedAction){continue}
+  $advanced=Join-Path $root 'Quantic-Sillage-Advanced.ps1'
+  $argv=@('-NoLogo','-NoProfile','-STA','-ExecutionPolicy','Bypass',
+   '-File',(Quote-AdvancedArg $advanced),
+   '-ExpectedManifestSha256',$ExpectedManifestSha256,
+   '-TrustedBinarySha256',$TrustedBinarySha256,
+   '-Operation',$script:selectedAction,
+   '-Directory',(Quote-AdvancedArg $directory.Text),
+   '-InputName',(Quote-AdvancedArg $inputName.Text),
+   '-OutputName',(Quote-AdvancedArg $outputName.Text))
+  $psi=New-Object System.Diagnostics.ProcessStartInfo
+  $psi.FileName=$shell
+  $psi.Arguments=$argv -join ' '
+  $psi.UseShellExecute=$true
+  $psi.WindowStyle=[Diagnostics.ProcessWindowStyle]::Normal
+  $child=[Diagnostics.Process]::Start($psi)
+  if($null -eq $child){throw 'Le laboratoire technique ne peut pas demarrer'}
+  $child.Dispose()
  }
 }finally{$form.Dispose()}
