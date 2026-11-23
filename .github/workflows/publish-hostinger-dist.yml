@@ -12,6 +12,8 @@ on:
       - 'package.json'
       - 'scripts/build-hostinger-static.mjs'
       - '.github/workflows/publish-hostinger-dist.yml'
+      - 'security/release-boundary.json'
+      - 'scripts/assert-release-boundary.mjs'
   workflow_dispatch:
 
 permissions:
@@ -32,11 +34,19 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Reject experimental Web deployment with unsupported security claims
+        run: node scripts/assert-release-boundary.mjs --assert-web
       - run: npm install --ignore-scripts --no-audit --no-fund
       - name: Build Hostinger bundle with relay bootstrap sentinel
         env:
           NEXT_PUBLIC_QUANTIC_BOOTSTRAPS: https://quantic-hostinger-relay.invalid,https://quantic-network-relay-backup-production.up.railway.app
         run: npm run build:hostinger
+
+      - name: Attach transparent security-status attestation to static export
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/assert-release-boundary.mjs --assert-web > out/QUANTIC_RELEASE_AUDIT.json
 
       - name: Verify relay bootstrap sentinel is embedded
         shell: bash
