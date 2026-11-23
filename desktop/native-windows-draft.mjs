@@ -41,6 +41,20 @@ export async function saveWindowsDraft(config,contacts,storage,fields,{makeId=ra
  return Object.freeze({status:'draft-saved-not-sent',file:name,liveAccountEnrollmentAuthorized:false,
    remoteDeliveryVerified:false,legacyDeletionAuthorized:false});
 }
+export async function listWindowsDraftRecipients({binary,binarySha256,dir},{makeStorage=createWindowsNativeStorage}={}){
+ const boot={binary,binarySha256,dir},storage=await makeStorage(boot);
+ const cfg=bindWindowsDesktopConfig(await privateJSON(storage,win32.join(dir,'desktop.json')),boot);
+ windowsScatteringScope(cfg);
+ check(cfg.pqMode.contactDirectory===win32.join(dir,'contacts.json'));
+ const contacts=await privateJSON(storage,win32.join(dir,'contacts.json'));
+ check(Array.isArray(contacts)&&contacts.length<=32);
+ const now=Date.now(),used=new Set(),recipients=[];
+ for(const c of contacts){
+  check(c&&address.test(c.address)&&device.test(c.deviceId)&&Number.isSafeInteger(c.expires)&&c.expires>now&&c.address!==cfg.pqMode.address&&!used.has(c.address));
+  used.add(c.address);recipients.push(c.address);
+ }
+ return Object.freeze({status:'contacts',recipients});
+}
 export async function saveWindowsDraftFromInput({binary,binarySha256,dir},fields,{makeStorage=createWindowsNativeStorage}={}){
  const boot={binary,binarySha256,dir},storage=await makeStorage(boot);
  const cfg=bindWindowsDesktopConfig(await privateJSON(storage,win32.join(dir,'desktop.json')),boot);
