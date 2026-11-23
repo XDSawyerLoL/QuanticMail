@@ -1,7 +1,7 @@
 # Explicit laboratory launcher. No installation or production login.
 [CmdletBinding()]
 param(
- [Parameter(Mandatory=$true)][ValidateSet("Providers","Open","RecoverOpen","Seal","RecoverSeal","ProbeLoopback","Send","Receive","RecoverReceive","ConfirmReceipt","StartBridge","Provision","Dashboard","DashboardCheck","MigrationCheck","MigrationHistory","MigrationSmoke","MigrationFullSmoke","PayLab","PayLabCheck","PayProvision","PayNative","PayQuorumDemo","PayQuorumCheck","PayNativeQuorum","PayHistoryCheck","PayOperator","PayOperatorConfigure","StartPayBridge","PayCirculation","PayCirculationCheck")][string]$Operation,
+ [Parameter(Mandatory=$true)][ValidateSet("Providers","Open","RecoverOpen","Seal","RecoverSeal","ProbeLoopback","Send","SealAndSend","RecoverSealAndSend","Receive","RecoverReceive","ConfirmReceipt","StartBridge","Provision","Dashboard","DashboardCheck","MigrationCheck","MigrationHistory","MigrationSmoke","MigrationFullSmoke","PayLab","PayLabCheck","PayProvision","PayNative","PayQuorumDemo","PayQuorumCheck","PayNativeQuorum","PayHistoryCheck","PayOperator","PayOperatorConfigure","StartPayBridge","PayCirculation","PayCirculationCheck")][string]$Operation,
  [Parameter(Mandatory=$true)][ValidatePattern('^[a-fA-F0-9]{64}$')][string]$ExpectedManifestSha256,
  [string]$TrustedBinarySha256,
  [string]$PrivateDirectory,
@@ -132,10 +132,15 @@ if ($Operation -eq "StartBridge") {
  & $node --experimental-transform-types (Join-Path $root "scripts\serve-native-scattering-windows.mjs") $vault $TrustedBinarySha256.ToLowerInvariant() $PrivateDirectory
  exit $LASTEXITCODE
 }
-if ($Operation -in @("Send","Receive","RecoverReceive","ConfirmReceipt")) {
- if (-not $InputFile) { throw "Private wire or receipt path required." }
- $mailOps=@{Send="send";Receive="receive";RecoverReceive="recover-receive";ConfirmReceipt="confirm-receipt"}
- & $node --experimental-transform-types (Join-Path $root "scripts\native-vault-windows-mailbox.mjs") $vault $TrustedBinarySha256.ToLowerInvariant() $PrivateDirectory $mailOps[$Operation] $InputFile
+if ($Operation -in @("Send","SealAndSend","RecoverSealAndSend","Receive","RecoverReceive","ConfirmReceipt")) {
+ if (-not $InputFile) { throw "Private wire, draft or receipt path required." }
+ $mailOps=@{Send="send";SealAndSend="seal-and-send";RecoverSealAndSend="recover-seal-and-send";Receive="receive";RecoverReceive="recover-receive";ConfirmReceipt="confirm-receipt"}
+ $mailArgs=@($vault,$TrustedBinarySha256.ToLowerInvariant(),$PrivateDirectory,$mailOps[$Operation],$InputFile)
+ if ($Operation -in @("SealAndSend","RecoverSealAndSend")) {
+  if (-not $OutputFile) { throw "New durable wire output path required. Do not overwrite an existing wire." }
+  $mailArgs += $OutputFile
+ }
+ & $node --experimental-transform-types (Join-Path $root "scripts\native-vault-windows-mailbox.mjs") @mailArgs
  exit $LASTEXITCODE
 }
 if (-not $PrivateDirectory -or -not $InputFile) { throw "PrivateDirectory and InputFile required." }
