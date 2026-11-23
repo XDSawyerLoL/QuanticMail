@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "format": "quantic-release-boundary/1",
+  "reviewedAt": "2026-11-23",
+  "releaseClass": "legacy-experimental",
+  "product": "QuanticMail",
+  "capabilities": {
+    "realNativeIdentityCutover": false,
+    "deletionOfLegacyPrivateKeys": false,
+    "postCompromiseSecurityGuarantee": false,
+    "endToEndAnonymityGuarantee": false,
+    "realMoneyAuthorization": false,
+    "digitalEuroCompatibilityGuarantee": false
+  },
+  "labels": {
+    "web": "Legacy browser interface, experimental security; no verified native migration or real payments.",
+    "desktop": "Legacy Web client packaged for Windows; not a certified post-quantum native vault."
+  },
+  "securityAudit": "NOT_COMPLETED",
+  "independentAssurance": "NOT_APPROVED"
+}
