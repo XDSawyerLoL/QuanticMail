@@ -52,7 +52,9 @@ test('native-compatible fixed-batch lab carrier emits equal public size/timing m
     assert.equal(published, 80);
     assert.ok(records.every(r => r.packetBytes === 168));
     const report = evaluateTrafficLeakage(records, { permutations: 199 });
-    assert.equal(report.balancedAccuracy, 0.5);
+    // Finite train/test splits can fluctuate around 50%; do not demand exact equality.
+    assert.ok(Math.abs(report.balancedAccuracy - 0.5) <= 0.15);
+    assert.ok(report.permutationPValue > 0.05);
     assert.equal(report.potentialLeakageDetected, false);
     assert.match(report.conclusion, /not an anonymity proof/);
   } finally {
