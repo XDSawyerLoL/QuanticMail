@@ -313,6 +313,15 @@ jobs:
           CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="-H windowsgui -X main.expectedManifestSHA256=$manifest_pin -X main.expectedVaultSHA256=$vault_pin" -o "$exe" .
           test -s "$exe"
           file "$exe" || true
+      - name: Generate independently verified and nonrecursive NSIS uninstall list
+        shell: pwsh
+        run: |
+          $package = Join-Path $env:RUNNER_TEMP "QuanticMail-Windows-PQ-Lab"
+          $target = Join-Path $env:RUNNER_TEMP "Alpha-Uninstall-Exact.nsh"
+          node scripts/generate-alpha-uninstall-inventory.mjs $package $target
+          if ($LASTEXITCODE -ne 0) { throw "Uninstall list must match exact package manifest" }
+          if ((Get-Content -LiteralPath $target -Raw) -match '(?i)RMDir\s+/r') { throw "Recursive uninstaller deletion forbidden" }
+          if (-not (Test-Path -LiteralPath $target -PathType Leaf)) { throw "Missing strict uninstall list" }
       - name: Compile single-file unsigned native laboratory installer
         shell: msys2 {0}
         run: |
@@ -324,7 +333,7 @@ jobs:
           manifest_pin="$(sha256sum --binary "$dir/SHA256SUMS.txt" | cut -d ' ' -f 1)"
           vault_pin="$(sha256sum --binary "$dir/bin/Vault-PQ-lab.exe" | cut -d ' ' -f 1)"
           export MSYS2_ARG_CONV_EXCL='*'
-          /ucrt64/bin/makensis.exe "/DOUTPUT_EXE=$(cygpath -w "$exe")" "/DPACKAGE_DIR=$(cygpath -w "$dir")" "/DLAUNCHER_EXE=$(cygpath -w "$RUNNER_TEMP/Quantic-Sillage-Alpha-App.exe")" "/DBUILD_ID=$(printf %.12s "$GITHUB_SHA")" "/DMANIFEST_PIN=$manifest_pin" "/DVAULT_PIN=$vault_pin" "$(cygpath -w scripts/Quantic-Sillage-Alpha.nsi)"
+          /ucrt64/bin/makensis.exe "/DOUTPUT_EXE=$(cygpath -w "$exe")" "/DPACKAGE_DIR=$(cygpath -w "$dir")" "/DLAUNCHER_EXE=$(cygpath -w "$RUNNER_TEMP/Quantic-Sillage-Alpha-App.exe")" "/DUNINSTALL_LIST_NSH=$(cygpath -w "$RUNNER_TEMP/Alpha-Uninstall-Exact.nsh")" "/DBUILD_ID=$(printf %.12s "$GITHUB_SHA")" "/DMANIFEST_PIN=$manifest_pin" "/DVAULT_PIN=$vault_pin" "$(cygpath -w scripts/Quantic-Sillage-Alpha.nsi)"
           test -s "$exe"
       - name: Exercise single-file unsigned native laboratory installer
         shell: pwsh
@@ -369,6 +378,31 @@ jobs:
             & ./scripts/Test-Quantic-Sillage-Signed-Alpha.ps1 -Installer $exe -InstalledLauncher $nativeApp -ExpectedPublisherSha256 ("0"*64) -ExpectedManifestSha256 $manifestPin -ExpectedVaultSha256 ((Get-FileHash -LiteralPath "$installed\bin\Vault-PQ-lab.exe" -Algorithm SHA256).Hash) | Out-Null
           } catch { $signatureRejected = $true }
           if (-not $signatureRejected) { throw "Unsigned native Alpha application passed signed-release gate" }
+          # An uninstall must never delete private data, even if a user
+          # accidentally puts something unexpected inside the version tree.
+          $vault = Join-Path $env:LOCALAPPDATA "QuanticSillage\IdentityVaults\synthetic-preserve"
+          [IO.Directory]::CreateDirectory($vault) | Out-Null
+          $vaultFile = Join-Path $vault "do-not-delete.txt"
+          [IO.File]::WriteAllText($vaultFile, "retain synthetic test identity across installer cleanup")
+          $sibling = Join-Path $env:LOCALAPPDATA "QuanticSillage\Alpha-other-build"
+          [IO.Directory]::CreateDirectory($sibling) | Out-Null
+          $other = Join-Path $sibling "independent-installation.txt"
+          [IO.File]::WriteAllText($other,"different Alpha build must survive")
+          $uninstaller=Join-Path $env:LOCALAPPDATA "QuanticSillage\Alpha-$build\Uninstall-Quantic-Sillage-Alpha.exe"
+          if (-not (Test-Path -LiteralPath $uninstaller -PathType Leaf)) { throw "Installed uninstaller missing" }
+          $userUnexpected=Join-Path $installed "synthetic-user-kept.txt"
+          [IO.File]::WriteAllText($userUnexpected,"user data must not be recursively removed")
+          $p = Start-Process -FilePath $uninstaller -ArgumentList "/S" -Wait -PassThru
+          if ($p.ExitCode -eq 0) { throw "Uninstaller erased or accepted unrecognized user data" }
+          if (-not (Test-Path -LiteralPath $userUnexpected -PathType Leaf) -or -not (Test-Path -LiteralPath $vaultFile -PathType Leaf)) { throw "Private user files deleted" }
+          Remove-Item -LiteralPath $userUnexpected -Force
+          $p = Start-Process -FilePath $uninstaller -ArgumentList "/S" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "Exact-package uninstall failed" }
+          if (Test-Path -LiteralPath (Join-Path $env:LOCALAPPDATA "QuanticSillage\Alpha-$build")) { throw "Uninstall left behind complete build" }
+          if (-not (Test-Path -LiteralPath $vaultFile -PathType Leaf) -or -not (Test-Path -LiteralPath $other -PathType Leaf)) { throw "Uninstaller touched identity data or other build" }
+          $registry= "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\QuanticSillageAlpha-$build"
+          if (Test-Path -LiteralPath $registry) { throw "Uninstaller left behind Add/Remove Programs registration" }
+          Write-Host "Version-scoped uninstaller preserved both independent private vault and sibling installation"
           (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant() | Set-Content -Encoding ascii "$exe.sha256"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
