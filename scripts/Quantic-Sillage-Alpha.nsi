@@ -58,6 +58,7 @@ Section "Uninstall"
  SetShellVarContext current
  StrCpy $INSTDIR "$LOCALAPPDATA\QuanticSillage\Alpha-${BUILD_ID}"
  IfFileExists "$INSTDIR\Uninstall-Quantic-Sillage-Alpha.exe" +3
+  MessageBox MB_ICONEXCLAMATION|MB_OK "This exact Alpha build is not installed. Nothing was deleted." /SD IDOK
   SetErrorLevel 2
   Quit
  !include "${UNINSTALL_LIST_NSH}"
@@ -78,6 +79,7 @@ Section "Uninstall"
  preserved:
   ; Refuse to delete anything unexpected, including user-created files,
   ; private directories and manually placed migration records.
+  MessageBox MB_ICONEXCLAMATION|MB_OK "Unknown files remain in the Alpha folder. They were preserved. Inspect the version directory before trying again." /SD IDOK
   SetErrorLevel 2
   Quit
  done:
