@@ -26,9 +26,9 @@ function Invoke-Composer([string]$Directory,[string]$Payload,[bool]$List){
  $psi.UseShellExecute=$false;$psi.CreateNoWindow=$true
  $psi.WindowStyle=[Diagnostics.ProcessWindowStyle]::Hidden
  $psi.RedirectStandardInput=$true;$psi.RedirectStandardOutput=$true;$psi.RedirectStandardError=$true
- $psi.StandardInputEncoding=New-Object System.Text.UTF8Encoding($false)
- $psi.StandardOutputEncoding=New-Object System.Text.UTF8Encoding($false)
- $psi.StandardErrorEncoding=New-Object System.Text.UTF8Encoding($false)
+ $psi.StandardInputEncoding=[System.Text.UTF8Encoding]::new($false)
+ $psi.StandardOutputEncoding=[System.Text.UTF8Encoding]::new($false)
+ $psi.StandardErrorEncoding=[System.Text.UTF8Encoding]::new($false)
  $psi.EnvironmentVariables.Clear()
  $psi.EnvironmentVariables['SystemRoot']=$env:SystemRoot
  $psi.EnvironmentVariables['WINDIR']=$env:SystemRoot
