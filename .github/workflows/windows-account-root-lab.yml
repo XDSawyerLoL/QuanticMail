@@ -18,6 +18,15 @@ on:
 permissions:
   contents: read
 jobs:
+  source-inventory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Verify frozen source SHA-256 manifest
+        run: python3 labs/quantic-native/verify_sources.py
   isolated-windows-account-root:
     runs-on: windows-latest
     timeout-minutes: 20
