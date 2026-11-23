@@ -16,7 +16,7 @@
     "relay:smoke": "node scripts/smoke-hostinger-relay.mjs",
     "desktop:start": "electron .",
     "desktop:native-lab": "electron . --native-vault-lab",
-    "desktop:dist": "electron-builder --win nsis --publish never"
+    "desktop:dist": "node scripts/refuse-legacy-electron-release.mjs"
   },
   "dependencies": {
     "next": "16.3.3",
