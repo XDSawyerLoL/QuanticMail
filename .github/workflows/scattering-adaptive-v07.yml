@@ -1,0 +1,35 @@
+name: Scattering V0.7 synthetic adaptive threat laboratory
+on:
+  pull_request:
+    paths:
+      - 'labs/quantic-native/scattering/scattering-adaptive-v07.mjs'
+      - 'tests/scattering-adaptive-v07.test.mjs'
+      - 'docs/SCATTERING-ADAPTIVE-V07.md'
+      - '.github/workflows/scattering-adaptive-v07.yml'
+  push:
+    branches:
+      - 'research/scattering-adaptive-v07-*'
+    paths:
+      - 'labs/quantic-native/scattering/scattering-adaptive-v07.mjs'
+      - 'tests/scattering-adaptive-v07.test.mjs'
+      - 'docs/SCATTERING-ADAPTIVE-V07.md'
+      - '.github/workflows/scattering-adaptive-v07.yml'
+permissions:
+  contents: read
+jobs:
+  adaptive-laboratory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Check synthetic laboratory and tests
+        run: |
+          node --version
+          node --check labs/quantic-native/scattering/scattering-adaptive-v07.mjs
+          node --test tests/scattering-adaptive-v07.test.mjs
+      - name: Simulate baseline and adaptive strategies (no network)
+        run: |
+          node labs/quantic-native/scattering/scattering-adaptive-v07.mjs --iterations 5000 > adaptive-v07-report.json
+          node --input-type=module -e "import {readFileSync} from 'node:fs';const x=JSON.parse(readFileSync('adaptive-v07-report.json'));if(x.releaseAuthorized!==false||x.confidentialityProven!==false||x.securityLevel9999999Proven!==false)process.exit(1);console.log('Synthetic experiment completed; no real security claims.')"
