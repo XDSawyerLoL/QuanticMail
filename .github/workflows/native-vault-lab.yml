@@ -392,11 +392,19 @@ jobs:
           if (-not (Test-Path -LiteralPath $uninstaller -PathType Leaf)) { throw "Installed uninstaller missing" }
           $userUnexpected=Join-Path $installed "synthetic-user-kept.txt"
           [IO.File]::WriteAllText($userUnexpected,"user data must not be recursively removed")
-          $p = Start-Process -FilePath $uninstaller -ArgumentList "/S" -Wait -PassThru
-          if ($p.ExitCode -eq 0) { throw "Uninstaller erased or accepted unrecognized user data" }
+          # NSIS uninstallers copy themselves and return immediately to the
+          # parent with status 0, hiding the true status. Invoke an independent
+          # copy with the documented _?= argument as the LAST raw argument.
+          # This also lets the original installed uninstaller be removed.
+          $uninstallerCopy=Join-Path $env:RUNNER_TEMP "Quantic-Sillage-Alpha-Cleanup-Test.exe"
+          Copy-Item -LiteralPath $uninstaller -Destination $uninstallerCopy -ErrorAction Stop
+          $uninstallDir=Join-Path $env:LOCALAPPDATA "QuanticSillage\Alpha-$build"
+          $uninstallArgs="/S _?=$uninstallDir"
+          $p = Start-Process -FilePath $uninstallerCopy -ArgumentList $uninstallArgs -Wait -PassThru
+          if ($p.ExitCode -eq 0) { throw "Uninstaller accepted unrecognized user data" }
           if (-not (Test-Path -LiteralPath $userUnexpected -PathType Leaf) -or -not (Test-Path -LiteralPath $vaultFile -PathType Leaf)) { throw "Private user files deleted" }
           Remove-Item -LiteralPath $userUnexpected -Force
-          $p = Start-Process -FilePath $uninstaller -ArgumentList "/S" -Wait -PassThru
+          $p = Start-Process -FilePath $uninstallerCopy -ArgumentList $uninstallArgs -Wait -PassThru
           if ($p.ExitCode -ne 0) { throw "Exact-package uninstall failed" }
           if (Test-Path -LiteralPath (Join-Path $env:LOCALAPPDATA "QuanticSillage\Alpha-$build")) { throw "Uninstall left behind complete build" }
           if (-not (Test-Path -LiteralPath $vaultFile -PathType Leaf) -or -not (Test-Path -LiteralPath $other -PathType Leaf)) { throw "Uninstaller touched identity data or other build" }
