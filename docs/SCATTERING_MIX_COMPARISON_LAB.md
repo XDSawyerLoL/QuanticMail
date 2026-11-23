@@ -71,7 +71,7 @@ Pour une fenêtre de 8 périodes, mesures locales dans le modèle idéal :
 |---|---:|
 | Faible activité, équilibrée | 80,96 % |
 | Forte activité, équilibrée | 30,33 % |
-| Forte activité, émetteur dominant | Voir rapport JSON reproductible |
+| Forte activité, émetteur dominant | 46,43 % |
 
 Ces pourcentages sont des taux de réussite **dans le modèle d'observation inventé**, pas les probabilités de piratage de Quantic Sillage. Une correspondance connue entre pseudonyme visible et identité supprime le bénéfice de permutation ; un pseudonyme sans correspondance connue autorise déjà le regroupement, mais pas nécessairement l'identification nominative.
 
