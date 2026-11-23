@@ -154,3 +154,65 @@ Il n'affiche aucun secret, ne génère aucune attestation et ne connecte
 aucun compte réel. Une réponse de laboratoire positive n'est pas
 une preuve de livraison WAN ou inter-PC. Les conditions et commandes
 complètes figurent dans `WINDOWS_TWO_HOST_MAIL_READINESS.md`.
+
+## Application native `.exe` Windows — parcours d'installation Alpha
+
+Le livrable `Quantic-Sillage-Alpha-UNSIGNED.exe` est **l'installateur**
+monofichier Windows de laboratoire, et non un exécutable de messagerie
+prêt pour un déploiement public. Il fonctionne sans navigateur Web
+obligatoire et installe, dans le profil local de Windows, un second
+programme directement lançable :
+
+```text
+%LOCALAPPDATA%\QuanticSillage\Alpha-<IDENTIFIANT_BUILD>\Quantic-Sillage-Alpha.exe
+```
+
+Ce **second fichier est une véritable application native Go/Windows**
+qui s'ouvre par double-clic depuis le bureau ou le menu Démarrer.
+Il vérifie d'abord les SHA-256 attendus du manifeste intégral et du
+binaire de coffre post-quantique, dont les valeurs sont **incorporées
+dans l'exécutable après la construction du paquet**. Le programme
+lance ensuite le tableau de bord local Windows et délègue les
+opérations cryptographiques aux composants natifs protégés. Il ne
+tente aucune connexion au client Web supprimable et ne réactive
+aucun ancien compte. Aucune empreinte modifiable n'est requise
+dans les arguments du raccourci.
+
+L'installation crée un nouveau répertoire versionné. Elle
+**refuse d'écraser** une version déjà installée, un coffre,
+des courriers historiques ou une sauvegarde. Le raccourci du
+bureau n'est pas remplacé s'il existe déjà. Le mode de
+vérification silencieuse `Quantic-Sillage-Alpha.exe --self-test`
+est exercé dans GitHub Actions depuis le **dossier réellement
+installé**. Ce test vérifie le démarrage et l'intégrité, pas une
+connexion WAN ni la livraison d'un courriel réel.
+
+### Conditions pour diffuser un `.exe` à d'autres utilisateurs
+
+Le build automatique fournit actuellement **deux exécutables non
+signés** : l'installateur et le programme installé. Un futur
+package distribuable devra impérativement :
+
+1. Disposer d'un certificat de signature de code au nom de
+   l'éditeur légal et d'un service d'horodatage HTTPS de confiance.
+   Signer le **lanceur natif avant de le placer dans l'installateur**,
+   puis signer l'installateur final. Le signataire doit être le même
+   et son certificat SHA-256 connu hors bande.
+2. Construire l'installateur à partir du package figé, avec le
+   lanceur déjà signé, puis vérifier les signatures Authenticode
+   horodatées, l'intégrité des fichiers installés et le test
+   `--self-test`. Le script opérateur
+   `scripts/Test-Quantic-Sillage-Signed-Alpha.ps1` bloque les
+   versions non signées et vérifie les deux exécutables.
+3. Réaliser un vrai parcours de messagerie chiffrée sur **deux
+   ordinateurs physiques**, avec les quatre autorités
+   indépendantes, les connexions Scattering, le redémarrage,
+   les reçus et la récupération. Les tests CI ne remplacent pas
+   cette campagne.
+4. Terminer la migration sans perte et l'audit indépendant avant
+   toute activation de comptes réels ou diffusion de production.
+
+**Ne pas confondre le code vert de CI avec une autorisation de
+déploiement public.** Le site ou le navigateur ne constituent pas
+la future application Quantic Mail : le logiciel natif est
+la cible de déploiement.
