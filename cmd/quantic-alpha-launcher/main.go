@@ -21,7 +21,7 @@ import (
  "unsafe"
 )
 
-const (createNewConsole=0x00000010; createNoWindow=0x08000000)
+const createNewConsole=0x00000010
 var hexPin=regexp.MustCompile("^[a-f0-9]{64}$")
 
 func fileSHA256(path string)(string,error){
@@ -79,7 +79,10 @@ func localPowerShell(root,manifestPin,vaultPin string,smoke bool)(uint32,error){
  cwd,e:=syscall.UTF16PtrFromString(root);if e!=nil{return 1,e}
  var si syscall.StartupInfo;si.Cb=uint32(unsafe.Sizeof(si))
  var pi syscall.ProcessInformation
- flags:=uint32(createNewConsole);if smoke{flags=createNoWindow}
+ // Use the SAME local console for actual GUI and CI smoke. Hiding the
+ // console breaks nested Windows PowerShell/WinForms initialization on
+ // some Windows editions and silently drops diagnostic errors.
+ flags:=uint32(createNewConsole)
  if e=syscall.CreateProcess(program,command,nil,nil,false,flags,nil,cwd,&si,&pi);e!=nil{return 1,fmt.Errorf("start native dashboard: %w",e)}
  defer syscall.CloseHandle(pi.Process);defer syscall.CloseHandle(pi.Thread)
  status,e:=syscall.WaitForSingleObject(pi.Process,0xFFFFFFFF)
