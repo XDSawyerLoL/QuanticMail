@@ -64,4 +64,6 @@ jobs:
           Write-Host "DIRECT_DASHBOARD_EXIT=$firstExit"
           $p=Start-Process -FilePath "$dir\bin\Quantic-Sillage-Launcher.exe" -ArgumentList "$manifestPin $vaultPin --smoke-ui" -Wait -PassThru
           Write-Host "NATIVE_GUI_EXIT=$($p.ExitCode)"
+          $diagnostic=Join-Path $env:TEMP "quantic-alpha-ui-ci.log"
+          if(Test-Path -LiteralPath $diagnostic){Write-Host "CI CHILD DIAGNOSTIC:";Get-Content -LiteralPath $diagnostic}
           if ($firstExit -ne 0 -or $p.ExitCode -ne 0) { throw "Packaged UI actual launch regression" }
