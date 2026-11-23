@@ -7,6 +7,7 @@ import {join,resolve} from 'node:path';
 import {spawn,execFileSync} from 'node:child_process';
 import {once} from 'node:events';
 import {loadPinnedAuthorityLab} from '../standalone-relay/native-checkpoint-operator-lab.mjs';
+import {authorityRenewalTranscript,initialAuthorityChain} from '../standalone-relay/native-authority-renewal-lab.mjs';
 import {createAttestedPeerSource} from '../desktop/native-attested-peer.mjs';
 import {canonicalManifestText} from '../lib/quantic/manifest-core.mjs';
 import {canonicalCryptoProfileText} from '../lib/quantic/crypto-profile-core.mjs';
@@ -63,6 +64,8 @@ async function provisionAuthority(root,index,identity,clientPin){
  const name='w'+index,dir=join(root,'operator-'+index);
  await mkdir(dir,{mode:0o700});
  const signer=generateKeyPairSync('ed25519');
+ const renewalSigner=generateKeyPairSync('ed25519');
+ await mkdir(join(dir,'renewals'),{mode:0o700});
  const state={format:'quantic-relay-state',version:3,savedAt:new Date().toISOString(),
   manifests:[[identity.address,identity.manifest]],cryptoProfiles:[[identity.address,identity.profile]]};
  const fileData={
@@ -76,8 +79,9 @@ async function provisionAuthority(root,index,identity,clientPin){
  for(const [file,bytes] of Object.entries(fileData))
   await writeFile(join(dir,file),bytes,{mode:0o600,flag:'wx'});
  const cfg={
-  format:'quantic-native-authority-operator-lab/v1',labOnly:true,
+  format:'quantic-native-authority-operator-lab/v2',labOnly:true,
   authorityId:'authority-'+index,port:0,clientPins:[clientPin],
+  renewalPublicKey:spki(renewalSigner).toString('base64url'),
   pins:{caPin:sha(fileData['ca.pem']),
    tlsPin:sha(new X509Certificate(fileData['server.crt']).raw),
    signerPin:sha(spki(signer)),statePin:sha(fileData['state.json']),
@@ -85,7 +89,7 @@ async function provisionAuthority(root,index,identity,clientPin){
  };
  const bytes=Buffer.from(JSON.stringify(cfg));
  await writeFile(join(dir,'operator.json'),bytes,{mode:0o600,flag:'wx'});
- return {dir,cfg,digest:sha(bytes),signer};
+ return {dir,cfg,digest:sha(bytes),signer,renewalSigner,state};
 }
 async function boot(entry){
  const runner=resolve('scripts/run-native-checkpoint-authority-lab.mjs');
@@ -116,6 +120,23 @@ async function boot(entry){
  try{return {child,report:await ready};}
  catch(e){child.kill();throw e;}
 }
+async function stageRenewal(entry,identity,sequence,previousHash){
+ const folder=join(entry.dir,'renewals',String(sequence).padStart(6,'0'));
+ await mkdir(folder,{mode:0o700});
+ const state={...entry.state,savedAt:new Date().toISOString()};
+ const policy=[identity.policy];
+ const sb=Buffer.from(JSON.stringify(state)),pb=Buffer.from(JSON.stringify(policy));
+ const body={format:'quantic-native-authority-renewal/v1',
+  authorityId:entry.cfg.authorityId,sequence,previousHash,
+  stateHash:sha(sb),policyHash:sha(pb),savedAt:state.savedAt};
+ const transcript=authorityRenewalTranscript(body);
+ const signature=sign(null,transcript,entry.renewalSigner.privateKey).toString('base64url');
+ for(const [name,data] of [['state.json',sb],['policy.json',pb],
+  ['approval.json',Buffer.from(JSON.stringify({...body,signature}))]]){
+  await writeFile(join(folder,name),data,{mode:0o600,flag:'wx'});
+ }
+ return sha(transcript);
+}
 async function stop(service){
  if(!service)return;
  const p=service.child;
@@ -145,13 +166,34 @@ test('four separately pinned OS processes enforce 3-of-4 mTLS quorum, crash cuto
   }
   assert.equal(new Set(services.map(s=>s.child.pid)).size,4);
   assert.equal(new Set(configs.map(c=>c.dir)).size,4);
-  const source=await createAttestedPeerSource({
+  let source=await createAttestedPeerSource({
    authorities:attested,caFile:join(root,'ca.crt'),
    clientCertFile:join(root,'client.crt'),clientKeyFile:join(root,'client.key')
   });
   const a=await source(identity.address,identity.deviceId);
   assert.equal(a.checkpoint.address,identity.address);
   assert.equal(a.contact.deviceId,identity.deviceId);
+  const chains=[];
+  for(const c of configs){
+   chains.push(await stageRenewal(c,identity,1,
+    initialAuthorityChain(c.cfg.authorityId,c.digest,c.cfg.pins.statePin,c.cfg.pins.policyPin)));
+  }
+  assert.equal((await source(identity.address,identity.deviceId)).contact.deviceId,identity.deviceId);
+  for(let i=0;i<configs.length;i++){
+   const h=JSON.parse(await readFile(join(configs[i].dir,'accepted-head.json'),'utf8'));
+   assert.equal(h.sequence,1);assert.equal(h.chainHash,chains[i]);
+  }
+  // A stopped authority can be restarted, reconstruct the signed chain
+  // from local disk and continue signing without lowering its sequence.
+  await stop(services[3]);services.pop();
+  const resumed=await boot(configs[3]);services.push(resumed);
+  attested[3]={...attested[3],url:'https://127.0.0.1:'+resumed.report.port+'/native-checkpoint'};
+  source=await createAttestedPeerSource({
+   authorities:attested,caFile:join(root,'ca.crt'),
+   clientCertFile:join(root,'client.crt'),clientKeyFile:join(root,'client.key')
+  });
+  assert.equal((await source(identity.address,identity.deviceId)).contact.deviceId,identity.deviceId);
+  assert.equal(JSON.parse(await readFile(join(configs[3].dir,'accepted-head.json'),'utf8')).sequence,1);
   await stop(services[3]);services.pop();
   assert.equal((await source(identity.address,identity.deviceId)).contact.deviceId,identity.deviceId);
   await stop(services[2]);services.pop();
