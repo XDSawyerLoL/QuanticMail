@@ -1,7 +1,7 @@
 # Explicit laboratory launcher. No installation or production login.
 [CmdletBinding()]
 param(
- [Parameter(Mandatory=$true)][ValidateSet("Providers","Open","RecoverOpen","Seal","RecoverSeal","ProbeLoopback","Send","SealAndSend","RecoverSealAndSend","Receive","RecoverReceive","ConfirmReceipt","StartBridge","Provision","ProvisionPair","Dashboard","DashboardCheck","MigrationCheck","MigrationHistory","MigrationSmoke","MigrationFullSmoke","PayLab","PayLabCheck","PayProvision","PayNative","PayQuorumDemo","PayQuorumCheck","PayNativeQuorum","PayHistoryCheck","PayOperator","PayOperatorConfigure","StartPayBridge","PayCirculation","PayCirculationCheck")][string]$Operation,
+ [Parameter(Mandatory=$true)][ValidateSet("Providers","Open","RecoverOpen","Seal","RecoverSeal","ProbeLoopback","Send","SealAndSend","RecoverSealAndSend","Receive","RecoverReceive","ConfirmReceipt","StartBridge","Provision","ProvisionPair","MailPreflight","MailAttest","Dashboard","DashboardCheck","MigrationCheck","MigrationHistory","MigrationSmoke","MigrationFullSmoke","PayLab","PayLabCheck","PayProvision","PayNative","PayQuorumDemo","PayQuorumCheck","PayNativeQuorum","PayHistoryCheck","PayOperator","PayOperatorConfigure","StartPayBridge","PayCirculation","PayCirculationCheck")][string]$Operation,
  [Parameter(Mandatory=$true)][ValidatePattern('^[a-fA-F0-9]{64}$')][string]$ExpectedManifestSha256,
  [string]$TrustedBinarySha256,
  [string]$PrivateDirectory,
@@ -12,6 +12,9 @@ param(
  [string]$CanonicalAddress,
  [string]$SecondCanonicalAddress,
  [string]$SecondQuorumPin,
+ [string]$CarrierDirectory,
+ [string]$TrustFile,
+ [string]$ExpectedTrustSha256,
  [string]$TrustedRootPin,
  [string]$PaySigningPin,
  [string]$PayPQPin,
@@ -120,6 +123,14 @@ if ($Operation -in @("MigrationCheck","MigrationHistory")) {
  exit $LASTEXITCODE
 }
 if (-not $PrivateDirectory) { throw "PrivateDirectory required." }
+if ($Operation -in @("MailPreflight","MailAttest")) {
+ # The trusted native broker reads protected desktop, contact and carrier files.
+ if (-not $PrivateDirectory -or -not $CarrierDirectory -or -not $TrustFile -or $ExpectedTrustSha256 -cnotmatch '^[a-f0-9]{64}$') { throw "Independent trust-file digest and separate vault/carrier paths required." }
+ $probeMode="offline"
+ if ($Operation -eq "MailAttest") { $probeMode="live" }
+ & $node (Join-Path $root "scripts\native-windows-mail-readiness.mjs") $vault $TrustedBinarySha256.ToLowerInvariant() $PrivateDirectory $CarrierDirectory $TrustFile $ExpectedTrustSha256 $probeMode
+ exit $LASTEXITCODE
+}
 if ($Operation -eq "ProvisionPair") {
  # Public metadata only; native broker keeps two private passphrases.
  if ($QuorumPin -cnotmatch '^[a-f0-9]{64}$' -or $SecondQuorumPin -cnotmatch '^[a-f0-9]{64}$' -or $CanonicalAddress -cnotmatch '^[a-z0-9][a-z0-9._-]{2,31}~[a-f0-9]{32}@quantic$' -or $SecondCanonicalAddress -cnotmatch '^[a-z0-9][a-z0-9._-]{2,31}~[a-f0-9]{32}@quantic$' -or $CanonicalAddress -ceq $SecondCanonicalAddress) {
