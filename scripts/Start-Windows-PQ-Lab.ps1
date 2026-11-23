@@ -1,7 +1,7 @@
 # Explicit laboratory launcher. No installation or production login.
 [CmdletBinding()]
 param(
- [Parameter(Mandatory=$true)][ValidateSet("Providers","Open","RecoverOpen","Seal","RecoverSeal","ProbeLoopback","Send","SealAndSend","RecoverSealAndSend","Receive","RecoverReceive","ConfirmReceipt","StartBridge","Provision","Dashboard","DashboardCheck","MigrationCheck","MigrationHistory","MigrationSmoke","MigrationFullSmoke","PayLab","PayLabCheck","PayProvision","PayNative","PayQuorumDemo","PayQuorumCheck","PayNativeQuorum","PayHistoryCheck","PayOperator","PayOperatorConfigure","StartPayBridge","PayCirculation","PayCirculationCheck")][string]$Operation,
+ [Parameter(Mandatory=$true)][ValidateSet("Providers","Open","RecoverOpen","Seal","RecoverSeal","ProbeLoopback","Send","SealAndSend","RecoverSealAndSend","Receive","RecoverReceive","ConfirmReceipt","StartBridge","Provision","ProvisionPair","Dashboard","DashboardCheck","MigrationCheck","MigrationHistory","MigrationSmoke","MigrationFullSmoke","PayLab","PayLabCheck","PayProvision","PayNative","PayQuorumDemo","PayQuorumCheck","PayNativeQuorum","PayHistoryCheck","PayOperator","PayOperatorConfigure","StartPayBridge","PayCirculation","PayCirculationCheck")][string]$Operation,
  [Parameter(Mandatory=$true)][ValidatePattern('^[a-fA-F0-9]{64}$')][string]$ExpectedManifestSha256,
  [string]$TrustedBinarySha256,
  [string]$PrivateDirectory,
@@ -10,6 +10,8 @@ param(
  [string]$ControllerPublicKey,
  [string]$QuorumPin,
  [string]$CanonicalAddress,
+ [string]$SecondCanonicalAddress,
+ [string]$SecondQuorumPin,
  [string]$TrustedRootPin,
  [string]$PaySigningPin,
  [string]$PayPQPin,
@@ -118,6 +120,150 @@ if ($Operation -in @("MigrationCheck","MigrationHistory")) {
  exit $LASTEXITCODE
 }
 if (-not $PrivateDirectory) { throw "PrivateDirectory required." }
+if ($Operation -eq "ProvisionPair") {
+ # Only public identity metadata; all passwords remain with the native broker.
+ if ($QuorumPin -cnotmatch '^[a-f0-9]{64}
+ if (-not $ControllerPublicKey) {
+  if ($QuorumPin -notmatch '^[a-f0-9]{64}$' -or $CanonicalAddress -notmatch '^[a-z0-9][a-z0-9._-]{2,31}~[a-f0-9]{32}@quantic$') { throw "Independent public identity parameters required." }
+  & $vault --provision-windows-controller-lab $PrivateDirectory $QuorumPin $CanonicalAddress
+  exit $LASTEXITCODE
+ }
+ if ($ControllerPublicKey -notmatch '^[A-Za-z0-9_-]{43}$' -or $QuorumPin -notmatch '^[a-f0-9]{64}$' -or $CanonicalAddress -notmatch '^[a-z0-9][a-z0-9._-]{2,31}~[a-f0-9]{32}@quantic$') { throw "Independently provisioned synthetic identity parameters required." }
+ & $vault --provision-windows-pq-storage-lab $PrivateDirectory $ControllerPublicKey $QuorumPin $CanonicalAddress
+ exit $LASTEXITCODE
+}
+if ($Operation -eq "StartBridge") {
+ & $node --experimental-transform-types (Join-Path $root "scripts\serve-native-scattering-windows.mjs") $vault $TrustedBinarySha256.ToLowerInvariant() $PrivateDirectory
+ exit $LASTEXITCODE
+}
+if ($Operation -in @("Send","SealAndSend","RecoverSealAndSend","Receive","RecoverReceive","ConfirmReceipt")) {
+ if (-not $InputFile) { throw "Private wire, draft or receipt path required." }
+ $mailOps=@{Send="send";SealAndSend="seal-and-send";RecoverSealAndSend="recover-seal-and-send";Receive="receive";RecoverReceive="recover-receive";ConfirmReceipt="confirm-receipt"}
+ $mailArgs=@($vault,$TrustedBinarySha256.ToLowerInvariant(),$PrivateDirectory,$mailOps[$Operation],$InputFile)
+ if ($Operation -in @("SealAndSend","RecoverSealAndSend")) {
+  if (-not $OutputFile) { throw "New durable wire output path required. Do not overwrite an existing wire." }
+  $mailArgs += $OutputFile
+ }
+ & $node --experimental-transform-types (Join-Path $root "scripts\native-vault-windows-mailbox.mjs") @mailArgs
+ exit $LASTEXITCODE
+}
+if (-not $PrivateDirectory -or -not $InputFile) { throw "PrivateDirectory and InputFile required." }
+$ops = @{Open="open";RecoverOpen="recover-open";Seal="seal";RecoverSeal="recover-seal"}
+$argsList=@($vault,$TrustedBinarySha256.ToLowerInvariant(),$PrivateDirectory,$ops[$Operation],$InputFile)
+if ($Operation -in @("Seal","RecoverSeal")) {
+ if (-not $OutputFile) { throw "New private wire output required." }
+ $argsList += $OutputFile
+}
+& $node --experimental-transform-types (Join-Path $root "scripts\native-vault-windows-local.mjs") @argsList
+exit $LASTEXITCODE
+ -or $SecondQuorumPin -cnotmatch '^[a-f0-9]{64}
+ if (-not $ControllerPublicKey) {
+  if ($QuorumPin -notmatch '^[a-f0-9]{64}$' -or $CanonicalAddress -notmatch '^[a-z0-9][a-z0-9._-]{2,31}~[a-f0-9]{32}@quantic$') { throw "Independent public identity parameters required." }
+  & $vault --provision-windows-controller-lab $PrivateDirectory $QuorumPin $CanonicalAddress
+  exit $LASTEXITCODE
+ }
+ if ($ControllerPublicKey -notmatch '^[A-Za-z0-9_-]{43}$' -or $QuorumPin -notmatch '^[a-f0-9]{64}$' -or $CanonicalAddress -notmatch '^[a-z0-9][a-z0-9._-]{2,31}~[a-f0-9]{32}@quantic$') { throw "Independently provisioned synthetic identity parameters required." }
+ & $vault --provision-windows-pq-storage-lab $PrivateDirectory $ControllerPublicKey $QuorumPin $CanonicalAddress
+ exit $LASTEXITCODE
+}
+if ($Operation -eq "StartBridge") {
+ & $node --experimental-transform-types (Join-Path $root "scripts\serve-native-scattering-windows.mjs") $vault $TrustedBinarySha256.ToLowerInvariant() $PrivateDirectory
+ exit $LASTEXITCODE
+}
+if ($Operation -in @("Send","SealAndSend","RecoverSealAndSend","Receive","RecoverReceive","ConfirmReceipt")) {
+ if (-not $InputFile) { throw "Private wire, draft or receipt path required." }
+ $mailOps=@{Send="send";SealAndSend="seal-and-send";RecoverSealAndSend="recover-seal-and-send";Receive="receive";RecoverReceive="recover-receive";ConfirmReceipt="confirm-receipt"}
+ $mailArgs=@($vault,$TrustedBinarySha256.ToLowerInvariant(),$PrivateDirectory,$mailOps[$Operation],$InputFile)
+ if ($Operation -in @("SealAndSend","RecoverSealAndSend")) {
+  if (-not $OutputFile) { throw "New durable wire output path required. Do not overwrite an existing wire." }
+  $mailArgs += $OutputFile
+ }
+ & $node --experimental-transform-types (Join-Path $root "scripts\native-vault-windows-mailbox.mjs") @mailArgs
+ exit $LASTEXITCODE
+}
+if (-not $PrivateDirectory -or -not $InputFile) { throw "PrivateDirectory and InputFile required." }
+$ops = @{Open="open";RecoverOpen="recover-open";Seal="seal";RecoverSeal="recover-seal"}
+$argsList=@($vault,$TrustedBinarySha256.ToLowerInvariant(),$PrivateDirectory,$ops[$Operation],$InputFile)
+if ($Operation -in @("Seal","RecoverSeal")) {
+ if (-not $OutputFile) { throw "New private wire output required." }
+ $argsList += $OutputFile
+}
+& $node --experimental-transform-types (Join-Path $root "scripts\native-vault-windows-local.mjs") @argsList
+exit $LASTEXITCODE
+ -or $CanonicalAddress -cnotmatch '^[a-z0-9][a-z0-9._-]{2,31}~[a-f0-9]{32}@quantic
+ if (-not $ControllerPublicKey) {
+  if ($QuorumPin -notmatch '^[a-f0-9]{64}$' -or $CanonicalAddress -notmatch '^[a-z0-9][a-z0-9._-]{2,31}~[a-f0-9]{32}@quantic$') { throw "Independent public identity parameters required." }
+  & $vault --provision-windows-controller-lab $PrivateDirectory $QuorumPin $CanonicalAddress
+  exit $LASTEXITCODE
+ }
+ if ($ControllerPublicKey -notmatch '^[A-Za-z0-9_-]{43}$' -or $QuorumPin -notmatch '^[a-f0-9]{64}$' -or $CanonicalAddress -notmatch '^[a-z0-9][a-z0-9._-]{2,31}~[a-f0-9]{32}@quantic$') { throw "Independently provisioned synthetic identity parameters required." }
+ & $vault --provision-windows-pq-storage-lab $PrivateDirectory $ControllerPublicKey $QuorumPin $CanonicalAddress
+ exit $LASTEXITCODE
+}
+if ($Operation -eq "StartBridge") {
+ & $node --experimental-transform-types (Join-Path $root "scripts\serve-native-scattering-windows.mjs") $vault $TrustedBinarySha256.ToLowerInvariant() $PrivateDirectory
+ exit $LASTEXITCODE
+}
+if ($Operation -in @("Send","SealAndSend","RecoverSealAndSend","Receive","RecoverReceive","ConfirmReceipt")) {
+ if (-not $InputFile) { throw "Private wire, draft or receipt path required." }
+ $mailOps=@{Send="send";SealAndSend="seal-and-send";RecoverSealAndSend="recover-seal-and-send";Receive="receive";RecoverReceive="recover-receive";ConfirmReceipt="confirm-receipt"}
+ $mailArgs=@($vault,$TrustedBinarySha256.ToLowerInvariant(),$PrivateDirectory,$mailOps[$Operation],$InputFile)
+ if ($Operation -in @("SealAndSend","RecoverSealAndSend")) {
+  if (-not $OutputFile) { throw "New durable wire output path required. Do not overwrite an existing wire." }
+  $mailArgs += $OutputFile
+ }
+ & $node --experimental-transform-types (Join-Path $root "scripts\native-vault-windows-mailbox.mjs") @mailArgs
+ exit $LASTEXITCODE
+}
+if (-not $PrivateDirectory -or -not $InputFile) { throw "PrivateDirectory and InputFile required." }
+$ops = @{Open="open";RecoverOpen="recover-open";Seal="seal";RecoverSeal="recover-seal"}
+$argsList=@($vault,$TrustedBinarySha256.ToLowerInvariant(),$PrivateDirectory,$ops[$Operation],$InputFile)
+if ($Operation -in @("Seal","RecoverSeal")) {
+ if (-not $OutputFile) { throw "New private wire output required." }
+ $argsList += $OutputFile
+}
+& $node --experimental-transform-types (Join-Path $root "scripts\native-vault-windows-local.mjs") @argsList
+exit $LASTEXITCODE
+ -or $SecondCanonicalAddress -cnotmatch '^[a-z0-9][a-z0-9._-]{2,31}~[a-f0-9]{32}@quantic
+ if (-not $ControllerPublicKey) {
+  if ($QuorumPin -notmatch '^[a-f0-9]{64}$' -or $CanonicalAddress -notmatch '^[a-z0-9][a-z0-9._-]{2,31}~[a-f0-9]{32}@quantic$') { throw "Independent public identity parameters required." }
+  & $vault --provision-windows-controller-lab $PrivateDirectory $QuorumPin $CanonicalAddress
+  exit $LASTEXITCODE
+ }
+ if ($ControllerPublicKey -notmatch '^[A-Za-z0-9_-]{43}$' -or $QuorumPin -notmatch '^[a-f0-9]{64}$' -or $CanonicalAddress -notmatch '^[a-z0-9][a-z0-9._-]{2,31}~[a-f0-9]{32}@quantic$') { throw "Independently provisioned synthetic identity parameters required." }
+ & $vault --provision-windows-pq-storage-lab $PrivateDirectory $ControllerPublicKey $QuorumPin $CanonicalAddress
+ exit $LASTEXITCODE
+}
+if ($Operation -eq "StartBridge") {
+ & $node --experimental-transform-types (Join-Path $root "scripts\serve-native-scattering-windows.mjs") $vault $TrustedBinarySha256.ToLowerInvariant() $PrivateDirectory
+ exit $LASTEXITCODE
+}
+if ($Operation -in @("Send","SealAndSend","RecoverSealAndSend","Receive","RecoverReceive","ConfirmReceipt")) {
+ if (-not $InputFile) { throw "Private wire, draft or receipt path required." }
+ $mailOps=@{Send="send";SealAndSend="seal-and-send";RecoverSealAndSend="recover-seal-and-send";Receive="receive";RecoverReceive="recover-receive";ConfirmReceipt="confirm-receipt"}
+ $mailArgs=@($vault,$TrustedBinarySha256.ToLowerInvariant(),$PrivateDirectory,$mailOps[$Operation],$InputFile)
+ if ($Operation -in @("SealAndSend","RecoverSealAndSend")) {
+  if (-not $OutputFile) { throw "New durable wire output path required. Do not overwrite an existing wire." }
+  $mailArgs += $OutputFile
+ }
+ & $node --experimental-transform-types (Join-Path $root "scripts\native-vault-windows-mailbox.mjs") @mailArgs
+ exit $LASTEXITCODE
+}
+if (-not $PrivateDirectory -or -not $InputFile) { throw "PrivateDirectory and InputFile required." }
+$ops = @{Open="open";RecoverOpen="recover-open";Seal="seal";RecoverSeal="recover-seal"}
+$argsList=@($vault,$TrustedBinarySha256.ToLowerInvariant(),$PrivateDirectory,$ops[$Operation],$InputFile)
+if ($Operation -in @("Seal","RecoverSeal")) {
+ if (-not $OutputFile) { throw "New private wire output required." }
+ $argsList += $OutputFile
+}
+& $node --experimental-transform-types (Join-Path $root "scripts\native-vault-windows-local.mjs") @argsList
+exit $LASTEXITCODE
+ -or $CanonicalAddress -ceq $SecondCanonicalAddress) {
+  throw "Two DIFFERENT synthetic identities and independently trusted public quorum pins required."
+ }
+ & $node (Join-Path $root "scripts\provision-windows-two-party-lab.mjs") $vault $TrustedBinarySha256.ToLowerInvariant() $PrivateDirectory $CanonicalAddress $QuorumPin $SecondCanonicalAddress $SecondQuorumPin "--synthetic-only"
+ exit $LASTEXITCODE
+}
 if ($Operation -eq "Provision") {
  if (-not $ControllerPublicKey) {
   if ($QuorumPin -notmatch '^[a-f0-9]{64}$' -or $CanonicalAddress -notmatch '^[a-z0-9][a-z0-9._-]{2,31}~[a-f0-9]{32}@quantic$') { throw "Independent public identity parameters required." }
