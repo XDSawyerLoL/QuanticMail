@@ -317,7 +317,10 @@ jobs:
           manifest_pin="$(sha256sum --binary "$dir/SHA256SUMS.txt" | cut -d ' ' -f 1)"
           vault_pin="$(sha256sum --binary "$dir/bin/Vault-PQ-lab.exe" | cut -d ' ' -f 1)"
           export MSYS2_ARG_CONV_EXCL='*'
-          /ucrt64/bin/makensis.exe "/DOUTPUT_EXE=$(cygpath -w "$exe")" "/DPACKAGE_DIR=$(cygpath -w "$dir")" "/DBUILD_ID=$(printf %.12s "$GITHUB_SHA")" "/DMANIFEST_PIN=$manifest_pin" "/DVAULT_PIN=$vault_pin" "$(cygpath -w scripts/Quantic-Sillage-Alpha.nsi)"
+          uninstall_inventory="$(cygpath -u "$RUNNER_TEMP")/alpha-uninstall-files.nsh"
+          node scripts/build-alpha-uninstall-inventory.mjs "$(cygpath -w "$dir")" "$(cygpath -w "$uninstall_inventory")"
+          test -s "$uninstall_inventory"
+          /ucrt64/bin/makensis.exe "/DOUTPUT_EXE=$(cygpath -w "$exe")" "/DPACKAGE_DIR=$(cygpath -w "$dir")" "/DBUILD_ID=$(printf %.12s "$GITHUB_SHA")" "/DMANIFEST_PIN=$manifest_pin" "/DVAULT_PIN=$vault_pin" "/DUNINSTALL_NSH=$(cygpath -w "$uninstall_inventory")" "$(cygpath -w scripts/Quantic-Sillage-Alpha.nsi)"
           test -s "$exe"
       - name: Exercise single-file unsigned native laboratory installer
         shell: pwsh
@@ -368,6 +371,40 @@ jobs:
           $null=[System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD "scripts\Sign-Native-Lab-Installer.ps1"),[ref]$tokens,[ref]$errors)
           if ($errors.Count -ne 0) { throw "Operator signing script syntax invalid" }
           (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant() | Set-Content -Encoding ascii "$exe.sha256"
+      - name: Verify safe Alpha uninstall preserves unknown files and private vault
+        shell: pwsh
+        run: |
+          $build = $env:GITHUB_SHA.Substring(0,12)
+          $root = Join-Path $env:LOCALAPPDATA "QuanticSillage\\Alpha-$build"
+          $installed = Join-Path $root "app"
+          $uninstaller = Join-Path $root "Uninstall-Quantic-Sillage-Alpha.exe"
+          $unknown = Join-Path $installed "USER-UNKNOWN-KEEP.txt"
+          $vault = Join-Path $env:LOCALAPPDATA "QuanticSillage\\UninstallSyntheticVault-$build\\vault.bin"
+          $menu = Join-Path $env:APPDATA "Microsoft\\Windows\\Start Menu\\Programs\\Quantic Sillage\\Alpha-$build.lnk"
+          $uninstallLink = Join-Path $env:APPDATA "Microsoft\\Windows\\Start Menu\\Programs\\Quantic Sillage\\Uninstall Alpha-$build.lnk"
+          $desktop = Join-Path ([Environment]::GetFolderPath('DesktopDirectory')) "Quantic Sillage Alpha-$build.lnk"
+          if (-not (Test-Path -LiteralPath $uninstaller -PathType Leaf)) { throw "Uninstaller executable missing" }
+          if (-not (Test-Path -LiteralPath $uninstallLink -PathType Leaf)) { throw "Uninstall shortcut missing" }
+          New-Item -ItemType Directory -Path (Split-Path -Parent $vault) -Force | Out-Null
+          Set-Content -LiteralPath $unknown -Value "foreign-file-must-survive" -NoNewline
+          Set-Content -LiteralPath $vault -Value "synthetic-private-vault-must-survive" -NoNewline
+          try {
+            $p = Start-Process -FilePath $uninstaller -ArgumentList "/S" -Wait -PassThru
+            if ($p.ExitCode -ne 0) { throw "Safe uninstaller failed (exit $($p.ExitCode))" }
+            if (Test-Path -LiteralPath (Join-Path $installed "bin\\Vault-PQ-lab.exe")) { throw "Installed build binary survived uninstall" }
+            if (Test-Path -LiteralPath $uninstaller) { throw "Uninstaller failed to remove itself" }
+            if (Test-Path -LiteralPath $menu) { throw "Build Start Menu shortcut survived" }
+            if (Test-Path -LiteralPath $desktop) { throw "Build desktop shortcut survived" }
+            if (Test-Path -LiteralPath $uninstallLink) { throw "Build uninstall shortcut survived" }
+            if ((Get-Content -LiteralPath $unknown -Raw) -ne "foreign-file-must-survive") { throw "Unknown user file changed or deleted" }
+            if ((Get-Content -LiteralPath $vault -Raw) -ne "synthetic-private-vault-must-survive") { throw "External private vault changed or deleted" }
+            if (-not (Test-Path -LiteralPath $root -PathType Container)) { throw "Uninstaller removed directory containing an unknown file" }
+          } finally {
+            Remove-Item -LiteralPath $unknown -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath (Split-Path -Parent $vault) -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $installed -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $root -Force -ErrorAction SilentlyContinue
+          }
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: Quantic-Sillage-Alpha-UNSIGNED-Installer
