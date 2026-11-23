@@ -118,12 +118,31 @@ func (w *VaultWitness) Check(ctx context.Context, cursor VaultWitnessCursor) err
 // Advance atomically advances the independent service from precisely the old
 // cursor. A failed/ambiguous response is NOT retried automatically. Callers
 // must explicitly reconcile ambiguous commits through trusted recovery.
-func (w *VaultWitness) Advance(ctx context.Context, cursor VaultWitnessCursor, record string) (VaultWitnessCursor,error) {
-    if err:=w.call(ctx,"advance",cursor,record);err!=nil{return VaultWitnessCursor{},err}
-    oldTail,_:=hex.DecodeString(cursor.Tail)
+// VaultWitnessTransition binds the latest independently checked witness state
+// to the exact signed anchor recorded in that transition.
+type VaultWitnessTransition struct {
+    Before VaultWitnessCursor
+    After VaultWitnessCursor
+    RecordDigest string
+}
+
+func nextVaultWitnessCursor(before VaultWitnessCursor, record string) (VaultWitnessCursor, error) {
+    if !validCursor(before) || before.Count >= vaultWitnessCapacity || !validSHA256(record) {
+        return VaultWitnessCursor{},errors.New("invalid witness transition")
+    }
+    oldTail,_:=hex.DecodeString(before.Tail)
     recordBytes,_:=hex.DecodeString(record)
     sum:=sha256.Sum256(append(oldTail,recordBytes...))
-    return VaultWitnessCursor{ID:cursor.ID,Count:cursor.Count+1,Tail:hex.EncodeToString(sum[:])},nil
+    return VaultWitnessCursor{ID:before.ID,Count:before.Count+1,Tail:hex.EncodeToString(sum[:])},nil
+}
+
+// Advance atomically advances the independent service from precisely the old
+// cursor. A failed/ambiguous response is NOT retried automatically.
+func (w *VaultWitness) Advance(ctx context.Context, cursor VaultWitnessCursor, record string) (VaultWitnessTransition,error) {
+    next,err:=nextVaultWitnessCursor(cursor,record)
+    if err!=nil{return VaultWitnessTransition{},err}
+    if err:=w.call(ctx,"advance",cursor,record);err!=nil{return VaultWitnessTransition{},err}
+    return VaultWitnessTransition{Before:cursor,After:next,RecordDigest:record},nil
 }
 
 // WitnessRecordDigest binds the signed, independently sourced anchor to a
@@ -137,22 +156,36 @@ func WitnessRecordDigest(anchor SignedAnchor) (string,error) {
     return hex.EncodeToString(sum[:]),nil
 }
 
-// CheckPinnedVaultWitness makes BOTH checks: signature against independently
-// pinned authority key, and current cursor against independent Vault service.
-// It is a snapshot verification only, not an atomic authorization gate.
-func (d *DurableGuard) CheckPinnedVaultWitness(ctx context.Context, witness *VaultWitness,
-    anchor SignedAnchor, authorityID string, authorityPub ed25519.PublicKey, cursor VaultWitnessCursor) error {
-    if err:=d.VerifyPinnedAnchor(anchor,authorityID,authorityPub);err!=nil{return err}
-    return witness.Check(ctx,cursor)
+// validateWitnessTransition prevents a client from presenting a current witness
+// cursor alongside a different, stale signed anchor. It verifies the complete
+// hash link (previous cursor || digest of this exact signed anchor) -> next.
+func validateWitnessTransition(anchor SignedAnchor, transition VaultWitnessTransition) error {
+    digest,err:=WitnessRecordDigest(anchor)
+    if err!=nil{return err}
+    if transition.RecordDigest!=digest{return errors.New("witness is not bound to signed anchor")}
+    expected,err:=nextVaultWitnessCursor(transition.Before,digest)
+    if err!=nil{return err}
+    if expected!=transition.After{return errors.New("witness cursor does not follow signed anchor")}
+    return nil
 }
 
-// AdvancePinnedVaultWitness pins a verified *current* signed snapshot to the
-// existing external Vault service. The caller must preserve the returned
-// cursor independently. No safe enrollment or automatic renewal is implied.
+// CheckPinnedVaultWitness verifies the signed local journal AND the exact
+// hash transition that commits THIS anchor to the current independent witness.
+// It is still a snapshot check, not an atomic remote-operation permission.
+func (d *DurableGuard) CheckPinnedVaultWitness(ctx context.Context, witness *VaultWitness,
+    anchor SignedAnchor, authorityID string, authorityPub ed25519.PublicKey, transition VaultWitnessTransition) error {
+    if err:=d.VerifyPinnedAnchor(anchor,authorityID,authorityPub);err!=nil{return err}
+    if err:=validateWitnessTransition(anchor,transition);err!=nil{return err}
+    return witness.Check(ctx,transition.After)
+}
+
+// AdvancePinnedVaultWitness requires a verified current snapshot and returns
+// the exact signed-anchor-to-witness transition. Hold the trust roots outside
+// the machine's rollback domain; do not retry an ambiguous /advance response.
 func (d *DurableGuard) AdvancePinnedVaultWitness(ctx context.Context,witness *VaultWitness,
-    anchor SignedAnchor,authorityID string,authorityPub ed25519.PublicKey,cursor VaultWitnessCursor)(VaultWitnessCursor,error){
-    if err:=d.VerifyPinnedAnchor(anchor,authorityID,authorityPub);err!=nil{return VaultWitnessCursor{},err}
+    anchor SignedAnchor,authorityID string,authorityPub ed25519.PublicKey,cursor VaultWitnessCursor)(VaultWitnessTransition,error){
+    if err:=d.VerifyPinnedAnchor(anchor,authorityID,authorityPub);err!=nil{return VaultWitnessTransition{},err}
     record,err:=WitnessRecordDigest(anchor)
-    if err!=nil{return VaultWitnessCursor{},err}
+    if err!=nil{return VaultWitnessTransition{},err}
     return witness.Advance(ctx,cursor,record)
 }
