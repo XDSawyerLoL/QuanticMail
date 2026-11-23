@@ -33,3 +33,15 @@ jobs:
         run: go vet ./...
       - name: Build agent prototype
         run: go build -o quantic-control-alpha${{ runner.os == 'Windows' && '.exe' || '' }} ./cmd/quantic-control
+
+      - name: Smoke native Windows executable
+        if: runner.os == 'Windows'
+        run: .\\quantic-control-alpha.exe status
+      - name: Upload unsigned Windows laboratory binary
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: quantic-control-alpha1-windows-unsigned
+          path: quantic-control/quantic-control-alpha.exe
+          if-no-files-found: error
+          retention-days: 7
