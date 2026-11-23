@@ -7,6 +7,7 @@ import (
  "os"
  "path/filepath"
  "regexp"
+ "unicode/utf8"
 )
 
 // Explicit local helper for the trusted Node desktop process, not a web API.
@@ -16,6 +17,12 @@ var clientFileName=regexp.MustCompile("^(scattering[.]json|desktop[.]json|contro
 var clientDraftName=regexp.MustCompile("^draft-[a-z0-9-]{1,48}[.]json$")
 var clientWireName=regexp.MustCompile("^(wire|receipt)-[a-z0-9-]{1,48}[.]json$")
 func winClientIO(args []string)(bool,error){
+ if len(args)==2&&args[1]=="--windows-gui-approve-lab"{
+  data,e:=io.ReadAll(io.LimitReader(os.Stdin,1025));if e!=nil{return true,e};defer clear(data)
+  if len(data)<1||len(data)>1024||!utf8.Valid(data)||!winGUIApprove(string(data)){return true,portableRefusal}
+  _,e=os.Stdout.Write([]byte("APPROVED\n"))
+  return true,e
+ }
  if len(args)<2||(args[1]!="--windows-client-read-lab"&&args[1]!="--windows-client-write-wire-lab"&&args[1]!="--windows-client-write-draft-lab"){return false,nil}
  if len(args)!=4||!clientFileName.MatchString(args[3]){return true,portableRefusal}
  dir,name:=args[2],args[3]
