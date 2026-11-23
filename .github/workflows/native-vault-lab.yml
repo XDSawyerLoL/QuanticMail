@@ -405,6 +405,33 @@ jobs:
           $ps = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
           & $ps -NoProfile -NonInteractive -File (Join-Path $package "Start-Windows-PQ-Lab.ps1") -Operation Providers -ExpectedManifestSha256 $manifestPin -TrustedBinarySha256 $vaultPin
           if ($LASTEXITCODE -ne 0) { throw "Installed native PQ provider could not start on independent Windows runner" }
+          # The downloaded/installed package must also run its real native UI
+          # mapping and independent-process encrypted history readback.
+          & $ps -NoProfile -NonInteractive -File (Join-Path $package "Start-Windows-PQ-Lab.ps1") -Operation DashboardCheck -ExpectedManifestSha256 $manifestPin -TrustedBinarySha256 $vaultPin
+          if ($LASTEXITCODE -ne 0) { throw "Downloaded native dashboard failed to initialize all modules" }
+          $syntheticRoot = Join-Path $env:RUNNER_TEMP "qs-second-runner-synthetic-$build"
+          if (Test-Path -LiteralPath $syntheticRoot) { throw "Synthetic migration folder must not preexist" }
+          $migrationJson = & $ps -NoProfile -NonInteractive -File (Join-Path $package "Start-Windows-PQ-Lab.ps1") -Operation MigrationSmoke -PrivateDirectory $syntheticRoot -ExpectedManifestSha256 $manifestPin -TrustedBinarySha256 $vaultPin
+          if ($LASTEXITCODE -ne 0) { throw "Downloaded installer could not complete synthetic native historical restoration" }
+          $migration = $migrationJson | Select-Object -Last 1 | ConvertFrom-Json
+          if ($migration.status -ne "synthetic-windows-migration-smoke-passed" -or
+              $migration.labOnly -ne $true -or
+              $migration.windowsPrivateStorage -ne $true -or
+              $migration.separateReadbackProcess -ne $true -or
+              $migration.exactCollections -ne 4 -or
+              $migration.liveRestoreAuthorized -ne $false -or
+              $migration.legacyDeletionAuthorized -ne $false) {
+            throw "Synthetic restoration report is incomplete or attempts to permit real-identity cutover"
+          }
+          # The installed launcher must refuse reusing the same private
+          # directory, keeping the successfully written source immutable.
+          $oldPreference = $ErrorActionPreference
+          $ErrorActionPreference = "Continue"
+          try {
+            & $ps -NoProfile -NonInteractive -File (Join-Path $package "Start-Windows-PQ-Lab.ps1") -Operation MigrationSmoke -PrivateDirectory $syntheticRoot -ExpectedManifestSha256 $manifestPin -TrustedBinarySha256 $vaultPin 2>&1 | Out-Null
+            $repeatExit = $LASTEXITCODE
+          } finally { $ErrorActionPreference = $oldPreference }
+          if ($repeatExit -eq 0) { throw "Downloaded native launcher accepted overwriting a historical synthetic restore" }
           # A rejected external process is expected here: capture the exit
           # status without PowerShell treating the negative test as a job error.
           $previousPreference = $ErrorActionPreference
