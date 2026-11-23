@@ -22,12 +22,19 @@ func winClientIO(args []string)(bool,error){
  if _,_,e:=winPathParts(dir);e!=nil{return true,e}
  path:=filepath.Join(dir,name)
  if args[1]=="--windows-client-read-lab"{
-  data,e:=winReadPrivate(path,131072);if e!=nil{return true,e};defer clear(data)
+  var data []byte;var e error
+  if clientDraftName.MatchString(name){data,e=winReadEncryptedDraft(path)}
+  else{data,e=winReadPrivate(path,131072)}
+  if e!=nil{return true,e};defer clear(data)
   n,e:=os.Stdout.Write(data);if e==nil&&n!=len(data){e=io.ErrShortWrite};return true,e
  }
  if args[1]=="--windows-client-write-draft-lab"{
   if !clientDraftName.MatchString(name){return true,portableRefusal}
- }else if !clientWireName.MatchString(name){return true,portableRefusal}
+  b,e:=io.ReadAll(io.LimitReader(os.Stdin,8193));if e!=nil{return true,e};defer clear(b)
+  if len(b)<2||len(b)>8192{return true,portableRefusal}
+  return true,winWriteEncryptedDraft(path,b)
+ }
+ if !clientWireName.MatchString(name){return true,portableRefusal}
  b,e:=io.ReadAll(io.LimitReader(os.Stdin,32769));if e!=nil{return true,e};defer clear(b)
  if len(b)<1||len(b)>32768{return true,portableRefusal}
  return true,winWritePrivate(path,b)
