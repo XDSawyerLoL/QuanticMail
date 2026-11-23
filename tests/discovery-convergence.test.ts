@@ -53,7 +53,7 @@ function peer(index: number): DiscoveryPeer {
   return {
     relayId: relayId(index),
     endpoint: `https://relay-${index}.mesh.example`,
-    lastSeenAt: "2026-09-17T11:30:00.000Z",
+    lastSeenAt: new Date().toISOString(),
     failures: 0,
     bucketIndex: 0,
   };
@@ -81,10 +81,10 @@ function bundleFactory(handle = "converge") {
         publicKey: encryption.publicKey,
         deviceSigningPublicKey: owner.publicKey,
         kind: "root" as const,
-        issuedAt: "2026-09-17T00:00:00.000Z",
+        issuedAt: new Date(Date.now() - 60_000).toISOString(),
       }],
       revocations: [],
-      issuedAt: "2026-09-17T00:00:00.000Z",
+      issuedAt: new Date(Date.now() - 60_000).toISOString(),
     };
     const identityManifest: QuanticIdentityManifest = {
       format: "quantic-identity-manifest",
@@ -109,10 +109,10 @@ function bundleFactory(handle = "converge") {
         priority: 10,
         protocols: ["quantic-federation/1"],
         classicalSigningPublicKey: routeRelay.publicKey,
-        expiresAt: "2026-10-17T00:00:00.000Z",
+        expiresAt: new Date(Date.now() + 24 * 60 * 60_000).toISOString(),
       }],
-      issuedAt: "2026-09-17T00:00:00.000Z",
-      expiresAt: "2026-10-17T00:00:00.000Z",
+      issuedAt: new Date(Date.now() - 60_000).toISOString(),
+      expiresAt: new Date(Date.now() + 24 * 60 * 60_000).toISOString(),
     };
     const routeManifest: QuanticRouteManifest = {
       format: "quantic-route-manifest",
