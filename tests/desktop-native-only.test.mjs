@@ -95,3 +95,12 @@ test('real native Windows Alpha installer still targets packaged offline launche
  assert.match(launcher,/Get-FileHash/);
  assert.doesNotMatch(nsi,/https?:\/\//);
 });
+
+test('retired URL navigation policy refuses both former domains and arbitrary deep links',()=>{
+ const {MAIL_ORIGIN,PORTAL_ORIGIN,navigationTarget}=require('../desktop/navigation-policy.cjs');
+ assert.equal(MAIL_ORIGIN,null);
+ assert.equal(PORTAL_ORIGIN,null);
+ for(const url of ['https://quanticmail.onrender.com','https://mediumorchid-badger-314305.hostingersite.com','https://quanticmail.onrender.com/mail','file:///C:/vault','http://localhost:3000',null,undefined]){
+  assert.equal(navigationTarget(url),'deny');
+ }
+});
