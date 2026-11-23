@@ -4,6 +4,7 @@ import {createHash,generateKeyPairSync,sign} from 'node:crypto';
 import {mkdtemp,mkdir,writeFile,readFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
+import {approveNativeAuthorityRenewalLab} from '../standalone-relay/native-authority-approval-lab.mjs';
 import {authorityRenewalTranscript,initialAuthorityChain,
  createSignedAuthorityRenewalLab} from '../standalone-relay/native-authority-renewal-lab.mjs';
 
@@ -116,4 +117,40 @@ test('concurrent HTTP-style loads serialize one approval and never skip a sequen
   assert.ok(snapshots.every(x=>x.state.format==='quantic-relay-state'));
   assert.equal(c.status().sequence,1);assert.equal(c.status().chainHash,h);
  }finally{await f.close();}
+});
+
+test('separate operator key signs a staged snapshot using independently approved previous head',async()=>{
+ const now=Date.now(),root=await mkdtemp(join(tmpdir(),'quantic-independent-signoff-'));
+ const dir=join(root,'authority'),operator=join(root,'offline-signoff');
+ try{
+  await mkdir(dir,{mode:0o700});await mkdir(operator,{mode:0o700});
+  await mkdir(join(dir,'renewals'),{mode:0o700});
+  const signer=generateKeyPairSync('ed25519');
+  const publicKey=signer.publicKey.export({type:'spki',format:'der'}).toString('base64url');
+  const cfg={format:'quantic-native-authority-operator-lab/v2',labOnly:true,
+   authorityId,port:0,
+   pins:{caPin:configPin,tlsPin:configPin,signerPin:initialStatePin,statePin:initialStatePin,policyPin:initialPolicyPin},
+   clientPins:[configPin],renewalPublicKey:publicKey};
+  const cb=Buffer.from(JSON.stringify(cfg)),cfgPin=hash(cb);
+  await writeFile(join(dir,'operator.json'),cb,{mode:0o600,flag:'wx'});
+  const keyPath=join(operator,'renewal-signer.pem');
+  await writeFile(keyPath,signer.privateKey.export({format:'pem',type:'pkcs8'}),{mode:0o600,flag:'wx'});
+  const base={state:state(now),policy:policy(true)};
+  const c=await createSignedAuthorityRenewalLab({
+   directory:dir,authorityId,configPin:cfgPin,initialStatePin,initialPolicyPin,
+   publicKey,initialSnapshot:base,now:()=>now
+  });
+  const prior=initialAuthorityChain(authorityId,cfgPin,initialStatePin,initialPolicyPin);
+  const folder=join(dir,'renewals','000001');await mkdir(folder,{mode:0o700});
+  await writeFile(join(folder,'state.json'),JSON.stringify(state(now)),{mode:0o600,flag:'wx'});
+  await writeFile(join(folder,'policy.json'),JSON.stringify(policy(false)),{mode:0o600,flag:'wx'});
+  const args={directory:dir,configPin:cfgPin,operatorKeyFile:keyPath,sequence:1,previousHash:prior,now};
+  await assert.rejects(approveNativeAuthorityRenewalLab({...args,previousHash:'e'.repeat(64)}));
+  const result=await approveNativeAuthorityRenewalLab(args);
+  assert.equal(result.status,'independent-lab-renewal-signed');
+  assert.equal(result.sequence,1);
+  assert.equal((await c.load()).policy[0].active,false);
+  await assert.rejects(approveNativeAuthorityRenewalLab(args));
+  assert.equal(c.status().sequence,1);
+ }finally{await rm(root,{recursive:true,force:true});}
 });
