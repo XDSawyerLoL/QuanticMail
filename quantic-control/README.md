@@ -1,4 +1,4 @@
-# Quantic Control — Alpha 1 + durable authorization lab (experimental)
+# Quantic Control — Alpha 1.2 authorization and signed state anchor lab (experimental)
 
 This directory is an isolated, native Go prototype for Quantic Sillage machine security. It does NOT modify QuanticMail messaging, install a system service, connect to the network, run remote commands, intercept input, or disable operating-system protections.
 
@@ -20,6 +20,15 @@ The new Go API provides `InitDurableGuard` (explicit enrollment) and `OpenDurabl
 - The journal has finite capacity (100,000 records / 64 MiB); reaching the limit stops authorizations until a separately audited rotation protocol exists.
 - **Not tamper-proof:** the hash chain only detects unintentional corruption and simple modification. A local attacker with write access could recompute it or roll it back. Secure monotonic anchors, protected Windows ACLs and an independent operator key root remain blockers before real remote use.
 - This API is currently library-only, without network, service, administrator privilege, or automatic device enrollment. It is not integrated into the developer CLI or the native UI.
+
+## Independently signed rollback checkpoint (Alpha 1.2)
+
+The optional `AnchorProposal` and `AnchorSigningBytes` APIs export a public-only, domain-separated state proof. An **independent** Ed25519 authority can sign it and `OpenPinnedDurableGuard` validates the exact pinned journal contents and sequence after reopening.
+
+- A fully valid earlier journal or a hash-chain rewritten by a local attacker is rejected if the caller provides the **latest authentic checkpoint from an independent trust channel**.
+- There is **no** anti-rollback guarantee if an attacker can also replace that external checkpoint or its trusted public-key pin.
+- Each journal append invalidates the previous checkpoint. This library does not automatically obtain a new external signature, so no always-on remotely controlled service is ready.
+- This is a **future Identity Vault integration boundary**, not a current Quantic ID/ML-DSA implementation. See [STATE_ANCHOR_SECURITY.md](STATE_ANCHOR_SECURITY.md).
 
 ## Local developer demo
 
@@ -43,7 +52,7 @@ The baseline file itself is NOT authenticated; an attacker who can edit it can c
 
 ## Next gates
 
-1. Complete durable state security: authenticated anti-rollback anchoring, protected Windows ACL, independent key enrollment/recovery and power-loss testing (the initial fsynced journal and process-crash replay tests now exist).
+1. Complete durable state security: externally protected *latest* signed anchor, protected Windows ACL, independent key enrollment/recovery, secure checkpoint rotation and power-loss testing (fsynced journal, process-crash tests, and optional external anchor verification now exist).
 2. Integrate real Quantic ID / Identity Vault, without exposing private keys or reusing message signing domains.
 3. Add a minimal, non-privileged Windows background agent and genuine native GUI with explicit consent and uninstall support.
 4. Add signed, recoverable security policies, attack simulations and independent Windows runner tests before remote control.
