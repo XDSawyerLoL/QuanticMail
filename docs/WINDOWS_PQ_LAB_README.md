@@ -82,3 +82,59 @@ Aucun compte réel n'est migré ni activé par ces opérations.
 Détails et exemple de commande : `AUDIT_WINDOWS_SCATTERING_MAIL_FLOW.md`.
 Les tests unitaires injectent un coffre et un relais simulés ; ils ne
 prouvent pas encore l'envoi entre deux PC physiques distincts.
+
+## Deux identités PQ fictives en une opération locale
+
+L'action **Creer deux coffres de test PQ** du tableau de bord appelle
+`ProvisionPair` (ou la même opération depuis PowerShell). Elle est destinée
+au **test de deux personnes sur un seul PC Windows**, pas à une installation
+automatique de comptes réels ou à un réseau de production.
+
+Avant l'opération, créer un **dossier parent de laboratoire** sur disque
+fixe NTFS, **sans** sous-dossiers `participant-a` et `participant-b`.
+Obtenir depuis des canaux authentifiés **deux adresses synthétiques
+distinctes** et les empreintes de confiance des quorums d'autorité.
+Ne pas inventer une empreinte de quorum et ne pas reprendre une identité
+Web réelle. Le vérificateur de paquet et les deux empreintes du paquet
+et de l'exécutable demeurent obligatoires.
+
+Exemple de commande (remplacer chaque champ par sa vraie valeur vérifiée) :
+
+```powershell
+.\Start-Windows-PQ-Lab.ps1 -Operation ProvisionPair `
+  -ExpectedManifestSha256 MANIFEST_SHA256_INDEPENDANT `
+  -TrustedBinarySha256 BINAIRE_SHA256_INDEPENDANT `
+  -PrivateDirectory "C:\QuanticLab\Pair" `
+  -CanonicalAddress "alice~32_HEX_A@quantic" `
+  -QuorumPin QUORUM_A_SHA256 `
+  -SecondCanonicalAddress "bobby~32_HEX_B@quantic" `
+  -SecondQuorumPin QUORUM_B_SHA256
+```
+
+Le moteur natif crée séparément `participant-a` et `participant-b`.
+Pour **chaque coffre** il exige son propre accord local et **deux phrases
+secrètes différentes**, directement sur la console native. Le processus
+Node ne lit et ne conserve aucune de ces phrases secrètes. Il vérifie
+l'identité d'appareil dérivée de la clé P-256 et les empreintes des clés
+publiques P-256, ML-KEM et ML-DSA renvoyées par l'exécutable. Il ne
+publie que les adresses, identifiants d'appareil et empreintes publiques
+nécessaires à la suite du laboratoire. Si le premier coffre échoue, le
+second n'est pas lancé.
+
+Toute tentative d'écraser un coffre existant est refusée. Une erreur
+durant la création du second peut laisser le premier correctement
+provisionné : **ne pas supprimer ou réinitialiser automatiquement** les
+dossiers partiels. Aucune ancienne clé n'est effacée.
+
+Ce qu'il reste à préparer **indépendamment** avant de lancer deux PC :
+les quatre autorités mTLS et leurs attestations fraîches, les contacts
+et manifestes signés, l'inscription distante, les transports Scattering
+et les relais des deux machines. Aucun de ces éléments n'est généré par
+ce provisionneur, et le résultat signale
+`remoteAuthoritiesConfigured:false`,
+`nativeMailRelayConfigured:false` et
+`liveAccountEnrollmentAuthorized:false`.
+La commande **n'est donc pas encore une démonstration inter-PC de bout
+en bout**. Les tests unitaires simulent les réponses de l'exécutable Go
+et contrôlent les empreintes et les refus ; le workflow Windows valide
+séparément la compilation native et l'emballage.
