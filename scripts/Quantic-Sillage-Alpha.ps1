@@ -51,7 +51,7 @@ function Get-AlphaModule([string]$Id) {
   '^(Provision|ProvisionPair)$' { return "QUANTIC ID" }
   '^Migration' { return "IDENTITY VAULT" }
   '^(StartBridge|ProbeLoopback)$' { return "SCATTERING" }
-  '^Pay' { return "QUANTIC PAY - LAB" }
+  '^(Pay|StartPayBridge)' { return "QUANTIC PAY - LAB" }
   '^(Providers)$' { return "DIAGNOSTIC" }
   default { throw "Unknown native operation; fail closed." }
  }
