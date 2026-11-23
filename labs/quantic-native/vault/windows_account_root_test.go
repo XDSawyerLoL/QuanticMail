@@ -6,6 +6,7 @@ import(
  "bytes"
  "crypto/ed25519"
  "crypto/rand"
+ "encoding/base64"
  "os"
  "os/exec"
  "path/filepath"
@@ -49,7 +50,7 @@ func TestWindowsAccountRootDurabilityAndRefusal(t *testing.T){
   "QV_TEST_SYNTHETIC_ROOT_CHILD=1",
   "QV_TEST_SYNTHETIC_ROOT_DIR="+dir,
   "QV_TEST_SYNTHETIC_ROOT_APP="+app,
-  "QV_TEST_SYNTHETIC_ROOT_BINDING="+binding,
+  "QV_TEST_SYNTHETIC_ROOT_BINDING_B64="+base64.RawURLEncoding.EncodeToString([]byte(binding)),
   "QV_TEST_SYNTHETIC_ROOT_PIN="+rootPin)
  output,e:=cmd.CombinedOutput()
  if e!=nil{t.Fatalf("separate-process reopen failed: %v: %s",e,output)}
@@ -67,7 +68,9 @@ func TestWindowsAccountRootDurabilityAndRefusal(t *testing.T){
 func TestWindowsAccountRootSeparateProcess(t *testing.T){
  if os.Getenv("QV_TEST_SYNTHETIC_ROOT_CHILD")!="1"{return}
  dir,app:=os.Getenv("QV_TEST_SYNTHETIC_ROOT_DIR"),os.Getenv("QV_TEST_SYNTHETIC_ROOT_APP")
- binding,pin:=os.Getenv("QV_TEST_SYNTHETIC_ROOT_BINDING"),os.Getenv("QV_TEST_SYNTHETIC_ROOT_PIN")
+ encoded,pin:=os.Getenv("QV_TEST_SYNTHETIC_ROOT_BINDING_B64"),os.Getenv("QV_TEST_SYNTHETIC_ROOT_PIN")
+ raw,e:=base64.RawURLEncoding.DecodeString(encoded);if e!=nil{t.Fatal(e)}
+ binding:=string(raw);defer clear(raw)
  if _,e:=winVerifyAccountRoot(dir,app,binding,pin,[]byte(syntheticRootPassword));e!=nil{t.Fatal(e)}
 }
 func TestWindowsAccountRootRequiresExistingLabAndBinding(t *testing.T){
