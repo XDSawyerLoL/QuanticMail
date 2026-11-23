@@ -21,6 +21,18 @@ limitée au profil utilisateur, sans privilèges administrateur ni
 modification d'identité existante. Chaque build utilise son propre
 dossier, et l'installateur refuse de remplacer un dossier préexistant.
 
+La version Alpha ajoute désormais une entrée par build dans
+**Paramètres Windows → Applications installées**, avec un
+`Uninstall-Quantic-Sillage-Alpha.exe` autonome. La désinstallation
+supprime exclusivement les fichiers déclarés dans l'inventaire
+SHA256 vérifié à la construction et seulement les dossiers redevenus
+vides : **aucune suppression récursive**, aucun nettoyage de coffre.
+La présence d'un fichier inconnu dans le dossier `app` entraîne
+un refus et laisse les données restantes pour vérification manuelle.
+Les autres builds `Alpha-*` et les coffres conservés ailleurs ne
+sont pas affectés. Une nouvelle installation est juxtaposée à
+l'ancienne, **sans migration ni mise à niveau automatique**.
+
 Les artefacts issus de la branche sont conservés **30 jours** par
 GitHub Actions ; l'accès au dépôt et à ses artefacts GitHub est requis.
 Un artefact GitHub Actions n'est pas une release publique ni un lien
