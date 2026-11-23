@@ -112,4 +112,8 @@ test('Ambiguous network failure never retries or deletes the signed wire',async(
  const y=setup({identity:{...ctx,to:alice}});
  await assert.rejects(composeAndSendWindowsLab(cfg,y.storage,y.deps));
  assert.equal(y.stats().write,0);assert.equal(y.stats().sends,0);
+ const mismatchedId=setup({identity:{...ctx,clientMessageId:'different-client-message-id-001'}});
+ await assert.rejects(composeAndSendWindowsLab(cfg,mismatchedId.storage,mismatchedId.deps));
+ assert.equal(mismatchedId.stats().write,0);
+ assert.equal(mismatchedId.stats().sends,0);
 });
