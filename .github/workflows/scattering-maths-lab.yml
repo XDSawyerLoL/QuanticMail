@@ -4,6 +4,7 @@ on:
     paths:
       - 'labs/quantic-native/scattering/traffic-privacy-lab.mjs'
       - 'tests/scattering-traffic-privacy-lab.test.mjs'
+      - 'tests/scattering-privacy-native-trace.test.mjs'
       - 'docs/QUANTIC-MATH-RADAR-2026.md'
       - '.github/workflows/scattering-maths-lab.yml'
   push:
@@ -30,4 +31,4 @@ jobs:
       - name: Validate syntax and run held-out synthetic leakage tests
         run: |
           node --check labs/quantic-native/scattering/traffic-privacy-lab.mjs
-          node --test tests/scattering-traffic-privacy-lab.test.mjs
+          node --test tests/scattering-traffic-privacy-lab.test.mjs tests/scattering-privacy-native-trace.test.mjs
