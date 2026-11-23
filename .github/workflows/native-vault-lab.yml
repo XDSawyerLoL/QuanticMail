@@ -298,7 +298,7 @@ jobs:
           name: QuanticMail-Windows-PQ-Lab-unsigned
           path: ${{ runner.temp }}/QuanticMail-Windows-PQ-Lab/
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 30
 
       - name: Build native double-clickable Alpha GUI EXE with immutable package pins
         shell: msys2 {0}
@@ -377,4 +377,4 @@ jobs:
             ${{ runner.temp }}/Quantic-Sillage-Alpha-UNSIGNED.exe
             ${{ runner.temp }}/Quantic-Sillage-Alpha-UNSIGNED.exe.sha256
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 30
