@@ -2,7 +2,7 @@
 
 ## Ce que cette version fait
 
-**Quantic Sentinel** est une application Win32 native distincte, sans navigateur ni terminal PowerShell visible. Contrairement au prototype de vérification manuelle d'une empreinte SHA-256, cette version **écoute automatiquement** les notifications `ReadDirectoryChangesW` envoyées par Windows sur un dossier choisi et ses sous-dossiers.
+**Quantic Sentinel** est une application Win32 native distincte, sans navigateur ni terminal PowerShell visible. Contrairement au prototype de vérification manuelle d'une empreinte SHA-256, cette version **surveille automatiquement** à intervalles de deux secondes les métadonnées des fichiers d'un dossier choisi et de ses sous-dossiers. La tentative initiale d'utiliser des notifications Windows asynchrones a été retirée après un échec grave en CI Windows.
 
 1. Ouvrir `quantic-sentinel-alpha.exe` et choisir « Surveiller un dossier ».
 2. Sélectionner un dossier personnel de test, de préférence une copie de fichiers non sensibles.
@@ -14,19 +14,19 @@
 4. Les alertes sont limitées en fréquence (30 s) pour éviter de saturer l'écran.
 5. « Arrêter » désactive le watcher. « Effacer le journal » efface uniquement l'affichage de session. Fermer la fenêtre arrête la surveillance.
 
-Le watcher utilise un handle de dossier avec `FILE_LIST_DIRECTORY` et `FILE_FLAG_OVERLAPPED`, un tampon borné et `CancelIoEx` pour un arrêt propre. Aucun contenu de fichier n'est lu par le watcher ; seuls noms, opérations et horodatages transitent en mémoire dans le processus. Les événements sont bornés et les alertes n'enregistrent pas de contenu privé.
+Le watcher réalise un parcours borné à **5 000 entrées** toutes les **2 secondes**. Il compare les noms, tailles et dates de modification. Il ne lit pas le contenu des fichiers, ne suit pas les liens symboliques et n'enregistre rien sur disque. Une arborescence trop grande ou illisible provoque un arrêt signalé, jamais un faux statut « protégé ». Les événements sont bornés en mémoire.
 
 ### Vérifications
 
 - Tests pure Go de seuils de détection, expiration de fenêtre, anti-spam, fichiers distincts, extensions suspectes et notification d'événements perdus.
-- Test d'intégration Windows : création d'un fichier temporaire, réception effective d'un événement `ReadDirectoryChangesW`, annulation du contexte et arrêt propre dans un délai borné.
+- Test d'intégration Windows et Linux : création d'un fichier temporaire, détection après un cycle de surveillance, annulation du contexte et arrêt propre dans un délai borné.
 - Workflow GitHub Windows/Ubuntu : `go test ./...` ; Linux `go test -race ./...` ; compilation de l'exécutable Windows GUI sans console et validation de son sous-système PE.
 
 ### Limites importantes
 
 **Ce n'est pas un antivirus, ni une défense opérationnelle contre un rançongiciel.**
 
-- `ReadDirectoryChangesW` ne fournit **pas l'identité/PID du processus** ayant modifié le fichier. Il n'y a **aucun blocage** d'exécution, restauration automatique, isolation réseau ou quarantaine.
+- Le scan de métadonnées ne fournit **pas l'identité/PID du processus** ayant modifié le fichier. Il peut rater une modification suivie d'un retour à l'état précédent entre deux cycles, ainsi qu'une réécriture conservant la même taille et date de modification. Il n'y a **aucun blocage** d'exécution, restauration automatique, isolation réseau ou quarantaine.
 - Une attaque peut chiffrer les fichiers **avant** qu'une alerte ne s'affiche ; des activités bénignes (copie de nombreux fichiers, synchronisation) peuvent déclencher de faux positifs. Un malware peut aussi ralentir ou contourner cette surveillance.
 - Il ne s'agit pas d'un service Windows résident : la surveillance s'arrête quand la fenêtre est fermée, quand le PC redémarre ou si le processus est interrompu.
 - Aucun lien fonctionnel avec la sécurité post-quantique ou Identity Vault n'est activé dans l'interface. Quantic ID et le coffre demeurent des interfaces expérimentales séparées.
