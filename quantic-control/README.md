@@ -46,9 +46,9 @@ Build with `go build -ldflags="-H windowsgui" -o quantic-control-gui-alpha.exe .
 
 ## Quantic Sentinel — monitored Windows folders (next lab milestone)
 
-The new **separate** `cmd/quantic-control-sentinel` Win32 binary uses `ReadDirectoryChangesW` on a user-selected directory and its subfolders. It **automatically reports** bursts of file modifications, deletions and suspicious renames, with no console, browser, remote requests or privileged system modifications. Its local session dashboard shows recent anomalies and can stop monitoring without a background service. It does not replace Defender or prevent malware. This is the first automatic **observation** capability, not an endpoint-protection product.
+The new **separate** `cmd/quantic-control-sentinel` Win32 binary periodically scans (every 2 seconds) metadata of up to 5,000 directory entries in a user-selected folder and its subfolders. It **automatically reports** bursts of file modifications, deletions and suspicious renames, with no console, browser, remote requests or privileged system modifications. Its local session dashboard shows recent anomalies and can stop monitoring without a background service. It does not replace Defender or prevent malware. This is the first automatic **observation** capability, not an endpoint-protection product.
 
-Build on Windows with `go build -ldflags="-H windowsgui" -o quantic-sentinel-alpha.exe ./cmd/quantic-control-sentinel`. Native Windows CI tests real filesystem events, cancellation and binary subsystem. See [SENTINEL_ALPHA.md](SENTINEL_ALPHA.md) for exact detection thresholds, constraints and remaining gates.
+Build on Windows with `go build -ldflags="-H windowsgui" -o quantic-sentinel-alpha.exe ./cmd/quantic-control-sentinel`. Windows/Linux CI tests changed-file detection, cancellation and binary subsystem. The unsafe asynchronous Windows notification prototype was removed after a Windows runner crash. See [SENTINEL_ALPHA.md](SENTINEL_ALPHA.md) for exact detection thresholds, constraints and remaining gates.
 
 ## Local developer demo
 
