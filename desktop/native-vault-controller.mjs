@@ -76,7 +76,7 @@ export async function connectNativeVault({binary,binarySha256,vault,journal,quor
   }
   const args=windows?[guiWindowsApproval?'--broker-windows-pq-gui-lab':'--broker-windows-pq-quorum-lab',storage.dir,app,signingPin,encryptionPin,pqMode.address,pqMode.deviceId,pqMode.kemPin,pqMode.dsaPin,pqMode.rootPin]:pqMode?['--broker-software-pq-quorum-lab',vault,signingPin,encryptionPin,app,journal,quorum,pqMode.sidecar,pqMode.address,pqMode.deviceId,pqMode.kemPin,pqMode.dsaPin,pqMode.rootPin,'auto',pqMode.contactDirectory]:['--broker-software-compact-manifest-quorum-lab',vault,signingPin,encryptionPin,app,journal,quorum];
   if(storage)await storage.verifyBinary();
-  const child=spawn(binary,args,{shell:false,stdio:['pipe','pipe','inherit'],...(storage?{cwd:win32.dirname(binary),env:storage.env,windowsHide:guiWindowsApproval}:{})});
+  const child=spawn(binary,args,{shell:false,stdio:['pipe','pipe',guiWindowsApproval?'ignore':'inherit'],...(storage?{cwd:win32.dirname(binary),env:storage.env,windowsHide:guiWindowsApproval}:{})});
   let buf=Buffer.alloc(0),waiter=null,closed=false,busy=false,seq=0,nonce,signing;
   function fail(){
     if(closed)return;closed=true;child.kill();if(waiter){const w=waiter;waiter=null;clearTimeout(w.timer);w.reject(Error('native vault unavailable'));}
