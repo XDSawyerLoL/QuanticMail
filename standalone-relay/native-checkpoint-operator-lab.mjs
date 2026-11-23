@@ -3,7 +3,7 @@
 // Deliberately loopback-only: remote sites require independently configured
 // authenticated tunnels; this laboratory does not expose an Internet listener.
 import {createHash,createPrivateKey,createPublicKey,X509Certificate} from 'node:crypto';
-import {lstat,readFile} from 'node:fs/promises';
+import {lstat,readFile,open,unlink} from 'node:fs/promises';
 import {resolve,join,basename} from 'node:path';
 import {startNativeCheckpointAuthority} from './native-checkpoint-server.mjs';
 import {createSignedAuthorityRenewalLab} from './native-authority-renewal-lab.mjs';
@@ -86,14 +86,36 @@ export async function loadPinnedAuthorityLab({directory,configPin}){
  return {authorityId:cfg.authorityId,port:cfg.port,signerPin:cfg.pins.signerPin,
   tlsPin:cfg.pins.tlsPin,clientPins:cfg.clientPins,renewalSequence,
   tls:{ca:data['ca.pem'],cert:data['server.crt'],key},
-  privateKey:signer,load};
+  privateKey:signer,load,renewalEnabled:isV2};
 }
 export async function startPinnedNativeAuthorityLab(args){
  const cfg=await loadPinnedAuthorityLab(args);
- const server=await startNativeCheckpointAuthority({
-  tls:cfg.tls,privateKey:cfg.privateKey,clientPins:cfg.clientPins,
-  port:cfg.port,load:cfg.load
- });
+ // One authority instance per v2 data directory. An unclean crash leaves
+ // the lock: manual operator reconciliation is mandatory; never steal it.
+ const lockPath=join(args.directory,'.authority-active.lock');
+ let owned=false,server;
+ if(cfg.renewalEnabled){
+  const handle=await open(lockPath,'wx',0o600);
+  try{
+   await handle.writeFile(JSON.stringify({format:'quantic-native-authority-active/v1',
+    authorityId:cfg.authorityId,pid:process.pid}));
+   await handle.sync();
+  }finally{await handle.close();}
+  owned=true;
+ }
+ const unlock=async()=>{
+  if(!owned)return;
+  owned=false;
+  await unlink(lockPath);
+  const parent=await open(args.directory,'r');
+  try{await parent.sync();}finally{await parent.close();}
+ };
+ try{
+  server=await startNativeCheckpointAuthority({
+   tls:cfg.tls,privateKey:cfg.privateKey,clientPins:cfg.clientPins,
+   port:cfg.port,load:cfg.load
+  });
+ }catch(e){await unlock();throw e;}
  return {authorityId:cfg.authorityId,port:server.port,signerPin:cfg.signerPin,
-  tlsPin:cfg.tlsPin,close:server.close};
+  tlsPin:cfg.tlsPin,close:async()=>{try{await server.close();}finally{await unlock();}}};
 }
