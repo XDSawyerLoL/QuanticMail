@@ -44,11 +44,15 @@ jobs:
           )
           if ($Operation -cne "DashboardCheck") { exit 42 }
           if ($ExpectedManifestSha256 -cnotmatch '^[a-f0-9]{64}$' -or $TrustedBinarySha256 -cnotmatch '^[a-f0-9]{64}$') { exit 43 }
-          exit 0
+          $nested = Join-Path $PSScriptRoot "Quantic-Sillage-Alpha.ps1"
+          & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -STA -ExecutionPolicy Bypass -File $nested -SelfTest
+          exit $LASTEXITCODE
           '@
           foreach($name in @("Start-Windows-PQ-Lab.ps1","Test-Windows-PQ-Package.ps1","Quantic-Sillage-Alpha.ps1")) {
             if ($name -eq "Start-Windows-PQ-Lab.ps1") {
               [IO.File]::WriteAllText((Join-Path $root $name),$script)
+            } elseif ($name -eq "Quantic-Sillage-Alpha.ps1") {
+              [IO.File]::WriteAllText((Join-Path $root $name),"param([switch]`$SelfTest)`nif(-not `$SelfTest) { exit 44 }`nexit 0`n")
             } else {
               [IO.File]::WriteAllText((Join-Path $root $name),"# synthetic local trusted test script")
             }
