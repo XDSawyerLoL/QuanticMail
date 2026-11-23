@@ -90,5 +90,5 @@ func winReadEncryptedDraft(path string)([]byte,error){
  opened,e:=draftDPAPI(path,packed[len(draftMagic):],true)
  if e!=nil{return nil,e}
  if len(opened)<2||len(opened)>8192{clear(opened);return nil,draftUnavailable}
- return opened // Caller must immediately clear after bounded private pipe transfer.
+ return opened,nil // Caller must immediately clear after bounded private pipe transfer.
 }
