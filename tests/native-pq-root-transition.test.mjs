@@ -147,7 +147,7 @@ test('altered historic profile, invalid PQ self-signature and missing independen
  previous.payload.identityMlDsaPublicKeySpki=b64(pq());
  assert.throws(()=>verifyNativePqRootTransition({
    ...f.args,previousCryptoProfile:previous
- }),/ML-DSA|refused/);
+ }),/ML-DSA|P-256|refused/);
  const corrupt=structuredClone(f.args.currentCryptoProfile);
  corrupt.signatures.mlDsa65Self='A'.repeat(100);
  assert.throws(()=>verifyNativePqRootTransition({
