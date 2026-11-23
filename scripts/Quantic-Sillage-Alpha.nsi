@@ -59,7 +59,7 @@ Section "Uninstall"
  StrCpy $INSTDIR "$LOCALAPPDATA\QuanticSillage\Alpha-${BUILD_ID}"
  IfFileExists "$INSTDIR\Uninstall-Quantic-Sillage-Alpha.exe" +3
   SetErrorLevel 2
-  Abort "This exact Alpha build is not installed."
+  Quit
  !include "${UNINSTALL_LIST_NSH}"
  ClearErrors
  RMDir "$INSTDIR\app"
@@ -79,6 +79,6 @@ Section "Uninstall"
   ; Refuse to delete anything unexpected, including user-created files,
   ; private directories and manually placed migration records.
   SetErrorLevel 2
-  Abort "Unrecognized files remain in this version directory. No recursive deletion performed; inspect manually."
+  Quit
  done:
 SectionEnd
