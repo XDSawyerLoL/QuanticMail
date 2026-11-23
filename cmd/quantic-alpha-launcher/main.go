@@ -80,6 +80,16 @@ func localPowerShell(root,manifestPin,vaultPin string,smoke bool)(uint32,error){
  cmd:=exec.Command(shell,argv...)
  cmd.Dir=root
  cmd.SysProcAttr=&syscall.SysProcAttr{CreationFlags:0x00000010}
+ // The smoke test uses only synthetic identities; collect process stderr
+ // into a private temporary diagnostic file for the CI test exclusively.
+ if smoke&&os.Getenv("GITHUB_ACTIONS")=="true"{
+  log,e:=os.OpenFile(filepath.Join(os.TempDir(),"quantic-alpha-ui-ci.log"),os.O_CREATE|os.O_WRONLY|os.O_TRUNC,0600)
+  if e==nil{
+   defer log.Close()
+   cmd.Stdout=log;cmd.Stderr=log
+   defer func(){log.Sync()}()
+  }
+ }
  err:=cmd.Run()
  if err!=nil{
   var ex *exec.ExitError
