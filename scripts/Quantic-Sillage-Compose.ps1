@@ -49,7 +49,54 @@ function Invoke-Composer([string]$Directory,[string]$Payload,[bool]$List){
 # A two-phase private pipe: the GUI approves sealing up front, then approves
 # depositing the already durable signed wire. No message text in argv or log.
 function Invoke-GUISend([string]$Directory,[string]$Payload) {
- if($Directory -cnotmatch '^[A-Za-z]:\\[A-Za-z0-9_. -]+(?:\\[A-Za-z0-9_. -]+)*
+ if($Directory -cnotmatch '^[A-Za-z]:\\[A-Za-z0-9_. -]+(?:\\[A-Za-z0-9_. -]+)*$'){throw 'Dossier de test refuse.'}
+ foreach($part in $Directory.Substring(3).Split('\')) {
+  if($part -in @('.','..') -or $part.EndsWith('.') -or $part.EndsWith(' ')){throw 'Chemin ambigu.'}
+ }
+ $psi=New-Object System.Diagnostics.ProcessStartInfo
+ $psi.FileName=$node
+ $helperSend=Join-Path $root 'scripts\native-windows-compose-send.mjs'
+ $psi.Arguments=('"{0}" "{1}" {2} "{3}"' -f $helperSend,$vault,$TrustedBinarySha256.ToLowerInvariant(),$Directory)
+ $psi.WorkingDirectory=$root
+ $psi.UseShellExecute=$false;$psi.CreateNoWindow=$true
+ $psi.WindowStyle=[Diagnostics.ProcessWindowStyle]::Hidden
+ $psi.RedirectStandardInput=$true;$psi.RedirectStandardOutput=$true;$psi.RedirectStandardError=$true
+ $psi.StandardInputEncoding=[System.Text.UTF8Encoding]::new($false)
+ $psi.StandardOutputEncoding=[System.Text.UTF8Encoding]::new($false)
+ $psi.StandardErrorEncoding=[System.Text.UTF8Encoding]::new($false)
+ $psi.EnvironmentVariables.Clear()
+ $psi.EnvironmentVariables['SystemRoot']=$env:SystemRoot
+ $psi.EnvironmentVariables['WINDIR']=$env:SystemRoot
+ $psi.EnvironmentVariables['PATH']=(Join-Path $root 'bin')+';'+(Join-Path $env:SystemRoot 'System32')
+ $p=New-Object System.Diagnostics.Process;$p.StartInfo=$psi
+ try{
+  if(-not $p.Start()){throw 'Demarrage prive refuse.'}
+  $p.StandardInput.WriteLine($Payload)
+  $first=Read-GUIReply $p
+  if($first.phase -cne 'draft-saved'){throw 'Brouillon non confirme.'}
+  $second=Read-GUIReply $p
+  if($second.phase -ceq 'sealed-awaiting-deposit-approval'){
+   $choice=[Windows.Forms.MessageBox]::Show('L enveloppe chiffree et signee a ete conservee et reverifiee. La deposer une fois sur le relais LOCAL de test ? Cela ne prouve pas sa reception sur un autre PC.','Autoriser le depot local','YesNo','Warning')
+   $p.StandardInput.WriteLine($(if($choice -eq [Windows.Forms.DialogResult]::Yes){'SEND'}else{'CANCEL'}))
+   $result=Read-GUIReply $p
+  }else{$result=$second}
+  $p.StandardInput.Close()
+  if(-not $p.WaitForExit(10000)){$p.Kill();throw 'Etat de depot inconnu : conserver le brouillon et le message chiffre.'}
+  if($result.phase -cne 'result' -or $result.remoteDeliveryVerified){throw 'Confirmation invalide.'}
+  return $result
+ }finally{
+  if(-not $p.HasExited){$p.Kill()}
+  $p.Dispose()
+ }
+}
+function Read-GUIReply([Diagnostics.Process]$Proc) {
+ $task=$Proc.StandardOutput.ReadLineAsync()
+ if(-not $task.Wait(180000)){$Proc.Kill();throw 'Operation interrompue : ne pas envoyer automatiquement de nouveau.'}
+ $line=$task.Result
+ if(-not $line -or $line.Length -gt 512){throw 'Reponse locale invalide.'}
+ return ConvertFrom-Json -InputObject $line
+}
+$form=New-Object Windows.Forms.Form
 $form.Text='Quantic Mail | Nouveau message'
 $form.StartPosition='CenterParent';$form.ClientSize=New-Object Drawing.Size(710,705)
 $form.BackColor=[Drawing.Color]::FromArgb(19,25,35);$form.ForeColor=[Drawing.Color]::WhiteSmoke
