@@ -14,8 +14,10 @@ Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 [System.Windows.Forms.Application]::EnableVisualStyles()
 $actions=@(
- @{Id="Seal";Title="1. Preparer un message";Hint="Brouillon prive -> nouvelle enveloppe chiffree. Aucun envoi.";Input="draft";Output=$true;Scope=$true},
- @{Id="Send";Title="2. Envoyer";Hint="Deposer une enveloppe signee par Scattering. Relais local configure requis.";Input="wire";Scope=$true},
+ @{Id="SealAndSend";Title="1. Rediger et envoyer (coffre natif)";Hint="Brouillon existant -> chiffrement PQ -> sauvegarde verifiee -> deux validations -> depot local. Test uniquement.";Input="draft";Output=$true;Scope=$true},
+ @{Id="RecoverSealAndSend";Title="Reprendre chiffrement et envoi interrompus";Hint="Recuperation exacte PQ ; nouveau wire-*.json puis depot controle. Pas de renvoi automatique.";Input="draft";Output=$true;Scope=$true},
+ @{Id="Seal";Title="2. Preparer sans envoyer";Hint="Brouillon prive -> nouvelle enveloppe chiffree. Aucun envoi.";Input="draft";Output=$true;Scope=$true},
+ @{Id="Send";Title="3. Envoyer un fichier signe deja conserve";Hint="Deposer exactement ce fichier via Scattering. Ne pas rechiffrer apres une reponse incertaine.";Input="wire";Scope=$true},
  @{Id="Receive";Title="3. Recevoir";Hint="Ouvrir et conserver un nouveau recu chiffre avant confirmation.";Input="receipt";Scope=$true},
  @{Id="Open";Title="Ouvrir une enveloppe locale";Hint="Verifier et ouvrir un fichier chiffre existant.";Input="wire";Scope=$true},
  @{Id="RecoverSeal";Title="Recuperer un chiffrement";Hint="Reprendre le resultat exact d'un brouillon, sans nouvel envoi.";Input="draft";Output=$true;Scope=$true},
@@ -118,13 +120,13 @@ $run.Add_Click({
 $choice.SelectedIndex=0
 if ($SelfTest) {
  try {
-  if($choice.Items.Count -ne 24 -or -not $inputName.Enabled -or -not $outputName.Enabled){throw "Dashboard initialization failed"}
+  if($choice.Items.Count -ne 26 -or -not $inputName.Enabled -or -not $outputName.Enabled){throw "Dashboard initialization failed"}
   $a=New-OperationArguments $actions[0] "C:\Quantic Lab\vault" "draft-test.json" "wire-test.json"
   if($a -notcontains "C:\Quantic Lab\vault\draft-test.json" -or $a -notcontains "C:\Quantic Lab\vault\wire-test.json"){throw "Wrong arguments"}
   $rejected=$false
-  try{$null=New-OperationArguments $actions[1] "C:\Quantic Lab\vault" "..\wire-test.json" ""}catch{$rejected=$true}
+  try{$null=New-OperationArguments $actions[3] "C:\Quantic Lab\vault" "..\wire-test.json" ""}catch{$rejected=$true}
   if(-not $rejected){throw "Path traversal accepted"}
-  $choice.SelectedIndex=10
+  $choice.SelectedIndex=12
   if($directory.Enabled -or $inputName.Enabled -or $outputName.Enabled){throw "Diagnostic fields enabled"}
   Write-Output "Dashboard controls and operation mapping verified"
  }finally{$form.Dispose()}
