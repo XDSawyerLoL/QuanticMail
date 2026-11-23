@@ -405,6 +405,13 @@ jobs:
           $ps = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
           & $ps -NoProfile -NonInteractive -File (Join-Path $package "Start-Windows-PQ-Lab.ps1") -Operation Providers -ExpectedManifestSha256 $manifestPin -TrustedBinarySha256 $vaultPin
           if ($LASTEXITCODE -ne 0) { throw "Installed native PQ provider could not start on independent Windows runner" }
-          & $ps -NoProfile -NonInteractive -File (Join-Path $package "Start-Windows-PQ-Lab.ps1") -Operation Providers -ExpectedManifestSha256 ("0" * 64) -TrustedBinarySha256 $vaultPin 2>$null
-          if ($LASTEXITCODE -eq 0) { throw "Installed launcher accepted a false manifest digest" }
+          # A rejected external process is expected here: capture the exit
+          # status without PowerShell treating the negative test as a job error.
+          $previousPreference = $ErrorActionPreference
+          $ErrorActionPreference = "Continue"
+          try {
+            & $ps -NoProfile -NonInteractive -File (Join-Path $package "Start-Windows-PQ-Lab.ps1") -Operation Providers -ExpectedManifestSha256 ("0" * 64) -TrustedBinarySha256 $vaultPin 2>&1 | Out-Null
+            $invalidExit = $LASTEXITCODE
+          } finally { $ErrorActionPreference = $previousPreference }
+          if ($invalidExit -eq 0) { throw "Installed launcher accepted a false manifest digest" }
           Write-Host "Independent Windows install/PQ smoke passed (unsigned synthetic laboratory only): $actual"
