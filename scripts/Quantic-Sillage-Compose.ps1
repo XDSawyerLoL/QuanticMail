@@ -39,7 +39,7 @@ function Invoke-Composer([string]$Directory,[string]$Payload,[bool]$List,[bool]$
   if(-not $p.Start()){throw 'Demarrage refuse.'}
   if(-not $List){$p.StandardInput.Write($Payload)}
   $p.StandardInput.Close()
-  if(-not $p.WaitForExit(15000)){$p.Kill();throw 'Coffre indisponible.'}
+  if(-not $p.WaitForExit($(if($Send){300000}else{15000}))){$p.Kill();throw 'Coffre indisponible.'}
   if($p.ExitCode -ne 0){throw 'Operation privee refusee.'}
   $answer=$p.StandardOutput.ReadToEnd()
   if($answer.Length -lt 1 -or $answer.Length -gt 2048){throw 'Reponse privee invalide.'}
