@@ -93,7 +93,7 @@ export async function connectNativeVault({binary,binarySha256,vault,journal,quor
   });
   function receive(){
     check(!closed&&!waiter,'native vault unavailable');
-    return new Promise((resolve,reject)=>{waiter={resolve,reject,timer:setTimeout(fail,45000)};});
+    return new Promise((resolve,reject)=>{waiter={resolve,reject,timer:setTimeout(fail,nativeUI?120000:45000)};});
   }
   async function call(body){
     check(!closed&&!busy,'native vault unavailable or busy');busy=true;
