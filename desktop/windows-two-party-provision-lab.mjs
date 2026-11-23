@@ -49,6 +49,10 @@ function validatePublicProvision(raw,expectedAddress){
  return Object.freeze({address:expectedAddress,deviceId:raw.deviceId,
   signingPin:raw.signingPin,encryptionPin:raw.encryptionPin,
   kemPin:raw.kemPin,dsaPin:raw.dsaPin,controllerPublic:raw.controllerPublic,
+  publicKeys:Object.freeze({
+   signingP256:Object.freeze(s.jwk),encryptionP256:Object.freeze(e.jwk),
+   kemSpkiBase64url:raw.kemPublic,dsaSpkiBase64url:raw.dsaPublic
+  }),
   nativeProvisioned:true,remotelyEnrolled:false});
 }
 export function twoPartyWindowsPlan({root,binary,binarySha256,first,second}){
