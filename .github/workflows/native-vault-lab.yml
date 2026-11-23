@@ -340,7 +340,13 @@ jobs:
           $nativeApp = Join-Path $env:LOCALAPPDATA "QuanticSillage\Alpha-$build\Quantic-Sillage-Alpha.exe"
           if (-not (Test-Path -LiteralPath $nativeApp -PathType Leaf)) { throw "Installed native double-clickable Alpha EXE missing" }
           $nativeTest = Start-Process -FilePath $nativeApp -ArgumentList "--self-test" -Wait -PassThru
-          if ($nativeTest.ExitCode -ne 0) { throw "Native GUI EXE failed installed self-test or integrity pin verification" }
+          if ($nativeTest.ExitCode -ne 0) {
+            $vaultPin = (Get-FileHash -LiteralPath "$installed\bin\Vault-PQ-lab.exe" -Algorithm SHA256).Hash
+            $ps = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
+            & $ps -NoProfile -NonInteractive -STA -File "$installed\Start-Windows-PQ-Lab.ps1" -Operation DashboardCheck -ExpectedManifestSha256 $manifestPin -TrustedBinarySha256 $vaultPin
+            $psExit = $LASTEXITCODE
+            throw "Native GUI EXE installed self-test failed: nativeStageExit=$($nativeTest.ExitCode), directDashboardExit=$psExit"
+          }
           Write-Host "Installed native Quantic Sillage Alpha EXE launched with embedded package pins"
           $p = Start-Process -FilePath $exe -ArgumentList "/S" -Wait -PassThru
           if ($p.ExitCode -eq 0) { throw "Installer overlaid an existing build" }
