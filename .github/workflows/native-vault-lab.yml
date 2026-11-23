@@ -113,6 +113,11 @@ jobs:
           node-version: 24.8.0
       - name: Windows trusted client workflow regressions
         run: node --test tests/native-windows-desktop.test.mjs tests/native-vault-controller.test.mjs tests/native-windows-mail-flow.test.mjs
+      - name: Windows multi-host mail readiness with four pinned mTLS authorities and Scattering
+        shell: pwsh
+        run: |
+          node --experimental-transform-types --test tests/native-windows-mail-readiness.test.mjs
+          if ($LASTEXITCODE -ne 0) { throw "Windows mail readiness rejected the trust or Scattering topology" }
       - name: Provision two distinct native PQ synthetic identities without remote enrollment
         shell: pwsh
         run: |
