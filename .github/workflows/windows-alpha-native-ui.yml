@@ -15,6 +15,11 @@ on:
   pull_request:
     paths:
       - 'scripts/Quantic-Sillage-Alpha.ps1'
+      - 'scripts/Quantic-Sillage-Compose.ps1'
+      - 'scripts/Quantic-Sillage-Advanced.ps1'
+      - 'scripts/native-windows-compose-draft.mjs'
+      - 'desktop/native-windows-draft.mjs'
+      - 'tests/native-windows-draft.test.mjs'
       - 'scripts/Quantic-Sillage-Alpha.nsi'
       - '.github/workflows/windows-alpha-native-ui.yml'
 
