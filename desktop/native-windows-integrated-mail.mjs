@@ -45,7 +45,7 @@ export async function composeAndSendWindowsLab(config,storage,{
  const draft=validateDraft(await readPrivateJSON(storage,input),scope);
  // An operator sees the exact recipient and plaintext before a broker request.
  if(!await approve('Chiffrer dans le coffre natif le brouillon pour '+draft.context.to+
-  '\\n'+safeMailDisplay(draft.payload)))return {status:'cancelled-before-seal'};
+  '\n'+safeMailDisplay(draft.payload)))return {status:'cancelled-before-seal'};
  let vault;
  let signed;
  try{
@@ -54,7 +54,8 @@ export async function composeAndSendWindowsLab(config,storage,{
   // Validate exact hybrid envelope and sender binding before storage.
   signed=normalizeNativeRecord(signed);
   check(signed.context.from===scope.address&&signed.context.fromDeviceId===scope.deviceId
-   &&signed.context.to===draft.context.to&&signed.context.toDeviceId===draft.context.toDeviceId);
+   &&signed.context.to===draft.context.to&&signed.context.toDeviceId===draft.context.toDeviceId
+   &&signed.context.clientMessageId===draft.context.clientMessageId);
  }finally{vault?.close();}
  const digest=nativeRecordDigest(signed);
  const bytes=Buffer.from(JSON.stringify(signed)+'\n','utf8');
