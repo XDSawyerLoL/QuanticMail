@@ -21,7 +21,6 @@ import (
  "unsafe"
 )
 
-const createNewConsole=0x00000010
 var hexPin=regexp.MustCompile("^[a-f0-9]{64}$")
 
 func fileSHA256(path string)(string,error){
@@ -64,31 +63,53 @@ func verify(root,manifestPin,vaultPin string)error{
  if got!=vaultPin{return errors.New("native cryptography provider mismatch")}
  return nil
 }
+// Windows shell activation preserves the interactive console needed for
+// local vault passphrases. ShellExecuteEx is the same OS mechanism used by
+// shortcuts; it also returns a process handle for persistent diagnostics.
+type shellExecuteInfo struct {
+ Size uint32
+ Mask uint32
+ Hwnd uintptr
+ Verb *uint16
+ File *uint16
+ Parameters *uint16
+ Directory *uint16
+ Show int32
+ HInst uintptr
+ IDList uintptr
+ Class *uint16
+ HKeyClass uintptr
+ HotKey uint32
+ Icon uintptr
+ Process syscall.Handle
+}
 func localPowerShell(root,manifestPin,vaultPin string,smoke bool)(uint32,error){
  winDir:=os.Getenv("SystemRoot")
  if winDir==""{return 1,errors.New("Windows root unavailable")}
  shell:=filepath.Join(winDir,"System32","WindowsPowerShell","v1.0","powershell.exe")
- info,e:=os.Stat(shell)
- if e!=nil||!info.Mode().IsRegular(){return 1,errors.New("system PowerShell missing")}
- argv:=[]string{shell,"-NoLogo","-NoProfile","-STA","-ExecutionPolicy","Bypass","-File",filepath.Join(root,"Start-Windows-PQ-Lab.ps1"),"-Operation","Dashboard","-ExpectedManifestSha256",manifestPin,"-TrustedBinarySha256",vaultPin}
- if smoke{argv[9]="DashboardCheck"}
+ info,e:=os.Stat(shell);if e!=nil||!info.Mode().IsRegular(){return 1,errors.New("system PowerShell missing")}
+ argv:=[]string{"-NoLogo","-NoProfile","-STA","-ExecutionPolicy","Bypass","-File",filepath.Join(root,"Start-Windows-PQ-Lab.ps1"),"-Operation","Dashboard","-ExpectedManifestSha256",manifestPin,"-TrustedBinarySha256",vaultPin}
+ if smoke{argv[8]="DashboardCheck"}
  list:=make([]string,len(argv))
  for i,a:=range argv{list[i]=syscall.EscapeArg(a)}
  program,e:=syscall.UTF16PtrFromString(shell);if e!=nil{return 1,e}
+ verb,e:=syscall.UTF16PtrFromString("open");if e!=nil{return 1,e}
  command,e:=syscall.UTF16PtrFromString(strings.Join(list," "));if e!=nil{return 1,e}
  cwd,e:=syscall.UTF16PtrFromString(root);if e!=nil{return 1,e}
- var si syscall.StartupInfo;si.Cb=uint32(unsafe.Sizeof(si))
- var pi syscall.ProcessInformation
- // Use the SAME local console for actual GUI and CI smoke. Hiding the
- // console breaks nested Windows PowerShell/WinForms initialization on
- // some Windows editions and silently drops diagnostic errors.
- flags:=uint32(createNewConsole)
- if e=syscall.CreateProcess(program,command,nil,nil,false,flags,nil,cwd,&si,&pi);e!=nil{return 1,fmt.Errorf("start native dashboard: %w",e)}
- defer syscall.CloseHandle(pi.Process);defer syscall.CloseHandle(pi.Thread)
- status,e:=syscall.WaitForSingleObject(pi.Process,0xFFFFFFFF)
- if e!=nil||status!=syscall.WAIT_OBJECT_0{return 1,errors.New("process wait failed")}
+ launch:=shellExecuteInfo{
+  Mask:0x40|0x400,
+  Verb:verb,File:program,Parameters:command,Directory:cwd,Show:1,
+ }
+ launch.Size=uint32(unsafe.Sizeof(launch))
+ api:=syscall.NewLazyDLL("shell32.dll").NewProc("ShellExecuteExW")
+ ok,_,last:=api.Call(uintptr(unsafe.Pointer(&launch)))
+ if ok==0{return 1,fmt.Errorf("native shell activation refused: %v",last)}
+ if launch.Process==0{return 1,errors.New("native shell returned no process")}
+ defer syscall.CloseHandle(launch.Process)
+ status,e:=syscall.WaitForSingleObject(launch.Process,0xFFFFFFFF)
+ if e!=nil||status!=syscall.WAIT_OBJECT_0{return 1,errors.New("native shell wait failed")}
  var code uint32
- if e=syscall.GetExitCodeProcess(pi.Process,&code);e!=nil{return 1,e}
+ if e=syscall.GetExitCodeProcess(launch.Process,&code);e!=nil{return 1,e}
  return code,nil
 }
 func messageBox(message string){
