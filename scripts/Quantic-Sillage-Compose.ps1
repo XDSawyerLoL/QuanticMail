@@ -33,18 +33,38 @@ function Invoke-Composer([string]$Directory,[string]$Payload,[bool]$List,[bool]$
  $psi.EnvironmentVariables['SystemRoot']=$env:SystemRoot
  $psi.EnvironmentVariables['WINDIR']=$env:SystemRoot
  $psi.EnvironmentVariables['PATH']=(Join-Path $root 'bin')+';'+(Join-Path $env:SystemRoot 'System32')
+ if($script:operationBusy){throw 'Une operation est deja en cours.'}
+ $script:operationBusy=$true
+ $controls=@($choose,$save,$send,$cancel)
+ foreach($control in $controls){$control.Enabled=$false}
+ $form.ControlBox=$false
+ $status.Text='Operation locale en cours. Consultez les demandes du coffre Windows.'
  $p=New-Object System.Diagnostics.Process
  $p.StartInfo=$psi
  try{
   if(-not $p.Start()){throw 'Demarrage refuse.'}
   if(-not $List){$p.StandardInput.Write($Payload)}
   $p.StandardInput.Close()
-  if(-not $p.WaitForExit($(if($Send){300000}else{15000}))){$p.Kill();throw 'Coffre indisponible.'}
+  $maximum=if($Send){300000}else{15000}
+  $clock=[Diagnostics.Stopwatch]::StartNew()
+  while(-not $p.WaitForExit(100)){
+   [Windows.Forms.Application]::DoEvents()
+   if($clock.ElapsedMilliseconds -gt $maximum){
+    $p.Kill()
+    throw 'Le coffre ne repond plus. Ne recommencez pas un envoi incertain.'
+   }
+  }
   if($p.ExitCode -ne 0){throw 'Operation privee refusee.'}
   $answer=$p.StandardOutput.ReadToEnd()
   if($answer.Length -lt 1 -or $answer.Length -gt 2048){throw 'Reponse privee invalide.'}
   return ConvertFrom-Json -InputObject $answer
- }finally{$p.Dispose()}
+ }finally{
+  $p.Dispose()
+  foreach($control in $controls){$control.Enabled=$true}
+  $form.ControlBox=$true
+  $status.Text=''
+  $script:operationBusy=$false
+ }
 }
 $form=New-Object Windows.Forms.Form
 $form.Text='Quantic Mail | Nouveau message'
@@ -64,6 +84,11 @@ $recipient=New-Object Windows.Forms.ComboBox;$recipient.DropDownStyle='DropDownL
 $recipient.SetBounds(24,208,656,30);$form.Controls.Add($recipient)
 Label-At 'Objet' 254
 $subject=New-Object Windows.Forms.TextBox;$subject.SetBounds(24,284,656,30);$subject.MaxLength=160;$form.Controls.Add($subject)
+$status=New-Object Windows.Forms.Label
+$status.ForeColor=[Drawing.Color]::Khaki
+$status.SetBounds(24,534,655,20)
+$form.Controls.Add($status)
+$script:operationBusy=$false
 Label-At 'Message' 332
 $body=New-Object Windows.Forms.TextBox;$body.Multiline=$true;$body.ScrollBars='Vertical'
 $body.MaxLength=7500;$body.SetBounds(24,361,656,162);$form.Controls.Add($body)
