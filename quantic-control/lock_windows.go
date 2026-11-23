@@ -23,7 +23,7 @@ func lockStateFile(f *os.File) error {
 }
 func unlockStateFile(f *os.File) error {
     ov := new(syscall.Overlapped)
-    r, _, err := unlockFileEx.Call(f.Fd(), 0, 0, 1, 0, uintptr(unsafe.Pointer(ov)))
+    r, _, err := unlockFileEx.Call(f.Fd(), 0, 1, 0, uintptr(unsafe.Pointer(ov)))
     if r == 0 { if err != syscall.Errno(0) { return err }; return syscall.EINVAL }
     return nil
 }
