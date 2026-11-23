@@ -8,6 +8,7 @@ on:
       - 'tests/scattering-privacy-native-trace.test.mjs'
       - 'tests/scattering-statistical-bound.test.mjs'
       - 'docs/QUANTIC-MATH-RADAR-2026.md'
+      - 'docs/SCATTERING-STATISTICAL-BOUND-2026.md'
       - '.github/workflows/scattering-maths-lab.yml'
   push:
     branches: ['research/**']
@@ -16,6 +17,7 @@ on:
       - 'labs/quantic-native/scattering/statistical-bound.mjs'
       - 'tests/scattering-traffic-privacy-lab.test.mjs'
       - 'docs/QUANTIC-MATH-RADAR-2026.md'
+      - 'docs/SCATTERING-STATISTICAL-BOUND-2026.md'
       - '.github/workflows/scattering-maths-lab.yml'
 
 permissions:
