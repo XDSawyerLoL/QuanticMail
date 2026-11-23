@@ -1,6 +1,8 @@
 /* Native-only launch policy. No URL, remote renderer or Web fallback.
  * Kept independently testable without Electron.
  */
+// This native Electron entry must remain CommonJS; static Node builtin import only.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 const {win32}=require('node:path');
 const SHA256=/^[a-f0-9]{64}$/;
 const windowsPath=/^[a-zA-Z]:\\[A-Za-z0-9 _.-]+(?:\\[A-Za-z0-9 _.-]+)*$/;
