@@ -1,0 +1,180 @@
+{
+  "version": "v14",
+  "type": "SYNTHETIC_MODEL_NOT_LAN",
+  "seed": "verification-v14-20261123",
+  "trials": 5000,
+  "slots": 28,
+  "framesBytes": 168,
+  "activeShards": 16,
+  "minShards": 8,
+  "attacks": {
+    "iid2": {
+      "public_stratified": {
+        "recovered": 5000,
+        "rate": 1
+      },
+      "keyed_stratified": {
+        "recovered": 5000,
+        "rate": 1
+      },
+      "keyed_uniform": {
+        "recovered": 5000,
+        "rate": 1
+      },
+      "keyed_antipodal": {
+        "recovered": 5000,
+        "rate": 1
+      }
+    },
+    "burst14": {
+      "public_stratified": {
+        "recovered": 5000,
+        "rate": 1
+      },
+      "keyed_stratified": {
+        "recovered": 4505,
+        "rate": 0.901
+      },
+      "keyed_uniform": {
+        "recovered": 3262,
+        "rate": 0.6524
+      },
+      "keyed_antipodal": {
+        "recovered": 5000,
+        "rate": 1
+      }
+    },
+    "split7plus7": {
+      "public_stratified": {
+        "recovered": 5000,
+        "rate": 1
+      },
+      "keyed_stratified": {
+        "recovered": 4130,
+        "rate": 0.826
+      },
+      "keyed_uniform": {
+        "recovered": 3255,
+        "rate": 0.651
+      },
+      "keyed_antipodal": {
+        "recovered": 3524,
+        "rate": 0.7048
+      }
+    },
+    "first14": {
+      "public_stratified": {
+        "recovered": 5000,
+        "rate": 1
+      },
+      "keyed_stratified": {
+        "recovered": 5000,
+        "rate": 1
+      },
+      "keyed_uniform": {
+        "recovered": 3307,
+        "rate": 0.6614
+      },
+      "keyed_antipodal": {
+        "recovered": 5000,
+        "rate": 1
+      }
+    },
+    "last14": {
+      "public_stratified": {
+        "recovered": 5000,
+        "rate": 1
+      },
+      "keyed_stratified": {
+        "recovered": 5000,
+        "rate": 1
+      },
+      "keyed_uniform": {
+        "recovered": 3206,
+        "rate": 0.6412
+      },
+      "keyed_antipodal": {
+        "recovered": 5000,
+        "rate": 1
+      }
+    },
+    "random14": {
+      "public_stratified": {
+        "recovered": 3301,
+        "rate": 0.6602
+      },
+      "keyed_stratified": {
+        "recovered": 3269,
+        "rate": 0.6538
+      },
+      "keyed_uniform": {
+        "recovered": 3280,
+        "rate": 0.656
+      },
+      "keyed_antipodal": {
+        "recovered": 3294,
+        "rate": 0.6588
+      }
+    },
+    "public_target9": {
+      "public_stratified": {
+        "recovered": 0,
+        "rate": 0
+      },
+      "keyed_stratified": {
+        "recovered": 4924,
+        "rate": 0.9848
+      },
+      "keyed_uniform": {
+        "recovered": 4989,
+        "rate": 0.9978
+      },
+      "keyed_antipodal": {
+        "recovered": 4999,
+        "rate": 0.9998
+      }
+    },
+    "antipodal_paired9": {
+      "public_stratified": {
+        "recovered": 5000,
+        "rate": 1
+      },
+      "keyed_stratified": {
+        "recovered": 5000,
+        "rate": 1
+      },
+      "keyed_uniform": {
+        "recovered": 4991,
+        "rate": 0.9982
+      },
+      "keyed_antipodal": {
+        "recovered": 4831,
+        "rate": 0.9662
+      }
+    },
+    "antipodal_pairs14": {
+      "public_stratified": {
+        "recovered": 5000,
+        "rate": 1
+      },
+      "keyed_stratified": {
+        "recovered": 5000,
+        "rate": 1
+      },
+      "keyed_uniform": {
+        "recovered": 3228,
+        "rate": 0.6456
+      },
+      "keyed_antipodal": {
+        "recovered": 3538,
+        "rate": 0.7076
+      }
+    }
+  },
+  "notes": [
+    "Same 28 frames for cover or useful data",
+    "Loss masks paired across methods per trial",
+    "No claim of physical signal invisibility",
+    "Tested attacks only, not arbitrary active adversary"
+  ]
+}
