@@ -2,7 +2,7 @@ name: Windows Alpha native user interface
 
 on:
   push:
-    branches: ['feat/**']
+    branches: ['feat/**', 'fix/**']
     paths:
       - 'scripts/Quantic-Sillage-Alpha.ps1'
       - 'scripts/Quantic-Sillage-Alpha.nsi'
