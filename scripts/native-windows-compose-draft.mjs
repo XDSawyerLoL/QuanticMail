@@ -5,7 +5,7 @@ try{
  if(process.platform!=='win32'||process.versions.node.split('.')[0]!=='24'||!([3,4].includes(args.length))||args.length===4&&args[3]!=='--list'||process.stdin.isTTY)throw Error('Not the Windows GUI lab');
  if(args.length===4){
   const {listWindowsDraftRecipients}=await import('../desktop/native-windows-draft.mjs');
-  process.stdout.write(JSON.stringify(await listWindowsDraftRecipients({binary:args[0],binarySha256:args[1],dir:args[2]}))+'\\n');
+  process.stdout.write(JSON.stringify(await listWindowsDraftRecipients({binary:args[0],binarySha256:args[1],dir:args[2]}))+'\n');
  } else {
  const chunks=[];let length=0;
  for await(const chunk of process.stdin){
