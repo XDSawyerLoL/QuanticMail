@@ -35,7 +35,7 @@ function fixture(){
   self:{...self},peer:{...peer},
   authorities:authorities.map(({pin,tlsPin})=>({pin,tlsPin})),carrierRole:'client'};
  delete trust.self.contact;delete trust.peer.contact;
- const cfg={labOnly:true,signingPin:self.classicalSigningPin,
+ const cfg={labOnly:true,binary,binarySha256,signingPin:self.classicalSigningPin,
   encryptionPin:self.classicalEncryptionPin,
   windowsLab:{enabled:true,dir},
   pqMode:{enabled:true,address:self.address,deviceId:self.deviceId,
