@@ -44,3 +44,35 @@ Hors du modèle : temps d'arrivée et IP d'entrée, IP de sortie, relais comprom
 4. Ne proposer un changement de protocole que si les objectifs conjoints de fiabilité, confidentialité **et** économie de bande passante sont démontrés et vérifiés par un audit indépendant.
 
 **Ne pas déployer et ne pas migrer d'identité sur la base de ce laboratoire.**
+
+
+## Deuxième étape : attribution des émetteurs par un observateur
+
+```bash
+node --test tests/scattering-multiplex-linkability.test.mjs tests/scattering-batch-observer.test.mjs
+node scripts/scattering-observer-lab.mjs
+```
+
+### Fait vérifié dans le multiplexeur de laboratoire existant
+
+Dans `lib/quantic/scattering-multiplex-lab.mjs`, le format de la cellule multiplexée préfixe un identifiant pseudonyme de 16 octets, dérivé pour chaque membre et pour une époque donnée. Cet identifiant est **constant pour les cellules du même membre pendant cette époque** : un observateur extérieur peut donc regrouper ces cellules sans les déchiffrer. Le passage à une époque différente change l'identifiant. **Sans autre information, cela ne donne pas automatiquement le nom réel de l'émetteur.** Un relais connaissant la correspondance, ou un adversaire disposant d'une liaison externe, pourrait toutefois attribuer les cellules à leur source. Le code existant se présente explicitement comme laboratoire avec passerelle de confiance, pas comme mixnet anonyme.
+
+`tests/scattering-multiplex-linkability.test.mjs` introduit cette **contre-épreuve de traçabilité** : même longueur de cellule et corps chiffré ne suffisent pas à éliminer le regroupement par métadonnée visible. Ne pas annoncer d'anonymat du multiplexeur existant.
+
+### Hypothèse mathématique : fenêtre de mélange parfaite à plusieurs utilisateurs
+
+`lib/quantic/scattering-batch-observer-lab.mjs` mesure une **attribution de source conditionnelle** par un observateur qui connaît les décomptes d'entrée de chaque utilisateur par fenêtre. Les cellules seraient ensuite parfaitement et secrètement permutées au sein d'une fenêtre, sans identifiant de routage ni autre fuite. La meilleure décision pour un paquet de cette fenêtre est alors d'attribuer le paquet à l'émetteur le plus fréquent. Cette mesure ne modélise ni le routage réel ni un adversaire Internet complet. Elle n'est **pas une preuve cryptographique**.
+
+Paramètres reproductibles par défaut : 12 émetteurs, 6 400 périodes, 24 répétitions indépendantes, fenêtres de 1/8/32 périodes. Arrivées Bernoulli par émetteur et période ; charges équilibrées faibles (0,005), élevées (0,06) et charge déséquilibrée (0,03, un émetteur multiplié par 8). Le générateur synthétique ne sert jamais à la cryptographie. Les intervalles à 95 % sont des estimations normales de dispersion entre graines de simulation, et **non** des intervalles de sécurité réelle.
+
+Pour une fenêtre de 8 périodes, mesures locales dans le modèle idéal :
+
+| Scénario | Taux moyen de meilleure attribution à un émetteur |
+|---|---:|
+| Faible activité, équilibrée | 80,96 % |
+| Forte activité, équilibrée | 30,33 % |
+| Forte activité, émetteur dominant | Voir rapport JSON reproductible |
+
+Ces pourcentages sont des taux de réussite **dans le modèle d'observation inventé**, pas les probabilités de piratage de Quantic Sillage. Une correspondance connue entre pseudonyme visible et identité supprime le bénéfice de permutation ; un pseudonyme sans correspondance connue autorise déjà le regroupement, mais pas nécessairement l'identification nominative.
+
+**Conséquence technique :** un mélange par lots n'est potentiellement utile que s'il existe un véritable ensemble d'utilisateurs partageant le trajet, que les étiquettes de source/routage ne survivent pas au mélange observable et que la fiabilité et le trafic de couverture restent acceptables. La priorité suivante est un essai à deux hôtes avec capture réseau indépendante et une spécification de l'adversaire, avant tout changement de protocole.
