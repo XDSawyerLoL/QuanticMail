@@ -1,0 +1,52 @@
+name: Windows PQ account root custody lab
+
+on:
+  pull_request:
+    paths:
+      - 'labs/quantic-native/vault/windows_account_root*.go'
+      - 'labs/quantic-native/vault/windows_provision.go'
+      - 'labs/quantic-native/vault/windows_provision_stub.go'
+      - '.github/workflows/windows-account-root-lab.yml'
+  push:
+    branches: ['security/**']
+    paths:
+      - 'labs/quantic-native/vault/windows_account_root*.go'
+      - 'labs/quantic-native/vault/windows_provision.go'
+      - 'labs/quantic-native/vault/windows_provision_stub.go'
+      - '.github/workflows/windows-account-root-lab.yml'
+
+permissions:
+  contents: read
+jobs:
+  isolated-windows-account-root:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      GOTOOLCHAIN: local
+      GOPROXY: 'off'
+      GOSUMDB: 'off'
+      CGO_ENABLED: '1'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: msys2/setup-msys2@3c51bf698df1e37b2261f53cb67797b97761185c
+        with:
+          msystem: UCRT64
+          path-type: inherit
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-openssl
+      - name: Real Windows ML-DSA account root custody, reopen across two OS processes and substitution refusal
+        shell: msys2 {0}
+        working-directory: labs/quantic-native/vault
+        run: |
+          set -euo pipefail
+          export CC=gcc
+          export PKG_CONFIG=pkg-config
+          openssl list -signature-algorithms | grep -qi ML-DSA-65
+          go test -count=1 -tags pqopenssl -run '^(TestWindowsAccountRoot.*|TestWindowsPQStorageReopen|TestWindowsLabImport)$' -v .
+          go vet -tags pqopenssl ./...
+          go build -trimpath -tags pqopenssl -o "$RUNNER_TEMP/Quantic-Windows-Root-Lab.exe" .
