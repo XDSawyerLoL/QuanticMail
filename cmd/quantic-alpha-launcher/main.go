@@ -26,7 +26,7 @@ var hexPin=regexp.MustCompile("^[a-f0-9]{64}$")
 
 func fileSHA256(path string)(string,error){
  f,e:=os.Open(path);if e!=nil{return "",e};defer f.Close()
- info,e:=f.Stat();if e!=nil{return "",e};if !info.Mode().IsRegular(){return "",errors.New("not a regular file")}
+ info,e:=f.Stat();if e!=nil{return "",e};if !info.Mode().IsRegular()||info.Size()>256<<20{return "",errors.New("not a regular file or file too large")}
  h:=sha256.New();if _,e=io.Copy(h,io.LimitReader(f,256<<20));e!=nil{return "",e}
  return hex.EncodeToString(h.Sum(nil)),nil
 }
