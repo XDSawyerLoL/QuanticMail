@@ -8,13 +8,13 @@ test('deterministic model and source probabilities in range', () => {
   assert.deepEqual(result, studyObserver(p));
   assert.ok(result.arrivals > 0);
   assert.ok(result.idealizedSourceGuessRate > 0 && result.idealizedSourceGuessRate <= 1);
-  assert.equal(result.visibleTagSourceGuessRate, 1);
+  assert.equal(result.mappedTagSourceGuessRate, 1);
 });
 test('zero traffic has no arbitrary anonymity score', () => {
   const r = studyObserver({probability: 0});
   assert.equal(r.arrivals, 0);
   assert.equal(r.idealizedSourceGuessRate, null);
-  assert.equal(r.visibleTagSourceGuessRate, null);
+  assert.equal(r.mappedTagSourceGuessRate, null);
 });
 test('a very dominant sender remains highly attributable even after batching', () => {
   const r = studyObserver({users: 12, probability: 0.01, dominantMultiplier: 100,
@@ -46,6 +46,6 @@ test('multi-trial confidence report is reproducible and bounded', () => {
   for (const row of a.results) {
     assert.ok(row.lower95 <= row.mean && row.mean <= row.upper95);
     assert.ok(row.mean >= 0 && row.mean <= 1);
-    assert.equal(row.tagVisibleGuessRate, 1);
+    assert.equal(row.mappedTagGuessRate, 1);
   }
 });
