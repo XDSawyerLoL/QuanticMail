@@ -7,7 +7,6 @@ package main
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <wincred.h>
-#include <credui.h>
 
 static int qv_gui_password(const WCHAR *label, WCHAR *dst, DWORD capacity) {
     CREDUI_INFOW ui;
