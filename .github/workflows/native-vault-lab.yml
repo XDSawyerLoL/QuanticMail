@@ -113,6 +113,11 @@ jobs:
           node-version: 24.8.0
       - name: Windows trusted client workflow regressions
         run: node --test tests/native-windows-desktop.test.mjs tests/native-vault-controller.test.mjs tests/native-windows-mail-flow.test.mjs
+      - name: Provision two distinct native PQ synthetic identities without remote enrollment
+        shell: pwsh
+        run: |
+          node --experimental-transform-types --test tests/windows-two-party-provision-lab.test.mjs
+          if ($LASTEXITCODE -ne 0) { throw "Synthetic two-party PQ provisioning validation failed" }
       - name: Integrated Windows PQ compose and send (durable wire and fail-closed transport)
         shell: pwsh
         run: |
