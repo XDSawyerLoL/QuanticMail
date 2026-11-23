@@ -18,7 +18,9 @@ async function readConfig(storage,path){
 // Operator approvals occur in the independently pinned native binary, never
 // through untrusted HTML or an "APPROVE" string read from an invisible console.
 export async function approveWindowsGUIPrompt(boot,storage,text,{spawnProcess=spawn}={}){
- check(typeof text==='string'&&text.length>0&&Buffer.byteLength(text,'utf8')<=1024);
+ check(typeof text==='string'&&text.length>0);
+ text=text.replace(/\r\n?|\n/gu,' | ');
+ check(Buffer.byteLength(text,'utf8')<=1024);
  check(!/[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/u.test(text));
  await storage.verifyBinary();
  return await new Promise((resolve,reject)=>{
