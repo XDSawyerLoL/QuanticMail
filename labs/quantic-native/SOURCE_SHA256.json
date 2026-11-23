@@ -119,5 +119,5 @@
   "vault/windows_migration_audit.go": "a99489335b08301f1db4498ee18896d00ab16db29aa5c8fd9c3f932a2150ec20",
   "vault/windows_draft_protect.go": "f811872cc3c6bde32462da255c225407a7fe03adc7a95707b83a6b34616f614c",
   "vault/windows_draft_protect_test.go": "f6271e93ba2eab8b5fe36b2a7c6779d3b6ecaea009593e51ffc752b1d0193508",
-  "vault/windows_secure_gui.go": "a081a0d10e1236355a1adb6e685d904fa8bb228185c17a1a6288a9385ab943ec"
+  "vault/windows_secure_gui.go": "d010dc222cb41cef375e60948b3dba63a614a97f6f247cdff0bc658b30bc8c08"
 }
