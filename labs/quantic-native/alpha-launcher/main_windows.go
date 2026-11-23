@@ -12,8 +12,6 @@ import (
  "unsafe"
 )
 
-const createNewConsole=0x00000010
-
 // Bounded, non-sensitive failure stage for CI self-test. No local paths,
 // private identities, secrets or hashes are ever emitted in this mode.
 var startupStage=1
@@ -54,9 +52,14 @@ func start()error{
  cmd.Dir=filepath.Join(root,"app")
  // The Alpha desktop sends all crypto consent and passphrases through the
  // existing local console: never attempt to swallow these into GUI stdout.
- cmd.SysProcAttr=&syscall.SysProcAttr{CreationFlags:createNewConsole}
+ // Windows creates the necessary console automatically when a console
+ // child is started by a GUI-subsystem parent. Forcing CREATE_NEW_CONSOLE
+ // while os/exec supplies its standard handles breaks the CI startup.
+ // Do not detach: passphrases and explicit local approvals need a console.
  startupStage=6
- if err:=cmd.Run();err!=nil{return err}
+ if err:=cmd.Start();err!=nil{return err}
+ startupStage=7
+ if err:=cmd.Wait();err!=nil{return err}
  return nil
 }
 
