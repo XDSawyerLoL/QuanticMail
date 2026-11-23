@@ -14,14 +14,14 @@ $node=Join-Path $root 'runtime\node.exe'
 $vault=Join-Path $root 'bin\Vault-PQ-lab.exe'
 $helper=Join-Path $root 'scripts\native-windows-compose-draft.mjs'
 $script:privateDirectory=$null
-function Invoke-Composer([string]$Directory,[string]$Payload,[bool]$List){
+function Invoke-Composer([string]$Directory,[string]$Payload,[bool]$List,[bool]$Send=$false){
  if($Directory -cnotmatch '^[A-Za-z]:\\[A-Za-z0-9_. -]+(?:\\[A-Za-z0-9_. -]+)*$'){throw 'Dossier prive non valide.'}
  foreach($part in $Directory.Substring(3).Split('\')){
   if($part -in @('.','..') -or $part.EndsWith('.') -or $part.EndsWith(' ')){throw 'Chemin ambigu.'}
  }
  $psi=New-Object System.Diagnostics.ProcessStartInfo
  $psi.FileName=$node
- $psi.Arguments= ('"{0}" "{1}" {2} "{3}"{4}' -f $helper,$vault,$TrustedBinarySha256.ToLowerInvariant(),$Directory,$(if($List){' --list'}else{''}))
+ $psi.Arguments= ('"{0}" "{1}" {2} "{3}"{4}' -f $helper,$vault,$TrustedBinarySha256.ToLowerInvariant(),$Directory,$(if($List){' --list'}elseif($Send){' --send'}else{''}))
  $psi.WorkingDirectory=$root
  $psi.UseShellExecute=$false;$psi.CreateNoWindow=$true
  $psi.WindowStyle=[Diagnostics.ProcessWindowStyle]::Hidden
@@ -67,9 +67,13 @@ $subject=New-Object Windows.Forms.TextBox;$subject.SetBounds(24,284,656,30);$sub
 Label-At 'Message' 332
 $body=New-Object Windows.Forms.TextBox;$body.Multiline=$true;$body.ScrollBars='Vertical'
 $body.MaxLength=7500;$body.SetBounds(24,361,656,162);$form.Controls.Add($body)
-$save=New-Object Windows.Forms.Button;$save.Text='Enregistrer mon brouillon';$save.SetBounds(24,558,435,43)
+$save=New-Object Windows.Forms.Button;$save.Text='Enregistrer mon brouillon';$save.SetBounds(24,558,240,43)
 $save.BackColor=[Drawing.Color]::FromArgb(196,223,244);$save.ForeColor=[Drawing.Color]::Black;$form.Controls.Add($save)
-$cancel=New-Object Windows.Forms.Button;$cancel.Text='Fermer';$cancel.SetBounds(481,558,199,43);$form.Controls.Add($cancel)
+$cancel=New-Object Windows.Forms.Button;$cancel.Text='Fermer';$cancel.SetBounds(495,558,185,43);$form.Controls.Add($cancel)
+$send=New-Object Windows.Forms.Button
+$send.Text='Chiffrer et deposer (test)'
+$send.SetBounds(276,558,208,43)
+$form.Controls.Add($send)
 $cancel.Add_Click({$form.Close()})
 $choose.Add_Click({
  $picker=New-Object Windows.Forms.FolderBrowserDialog
@@ -105,8 +109,37 @@ $save.Add_Click({
   [Windows.Forms.MessageBox]::Show('Enregistrement refuse : verifiez le coffre, le contact et la longueur du texte. Aucun message envoye.','Operation non confirmee','OK','Warning')|Out-Null
  }
 })
+$send.Add_Click({
+ try{
+  if(-not $script:privateDirectory -or $recipient.SelectedIndex -lt 0){throw 'Selectionnez un coffre et un contact deja approuves.'}
+  if([string]::IsNullOrWhiteSpace($subject.Text) -or [string]::IsNullOrWhiteSpace($body.Text)){throw 'Objet et texte requis.'}
+  if([System.Text.Encoding]::UTF8.GetByteCount($body.Text) -gt 800){
+   throw 'Cet essai graphique limite le texte a 800 octets pour une confirmation integrale.'
+  }
+  $warn=[Windows.Forms.MessageBox]::Show('TEST FICTIF : le coffre natif demandera deux phrases secretes par fenetre Windows puis des confirmations. Si le depot est incertain, aucun renvoi automatique. Aucun paiement ou compte reel. Continuer ?','Essai de transmission','YesNo','Warning')
+  if($warn -ne [Windows.Forms.DialogResult]::Yes){return}
+  $fields=@{to=[string]$recipient.SelectedItem;subject=$subject.Text;body=$body.Text}
+  $json=ConvertTo-Json -InputObject $fields -Compress -Depth 3
+  $result=Invoke-Composer $script:privateDirectory $json $false $true
+  switch($result.status){
+   'deposited' {
+    [Windows.Forms.MessageBox]::Show('Enveloppe chiffree et conservee ; depot confirme par le relais local. Cela ne prouve PAS la livraison ni la lecture distante. Ne renvoyez pas automatiquement.','Depot local de test','OK','Information')|Out-Null
+    $form.Close()
+   }
+   'saved-not-sent' {
+    [Windows.Forms.MessageBox]::Show('Enveloppe chiffree conservee. Depot refuse par vous : aucun message transmis.','Non envoye','OK','Information')|Out-Null
+   }
+   'cancelled-before-seal' {
+    [Windows.Forms.MessageBox]::Show('Brouillon chiffre au repos conserve. Signature et depot annules.','Action annulee','OK','Information')|Out-Null
+   }
+   default {throw 'Statut du coffre inconnu.'}
+  }
+ }catch{
+  [Windows.Forms.MessageBox]::Show('Envoi non confirme. Un brouillon ou une enveloppe peut deja etre conserve. Ne recommencez pas automatiquement. Utilisez le diagnostic de laboratoire et conservez les originaux.','Resultat incertain','OK','Warning')|Out-Null
+ }
+})
 if($SelfTest){
- if($recipient.DropDownStyle -ne 'DropDownList' -or -not $body.Multiline -or -not $chosen.ReadOnly -or $save.Text -notmatch 'brouillon'){throw 'Composer self-test failed'}
+ if($recipient.DropDownStyle -ne 'DropDownList' -or -not $body.Multiline -or -not $chosen.ReadOnly -or $save.Text -notmatch 'brouillon' -or $send.Text -notmatch 'deposer'){throw 'Composer self-test failed'}
  $form.Dispose();Write-Output 'Private GUI composer passed';return
 }
 try{[void]$form.ShowDialog()}finally{$form.Dispose()}
