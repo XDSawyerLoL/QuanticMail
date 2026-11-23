@@ -27,7 +27,12 @@ func TestPinnedAnchorPassesAcrossRestartAndRejectsRollback(t *testing.T) {
     d, err := InitDurableGuard(path,"machine-1",keys)
     if err != nil { t.Fatal(err) }
     if err := d.Authorize(request(t,"first-unique-nonce-01",operatorPriv,now),now); err != nil { t.Fatal(err) }
+    // Windows locks the first byte of the file exclusively; inspect a
+    // previous snapshot only when the guard's lock has been released.
+    if err := d.Close(); err != nil { t.Fatal(err) }
     rolledBack, err := os.ReadFile(path)
+    if err != nil { t.Fatal(err) }
+    d, err = OpenDurableGuard(path,"machine-1",keys)
     if err != nil { t.Fatal(err) }
     if err := d.Authorize(request(t,"second-unique-nonce02",operatorPriv,now),now); err != nil { t.Fatal(err) }
     anchor := makeSignedAnchor(t,d,"offline-vault",authorityPriv)
