@@ -38,6 +38,12 @@ These are **laboratory, not production**, APIs. The code neither creates an exte
 
 See [VAULT_WITNESS_BRIDGE.md](VAULT_WITNESS_BRIDGE.md) for the exact JSON, security boundaries and remaining failures.
 
+## Native Windows graphical Alpha (local file diagnostic)
+
+A separate Win32 GUI app (`cmd/quantic-control-gui`) now lets a user choose a file, remember its SHA-256 fingerprint in memory and verify whether it changed, using the Windows file chooser. It has **no visible console or JSON configuration** and does not contact any server. Its output is diagnostic only: it is *not* malware detection or a background protection service. The signed remote witness and Identity Vault guard are **not** wired to this GUI yet.
+
+Build with `go build -ldflags="-H windowsgui" -o quantic-control-gui-alpha.exe ./cmd/quantic-control-gui` on Windows. The unsigned binary is built and uploaded by GitHub Actions for laboratory evaluation; not an installer. Read [WINDOWS_GUI_ALPHA.md](WINDOWS_GUI_ALPHA.md).
+
 ## Local developer demo
 
 From quantic-control:
