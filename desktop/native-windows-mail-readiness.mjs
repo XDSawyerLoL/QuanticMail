@@ -73,8 +73,7 @@ export function verifyWindowsTwoHostReadiness(config,contacts,carrier,trust,{now
  check(config?.labOnly===true&&win?.enabled===true&&p?.enabled===true);
  strictPath(win.dir);strictPath(carrierDir);
  check(win.dir!==carrierDir&&p.address===trust.self.address&&p.deviceId===trust.self.deviceId
-  &&p.rootPin===trust.self.pqRootPin
-  &&p.signingPin===undefined /* signingPin and encryptionPin are top-level */ ===false);
+  &&p.rootPin===trust.self.pqRootPin);
  // Signed identity ownership remains separate from current device:
  // the offline preflight cannot prove a historical owner.
  check(config.signingPin===trust.self.classicalSigningPin
