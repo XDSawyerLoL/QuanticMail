@@ -90,21 +90,23 @@ func TestQuanticVaultWitnessDetectsCompleteLocalRollback(t *testing.T) {
     d,err:=InitDurableGuard(path,"machine-1",keys)
     if err!=nil{t.Fatal(err)}
     first:=makeSignedAnchor(t,d,"independent-identity-vault",authorityPriv)
-    cursor,err=d.AdvancePinnedVaultWitness(context.Background(),witness,first,"independent-identity-vault",authorityPub,cursor)
+    firstTransition,err:=d.AdvancePinnedVaultWitness(context.Background(),witness,first,"independent-identity-vault",authorityPub,cursor)
     if err!=nil{t.Fatal(err)}
-    if err:=d.CheckPinnedVaultWitness(context.Background(),witness,first,"independent-identity-vault",authorityPub,cursor);err!=nil{t.Fatal(err)}
+    cursor=firstTransition.After
+    if err:=d.CheckPinnedVaultWitness(context.Background(),witness,first,"independent-identity-vault",authorityPub,firstTransition);err!=nil{t.Fatal(err)}
     if err:=d.Close();err!=nil{t.Fatal(err)}
     previousJournal,err:=os.ReadFile(path)
     if err!=nil{t.Fatal(err)}
-    previousCursor:=cursor
+    previousTransition:=firstTransition
     d,err=OpenDurableGuard(path,"machine-1",keys)
     if err!=nil{t.Fatal(err)}
     now:=time.Now()
     if err:=d.Authorize(request(t,"witness-advance-0001",operatorPriv,now),now);err!=nil{t.Fatal(err)}
     second:=makeSignedAnchor(t,d,"independent-identity-vault",authorityPriv)
-    cursor,err=d.AdvancePinnedVaultWitness(context.Background(),witness,second,"independent-identity-vault",authorityPub,cursor)
+    secondTransition,err:=d.AdvancePinnedVaultWitness(context.Background(),witness,second,"independent-identity-vault",authorityPub,cursor)
     if err!=nil{t.Fatal(err)}
-    if err:=d.CheckPinnedVaultWitness(context.Background(),witness,second,"independent-identity-vault",authorityPub,cursor);err!=nil{t.Fatal(err)}
+    cursor=secondTransition.After
+    if err:=d.CheckPinnedVaultWitness(context.Background(),witness,second,"independent-identity-vault",authorityPub,secondTransition);err!=nil{t.Fatal(err)}
     if err:=d.Close();err!=nil{t.Fatal(err)}
     // Local attacker rewinds BOTH the journal and its locally cached signed
     // checkpoint/cursor. The independent witness refuses the older cursor.
@@ -112,10 +114,17 @@ func TestQuanticVaultWitnessDetectsCompleteLocalRollback(t *testing.T) {
     oldGuard,err:=OpenPinnedDurableGuard(path,"machine-1",keys,first,"independent-identity-vault",authorityPub)
     if err!=nil{t.Fatal(err)} // Old local signed checkpoint still valid.
     defer oldGuard.Close()
-    if err:=oldGuard.CheckPinnedVaultWitness(context.Background(),witness,first,"independent-identity-vault",authorityPub,previousCursor);err==nil{
+    if err:=oldGuard.CheckPinnedVaultWitness(context.Background(),witness,first,"independent-identity-vault",authorityPub,previousTransition);err==nil{
         t.Fatal("independent vault witness accepted a rolled-back local journal + signed checkpoint")
     }
-    if err:=oldGuard.CheckPinnedVaultWitness(context.Background(),nil,first,"independent-identity-vault",authorityPub,previousCursor);err==nil{
+    // An attacker knows the current remote state but cannot pair it with
+    // an old signed anchor from a rolled-back journal.
+    forged:=previousTransition
+    forged.After=secondTransition.After
+    if err:=oldGuard.CheckPinnedVaultWitness(context.Background(),witness,first,"independent-identity-vault",authorityPub,forged);err==nil{
+        t.Fatal("current witness cursor incorrectly paired with an old anchor")
+    }
+    if err:=oldGuard.CheckPinnedVaultWitness(context.Background(),nil,first,"independent-identity-vault",authorityPub,previousTransition);err==nil{
         t.Fatal("unavailable witness did not fail closed")
     }
 }
