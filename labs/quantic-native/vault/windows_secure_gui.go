@@ -7,7 +7,6 @@ package main
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <wincred.h>
-#include <credui.h>
 
 // Windows-owned protected credential entry. No clipboard API, command-line
 // password, stdin echo, credential persistence or browser renderer.
