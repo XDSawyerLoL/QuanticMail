@@ -71,7 +71,13 @@ export class ProactiveLab {
     return {epoch:data[0].epoch,secret:lagrangeAtZero(data.map(p=>({x:p.x,y:scalarDecode(p.y)}))),shares:data};
   }
   async close(){
-    await Promise.all(this.workers.map(async w=>{try{w.child.kill('SIGTERM');}catch{}}));
-    this.workers=[];
+    const workers=this.workers;this.workers=[];
+    await Promise.all(workers.map(w=>new Promise(resolve=>{
+      const child=w.child;
+      if(child.exitCode!==null||child.signalCode!==null){resolve();return;}
+      const watchdog=setTimeout(()=>child.kill('SIGKILL'),3000);
+      child.once('exit',()=>{clearTimeout(watchdog);resolve();});
+      child.kill('SIGTERM');
+    })));
   }
 }
