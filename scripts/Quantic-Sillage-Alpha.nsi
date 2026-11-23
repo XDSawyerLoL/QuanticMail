@@ -18,8 +18,20 @@ Section "Quantic Sillage laboratory"
  SetOutPath "$INSTDIR\app"
  File /r "${PACKAGE_DIR}\*"
  IfErrors failed
+ ; Native double-clickable application, built after the package digest
+ ; is frozen. The binary embeds both expected SHA256 pins, so there is
+ ; no editable command-line hash on the desktop shortcut.
+ SetOutPath "$INSTDIR"
+ File /oname=Quantic-Sillage-Alpha.exe "${LAUNCHER_EXE}"
+ IfErrors failed
  CreateDirectory "$SMPROGRAMS\Quantic Sillage"
- CreateShortCut "$SMPROGRAMS\Quantic Sillage\Alpha-${BUILD_ID}.lnk" "$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" '-NoProfile -STA -File "$INSTDIR\app\Start-Windows-PQ-Lab.ps1" -Operation Dashboard -ExpectedManifestSha256 ${MANIFEST_PIN} -TrustedBinarySha256 ${VAULT_PIN}' "$INSTDIR\app\bin\Vault-PQ-lab.exe" 0 SW_SHOWNORMAL
+ CreateShortCut "$SMPROGRAMS\Quantic Sillage\Alpha-${BUILD_ID}.lnk" "$INSTDIR\Quantic-Sillage-Alpha.exe" "" "$INSTDIR\Quantic-Sillage-Alpha.exe" 0 SW_SHOWNORMAL
+ IfErrors failed
+ ; Do not overwrite another build's desktop shortcut.
+ IfFileExists "$DESKTOP\Quantic Sillage Alpha.lnk" keepdesktop 0
+ CreateShortCut "$DESKTOP\Quantic Sillage Alpha.lnk" "$INSTDIR\Quantic-Sillage-Alpha.exe" "" "$INSTDIR\Quantic-Sillage-Alpha.exe" 0 SW_SHOWNORMAL
+ IfErrors failed
+ keepdesktop:
  IfErrors failed
  SetErrorLevel 0
  Goto done
