@@ -23,8 +23,8 @@ func winClientIO(args []string)(bool,error){
  path:=filepath.Join(dir,name)
  if args[1]=="--windows-client-read-lab"{
   var data []byte;var e error
-  if clientDraftName.MatchString(name){data,e=winReadEncryptedDraft(path)}
-  else{data,e=winReadPrivate(path,131072)}
+  if clientDraftName.MatchString(name){data,e=winReadEncryptedDraft(path)
+  }else{data,e=winReadPrivate(path,131072)}
   if e!=nil{return true,e};defer clear(data)
   n,e:=os.Stdout.Write(data);if e==nil&&n!=len(data){e=io.ErrShortWrite};return true,e
  }
