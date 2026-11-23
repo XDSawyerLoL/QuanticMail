@@ -45,7 +45,7 @@ $actions=@(
  @{Id="MailAttest";Title="Quantic Mail - verifier les quatre autorites en direct";Hint="Exige trois attestations mTLS fraiches sur quatre avant confirmation. N'envoie aucun mail.";Scope=$true}
 )
 # User-controlled pages are never rendered. Modules group existing local actions.
-function Get-Module([string]$Id) {
+function Get-AlphaModule([string]$Id) {
  switch -Regex ($Id) {
   '^(SealAndSend|RecoverSealAndSend|Seal|RecoverSeal|Send|Receive|Open|RecoverOpen|RecoverReceive|ConfirmReceipt|MailPreflight|MailAttest)$' { return "QUANTIC MAIL" }
   '^(Provision|ProvisionPair)$' { return "QUANTIC ID" }
@@ -57,7 +57,7 @@ function Get-Module([string]$Id) {
  }
 }
 $modules=@("QUANTIC MAIL","QUANTIC ID","IDENTITY VAULT","SCATTERING","QUANTIC PAY - LAB","DIAGNOSTIC")
-foreach ($action in $actions) { if ((Get-Module $action.Id) -notin $modules) { throw "Unknown module." } }
+foreach ($action in $actions) { if ((Get-AlphaModule $action.Id) -notin $modules) { throw "Unknown module." } }
 function New-OperationArguments($Action,[string]$Directory,[string]$InputName,[string]$OutputName) {
  $a=@("-Operation",$Action.Id,"-ExpectedManifestSha256",$ExpectedManifestSha256,"-TrustedBinarySha256",$TrustedBinarySha256.ToLowerInvariant())
  if ($Action.Scope) {
@@ -124,7 +124,7 @@ $script:selectedArguments=$null;$script:selectedAction=$null
 $script:shownActions=@()
 $module.Add_SelectedIndexChanged({
  $choice.Items.Clear()
- $script:shownActions=@($actions | Where-Object { (Get-Module $_.Id) -ceq $module.SelectedItem })
+ $script:shownActions=@($actions | Where-Object { (Get-AlphaModule $_.Id) -ceq $module.SelectedItem })
  if ($script:shownActions.Count -lt 1) { throw "Empty native module." }
  foreach ($a in $script:shownActions) { $null=$choice.Items.Add($a.Title) }
  $choice.SelectedIndex=0
