@@ -57,7 +57,7 @@ SectionEnd
 Section "Uninstall"
  SetShellVarContext current
  StrCpy $INSTDIR "$LOCALAPPDATA\QuanticSillage\Alpha-${BUILD_ID}"
- IfFileExists "$INSTDIR\Uninstall-Quantic-Sillage-Alpha.exe" +3
+ IfFileExists "$INSTDIR\Uninstall-Quantic-Sillage-Alpha.exe" +4
   MessageBox MB_ICONEXCLAMATION|MB_OK "This exact Alpha build is not installed. Nothing was deleted." /SD IDOK
   SetErrorLevel 2
   Quit
