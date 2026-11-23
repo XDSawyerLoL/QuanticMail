@@ -1,0 +1,84 @@
+name: Windows Alpha native bootstrap isolated smoke
+
+on:
+  push:
+    branches: ['fix/**', 'feat/**']
+    paths:
+      - 'cmd/quantic-alpha-launcher/**'
+      - '.github/workflows/windows-alpha-bootstrap-smoke.yml'
+      - '.github/workflows/native-vault-lab.yml'
+  pull_request:
+    paths:
+      - 'cmd/quantic-alpha-launcher/**'
+      - '.github/workflows/windows-alpha-bootstrap-smoke.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  bootstrap-process:
+    runs-on: windows-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Build real native GUI and diagnostic console versions
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\QSAlpha\app\bin" | Out-Null
+          $env:CGO_ENABLED="0"
+          go build -trimpath -ldflags "-H windowsgui" -o "$env:RUNNER_TEMP\QSAlpha\app\bin\Quantic-Sillage-Launcher.exe" cmd/quantic-alpha-launcher/main.go
+          go build -trimpath -o "$env:RUNNER_TEMP\QSAlpha\app\bin\Quantic-Sillage-Launcher-Console.exe" cmd/quantic-alpha-launcher/main.go
+          if ($LASTEXITCODE -ne 0) { throw "Windows GUI bootstrap compilation failed" }
+      - name: Verify startup policy through a synthetic trusted local package
+        shell: pwsh
+        run: |
+          $root="$env:RUNNER_TEMP\QSAlpha\app"
+          $script=@'
+          [CmdletBinding()]
+          param(
+            [string]$Operation,
+            [string]$ExpectedManifestSha256,
+            [string]$TrustedBinarySha256
+          )
+          if ($Operation -cne "DashboardCheck") { exit 42 }
+          if ($ExpectedManifestSha256 -cnotmatch '^[a-f0-9]{64}$' -or $TrustedBinarySha256 -cnotmatch '^[a-f0-9]{64}$') { exit 43 }
+          $nested = Join-Path $PSScriptRoot "Quantic-Sillage-Alpha.ps1"
+          & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -STA -ExecutionPolicy Bypass -File $nested -SelfTest
+          exit $LASTEXITCODE
+          '@
+          foreach($name in @("Start-Windows-PQ-Lab.ps1","Test-Windows-PQ-Package.ps1","Quantic-Sillage-Alpha.ps1")) {
+            if ($name -eq "Start-Windows-PQ-Lab.ps1") {
+              [IO.File]::WriteAllText((Join-Path $root $name),$script)
+            } elseif ($name -eq "Quantic-Sillage-Alpha.ps1") {
+              [IO.File]::WriteAllText((Join-Path $root $name),"param([switch]`$SelfTest)`nif(-not `$SelfTest) { exit 44 }`nexit 0`n")
+            } else {
+              [IO.File]::WriteAllText((Join-Path $root $name),"# synthetic local trusted test script")
+            }
+          }
+          Copy-Item "$root\bin\Quantic-Sillage-Launcher.exe" "$root\bin\Vault-PQ-lab.exe"
+          $names=@("Quantic-Sillage-Alpha.ps1","Start-Windows-PQ-Lab.ps1","Test-Windows-PQ-Package.ps1","bin/Vault-PQ-lab.exe")
+          $manifest=($names|ForEach-Object {
+            $filename=Join-Path $root ($_.Replace('/','\'))
+            $digest=(Get-FileHash -LiteralPath $filename -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$digest *./$_"
+          }) -join "`n"
+          [IO.File]::WriteAllText((Join-Path $root "SHA256SUMS.txt"),$manifest+"`n")
+          $manifestPin=(Get-FileHash -LiteralPath (Join-Path $root "SHA256SUMS.txt") -Algorithm SHA256).Hash.ToLowerInvariant()
+          $vaultPin=(Get-FileHash -LiteralPath (Join-Path $root "bin\Vault-PQ-lab.exe") -Algorithm SHA256).Hash.ToLowerInvariant()
+          $exe=Join-Path $root "bin\Quantic-Sillage-Launcher.exe"
+          $debug=Join-Path $root "bin\Quantic-Sillage-Launcher-Console.exe"
+          & $debug $manifestPin $vaultPin --self-test
+          if ($LASTEXITCODE -ne 0) { throw "Root trust fixture rejected: code $LASTEXITCODE" }
+          # PowerShell does NOT reliably await GUI-subsystem binaries via &.
+          # Start-Process -Wait exposes their actual process exit codes.
+          $p = Start-Process -FilePath $exe -ArgumentList "$manifestPin $vaultPin --self-test" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "Native GUI did not validate pinned fixture: $($p.ExitCode)" }
+          $p = Start-Process -FilePath $exe -ArgumentList "$manifestPin $vaultPin --smoke-ui" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "Native GUI did not launch local PowerShell dashboard: $($p.ExitCode)" }
+          $p = Start-Process -FilePath $exe -ArgumentList "$manifestPin $('0'*64) --self-test" -Wait -PassThru
+          if ($p.ExitCode -eq 0) { throw "Tampered key fingerprint was accepted" }
+          $p = Start-Process -FilePath $exe -ArgumentList "$('0'*64) $vaultPin --self-test" -Wait -PassThru
+          if ($p.ExitCode -eq 0) { throw "Tampered manifest fingerprint was accepted" }
+          Write-Host "Native bootstrap trusted launch, process smoke and wrong-pin refusals passed"

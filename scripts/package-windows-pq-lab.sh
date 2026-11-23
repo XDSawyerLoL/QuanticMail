@@ -11,6 +11,10 @@ test -f "$(dirname "$node_src")/LICENSE"
 cp "$node_src" "$dst/runtime/node.exe"
 cp "$(dirname "$node_src")/LICENSE" "$dst/licenses/Node-LICENSE.txt"
 cp "$src" "$dst/bin/Vault-PQ-lab.exe"
+# Native first-party bootstrap: no PowerShell or web link in the installed shortcut.
+launcher_src="$(cygpath -u "$5")"
+test -s "$launcher_src"
+cp "$launcher_src" "$dst/bin/Quantic-Sillage-Launcher.exe"
 # Copy Windows non-system DLL imports recursively from the build toolchain.
 for pass in $(seq 1 16); do
   changed=0

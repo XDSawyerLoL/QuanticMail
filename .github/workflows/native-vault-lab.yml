@@ -1,11 +1,11 @@
 name: Native Vault laboratory
 on:
   pull_request:
-    branches: [main]
-    paths: ['labs/quantic-native/**', 'desktop/**', 'lib/quantic/**', 'scripts/native-vault-windows-local.mjs', 'scripts/package-windows-pq-lab.sh', 'scripts/scattering-physical-probe.mjs', 'scripts/Start-Windows-PQ-Lab.ps1', 'scripts/Test-Windows-PQ-Package.ps1', 'scripts/Quantic-Sillage-Alpha.ps1', 'scripts/Quantic-Sillage-Alpha.nsi', 'scripts/Test-Native-Installer-Signature.ps1', 'scripts/Sign-Native-Lab-Installer.ps1', 'tests/native-windows-desktop.test.mjs', 'tests/native-windows-mail-flow.test.mjs', 'tests/native-scattering-mailbox.test.mjs', 'standalone-relay/native-scattering-mailbox.mjs', 'scripts/serve-native-scattering-windows.mjs', 'scripts/native-vault-windows-mailbox.mjs', 'scripts/verify-migration-local.mjs', '.github/workflows/native-vault-lab.yml']
+    branches: [main, "feat/**", "fix/**"]
+    paths: ['labs/quantic-native/**', 'cmd/quantic-alpha-launcher/**', 'desktop/**', 'lib/quantic/**', 'scripts/native-vault-windows-local.mjs', 'scripts/package-windows-pq-lab.sh', 'scripts/scattering-physical-probe.mjs', 'scripts/Start-Windows-PQ-Lab.ps1', 'scripts/Test-Windows-PQ-Package.ps1', 'scripts/Quantic-Sillage-Alpha.ps1', 'scripts/Quantic-Sillage-Alpha.nsi', 'scripts/Test-Native-Installer-Signature.ps1', 'scripts/Sign-Native-Lab-Installer.ps1', 'tests/native-windows-desktop.test.mjs', 'tests/native-windows-mail-flow.test.mjs', 'tests/native-scattering-mailbox.test.mjs', 'standalone-relay/native-scattering-mailbox.mjs', 'scripts/serve-native-scattering-windows.mjs', 'scripts/native-vault-windows-mailbox.mjs', 'scripts/verify-migration-local.mjs', '.github/workflows/native-vault-lab.yml']
   push:
-    branches: [main, "feat/**"]
-    paths: ['labs/quantic-native/**', 'desktop/**', 'lib/quantic/**', 'scripts/native-vault-windows-local.mjs', 'scripts/package-windows-pq-lab.sh', 'scripts/scattering-physical-probe.mjs', 'scripts/Start-Windows-PQ-Lab.ps1', 'scripts/Test-Windows-PQ-Package.ps1', 'scripts/Quantic-Sillage-Alpha.ps1', 'scripts/Quantic-Sillage-Alpha.nsi', 'scripts/Test-Native-Installer-Signature.ps1', 'scripts/Sign-Native-Lab-Installer.ps1', 'tests/native-windows-desktop.test.mjs', 'tests/native-windows-mail-flow.test.mjs', 'tests/native-scattering-mailbox.test.mjs', 'standalone-relay/native-scattering-mailbox.mjs', 'scripts/serve-native-scattering-windows.mjs', 'scripts/native-vault-windows-mailbox.mjs', 'scripts/verify-migration-local.mjs', '.github/workflows/native-vault-lab.yml']
+    branches: [main, "feat/**", "fix/**"]
+    paths: ['labs/quantic-native/**', 'cmd/quantic-alpha-launcher/**', 'desktop/**', 'lib/quantic/**', 'scripts/native-vault-windows-local.mjs', 'scripts/package-windows-pq-lab.sh', 'scripts/scattering-physical-probe.mjs', 'scripts/Start-Windows-PQ-Lab.ps1', 'scripts/Test-Windows-PQ-Package.ps1', 'scripts/Quantic-Sillage-Alpha.ps1', 'scripts/Quantic-Sillage-Alpha.nsi', 'scripts/Test-Native-Installer-Signature.ps1', 'scripts/Sign-Native-Lab-Installer.ps1', 'tests/native-windows-desktop.test.mjs', 'tests/native-windows-mail-flow.test.mjs', 'tests/native-scattering-mailbox.test.mjs', 'standalone-relay/native-scattering-mailbox.mjs', 'scripts/serve-native-scattering-windows.mjs', 'scripts/native-vault-windows-mailbox.mjs', 'scripts/verify-migration-local.mjs', '.github/workflows/native-vault-lab.yml']
 permissions:
   contents: read
 # Keep only the latest feature validation; retain independent main runs.
@@ -155,11 +155,17 @@ jobs:
           set -euo pipefail
           export QUANTIC_WINDOWS_VAULT_TEST="$(cygpath -w "$RUNNER_TEMP/Vault-PQ-provider-lab.exe")"
           node.exe --test tests/migration-durable-codec.test.mjs tests/migration-windows-durable.test.mjs
+      - name: Build dedicated Windows GUI native launcher, without browser
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-H windowsgui" -o "$RUNNER_TEMP/Quantic-Sillage-Launcher.exe" cmd/quantic-alpha-launcher/main.go
+          test -s "$RUNNER_TEMP/Quantic-Sillage-Launcher.exe"
       - name: Stage isolated portable Windows laboratory
         shell: msys2 {0}
         run: |
           set -euo pipefail
-          bash scripts/package-windows-pq-lab.sh "$RUNNER_TEMP/Vault-PQ-provider-lab.exe" "$RUNNER_TEMP/QuanticMail-Windows-PQ-Lab" "$RUNNER_TEMP/Scattering-Pacer.exe" "$(cygpath -w "$(command -v node.exe)")"
+          bash scripts/package-windows-pq-lab.sh "$RUNNER_TEMP/Vault-PQ-provider-lab.exe" "$RUNNER_TEMP/QuanticMail-Windows-PQ-Lab" "$RUNNER_TEMP/Scattering-Pacer.exe" "$(cygpath -w "$(command -v node.exe)")" "$RUNNER_TEMP/Quantic-Sillage-Launcher.exe"
       - name: Verify complete package and detect tampering before execution
         shell: pwsh
         run: |
@@ -311,7 +317,10 @@ jobs:
           manifest_pin="$(sha256sum --binary "$dir/SHA256SUMS.txt" | cut -d ' ' -f 1)"
           vault_pin="$(sha256sum --binary "$dir/bin/Vault-PQ-lab.exe" | cut -d ' ' -f 1)"
           export MSYS2_ARG_CONV_EXCL='*'
-          /ucrt64/bin/makensis.exe "/DOUTPUT_EXE=$(cygpath -w "$exe")" "/DPACKAGE_DIR=$(cygpath -w "$dir")" "/DBUILD_ID=$(printf %.12s "$GITHUB_SHA")" "/DMANIFEST_PIN=$manifest_pin" "/DVAULT_PIN=$vault_pin" "$(cygpath -w scripts/Quantic-Sillage-Alpha.nsi)"
+          uninstall_inventory="$(cygpath -u "$RUNNER_TEMP")/alpha-uninstall-files.nsh"
+          node scripts/build-alpha-uninstall-inventory.mjs "$(cygpath -w "$dir")" "$(cygpath -w "$uninstall_inventory")"
+          test -s "$uninstall_inventory"
+          /ucrt64/bin/makensis.exe "/DOUTPUT_EXE=$(cygpath -w "$exe")" "/DPACKAGE_DIR=$(cygpath -w "$dir")" "/DBUILD_ID=$(printf %.12s "$GITHUB_SHA")" "/DMANIFEST_PIN=$manifest_pin" "/DVAULT_PIN=$vault_pin" "/DUNINSTALL_NSH=$(cygpath -w "$uninstall_inventory")" "$(cygpath -w scripts/Quantic-Sillage-Alpha.nsi)"
           test -s "$exe"
       - name: Exercise single-file unsigned native laboratory installer
         shell: pwsh
@@ -327,16 +336,28 @@ jobs:
           $vaultPin = (Get-FileHash -LiteralPath (Join-Path $installed "bin\Vault-PQ-lab.exe") -Algorithm SHA256).Hash.ToLowerInvariant()
           $menu = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Quantic Sillage\Alpha-$build.lnk"
           $desktop = Join-Path ([Environment]::GetFolderPath('DesktopDirectory')) "Quantic Sillage Alpha-$build.lnk"
-          $expectedShell = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
+          $expectedLauncher = Join-Path $installed "bin\Quantic-Sillage-Launcher.exe"
           $wsh = New-Object -ComObject WScript.Shell
           foreach ($shortcutFile in @($menu,$desktop)) {
             if (-not (Test-Path -LiteralPath $shortcutFile -PathType Leaf)) { throw "Missing local native shortcut: $shortcutFile" }
             $shortcut = $wsh.CreateShortcut($shortcutFile)
-            if ($shortcut.TargetPath -ine $expectedShell) { throw "Unexpected executable in native shortcut" }
+            if ($shortcut.TargetPath -ine $expectedLauncher) { throw "Shortcut does not target the native EXE" }
             if (-not $shortcut.Arguments.Contains($manifestPin.ToLowerInvariant()) -or -not $shortcut.Arguments.Contains($vaultPin)) { throw "Native shortcut did not embed both expected SHA256 pins" }
-            if (-not $shortcut.Arguments.Contains("-Operation Dashboard") -or $shortcut.Arguments -match '(?i)https?://|onrender|hostingersite') { throw "Unexpected Web or missing native Dashboard action" }
-            if (-not $shortcut.Arguments.Contains((Join-Path $installed "Start-Windows-PQ-Lab.ps1"))) { throw "Shortcut points outside installed native package" }
+            if ($shortcut.Arguments -match '(?i)https?://|onrender|hostingersite|powershell|[.]ps1') { throw "Unexpected Web or script in native shortcut" }
+            if ($shortcut.Arguments.Trim() -cne ($manifestPin.ToLowerInvariant()+" "+$vaultPin)) { throw "Unexpected native launcher arguments" }
           }
+          # Exercise exactly the new native binary from the *installed*
+          # directory, without allowing interactive dialogs in CI.
+          $manifestLower = $manifestPin.ToLowerInvariant()
+          $vaultLower = $vaultPin.ToLowerInvariant()
+          # GUI-subsystem processes do not reliably set $LASTEXITCODE with &.
+          # Wait explicitly so the actual signed-code path is exercised.
+          $p = Start-Process -FilePath $expectedLauncher -ArgumentList "$manifestLower $vaultLower --self-test" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "Installed native launcher refused authentic build (code $($p.ExitCode))" }
+          $p = Start-Process -FilePath $expectedLauncher -ArgumentList "$manifestLower $('0'*64) --self-test" -Wait -PassThru
+          if ($p.ExitCode -eq 0) { throw "Native launcher accepted incorrect vault pin" }
+          $p = Start-Process -FilePath $expectedLauncher -ArgumentList "$manifestLower $vaultLower --smoke-ui" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "Native launcher failed to open full local GUI initialization chain (code $($p.ExitCode))" }
           $shell = (Get-Process -Id $PID).Path
           & $shell -NoProfile -NonInteractive -File (Join-Path $installed "Start-Windows-PQ-Lab.ps1") -Operation Providers -ExpectedManifestSha256 $manifestPin -TrustedBinarySha256 $vaultPin
           if ($LASTEXITCODE -ne 0) { throw "Installed native executable could not be started" }
@@ -350,6 +371,40 @@ jobs:
           $null=[System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD "scripts\Sign-Native-Lab-Installer.ps1"),[ref]$tokens,[ref]$errors)
           if ($errors.Count -ne 0) { throw "Operator signing script syntax invalid" }
           (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant() | Set-Content -Encoding ascii "$exe.sha256"
+      - name: Verify safe Alpha uninstall preserves unknown files and private vault
+        shell: pwsh
+        run: |
+          $build = $env:GITHUB_SHA.Substring(0,12)
+          $root = Join-Path $env:LOCALAPPDATA "QuanticSillage\\Alpha-$build"
+          $installed = Join-Path $root "app"
+          $uninstaller = Join-Path $root "Uninstall-Quantic-Sillage-Alpha.exe"
+          $unknown = Join-Path $installed "USER-UNKNOWN-KEEP.txt"
+          $vault = Join-Path $env:LOCALAPPDATA "QuanticSillage\\UninstallSyntheticVault-$build\\vault.bin"
+          $menu = Join-Path $env:APPDATA "Microsoft\\Windows\\Start Menu\\Programs\\Quantic Sillage\\Alpha-$build.lnk"
+          $uninstallLink = Join-Path $env:APPDATA "Microsoft\\Windows\\Start Menu\\Programs\\Quantic Sillage\\Uninstall Alpha-$build.lnk"
+          $desktop = Join-Path ([Environment]::GetFolderPath('DesktopDirectory')) "Quantic Sillage Alpha-$build.lnk"
+          if (-not (Test-Path -LiteralPath $uninstaller -PathType Leaf)) { throw "Uninstaller executable missing" }
+          if (-not (Test-Path -LiteralPath $uninstallLink -PathType Leaf)) { throw "Uninstall shortcut missing" }
+          New-Item -ItemType Directory -Path (Split-Path -Parent $vault) -Force | Out-Null
+          Set-Content -LiteralPath $unknown -Value "foreign-file-must-survive" -NoNewline
+          Set-Content -LiteralPath $vault -Value "synthetic-private-vault-must-survive" -NoNewline
+          try {
+            $p = Start-Process -FilePath $uninstaller -ArgumentList "/S" -Wait -PassThru
+            if ($p.ExitCode -ne 0) { throw "Safe uninstaller failed (exit $($p.ExitCode))" }
+            if (Test-Path -LiteralPath (Join-Path $installed "bin\\Vault-PQ-lab.exe")) { throw "Installed build binary survived uninstall" }
+            if (Test-Path -LiteralPath $uninstaller) { throw "Uninstaller failed to remove itself" }
+            if (Test-Path -LiteralPath $menu) { throw "Build Start Menu shortcut survived" }
+            if (Test-Path -LiteralPath $desktop) { throw "Build desktop shortcut survived" }
+            if (Test-Path -LiteralPath $uninstallLink) { throw "Build uninstall shortcut survived" }
+            if ((Get-Content -LiteralPath $unknown -Raw) -ne "foreign-file-must-survive") { throw "Unknown user file changed or deleted" }
+            if ((Get-Content -LiteralPath $vault -Raw) -ne "synthetic-private-vault-must-survive") { throw "External private vault changed or deleted" }
+            if (-not (Test-Path -LiteralPath $root -PathType Container)) { throw "Uninstaller removed directory containing an unknown file" }
+          } finally {
+            Remove-Item -LiteralPath $unknown -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath (Split-Path -Parent $vault) -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $installed -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $root -Force -ErrorAction SilentlyContinue
+          }
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: Quantic-Sillage-Alpha-UNSIGNED-Installer

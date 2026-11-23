@@ -5,7 +5,9 @@ RequestExecutionLevel user
 InstallDir "$LOCALAPPDATA\QuanticSillage\Alpha-${BUILD_ID}"
 SetCompressor /SOLID lzma
 ShowInstDetails show
+ShowUninstDetails show
 Page instfiles
+UninstPage instfiles
 
 Section "Quantic Sillage laboratory"
  SetShellVarContext current
@@ -15,18 +17,33 @@ Section "Quantic Sillage laboratory"
  SetErrorLevel 1
  Abort "A build directory already exists. No files were replaced."
  fresh:
+ ; Do not overwrite unrelated user shortcuts either.
+ IfFileExists "$SMPROGRAMS\Quantic Sillage\Alpha-${BUILD_ID}.lnk" 0 check_desktop
+ SetErrorLevel 1
+ Abort "A shortcut with this build name already exists."
+ check_desktop:
+ IfFileExists "$DESKTOP\Quantic Sillage Alpha-${BUILD_ID}.lnk" 0 install
+ SetErrorLevel 1
+ Abort "A desktop shortcut with this build name already exists."
+ install:
  SetOverwrite off
  SetOutPath "$INSTDIR\app"
  File /r "${PACKAGE_DIR}\*"
  IfErrors failed
+ ; Write the uninstaller inside this build's directory only.
+ WriteUninstaller "$INSTDIR\Uninstall-Quantic-Sillage-Alpha.exe"
+ IfErrors failed
  CreateDirectory "$SMPROGRAMS\Quantic Sillage"
  ; Windows Forms dashboard is local-only; Start Menu and Desktop shortcuts
- ; contain exact SHA-256 pins compiled into this *single* installer. No URL.
+ ; use checked SHA-256 pins with dedicated native bootstrap, not PowerShell.
  ClearErrors
- CreateShortCut "$SMPROGRAMS\Quantic Sillage\Alpha-${BUILD_ID}.lnk" "$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" '-NoProfile -STA -File "$INSTDIR\app\Start-Windows-PQ-Lab.ps1" -Operation Dashboard -ExpectedManifestSha256 ${MANIFEST_PIN} -TrustedBinarySha256 ${VAULT_PIN}' "$INSTDIR\app\bin\Vault-PQ-lab.exe" 0 SW_SHOWNORMAL
+ CreateShortCut "$SMPROGRAMS\Quantic Sillage\Alpha-${BUILD_ID}.lnk" "$INSTDIR\app\bin\Quantic-Sillage-Launcher.exe" "${MANIFEST_PIN} ${VAULT_PIN}" "$INSTDIR\app\bin\Vault-PQ-lab.exe" 0 SW_SHOWNORMAL
  IfErrors failed
  ClearErrors
- CreateShortCut "$DESKTOP\Quantic Sillage Alpha-${BUILD_ID}.lnk" "$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" '-NoProfile -STA -File "$INSTDIR\app\Start-Windows-PQ-Lab.ps1" -Operation Dashboard -ExpectedManifestSha256 ${MANIFEST_PIN} -TrustedBinarySha256 ${VAULT_PIN}' "$INSTDIR\app\bin\Vault-PQ-lab.exe" 0 SW_SHOWNORMAL
+ CreateShortCut "$DESKTOP\Quantic Sillage Alpha-${BUILD_ID}.lnk" "$INSTDIR\app\bin\Quantic-Sillage-Launcher.exe" "${MANIFEST_PIN} ${VAULT_PIN}" "$INSTDIR\app\bin\Vault-PQ-lab.exe" 0 SW_SHOWNORMAL
+ IfErrors failed
+ ClearErrors
+ CreateShortCut "$SMPROGRAMS\Quantic Sillage\Uninstall Alpha-${BUILD_ID}.lnk" "$INSTDIR\Uninstall-Quantic-Sillage-Alpha.exe"
  IfErrors failed
  SetErrorLevel 0
  Goto done
@@ -34,4 +51,25 @@ Section "Quantic Sillage laboratory"
  SetErrorLevel 1
  Abort "Installation incomplete. Original identity data was not modified."
  done:
+SectionEnd
+
+Section "Uninstall"
+ SetShellVarContext current
+ ; Never accept a caller-supplied install path or delete an adjacent Alpha.
+ StrCpy $INSTDIR "$LOCALAPPDATA\QuanticSillage\Alpha-${BUILD_ID}"
+ IfFileExists "$INSTDIR\Uninstall-Quantic-Sillage-Alpha.exe" found
+ SetErrorLevel 2
+ Abort "The expected build uninstaller does not exist. No files removed."
+ found:
+ ; Compiler-generated explicit inventory: checks all junctions first,
+ ; then deletes known build files only, and removes only empty folders.
+ !include "${UNINSTALL_NSH}"
+ Delete "$SMPROGRAMS\Quantic Sillage\Alpha-${BUILD_ID}.lnk"
+ Delete "$DESKTOP\Quantic Sillage Alpha-${BUILD_ID}.lnk"
+ Delete "$SMPROGRAMS\Quantic Sillage\Uninstall Alpha-${BUILD_ID}.lnk"
+ RMDir "$SMPROGRAMS\Quantic Sillage"
+ Delete "$INSTDIR\Uninstall-Quantic-Sillage-Alpha.exe"
+ RMDir "$INSTDIR"
+ RMDir "$LOCALAPPDATA\QuanticSillage"
+ SetErrorLevel 0
 SectionEnd
