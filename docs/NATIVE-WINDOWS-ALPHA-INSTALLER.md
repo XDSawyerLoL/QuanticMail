@@ -47,6 +47,17 @@ Le paquet installe `Uninstall-Quantic-Sillage-Alpha.exe` dans son dossier de bui
 - Les coffres privés hors paquet, les identités existantes et les autres builds Alpha ne sont **pas** visés. Aucune purge de données utilisateur n'est proposée.
 - La CI Windows doit vérifier installation, refus d'écrasement, désinstallation silencieuse et survie d'un fichier étranger dans le dossier installé ainsi que d'un coffre synthétique privé. Tant que ce test n'est pas vert, la fonctionnalité reste **non validée**.
 
+## Essai d'envoi chiffré sans terminal (branche de laboratoire)
+
+Le composeur Windows propose désormais, en plus de l'enregistrement du brouillon, une action **Chiffrer et déposer (test uniquement)**. C'est un prototype, **pas** une messagerie générale déployable.
+
+- Le coffre de test et le destinataire sont sélectionnés graphiquement. Le sujet et le contenu passent seulement par un pipe local privé vers Node ; aucune phrase secrète n'est transmise à Node, PowerShell, une ligne de commande, un fichier de configuration ou une URL.
+- Le broker Go utilise le dialogue de credentials natif Windows avec persistance interdite, et exige une approbation explicite locale. Le mode console historique reste séparé.
+- Le brouillon en clair est conservé dans le dossier NTFS privé de laboratoire. L'enveloppe signée et chiffrée PQ est écrite une seule fois, synchronisée, relue et vérifiée **avant** d'autoriser un dépôt sur le relais Scattering déjà configuré.
+- Une deuxième confirmation graphique est exigée avant le dépôt, sans nouvel essai automatique si le résultat réseau est incertain. Un dépôt local confirmé **ne prouve pas** une réception, une lecture ni une livraison sur un deuxième ordinateur.
+- Cette nouvelle voie doit encore subir la compilation Windows, les tests de paquet, un test interactif sur deux vrais PC et une revue des dialogues et de la gestion des secrets. L'absence de console dans le test CI n'est pas une preuve de sécurité face à un PC compromis. Elle demeure interdite pour les comptes réels.
+- Les anciennes identités, messages et sauvegardes sont conservés. Aucune suppression, migration définitive ni paiement réel n'est autorisé.
+
 ## Publication et mises à jour
 
 La chaîne de signature existe dans `scripts/Sign-Native-Lab-Installer.ps1` mais requiert un **véritable certificat de signature de code** autorisé, sa clé privée conservée hors du dépôt, une empreinte publique d'éditeur approuvée indépendamment, Windows SDK SignTool et un service d'horodatage HTTPS. Ni certificat ni signature ne sont générés fictivement dans la CI. Pas de mise à jour automatique d'un binaire non signé.
