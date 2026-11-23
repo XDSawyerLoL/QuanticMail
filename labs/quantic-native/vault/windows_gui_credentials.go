@@ -33,6 +33,7 @@ static int qv_gui_password(const WCHAR *label, WCHAR *dst, DWORD capacity) {
     }
     return 1;
 }
+static void qv_wipe(void *buf, size_t len) { SecureZeroMemory(buf, len); }
 static int qv_gui_approval(const WCHAR *message) {
     int r = MessageBoxW(NULL, message,
         L"Quantic Sillage Alpha - autorisation explicite",
@@ -53,7 +54,7 @@ import (
 func winGUIPassphrase(label string, secret bool) ([]byte, error) {
     if !secret { return nil, portableRefusal }
     var wide [1027]C.WCHAR
-    defer C.SecureZeroMemory(unsafe.Pointer(&wide[0]), C.SIZE_T(len(wide)*2))
+    defer C.qv_wipe(unsafe.Pointer(&wide[0]), C.size_t(len(wide)*2))
     if C.qv_gui_password(winWide(label), &wide[0], C.DWORD(len(wide))) == 0 {
         return nil, errors.New("local Windows credential dialog cancelled")
     }
