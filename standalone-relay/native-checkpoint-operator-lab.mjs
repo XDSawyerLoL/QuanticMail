@@ -6,6 +6,7 @@ import {createHash,createPrivateKey,createPublicKey,X509Certificate} from 'node:
 import {lstat,readFile} from 'node:fs/promises';
 import {resolve,join,basename} from 'node:path';
 import {startNativeCheckpointAuthority} from './native-checkpoint-server.mjs';
+import {createSignedAuthorityRenewalLab} from './native-authority-renewal-lab.mjs';
 const check=x=>{if(!x)throw Error('Pinned native authority laboratory refused');};
 const sha=b=>createHash('sha256').update(b).digest('hex');
 const pin=/^[a-f0-9]{64}$/;
@@ -30,8 +31,11 @@ export async function loadPinnedAuthorityLab({directory,configPin}){
  const cfgBytes=await verifyFile(join(directory,'operator.json'),8192,{secret:true});
  check(sha(cfgBytes)===configPin);
  const cfg=boundJSON(cfgBytes,8192);
- asObject(cfg,['format','labOnly','authorityId','port','pins','clientPins']);
- check(cfg.format==='quantic-native-authority-operator-lab/v1'&&cfg.labOnly===true&&id.test(cfg.authorityId)
+ const isV2=cfg?.format==='quantic-native-authority-operator-lab/v2';
+ asObject(cfg,isV2?['format','labOnly','authorityId','port','pins','clientPins','renewalPublicKey']:
+  ['format','labOnly','authorityId','port','pins','clientPins']);
+ check((isV2||cfg.format==='quantic-native-authority-operator-lab/v1')
+  &&cfg.labOnly===true&&id.test(cfg.authorityId)
   &&Number.isInteger(cfg.port)&&cfg.port>=0&&cfg.port<=65535);
  asObject(cfg.pins,fields);
  check(fields.every(f=>pin.test(cfg.pins[f])));
@@ -59,14 +63,30 @@ export async function loadPinnedAuthorityLab({directory,configPin}){
   &&Array.isArray(state.manifests)&&Array.isArray(state.cryptoProfiles)
   &&Array.isArray(policy)&&policy.length>=1&&policy.length<=1024);
  const now=Date.now(),saved=Date.parse(state.savedAt);
- check(Number.isFinite(saved)&&saved<=now&&saved>now-30000);
+ check(Number.isFinite(saved)&&saved<=now&&(isV2||saved>now-30000));
  check(policy.every(p=>p&&typeof p==='object'&&p.active===true));
- // A fixed, preloaded snapshot stays fixed; no attacker-controlled
- // live reload, no rewriting savedAt to manufacture freshness.
+ let load=async()=>({state,policy});
+ let renewalSequence=0;
+ if(isV2){
+  const key=Buffer.from(cfg.renewalPublicKey,'base64url');
+  check(key.length===44&&key.toString('base64url')===cfg.renewalPublicKey);
+  const pub=createPublicKey({key,format:'der',type:'spki'});
+  check(pub.asymmetricKeyType==='ed25519'
+   &&sha(key)!==cfg.pins.signerPin);
+  const controller=await createSignedAuthorityRenewalLab({
+   directory,authorityId:cfg.authorityId,configPin,
+   initialStatePin:cfg.pins.statePin,initialPolicyPin:cfg.pins.policyPin,
+   publicKey:cfg.renewalPublicKey,initialSnapshot:{state,policy}
+  });
+  // Every mTLS request checks the independently signed next generation
+  // and durable monotonic head, then the existing 30-second freshness gate.
+  load=controller.load;
+  renewalSequence=controller.status().sequence;
+ }
  return {authorityId:cfg.authorityId,port:cfg.port,signerPin:cfg.pins.signerPin,
-  tlsPin:cfg.pins.tlsPin,clientPins:cfg.clientPins,
+  tlsPin:cfg.pins.tlsPin,clientPins:cfg.clientPins,renewalSequence,
   tls:{ca:data['ca.pem'],cert:data['server.crt'],key},
-  privateKey:signer,load:async()=>({state,policy})};
+  privateKey:signer,load};
 }
 export async function startPinnedNativeAuthorityLab(args){
  const cfg=await loadPinnedAuthorityLab(args);
