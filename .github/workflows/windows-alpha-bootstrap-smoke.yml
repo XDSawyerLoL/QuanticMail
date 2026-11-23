@@ -67,12 +67,14 @@ jobs:
           $debug=Join-Path $root "bin\Quantic-Sillage-Launcher-Console.exe"
           & $debug $manifestPin $vaultPin --self-test
           if ($LASTEXITCODE -ne 0) { throw "Root trust fixture rejected: code $LASTEXITCODE" }
-          & $exe $manifestPin $vaultPin --self-test
-          if ($LASTEXITCODE -ne 0) { throw "Native GUI did not validate pinned fixture: $LASTEXITCODE" }
-          & $exe $manifestPin $vaultPin --smoke-ui
-          if ($LASTEXITCODE -ne 0) { throw "Native GUI did not launch local PowerShell dashboard: $LASTEXITCODE" }
-          & $exe $manifestPin ("0"*64) --self-test
-          if ($LASTEXITCODE -eq 0) { throw "Tampered key fingerprint was accepted" }
-          & $exe ("0"*64) $vaultPin --self-test
-          if ($LASTEXITCODE -eq 0) { throw "Tampered manifest fingerprint was accepted" }
+          # PowerShell does NOT reliably await GUI-subsystem binaries via &.
+          # Start-Process -Wait exposes their actual process exit codes.
+          $p = Start-Process -FilePath $exe -ArgumentList "$manifestPin $vaultPin --self-test" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "Native GUI did not validate pinned fixture: $($p.ExitCode)" }
+          $p = Start-Process -FilePath $exe -ArgumentList "$manifestPin $vaultPin --smoke-ui" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "Native GUI did not launch local PowerShell dashboard: $($p.ExitCode)" }
+          $p = Start-Process -FilePath $exe -ArgumentList "$manifestPin $('0'*64) --self-test" -Wait -PassThru
+          if ($p.ExitCode -eq 0) { throw "Tampered key fingerprint was accepted" }
+          $p = Start-Process -FilePath $exe -ArgumentList "$('0'*64) $vaultPin --self-test" -Wait -PassThru
+          if ($p.ExitCode -eq 0) { throw "Tampered manifest fingerprint was accepted" }
           Write-Host "Native bootstrap trusted launch, process smoke and wrong-pin refusals passed"
