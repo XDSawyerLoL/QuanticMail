@@ -351,6 +351,14 @@ jobs:
           $tokens=$null; $errors=$null
           $null=[System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD "scripts\Sign-Native-Lab-Installer.ps1"),[ref]$tokens,[ref]$errors)
           if ($errors.Count -ne 0) { throw "Operator signing script syntax invalid" }
+          $tokens=$null; $errors=$null
+          $null=[System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD "scripts\Test-Quantic-Sillage-Signed-Alpha.ps1"),[ref]$tokens,[ref]$errors)
+          if ($errors.Count -ne 0) { throw "Signed app and installer release-gate script syntax invalid" }
+          $signatureRejected = $false
+          try {
+            & ./scripts/Test-Quantic-Sillage-Signed-Alpha.ps1 -Installer $exe -InstalledLauncher $nativeApp -ExpectedPublisherSha256 ("0"*64) -ExpectedManifestSha256 $manifestPin -ExpectedVaultSha256 ((Get-FileHash -LiteralPath "$installed\bin\Vault-PQ-lab.exe" -Algorithm SHA256).Hash) | Out-Null
+          } catch { $signatureRejected = $true }
+          if (-not $signatureRejected) { throw "Unsigned native Alpha application passed signed-release gate" }
           (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant() | Set-Content -Encoding ascii "$exe.sha256"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
