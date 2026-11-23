@@ -8,6 +8,7 @@ on:
       - 'scripts/Quantic-Sillage-Compose.ps1'
       - 'scripts/Quantic-Sillage-Advanced.ps1'
       - 'scripts/native-windows-compose-draft.mjs'
+      - 'scripts/native-windows-compose-send.mjs'
       - 'desktop/native-windows-draft.mjs'
       - 'tests/native-windows-draft.test.mjs'
       - 'scripts/Quantic-Sillage-Alpha.nsi'
@@ -18,6 +19,7 @@ on:
       - 'scripts/Quantic-Sillage-Compose.ps1'
       - 'scripts/Quantic-Sillage-Advanced.ps1'
       - 'scripts/native-windows-compose-draft.mjs'
+      - 'scripts/native-windows-compose-send.mjs'
       - 'desktop/native-windows-draft.mjs'
       - 'tests/native-windows-draft.test.mjs'
       - 'scripts/Quantic-Sillage-Alpha.nsi'
@@ -55,5 +57,11 @@ jobs:
           if($LASTEXITCODE -ne 0){throw "Explicit advanced contract failed"}
           node --test tests/native-windows-draft.test.mjs
           if($LASTEXITCODE -ne 0){throw "Draft validation failed"}
+          node --check scripts/native-windows-compose-send.mjs
+          if($LASTEXITCODE -ne 0){throw "GUI PQ send helper syntax rejected"}
+          $helper = Get-Content -LiteralPath ./scripts/native-windows-compose-send.mjs -Raw
+          if($helper -notmatch "guiWindowsApproval:true" -or $helper -notmatch "sealed-awaiting-deposit-approval" -or $helper -notmatch "lines.next" -or $helper -notmatch "status:'delivery-unknown'") { throw "GUI send two-step native consent contract missing" }
+          $ui = Get-Content -LiteralPath ./scripts/Quantic-Sillage-Compose.ps1 -Raw
+          if($ui -notmatch "Chiffrer et deposer" -or $ui -notmatch "Read-GUIReply" -or $ui -match '(?i)WebBrowser|WebView2|onrender.com') { throw "Native GUI send control missing or remote renderer found" }
           $source = Get-Content -LiteralPath $path -Raw
           if ($source -match "(?i)WebBrowser|WebView2|loadURL|onrender\.com") { throw "Remote renderer reintroduced" }
