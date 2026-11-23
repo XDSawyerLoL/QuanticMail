@@ -14,6 +14,10 @@ import (
 
 const createNewConsole=0x00000010
 
+// Bounded, non-sensitive failure stage for CI self-test. No local paths,
+// private identities, secrets or hashes are ever emitted in this mode.
+var startupStage=1
+
 func alert(){
  // No secrets, local paths or certificate material are printed to the user.
  title,_:=syscall.UTF16PtrFromString("Quantic Sillage Alpha")
@@ -28,12 +32,16 @@ func start()error{
  if len(os.Args)>2||(len(os.Args)==2&&os.Args[1]!="--self-test"){
   return errors.New("unsupported GUI arguments")
  }
+ startupStage=2
  if err:=validateEmbeddedPins();err!=nil{return err}
+ startupStage=3
  executable,err:=os.Executable()
  if err!=nil{return err}
  root:=filepath.Clean(filepath.Dir(executable))
  if !filepath.IsAbs(root)||strings.HasPrefix(root,`\\`){return errors.New("local application directory required")}
+ startupStage=4
  if err:=validateInstallation(root,expectedManifestSHA256,expectedVaultSHA256);err!=nil{return err}
+ startupStage=5
  system:=os.Getenv("SystemRoot")
  if !filepath.IsAbs(system)||strings.HasPrefix(system,`\\`){return errors.New("trusted system root required")}
  powershell:=filepath.Join(system,"System32","WindowsPowerShell","v1.0","powershell.exe")
@@ -47,13 +55,15 @@ func start()error{
  // The Alpha desktop sends all crypto consent and passphrases through the
  // existing local console: never attempt to swallow these into GUI stdout.
  cmd.SysProcAttr=&syscall.SysProcAttr{CreationFlags:createNewConsole}
+ startupStage=6
  if err:=cmd.Run();err!=nil{return err}
  return nil
 }
 
 func main(){
  if err:=start();err!=nil{
-  if len(os.Args)!=2||os.Args[1]!="--self-test"{alert()}
+  if len(os.Args)==2&&os.Args[1]=="--self-test" {os.Exit(10+startupStage)}
+  alert()
   os.Exit(1)
  }
 }
