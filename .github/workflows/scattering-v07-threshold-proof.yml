@@ -1,0 +1,35 @@
+name: Scattering V0.7 threshold proof witness (offline)
+on:
+  push:
+    branches:
+      - research/scattering-v07-threshold-proof-*
+    paths:
+      - 'labs/quantic-native/scattering/threshold-secrecy-proof-v07.mjs'
+      - 'tests/scattering-threshold-secrecy-proof-v07.test.mjs'
+      - 'docs/SCATTERING-V07-THRESHOLD-PROOF.md'
+      - '.github/workflows/scattering-v07-threshold-proof.yml'
+  pull_request:
+    paths:
+      - 'labs/quantic-native/scattering/threshold-secrecy-proof-v07.mjs'
+      - 'tests/scattering-threshold-secrecy-proof-v07.test.mjs'
+      - 'docs/SCATTERING-V07-THRESHOLD-PROOF.md'
+      - '.github/workflows/scattering-v07-threshold-proof.yml'
+permissions:
+  contents: read
+jobs:
+  exhaustive-finite-field:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Check standalone proof code and baseline V0.7 model
+        run: |
+          node --version
+          node --check labs/quantic-native/scattering/threshold-secrecy-proof-v07.mjs
+          node --test tests/scattering-threshold-secrecy-proof-v07.test.mjs tests/scattering-adaptive-v07.test.mjs
+      - name: Verify report states limits
+        run: |
+          node labs/quantic-native/scattering/threshold-secrecy-proof-v07.mjs > threshold-proof-report.json
+          node --input-type=module -e "import {readFileSync} from 'node:fs';const r=JSON.parse(readFileSync('threshold-proof-report.json')); if(r.secrecy.checkedExperiments!==49130 || r.reconstruction.checkedExperiments!==49130 || !r.refresh.allCandidatesSameLikelihood || r.refresh.compatibleCandidateSecrets!==17 || r.wholeSystemSecurity9999999Proven!==false || r.releaseAuthorized!==false) process.exit(1); console.log('Exhaustive toy proof succeeded; end-to-end claim refused.');"
