@@ -138,3 +138,19 @@ La commande **n'est donc pas encore une démonstration inter-PC de bout
 en bout**. Les tests unitaires simulent les réponses de l'exécutable Go
 et contrôlent les empreintes et les refus ; le workflow Windows valide
 séparément la compilation native et l'emballage.
+
+## Précontrôle des quatre autorités et de Scattering avant essai sur deux PC
+
+Le tableau de bord propose `MailPreflight` (hors ligne) et `MailAttest`
+(attestation mTLS fraîche de trois autorités parmi quatre). Les deux
+opérations sont **strictement en lecture seule** et exigent un fichier
+public de confiance dont l'empreinte SHA256 est obtenue hors bande,
+ainsi que les dossiers privés distincts du coffre et du transport.
+
+Le contrôle vérifie les racines et identités épinglées, les clés
+publiques canoniques des contacts, les quatre clés Ed25519 des autorités
+et leurs certificats TLS, le rôle client/relais et les ports de loopback.
+Il n'affiche aucun secret, ne génère aucune attestation et ne connecte
+aucun compte réel. Une réponse de laboratoire positive n'est pas
+une preuve de livraison WAN ou inter-PC. Les conditions et commandes
+complètes figurent dans `WINDOWS_TWO_HOST_MAIL_READINESS.md`.
