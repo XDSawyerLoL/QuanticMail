@@ -11,7 +11,7 @@ The Control adapter accepts a caller-supplied, trusted TLS configuration: HTTPS 
 - `POST /check`: JSON keys `id`, `count`, `tail`, all matching the witness' independent durable state, returns `OK\n` on success.
 - `POST /advance`: additionally `record` (64-character SHA-256 hex), requires an exact current cursor. The existing Vault server advances `tail = SHA256(hex_decode(old_tail) || hex_decode(record))`, `count += 1`.
 - `WitnessRecordDigest(SignedAnchor)` hashes an independently signed Control state anchor with explicit domain separation, without sending the journal itself or private keys.
-- `CheckPinnedVaultWitness` verifies the Control anchor's signature and current local journal, **then** verifies the cursor against the independent Vault service. `AdvancePinnedVaultWitness` binds a signed snapshot to the witness using its existing monotonic protocol.
+- `AdvancePinnedVaultWitness` returns a **witness transition** containing the previous cursor, new cursor and digest of the exact signed Control anchor. `CheckPinnedVaultWitness` recomputes this SHA-256 transition and verifies the anchor signature, the journal and the remote witness state. An old signed anchor cannot be paired with a newer remote cursor without breaking the digest chain (under collision/preimage resistance assumptions).
 
 The Go module does **not** provision, administer, reset, or recover an external Vault witness. It does **not** use a messaging relay, a browser, a VPS, or public keys read only from a possibly rolled-back journal.
 
@@ -21,7 +21,7 @@ The Go module does **not** provision, administer, reset, or recover an external 
 2. Generate a signed anchor and advance the witness to a first checkpoint.
 3. Append an authorization to the fsynced journal, sign the new state, advance the witness again.
 4. Roll back **both** the journal and the locally cached signed anchor/cursor.
-5. Local signature and journal checks alone accept that self-consistent old state; the independent witness's `/check` returns an error and the Control API refuses the checkpoint.
+5. Local signature and journal checks alone accept that self-consistent old state; the independent witness's `/check` returns an error and the Control API refuses the checkpoint. Substituting the *current* witness cursor alongside the old anchor is also rejected because the exact transition hash no longer matches.
 6. Simulate missing witness or mismatched counter and ensure refusal.
 
 Tests currently use a **local TLS 1.3 witness simulation** matching the pre-existing service's `/check` and `/advance` JSON and hash semantics, including client-certificate presentation. They do **not** operate a real deployed Vault authority. Windows and Linux CI validate the compiled Go integration.
