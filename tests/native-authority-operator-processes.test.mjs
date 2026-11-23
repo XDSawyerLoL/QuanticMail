@@ -166,6 +166,8 @@ test('four separately pinned OS processes enforce 3-of-4 mTLS quorum, crash cuto
   }
   assert.equal(new Set(services.map(s=>s.child.pid)).size,4);
   assert.equal(new Set(configs.map(c=>c.dir)).size,4);
+  await assert.rejects(boot(configs[0]),/authority exited|readiness|operator authority/i,
+   'a second independent process must never open the same v2 authority directory');
   let source=await createAttestedPeerSource({
    authorities:attested,caFile:join(root,'ca.crt'),
    clientCertFile:join(root,'client.crt'),clientKeyFile:join(root,'client.key')
