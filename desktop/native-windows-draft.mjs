@@ -34,7 +34,7 @@ export async function saveWindowsDraft(config,contacts,storage,fields,{makeId=ra
  const bytes=Buffer.from(JSON.stringify(draft)+'\n','utf8');
  try{
   check(bytes.length<=8192&&typeof storage.writeDraft==='function');
-  await storage.writeDraft(path,bytes); // CREATE_NEW + private NTFS ACL + fsync
+  await storage.writeDraft(path,bytes); // DPAPI CurrentUser before CREATE_NEW + private NTFS ACL + fsync
  }finally{bytes.fill(0);}
  const stored=await privateJSON(storage,path);
  check(JSON.stringify(stored)===JSON.stringify(draft));
