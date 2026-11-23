@@ -6,6 +6,7 @@ import {readFile,lstat} from 'node:fs/promises';
 import {win32} from 'node:path';
 import {createWindowsNativeStorage} from './native-windows-storage.mjs';
 import {windowsScatteringScope} from './native-windows-mail-flow.mjs';
+import {bindWindowsDesktopConfig} from './native-windows-desktop.mjs';
 import {createAttestedPeerSource} from './native-attested-peer.mjs';
 
 const fail=()=>{throw Error('Windows two-host mail readiness refused');};
@@ -70,7 +71,7 @@ const sameContact=(a,b)=>a.address===b.address&&a.deviceId===b.deviceId
 export function verifyWindowsTwoHostReadiness(config,contacts,carrier,trust,{now=Date.now(),carrierDir}={}){
  validTrust(trust);
  const p=config?.pqMode,win=config?.windowsLab;
- check(config?.labOnly===true&&win?.enabled===true&&p?.enabled===true);
+ check(config?.labOnly===true&&win?.enabled===true&&p?.enabled===true&&config.nativeRelay===undefined);
  strictPath(win.dir);strictPath(carrierDir);
  check(win.dir!==carrierDir&&p.address===trust.self.address&&p.deviceId===trust.self.deviceId
   &&p.rootPin===trust.self.pqRootPin);
@@ -145,6 +146,7 @@ export async function runWindowsTwoHostReadiness({binary,binarySha256,dir,carrie
  const storage=await storageFactory({binary,binarySha256,dir});
  const carrierStorage=await storageFactory({binary,binarySha256,dir:carrierDir});
  const cfg=await privateJson(storage,win32.join(dir,'desktop.json'));
+ bindWindowsDesktopConfig(cfg,{binary,binarySha256,dir});
  const contacts=await privateJson(storage,win32.join(dir,'contacts.json'));
  const carrier=await privateJson(carrierStorage,win32.join(carrierDir,'scattering.json'));
  const result=verifyWindowsTwoHostReadiness(cfg,contacts,carrier,trust,{now:now(),carrierDir});
