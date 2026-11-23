@@ -79,6 +79,21 @@ func localPowerShell(root,manifestPin,vaultPin string,smoke bool)(uint32,error){
  // inheritance, unlike the earlier hand-built CreateProcess calls.
  cmd:=exec.Command(shell,argv...)
  cmd.Dir=root
+ // Powershell 7 parent processes can pass a PSModulePath that masks the
+ // Windows PowerShell 5.1 inbox modules. Get-FileHash and other built-in
+ // verification cmdlets then appear "not recognized" in the spawned GUI.
+ // Pin module loading to Windows's own inbox directory, never to arbitrary
+ // user-controlled module roots. Never modify machine environment globally.
+ systemModules:=filepath.Join(winDir,"System32","WindowsPowerShell","v1.0","Modules")
+ stat,e:=os.Stat(systemModules)
+ if e!=nil||!stat.IsDir(){return 1,errors.New("trusted Windows PowerShell system modules unavailable")}
+ environment:=make([]string,0,len(os.Environ())+1)
+ for _,entry:=range os.Environ(){
+  key,_,ok:=strings.Cut(entry,"=")
+  if ok&&strings.EqualFold(key,"PSModulePath"){continue}
+  environment=append(environment,entry)
+ }
+ cmd.Env=append(environment,"PSModulePath="+systemModules)
  cmd.SysProcAttr=&syscall.SysProcAttr{CreationFlags:0x00000010}
  // The smoke test uses only synthetic identities; collect process stderr
  // into a private temporary diagnostic file for the CI test exclusively.
