@@ -11,6 +11,14 @@ Le premier parcours Quantic Mail est **« Rédiger un message (sans terminal) »
 
 Les opérations historiques de laboratoire restent accessibles après un consentement explicite ouvrant **une console technique distincte**. Elles ne font pas partie du parcours standard. L'installateur demeure non signé.
 
+## Nouveau mode GUI du coffre — PR #61 (laboratoire uniquement)
+
+Deux boutons sont présents dans l'éditeur de test : **« Enregistrer mon brouillon »** et **« Chiffrer et déposer (test) »**. Le second passe par des confirmations Win32 natives et le fournisseur post-quantique déjà présent. Le coffre ne lit plus les phrases secrètes dans un terminal lorsqu'il est lancé explicitement avec le mode `--broker-windows-pq-quorum-gui-lab` ; le mode terminal reste disponible séparément pour l'ingénierie. Les phrases secrètes sont saisies directement dans une fenêtre Windows CredUI avec persistance interdite. Les autorisations par opération exigent un consentement explicite dont le choix par défaut est le refus.
+
+Le dépôt sur **relais local** ne signifie pas livraison sur un autre poste, ni lecture. Toute erreur incertaine conserve le brouillon ou l'enveloppe qui peut déjà exister ; il n'y a aucun renvoi automatique. La validation ne peut fonctionner qu'avec un coffre, un contact et les attestations de confiance fictifs déjà configurés ; aucune identité réelle ni clé historique n'est reprise. Le mode graphique d'essai refuse les grands messages tant que sa fenêtre de confirmation ne peut pas présenter le texte intégral. La signature de l'installateur, la migration native, les essais indépendants sur deux ordinateurs et les essais GUI réellement interactifs restent bloquants.
+
+**Dépendance transitoire :** les brouillons utilisent Windows DPAPI CurrentUser, pas une clé Quantic post-quantique indépendante de l'OS. Le mécanisme est propre à ce laboratoire Windows ; il ne satisfait pas encore l'objectif final de portabilité Quantic Sillage.
+
 ## Fichier installable
 
 Le workflow `.github/workflows/native-vault-lab.yml` compile le coffre Go/OpenSSL ML-KEM-768/ML-DSA-65, le pacer Scattering natif, les scripts du contrôleur et l'interface Windows Forms. Il assemble d'abord un paquet local vérifiable par `SHA256SUMS.txt`, puis fabrique un installateur NSIS unique :
