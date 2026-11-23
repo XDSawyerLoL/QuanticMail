@@ -2,10 +2,10 @@ name: Native Vault laboratory
 on:
   pull_request:
     branches: [main]
-    paths: ['labs/quantic-native/**', 'desktop/**', 'lib/quantic/**', 'scripts/native-vault-windows-local.mjs', 'scripts/package-windows-pq-lab.sh', 'scripts/scattering-physical-probe.mjs', 'scripts/Start-Windows-PQ-Lab.ps1', 'scripts/Test-Windows-PQ-Package.ps1', 'scripts/Quantic-Sillage-Alpha.ps1', 'scripts/Quantic-Sillage-Alpha.nsi', 'scripts/Test-Native-Installer-Signature.ps1', 'scripts/Sign-Native-Lab-Installer.ps1', 'tests/native-windows-desktop.test.mjs', 'tests/native-windows-mail-flow.test.mjs', 'tests/native-scattering-mailbox.test.mjs', 'standalone-relay/native-scattering-mailbox.mjs', 'scripts/serve-native-scattering-windows.mjs', 'scripts/native-vault-windows-mailbox.mjs', 'scripts/verify-migration-local.mjs', '.github/workflows/native-vault-lab.yml']
+    paths: ['labs/quantic-native/**', 'desktop/**', 'lib/quantic/**', 'scripts/native-vault-windows-local.mjs', 'scripts/package-windows-pq-lab.sh', 'scripts/scattering-physical-probe.mjs', 'scripts/Start-Windows-PQ-Lab.ps1', 'scripts/Test-Windows-PQ-Package.ps1', 'scripts/Quantic-Sillage-Alpha.ps1', 'scripts/Quantic-Sillage-Alpha.nsi', 'scripts/Test-Native-Installer-Signature.ps1', 'scripts/Sign-Native-Lab-Installer.ps1', 'tests/identity-vault-hardening.test.mjs', 'tests/native-windows-desktop.test.mjs', 'tests/native-windows-mail-flow.test.mjs', 'tests/native-scattering-mailbox.test.mjs', 'standalone-relay/native-scattering-mailbox.mjs', 'scripts/serve-native-scattering-windows.mjs', 'scripts/native-vault-windows-mailbox.mjs', 'scripts/verify-migration-local.mjs', '.github/workflows/native-vault-lab.yml']
   push:
     branches: [main, "feat/**"]
-    paths: ['labs/quantic-native/**', 'desktop/**', 'lib/quantic/**', 'scripts/native-vault-windows-local.mjs', 'scripts/package-windows-pq-lab.sh', 'scripts/scattering-physical-probe.mjs', 'scripts/Start-Windows-PQ-Lab.ps1', 'scripts/Test-Windows-PQ-Package.ps1', 'scripts/Quantic-Sillage-Alpha.ps1', 'scripts/Quantic-Sillage-Alpha.nsi', 'scripts/Test-Native-Installer-Signature.ps1', 'scripts/Sign-Native-Lab-Installer.ps1', 'tests/native-windows-desktop.test.mjs', 'tests/native-windows-mail-flow.test.mjs', 'tests/native-scattering-mailbox.test.mjs', 'standalone-relay/native-scattering-mailbox.mjs', 'scripts/serve-native-scattering-windows.mjs', 'scripts/native-vault-windows-mailbox.mjs', 'scripts/verify-migration-local.mjs', '.github/workflows/native-vault-lab.yml']
+    paths: ['labs/quantic-native/**', 'desktop/**', 'lib/quantic/**', 'scripts/native-vault-windows-local.mjs', 'scripts/package-windows-pq-lab.sh', 'scripts/scattering-physical-probe.mjs', 'scripts/Start-Windows-PQ-Lab.ps1', 'scripts/Test-Windows-PQ-Package.ps1', 'scripts/Quantic-Sillage-Alpha.ps1', 'scripts/Quantic-Sillage-Alpha.nsi', 'scripts/Test-Native-Installer-Signature.ps1', 'scripts/Sign-Native-Lab-Installer.ps1', 'tests/identity-vault-hardening.test.mjs', 'tests/native-windows-desktop.test.mjs', 'tests/native-windows-mail-flow.test.mjs', 'tests/native-scattering-mailbox.test.mjs', 'standalone-relay/native-scattering-mailbox.mjs', 'scripts/serve-native-scattering-windows.mjs', 'scripts/native-vault-windows-mailbox.mjs', 'scripts/verify-migration-local.mjs', '.github/workflows/native-vault-lab.yml']
 permissions:
   contents: read
 # Keep only the latest feature validation; retain independent main runs.
@@ -358,3 +358,92 @@ jobs:
             ${{ runner.temp }}/Quantic-Sillage-Alpha-UNSIGNED.exe.sha256
           if-no-files-found: error
           retention-days: 7
+
+  # The first runner builds/installs the package. This second, fresh Windows
+  # runner downloads the exact artifact and executes it without its build tree.
+  # Successful verification is NOT approval for real identities or production.
+  native-windows-installer-independent:
+    needs: native-windows-pq-provider
+    runs-on: windows-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Download exact unsigned installer from the build job
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: Quantic-Sillage-Alpha-UNSIGNED-Installer
+          path: ${{ runner.temp }}/independent-install
+      - name: Verify downloaded bytes and install on fresh Windows host
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $artifact = Join-Path $env:RUNNER_TEMP "independent-install"
+          $exe = Join-Path $artifact "Quantic-Sillage-Alpha-UNSIGNED.exe"
+          $shaFile = "$exe.sha256"
+          if (-not (Test-Path -LiteralPath $exe -PathType Leaf) -or -not (Test-Path -LiteralPath $shaFile -PathType Leaf)) { throw "Missing installer or digest in downloaded artifact" }
+          if ((Get-Item -LiteralPath $exe).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw "Installer symlink refused" }
+          $expected = ([IO.File]::ReadAllText($shaFile)).Trim()
+          if ($expected -cnotmatch '^[a-f0-9]{64}$') { throw "Unexpected installer SHA256 format" }
+          $actual = (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -cne $expected) { throw "Downloaded installer differs from CI SHA256" }
+          if ((Get-AuthenticodeSignature -LiteralPath $exe).Status -ne "NotSigned") { throw "Laboratory artifact must be explicitly unsigned; signing is a separate operator step" }
+          $build = $env:GITHUB_SHA.Substring(0,12)
+          $target = Join-Path $env:LOCALAPPDATA "QuanticSillage\Alpha-$build"
+          if (Test-Path -LiteralPath $target) { throw "Independent Windows runner is not clean" }
+          $install = Start-Process -FilePath $exe -ArgumentList "/S" -PassThru -Wait
+          if ($install.ExitCode -ne 0) { throw "Downloaded installer failed on independent Windows runner" }
+          $package = Join-Path $target "app"
+          $manifest = Join-Path $package "SHA256SUMS.txt"
+          if (-not (Test-Path -LiteralPath $manifest -PathType Leaf)) { throw "Installed manifest missing" }
+          $manifestPin = (Get-FileHash -LiteralPath $manifest -Algorithm SHA256).Hash
+          & ./scripts/Test-Windows-PQ-Package.ps1 -PackageDirectory $package -ExpectedManifestSha256 $manifestPin
+          $vaultPin = (Get-FileHash -LiteralPath (Join-Path $package "bin\Vault-PQ-lab.exe") -Algorithm SHA256).Hash
+          $ps = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
+          & $ps -NoProfile -NonInteractive -File (Join-Path $package "Start-Windows-PQ-Lab.ps1") -Operation Providers -ExpectedManifestSha256 $manifestPin -TrustedBinarySha256 $vaultPin
+          if ($LASTEXITCODE -ne 0) { throw "Installed native PQ provider could not start on independent Windows runner" }
+          # The downloaded/installed package must also run its real native UI
+          # mapping and independent-process encrypted history readback.
+          & $ps -NoProfile -NonInteractive -File (Join-Path $package "Start-Windows-PQ-Lab.ps1") -Operation DashboardCheck -ExpectedManifestSha256 $manifestPin -TrustedBinarySha256 $vaultPin
+          if ($LASTEXITCODE -ne 0) { throw "Downloaded native dashboard failed to initialize all modules" }
+          $syntheticRoot = Join-Path $env:RUNNER_TEMP "qs-second-runner-synthetic-$build"
+          if (Test-Path -LiteralPath $syntheticRoot) { throw "Synthetic migration folder must not preexist" }
+          $migrationJson = & $ps -NoProfile -NonInteractive -File (Join-Path $package "Start-Windows-PQ-Lab.ps1") -Operation MigrationSmoke -PrivateDirectory $syntheticRoot -ExpectedManifestSha256 $manifestPin -TrustedBinarySha256 $vaultPin
+          if ($LASTEXITCODE -ne 0) { throw "Downloaded installer could not complete synthetic native historical restoration" }
+          $migration = $migrationJson | Select-Object -Last 1 | ConvertFrom-Json
+          if ($migration.status -ne "synthetic-windows-migration-smoke-passed" -or
+              $migration.labOnly -ne $true -or
+              $migration.windowsPrivateStorage -ne $true -or
+              $migration.separateReadbackProcess -ne $true -or
+              $migration.exactCollections -ne 4 -or
+              $migration.liveRestoreAuthorized -ne $false -or
+              $migration.legacyDeletionAuthorized -ne $false) {
+            throw "Synthetic restoration report is incomplete or attempts to permit real-identity cutover"
+          }
+          # The installed launcher must refuse reusing the same private
+          # directory, keeping the successfully written source immutable.
+          $oldPreference = $ErrorActionPreference
+          $ErrorActionPreference = "Continue"
+          try {
+            & $ps -NoProfile -NonInteractive -File (Join-Path $package "Start-Windows-PQ-Lab.ps1") -Operation MigrationSmoke -PrivateDirectory $syntheticRoot -ExpectedManifestSha256 $manifestPin -TrustedBinarySha256 $vaultPin 2>&1 | Out-Null
+            $repeatExit = $LASTEXITCODE
+          } finally { $ErrorActionPreference = $oldPreference }
+          if ($repeatExit -eq 0) { throw "Downloaded native launcher accepted overwriting a historical synthetic restore" }
+          # A rejected external process is expected here: capture the exit
+          # status without PowerShell treating the negative test as a job error.
+          $previousPreference = $ErrorActionPreference
+          $ErrorActionPreference = "Continue"
+          try {
+            & $ps -NoProfile -NonInteractive -File (Join-Path $package "Start-Windows-PQ-Lab.ps1") -Operation Providers -ExpectedManifestSha256 ("0" * 64) -TrustedBinarySha256 $vaultPin 2>&1 | Out-Null
+            $invalidExit = $LASTEXITCODE
+          } finally { $ErrorActionPreference = $previousPreference }
+          if ($invalidExit -eq 0) { throw "Installed launcher accepted a false manifest digest" }
+          Write-Host "Independent Windows install/PQ smoke passed (unsigned synthetic laboratory only): $actual"
+          # The previous external process intentionally exited nonzero to prove
+          # fail-closed behavior. After ALL assertions pass, clear that status
+          # for the enclosing pwsh task; otherwise GitHub reports a false failure.
+          # This does not bypass any required check above.
+          exit 0
