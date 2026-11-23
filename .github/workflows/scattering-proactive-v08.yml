@@ -1,0 +1,36 @@
+name: Scattering proactive V0.8 isolated cryptographic lab
+on:
+  push:
+    branches:
+      - 'research/scattering-proactive-v08-*'
+    paths:
+      - 'labs/quantic-native/scattering/proactive-v08-*.mjs'
+      - 'tests/scattering-proactive-v08.test.mjs'
+      - 'docs/SCATTERING-PROACTIVE-V08.md'
+      - '.github/workflows/scattering-proactive-v08.yml'
+  pull_request:
+    paths:
+      - 'labs/quantic-native/scattering/proactive-v08-*.mjs'
+      - 'tests/scattering-proactive-v08.test.mjs'
+      - 'docs/SCATTERING-PROACTIVE-V08.md'
+      - '.github/workflows/scattering-proactive-v08.yml'
+permissions:
+  contents: read
+jobs:
+  vss-cryptographic-lab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Node version and source syntax
+        run: |
+          node --version
+          node --check labs/quantic-native/scattering/proactive-v08-core.mjs
+          node --check labs/quantic-native/scattering/proactive-v08-relay.mjs
+          node --check labs/quantic-native/scattering/proactive-v08-network.mjs
+          node --check tests/scattering-proactive-v08.test.mjs
+      - name: Run isolated 5-process proactive security laboratory
+        run: |
+          node --test tests/scattering-proactive-v08.test.mjs
