@@ -112,7 +112,7 @@ jobs:
         with:
           node-version: 24.8.0
       - name: Windows trusted client workflow regressions
-        run: node --test tests/native-windows-desktop.test.mjs tests/native-vault-controller.test.mjs tests/native-windows-mail-flow.test.mjs
+        run: node --test tests/native-windows-desktop.test.mjs tests/native-vault-controller.test.mjs tests/native-windows-mail-flow.test.mjs tests/native-windows-draft.test.mjs tests/native-windows-gui-send.test.mjs
       - name: Windows multi-host mail readiness with four pinned mTLS authorities and Scattering
         shell: pwsh
         run: |
