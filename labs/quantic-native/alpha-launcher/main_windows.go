@@ -4,6 +4,8 @@ package main
 
 import (
  "errors"
+ "bytes"
+ "fmt"
  "os"
  "os/exec"
  "path/filepath"
@@ -45,11 +47,20 @@ func start()error{
  powershell:=filepath.Join(system,"System32","WindowsPowerShell","v1.0","powershell.exe")
  operation:="Dashboard"
  if len(os.Args)==2{operation="DashboardCheck"}
- cmd:=exec.Command(powershell,"-NoLogo","-NoProfile","-STA","-File",
-  filepath.Join(root,"app","Start-Windows-PQ-Lab.ps1"),"-Operation",operation,
-  "-ExpectedManifestSha256",expectedManifestSHA256,
+ psArgs:=[]string{"-NoLogo","-NoProfile","-STA"}
+ if len(os.Args)==2 {psArgs=append(psArgs,"-NonInteractive")}
+ psArgs=append(psArgs,"-File",filepath.Join(root,"app","Start-Windows-PQ-Lab.ps1"),
+  "-Operation",operation,"-ExpectedManifestSha256",expectedManifestSHA256,
   "-TrustedBinarySha256",expectedVaultSHA256)
+ cmd:=exec.Command(powershell,psArgs...)
  cmd.Dir=filepath.Join(root,"app")
+ var diagnostic bytes.Buffer
+ if len(os.Args)==2{
+  // Synthetic self-test only: never capture actual human consents,
+  // passwords, mailbox contents or production stdout.
+  cmd.Stdout=&diagnostic
+  cmd.Stderr=&diagnostic
+ }
  // The Alpha desktop sends all crypto consent and passphrases through the
  // existing local console: never attempt to swallow these into GUI stdout.
  // Windows creates the necessary console automatically when a console
@@ -59,13 +70,31 @@ func start()error{
  startupStage=6
  if err:=cmd.Start();err!=nil{return err}
  startupStage=7
- if err:=cmd.Wait();err!=nil{return err}
+ if err:=cmd.Wait();err!=nil{
+  if len(os.Args)==2{
+   output:=diagnostic.String()
+   if len(output)>4096{output=output[len(output)-4096:]}
+   return fmt.Errorf("Windows Alpha dashboard self-test exited: %w; captured public diagnostics: %s",err,output)
+  }
+  return err
+ }
  return nil
 }
 
 func main(){
  if err:=start();err!=nil{
-  if len(os.Args)==2&&os.Args[1]=="--self-test" {os.Exit(10+startupStage)}
+  if len(os.Args)==2&&os.Args[1]=="--self-test" {
+   // CI-only report in an exclusive new file under GitHub's own temp;
+   // never write a secret, overwrite a file, or enable on normal GUI use.
+   if temp:=os.Getenv("RUNNER_TEMP");temp!=""{
+    if f,e:=os.OpenFile(filepath.Join(temp,"quantic-alpha-launcher-diagnostic.txt"),os.O_WRONLY|os.O_CREATE|os.O_EXCL,0600);e==nil{
+     msg:=err.Error();if len(msg)>4096{msg=msg[len(msg)-4096:]}
+     fmt.Fprintf(f,"startupStage=%d; %s\\n",startupStage,msg)
+     f.Close()
+    }
+   }
+   os.Exit(10+startupStage)
+  }
   alert()
   os.Exit(1)
  }
