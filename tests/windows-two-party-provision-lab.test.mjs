@@ -22,7 +22,9 @@ function publicResult(address){
   return{point:p.toString('base64url'),pin:hash(key.publicKey.export({format:'der',type:'spki'})),jwk:j};
  };
  const s=describe(sign),e=describe(encrypt);
- const kem=Buffer.concat([Buffer.from([0x30,0x82,0x04,0xb2]),randomBytes(1202)]),dsa=randomBytes(1974);
+ const kem=generateKeyPairSync('ml-kem-768').publicKey.export({format:'der',type:'spki'});
+ const dsa=generateKeyPairSync('ml-dsa-65').publicKey.export({format:'der',type:'spki'});
+ assert.equal(kem.length,1206);assert.equal(dsa.length,1974);
  return{backend:'windows-software-pq-storage-lab',status:'local-provision-only-not-enrolled',address,
   deviceId:deviceIdForPublicKeyNode(e.jwk,32),
   signing:s.point,encryption:e.point,signingPin:s.pin,encryptionPin:e.pin,
@@ -81,6 +83,7 @@ test('substituted native result, wrong PQ digest and wrong device ID block the s
  for(const alter of [
   x=>({...x,address:second.address}),
   x=>({...x,kemPin:'0'.repeat(64)}),
+  x=>({...x,kemPublic:Buffer.alloc(1206).toString('base64url'),kemPin:hash(Buffer.alloc(1206))}),
   x=>({...x,deviceId:'d-'+'0'.repeat(32)}),
   x=>({...x,signingPin:'0'.repeat(64)}),
   x=>({...x,controllerPublic:'x'}),
