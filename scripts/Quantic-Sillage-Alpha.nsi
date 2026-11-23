@@ -5,6 +5,7 @@ RequestExecutionLevel user
 InstallDir "$LOCALAPPDATA\QuanticSillage\Alpha-${BUILD_ID}"
 SetCompressor /SOLID lzma
 Page instfiles
+UninstPage instfiles
 
 Section "Quantic Sillage laboratory"
  SetShellVarContext current
@@ -24,6 +25,15 @@ Section "Quantic Sillage laboratory"
  SetOutPath "$INSTDIR"
  File /oname=Quantic-Sillage-Alpha.exe "${LAUNCHER_EXE}"
  IfErrors failed
+ WriteUninstaller "$INSTDIR\Uninstall-Quantic-Sillage-Alpha.exe"
+ IfErrors failed
+ ; Registration is user-scoped and build-scoped, NEVER a system-wide updater.
+ WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\QuanticSillageAlpha-${BUILD_ID}" "DisplayName" "Quantic Sillage Alpha - build ${BUILD_ID} (laboratory)"
+ WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\QuanticSillageAlpha-${BUILD_ID}" "UninstallString" '"$INSTDIR\Uninstall-Quantic-Sillage-Alpha.exe"'
+ WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\QuanticSillageAlpha-${BUILD_ID}" "InstallLocation" "$INSTDIR"
+ WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\QuanticSillageAlpha-${BUILD_ID}" "Publisher" "Quantic Sillage - laboratoire"
+ WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\QuanticSillageAlpha-${BUILD_ID}" "NoModify" 1
+ WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\QuanticSillageAlpha-${BUILD_ID}" "NoRepair" 1
  CreateDirectory "$SMPROGRAMS\Quantic Sillage"
  CreateShortCut "$SMPROGRAMS\Quantic Sillage\Alpha-${BUILD_ID}.lnk" "$INSTDIR\Quantic-Sillage-Alpha.exe" "" "$INSTDIR\Quantic-Sillage-Alpha.exe" 0 SW_SHOWNORMAL
  IfErrors failed
@@ -38,5 +48,37 @@ Section "Quantic Sillage laboratory"
  failed:
  SetErrorLevel 1
  Abort "Installation incomplete. Original identity data was not modified."
+ done:
+SectionEnd
+
+; The exact uninstall list is generated from the FINAL integrity-verified
+; SHA256SUMS.txt and compiled into this self-contained NSIS binary.
+; Unknown files NEVER enter the list. No recursive delete is allowed.
+Section "Uninstall"
+ SetShellVarContext current
+ StrCpy $INSTDIR "$LOCALAPPDATA\QuanticSillage\Alpha-${BUILD_ID}"
+ IfFileExists "$INSTDIR\Uninstall-Quantic-Sillage-Alpha.exe" +3
+  SetErrorLevel 2
+  Abort "This exact Alpha build is not installed."
+ !include "${UNINSTALL_LIST_NSH}"
+ ClearErrors
+ RMDir "$INSTDIR\app"
+ IfErrors preserved
+ Delete "$INSTDIR\Quantic-Sillage-Alpha.exe"
+ Delete "$INSTDIR\Uninstall-Quantic-Sillage-Alpha.exe"
+ ClearErrors
+ RMDir "$INSTDIR"
+ IfErrors preserved
+ Delete "$SMPROGRAMS\Quantic Sillage\Alpha-${BUILD_ID}.lnk"
+ RMDir "$SMPROGRAMS\Quantic Sillage"
+ Delete "$DESKTOP\Quantic Sillage Alpha-${BUILD_ID}.lnk"
+ DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\QuanticSillageAlpha-${BUILD_ID}"
+ SetErrorLevel 0
+ Goto done
+ preserved:
+  ; Refuse to delete anything unexpected, including user-created files,
+  ; private directories and manually placed migration records.
+  SetErrorLevel 2
+  Abort "Unrecognized files remain in this version directory. No recursive deletion performed; inspect manually."
  done:
 SectionEnd
