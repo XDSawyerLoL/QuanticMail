@@ -18,6 +18,24 @@ import (
 // private identities, secrets or hashes are ever emitted in this mode.
 var startupStage=1
 
+// Force the stock Windows PowerShell module location (Get-FileHash belongs to
+// Microsoft.PowerShell.Utility). Neither user PSModulePath nor the GitHub
+// pwsh 7 environment may replace these standard modules. This is local-only.
+func childPowerShellEnv(in []string,systemRoot string) []string{
+ out:=make([]string,0,len(in)+1)
+ for _,v:=range in{
+  i:=strings.IndexByte(v,'=')
+  if i<=0 {continue}
+  key:=v[:i]
+  if strings.EqualFold(key,"PSModulePath")||
+   strings.EqualFold(key,"PSModuleAnalysisCachePath") {continue}
+  out=append(out,v)
+ }
+ out=append(out,"PSModulePath="+filepath.Join(systemRoot,
+  "System32","WindowsPowerShell","v1.0","Modules"))
+ return out
+}
+
 func alert(){
  // No secrets, local paths or certificate material are printed to the user.
  title,_:=syscall.UTF16PtrFromString("Quantic Sillage Alpha")
@@ -54,6 +72,7 @@ func start()error{
   "-TrustedBinarySha256",expectedVaultSHA256)
  cmd:=exec.Command(powershell,psArgs...)
  cmd.Dir=filepath.Join(root,"app")
+ cmd.Env=childPowerShellEnv(os.Environ(),system)
  var diagnostic bytes.Buffer
  if len(os.Args)==2{
   // Synthetic self-test only: never capture actual human consents,
