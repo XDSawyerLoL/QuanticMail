@@ -21,12 +21,12 @@ Section "Quantic Sillage laboratory"
  IfErrors failed
  CreateDirectory "$SMPROGRAMS\Quantic Sillage"
  ; Windows Forms dashboard is local-only; Start Menu and Desktop shortcuts
- ; contain exact SHA-256 pins compiled into this *single* installer. No URL.
+ ; use checked SHA-256 pins with dedicated native bootstrap, not PowerShell.
  ClearErrors
- CreateShortCut "$SMPROGRAMS\Quantic Sillage\Alpha-${BUILD_ID}.lnk" "$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" '-NoProfile -STA -File "$INSTDIR\app\Start-Windows-PQ-Lab.ps1" -Operation Dashboard -ExpectedManifestSha256 ${MANIFEST_PIN} -TrustedBinarySha256 ${VAULT_PIN}' "$INSTDIR\app\bin\Vault-PQ-lab.exe" 0 SW_SHOWNORMAL
+ CreateShortCut "$SMPROGRAMS\Quantic Sillage\Alpha-${BUILD_ID}.lnk" "$INSTDIR\app\bin\Quantic-Sillage-Launcher.exe" "${MANIFEST_PIN} ${VAULT_PIN}" "$INSTDIR\app\bin\Vault-PQ-lab.exe" 0 SW_SHOWNORMAL
  IfErrors failed
  ClearErrors
- CreateShortCut "$DESKTOP\Quantic Sillage Alpha-${BUILD_ID}.lnk" "$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" '-NoProfile -STA -File "$INSTDIR\app\Start-Windows-PQ-Lab.ps1" -Operation Dashboard -ExpectedManifestSha256 ${MANIFEST_PIN} -TrustedBinarySha256 ${VAULT_PIN}' "$INSTDIR\app\bin\Vault-PQ-lab.exe" 0 SW_SHOWNORMAL
+ CreateShortCut "$DESKTOP\Quantic Sillage Alpha-${BUILD_ID}.lnk" "$INSTDIR\app\bin\Quantic-Sillage-Launcher.exe" "${MANIFEST_PIN} ${VAULT_PIN}" "$INSTDIR\app\bin\Vault-PQ-lab.exe" 0 SW_SHOWNORMAL
  IfErrors failed
  SetErrorLevel 0
  Goto done
