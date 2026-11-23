@@ -85,15 +85,16 @@ test('obsolete Electron release path has no publisher permission and is blocked 
  assert.equal(run.status,1);
  assert.match(run.stderr,/QUANTIC_NATIVE_ONLY/);
 });
-test('real native Windows Alpha installer still targets packaged offline launcher with independent binary digest',()=>{
+test('real native Windows Alpha installer uses pinned native GUI and explicit safe uninstallation',()=>{
  const nsi=readFileSync(new URL('../scripts/Quantic-Sillage-Alpha.nsi',import.meta.url),'utf8');
  const launcher=readFileSync(new URL('../scripts/Start-Windows-PQ-Lab.ps1',import.meta.url),'utf8');
- assert.match(nsi,/Start-Windows-PQ-Lab\.ps1/);
- assert.match(nsi,/TrustedBinarySha256/);
- assert.match(nsi,/ExpectedManifestSha256/);
+ assert.match(nsi,/Quantic-Sillage-Launcher\.exe/);
+ assert.match(nsi,/\$\{MANIFEST_PIN\} \$\{VAULT_PIN\}/);
+ assert.match(nsi,/WriteUninstaller/);
+ assert.match(nsi,/!include "\$\{UNINSTALL_NSH\}"/);
+ assert.doesNotMatch(nsi,/Start-Windows-PQ-Lab\.ps1|powershell\.exe|https?:\/\//i);
  assert.match(launcher,/Test-Windows-PQ-Package\.ps1/);
  assert.match(launcher,/Get-FileHash/);
- assert.doesNotMatch(nsi,/https?:\/\//);
 });
 
 test('retired URL navigation policy refuses both former domains and arbitrary deep links',()=>{

@@ -57,16 +57,15 @@ func verify(root,manifestPin,vaultPin string)error{
  if actual!=manifestPin{return errors.New("package fingerprint mismatch")}
  raw,e:=os.ReadFile(manifestFile);if e!=nil{return e}
  manifest:=string(raw)
- for _,name:=range []string{"Start-Windows-PQ-Lab.ps1","Test-Windows-PQ-Package.ps1","Quantic-Sillage-Alpha.ps1"}{
+ for _,name:=range []string{"Start-Windows-PQ-Lab.ps1","Test-Windows-PQ-Package.ps1","Quantic-Sillage-Alpha.ps1","Quantic-Sillage-Compose.ps1","Quantic-Sillage-Advanced.ps1"}{
   if e=pinnedFile(root,name,manifest);e!=nil{return fmt.Errorf("trusted script rejected: %w",e)}
  }
  got,e:=fileSHA256(filepath.Join(root,"bin","Vault-PQ-lab.exe"));if e!=nil{return e}
  if got!=vaultPin{return errors.New("native cryptography provider mismatch")}
  return nil
 }
-// Windows shell activation preserves the interactive console needed for
-// local vault passphrases. ShellExecuteEx is the same OS mechanism used by
-// shortcuts; it also returns a process handle for persistent diagnostics.
+// Default Windows UI is graphical: do not allocate a background PowerShell console.
+// Only a deliberate Advanced operation may launch a visible separate terminal.
 func localPowerShell(root,manifestPin,vaultPin string,smoke bool)(uint32,error){
  winDir:=os.Getenv("SystemRoot")
  if winDir==""{return 1,errors.New("Windows root unavailable")}
@@ -94,7 +93,7 @@ func localPowerShell(root,manifestPin,vaultPin string,smoke bool)(uint32,error){
   environment=append(environment,entry)
  }
  cmd.Env=append(environment,"PSModulePath="+systemModules)
- cmd.SysProcAttr=&syscall.SysProcAttr{CreationFlags:0x00000010}
+ cmd.SysProcAttr=&syscall.SysProcAttr{CreationFlags:0x08000000} // CREATE_NO_WINDOW
  // The smoke test uses only synthetic identities; collect process stderr
  // into a private temporary diagnostic file for the CI test exclusively.
  if smoke&&os.Getenv("GITHUB_ACTIONS")=="true"{
