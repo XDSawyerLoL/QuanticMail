@@ -25,6 +25,7 @@ $actions=@(
  @{Id="RecoverReceive";Title="Recuperer une reception";Hint="Reprendre le resultat exact ; nouveau fichier de recu obligatoire.";Input="receipt";Scope=$true},
  @{Id="ConfirmReceipt";Title="Confirmer un recu existant";Hint="Verifier le recu conserve et confirmer au relais.";Input="receipt";Scope=$true},
  @{Id="Provision";Title="Creer un coffre de test";Hint="Parametres publics independants requis. Ne cree pas de compte distant.";Scope=$true},
+ @{Id="ProvisionPair";Title="Creer deux coffres de test PQ";Hint="Deux identites fictives, deux repertoires neufs. Empreintes de quorum independantes exigees ; aucun compte distant.";Scope=$true},
  @{Id="StartBridge";Title="Demarrer le pont Scattering";Hint="Dossier de transport distinct deja configure ; pacer et sink separes requis.";Scope=$true},
  @{Id="Providers";Title="Verifier la cryptographie";Hint="Diagnostic du fournisseur cryptographique natif."},
  @{Id="ProbeLoopback";Title="Tester le transport local";Hint="Diagnostic UDP local, sans compte ni reseau distant."},
@@ -120,13 +121,13 @@ $run.Add_Click({
 $choice.SelectedIndex=0
 if ($SelfTest) {
  try {
-  if($choice.Items.Count -ne 26 -or -not $inputName.Enabled -or -not $outputName.Enabled){throw "Dashboard initialization failed"}
+  if($choice.Items.Count -ne 27 -or -not $inputName.Enabled -or -not $outputName.Enabled){throw "Dashboard initialization failed"}
   $a=New-OperationArguments $actions[0] "C:\Quantic Lab\vault" "draft-test.json" "wire-test.json"
   if($a -notcontains "C:\Quantic Lab\vault\draft-test.json" -or $a -notcontains "C:\Quantic Lab\vault\wire-test.json"){throw "Wrong arguments"}
   $rejected=$false
   try{$null=New-OperationArguments $actions[3] "C:\Quantic Lab\vault" "..\wire-test.json" ""}catch{$rejected=$true}
   if(-not $rejected){throw "Path traversal accepted"}
-  $choice.SelectedIndex=12
+  $choice.SelectedIndex=13
   if($directory.Enabled -or $inputName.Enabled -or $outputName.Enabled){throw "Diagnostic fields enabled"}
   Write-Output "Dashboard controls and operation mapping verified"
  }finally{$form.Dispose()}
@@ -149,6 +150,15 @@ try {
    $signPin=Read-Host "Empreinte SHA256 P-256 du coffre Pay"
    $pqPin=Read-Host "Empreinte SHA256 ML-DSA-65 du coffre Pay"
    $operationArgs+=@("-PaySigningPin",$signPin,"-PayPQPin",$pqPin)
+  }
+  if ($script:selectedAction -eq "ProvisionPair") {
+   Write-Host "DEMONSTRATION FICTIVE : deux coffres locaux distincts, sans inscription distante."
+   Write-Host "Le dossier parent doit exister et participant-a / participant-b doivent etre ABSENTS."
+   $addrA=Read-Host "Adresse canonique fictive du premier participant"
+   $pinA=Read-Host "Empreinte de quorum independently approuvee (participant A)"
+   $addrB=Read-Host "Adresse canonique fictive du second participant"
+   $pinB=Read-Host "Empreinte de quorum independently approuvee (participant B)"
+   $operationArgs+=@("-CanonicalAddress",$addrA,"-QuorumPin",$pinA,"-SecondCanonicalAddress",$addrB,"-SecondQuorumPin",$pinB)
   }
   if ($script:selectedAction -eq "Provision") {
    Write-Host "Coffre de test uniquement. Les valeurs suivantes sont publiques et doivent provenir d'une preparation independante."
