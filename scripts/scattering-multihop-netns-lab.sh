@@ -137,7 +137,8 @@ const sent=get('egress.report').toString();
 const match=/planned=(\d+) sent=(\d+) missed=(\d+)/.exec(sent);
 if(!match)throw Error('Go egress pacer counters missing');
 const native={planned:Number(match[1]),sent:Number(match[2]),missed:Number(match[3])};
-if(relay.ingressA<50||relay.ingressB<50||
+if(relay.ingressA<50||
+ relay.ingressB<(process.env.SCATTERING_MULTIHOP_B_REAL_CELLS==='20'?20:50)||
  relay.spooled!==relay.ingressA+relay.ingressB||relay.spoolErrors!==0||
  x.ingress.A!==100||x.ingress.B!==100||
  x.egress.cells>native.sent||x.egress.repeatedCiphertext!==0)
