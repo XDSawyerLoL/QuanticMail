@@ -19,6 +19,14 @@ La commande `Vault-PQ-lab.exe --windows-gui-operator-check-lab` est **délibér�
 
 Le test ne remplace ni un audit du poste, ni une preuve de réception du courrier sur un deuxième ordinateur, ni une signature d'éditeur. Tant qu'un certificat de signature de code valide et vérifié n'est pas disponible, l'exécutable d'installation reste une Alpha **non signée** ; ne pas contourner SmartScreen sur un poste sensible.
 
+## Test direct de liaison entre deux ordinateurs — 24 novembre 2026
+
+Depuis le tableau de bord **SCATTERING → Tester la liaison entre deux PC**, sélectionner **Oui** sur le poste récepteur et **Non** sur le poste émetteur. Le récepteur ouvre temporairement le port **UDP 49123** et affiche un code de test éphémère de 24 caractères hexadécimaux (96 bits). Sur l'émetteur, saisir l'adresse IPv4 autorisée du récepteur et le code affiché. Le code passe de l'interface Windows à Node par **stdin privé**, jamais dans un argument de ligne de commande.
+
+L'échange réalise un aller-retour UDP avec deux nonces imprévisibles, un HMAC-SHA-256 tronqué à 128 bits et une confirmation mutuelle. Les paquets non authentifiés sont ignorés ; un code incorrect ne produit aucun succès. Aucun service Internet, compte réel, clé Quantic, courrier ou transaction n'est employé. Le test doit être réalisé réellement **sur les deux machines physiques choisies**, sur un réseau autorisé, avant de pouvoir constater la connectivité de ces machines. Le test unitaire CI exécute seulement deux processus locaux en boucle UDP ; il ne démontre pas un passage entre deux postes physiques.
+
+Le résultat **« liaison UDP synthétique authentifiée »** ne prouve ni l'identité matérielle des ordinateurs, ni la livraison d'un mail, ni l'indistinguabilité Scattering. Le logiciel ne modifie pas les règles pare-feu : en cas de port fermé, NAT incompatible ou refus utilisateur, la liaison reste non vérifiée et il n'y a pas de renvoi automatique de courrier.
+
 ## Historique des essais locaux — PR #61
 
 Le bouton **« Mes essais locaux »** lit uniquement l'inventaire privé du coffre à travers son binaire Go natif déjà vérifié : les brouillons DPAPI sont authentifiés lors de la lecture, les enveloppes sont simplement recensées sans déduire leur validité cryptographique. Il montre des états **« Brouillon protégé — non envoyé »** ou **« Enveloppe locale présente — livraison inconnue »**. Il ne supprime, ne renvoie et ne déchiffre aucun courrier à l'écran. Les fichiers JSON ne sont jamais demandés à l'utilisateur. Aucune présence de fichier n'est interprétée comme une confirmation de livraison.
