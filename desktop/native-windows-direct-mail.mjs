@@ -8,6 +8,7 @@ import {validatePrivateCarrierPlan,startPrivateCarrierHost} from '../standalone-
 import {startScatteringMailboxEndpoint} from '../standalone-relay/native-scattering-mailbox.mjs';
 import {validateDirectTrust,createDirectRecipient,sendStoredDirectWire} from './native-direct-mail.mjs';
 import {approveWindowsGUIPrompt} from './native-windows-gui-send.mjs';
+import {listWindowsMailAttempts} from './native-windows-mail-status.mjs';
 const check=x=>{if(!x)throw Error('Windows direct mail refused');};
 const hex=/^[a-f0-9]{64}$/;
 const exact=(v,ks)=>v&&Object.getPrototypeOf(v)===Object.prototype&&Object.keys(v).length===ks.length&&ks.every(k=>Object.hasOwn(v,k));
@@ -48,6 +49,7 @@ export async function startWindowsDirectMail(args){
  delete plan.carrier.secretHex;delete plan.carrier.epochHex;
  return Object.freeze({role:isReceiver?'recipient':'sender',closed:host.closed,close:host.close,
   authenticatedPeerSeen:host.authenticatedPeerSeen,
+  async listOutgoing(){check(!isReceiver);const x=await listWindowsMailAttempts(boot);return x.items.filter(i=>i.wire).map(i=>i.id);},
   async send(file){
    check(!isReceiver&&host.authenticatedPeerSeen());
    return sendStoredDirectWire({trust,storage,dir:boot.dir,file,endpoint:'http://127.0.0.1:'+host.httpPort+'/',
