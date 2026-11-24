@@ -52,6 +52,8 @@ func winProvisionVaultLocal(dir,app,quorum,addr string,pw,pqPassword,controller 
  return map[string]string{"backend":"windows-software-pq-storage-lab","address":addr,"deviceId":device,"signingPin":s,"encryptionPin":a,"kemPin":p.kemPin,"dsaPin":p.dsaPin,"signing":b64.EncodeToString(elliptic.Marshal(elliptic.P256(),k.signing.X,k.signing.Y)),"encryption":b64.EncodeToString(point),"kemPublic":b64.EncodeToString(p.kemPub),"dsaPublic":b64.EncodeToString(p.dsaPub),"status":"local-provision-only-not-enrolled"},nil
 }
 func windowsVaultCLI(args []string)(bool,error){
+ if len(args)>1&&args[1]=="--gui-list-enrollment-candidates-lab"{return true,windowsListEnrollmentCLI(args)}
+ if len(args)>1&&args[1]=="--gui-answer-enrollment-possession-lab"{return true,windowsAnswerPossessionCLI(args)}
  if len(args)>1&&args[1]=="--gui-prepare-enrollment-claim-lab"{return true,windowsPrepareEnrollmentCLI(args)}
  if len(args)>1&&(args[1]=="--gui-share-synthetic-contact-card-lab"||args[1]=="--gui-add-synthetic-contact-candidate-lab"){return true,winGUIContactCard(args)}
  if len(args)>1&&args[1]=="--gui-list-synthetic-identities-lab"{return true,winGUIListSyntheticVaults(args)}
