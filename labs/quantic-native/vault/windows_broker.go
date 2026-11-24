@@ -4,6 +4,7 @@ package main
 
 import(
  "bytes"
+ "encoding/json"
  "io"
  "os"
  "path/filepath"
@@ -52,26 +53,39 @@ func winBroker(args []string)error{
  if !strongAddr.MatchString(addr)||!strongDevice.MatchString(device){return portableRefusal}
  pub,e:=appPublic(app);if e!=nil{return e}
  hs,e:=winLockDirectory(dir,true);if e!=nil{return e};defer winClose(hs)
- q,e:=winLoadQuorum(dir);if e!=nil{return e}
+ var q *quorumAnchor
+ var quorumPinValue string
+ var enrollment enrollmentRequest
+ if enrolled{
+  enrollment,e=readPendingEnrollment(dir);if e!=nil{return e};quorumPinValue=enrollment.QuorumPin
+ }else{q,e=winLoadQuorum(dir);if e!=nil{return e};quorumPinValue=q.pin}
  if !approve("Open Windows PQ LAB vault "+addr+" / "+device){return portableRefusal}
  pw,e:=secret("Classical laboratory passphrase: ",true);if e!=nil{return e}
  defer clear(pw)
- k,e:=winReadClassical(filepath.Join(dir,"classical.vault"),anchoredMagic+"compact-manifest-quorum:"+q.pin+"\x00",pw,s,a);if !enrolled{clear(pw)};if e!=nil{return e}
+ k,e:=winReadClassical(filepath.Join(dir,"classical.vault"),anchoredMagic+"compact-manifest-quorum:"+quorumPinValue+"\x00",pw,s,a);if !enrolled{clear(pw)};if e!=nil{return e}
  point:=k.agreement.PublicKey().Bytes()
  if device!="d-"+hexHash([]byte("P-256:"+b64.EncodeToString(point[1:33])+":"+b64.EncodeToString(point[33:])))[:32]{return portableRefusal}
- binding,e:=pqBinding(s,a,hexHash(pub),q.pin,addr,device);if e!=nil{return e}
+ binding,e:=pqBinding(s,a,hexHash(pub),quorumPinValue,addr,device);if e!=nil{return e}
  pqw,e:=secret("Post-quantum laboratory passphrase: ",true);if e!=nil{return e};defer clear(pqw)
  p,e:=winReadPQ(filepath.Join(dir,"pq.vault"),binding,pqw,addr,device,kem,dsa);if !enrolled{clear(pqw)};if e!=nil{return e};defer p.close()
  var transport mailboxTransport
+ var checkpointTransport mailboxTransport
  if enrolled{
-  request,e:=readPendingEnrollment(dir);if e!=nil{return e}
+  request:=enrollment
   claim:=request.Claim
-  if request.QuorumPin!=q.pin||request.ControllerPublic!=app||claim.Address!=addr||claim.DeviceID!=device||claim.SigningPin!=s||claim.EncryptionPin!=a||claim.KemPin!=kem||claim.DsaPin!=dsa||claim.PQRootPin!=root{return portableRefusal}
+  if request.QuorumPin!=quorumPinValue||request.ControllerPublic!=app||claim.Address!=addr||claim.DeviceID!=device||claim.SigningPin!=s||claim.EncryptionPin!=a||claim.KemPin!=kem||claim.DsaPin!=dsa||claim.PQRootPin!=root{return portableRefusal}
   digest,e:=nativeEnrollmentDigest(request);if e!=nil{return e}
   raw,e:=winReadPrivate(filepath.Join(dir,"mailbox-token.vault"),1024);if e!=nil{return e}
-  token,e:=openNativeMailboxCredential(raw,digest,pw,pqw);clear(raw);clear(pw);clear(pqw);if e!=nil{return e}
+  token,e:=openNativeMailboxCredential(raw,digest,pw,pqw);clear(raw);clear(pw);clear(pqw);if e!=nil{return e};defer clear(token)
+  q,e=winLoadSealedQuorum(dir,digest,token);if e!=nil||q.pin!=quorumPinValue{return portableRefusal}
+  contactRaw,e:=winReadPrivate(filepath.Join(dir,"contacts.json"),131072);if e!=nil{return e}
+  contacts,e:=parseSenderTrust(contactRaw);if e!=nil{return e}
+  var closeCheckpoints func()
+  checkpointTransport,closeCheckpoints,e=winCheckpointTransport(dir,digest,addr,device,token,contacts);if e!=nil{return e};defer closeCheckpoints()
   var closeTransport func()
   transport,closeTransport,e=newMailboxTransport(args[11],addr,device,token);clear(token);if e!=nil{return e};defer closeTransport()
+  mail:=transport
+  transport=func(op string,body json.RawMessage)(json.RawMessage,error){if op=="checkpoint"{return checkpointTransport(op,body)};return mail(op,body)}
  }
  raw,e:=winReadPrivate(filepath.Join(dir,"contacts.json"),131072);if e!=nil{return e}
  senders,e:=parseSenderTrust(raw);if e!=nil{return e}

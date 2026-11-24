@@ -4,6 +4,10 @@ package main
 
 import (
  "bytes"
+ "crypto/aes"
+ "crypto/cipher"
+ "crypto/hmac"
+ "crypto/sha256"
  "crypto/ecdsa"
  "crypto/ed25519"
  "crypto/elliptic"
@@ -25,26 +29,40 @@ type nativeTransportRequest struct {
  Signature string `json:"signature"`
 }
 func transportSubject(digest,role string)string{return "quantic-lab-"+role+"-"+digest[:32]}
-func readLocalTransportKey(dir,role string,create bool)(*ecdsa.PrivateKey,[]byte,error){
- if role!="anchor"&&role!="checkpoint"{return nil,nil,portableRefusal}
- path:=filepath.Join(dir,"peer-"+role+"-key.pem")
+// A 256-bit random mailbox token is itself protected by both vault secrets.
+// Domain-separated HMAC derives a distinct key for each role and identity.
+func transportCipher(digest,role string,token []byte)(cipher.AEAD,[]byte,error){
+ if !hashRE.MatchString(digest)||len(token)!=32||(role!="anchor"&&role!="checkpoint"){return nil,nil,portableRefusal}
+ header:=[]byte("QV-TRANSPORT-KEY-LAB-V1\x00"+digest+"\x00"+role+"\x00")
+ mac:=hmac.New(sha256.New,token);mac.Write([]byte("quantic-transport-key-kdf-lab/v1\x00"));mac.Write(header)
+ derived:=mac.Sum(nil);defer clear(derived)
+ block,e:=aes.NewCipher(derived);if e!=nil{return nil,nil,e}
+ g,e:=cipher.NewGCM(block);return g,header,e
+}
+func readLocalTransportKey(dir,role,digest string,token []byte,create bool)(*ecdsa.PrivateKey,[]byte,error){
+ g,header,e:=transportCipher(digest,role,token);if e!=nil{return nil,nil,e}
+ // Refuse the prior plaintext format, never silently migrate or rotate it.
+ if _,e=os.Lstat(filepath.Join(dir,"peer-"+role+"-key.pem"));!os.IsNotExist(e){return nil,nil,portableRefusal}
+ path:=filepath.Join(dir,"peer-"+role+"-key.vault")
  raw,e:=winReadPrivate(path,4096)
  if e!=nil&&create{
   if _,statErr:=os.Lstat(path);!os.IsNotExist(statErr){return nil,nil,portableRefusal}
   k,e:=ecdsa.GenerateKey(elliptic.P256(),rand.Reader);if e!=nil{return nil,nil,e}
   der,e:=x509.MarshalPKCS8PrivateKey(k);if e!=nil{return nil,nil,e};defer clear(der)
-  encoded:=pem.EncodeToMemory(&pem.Block{Type:"PRIVATE KEY",Bytes:der});defer clear(encoded)
-  if e=winWritePrivate(path,encoded);e!=nil{return nil,nil,e}
+  nonce:=make([]byte,g.NonceSize());if _,e=rand.Read(nonce);e!=nil{return nil,nil,e}
+  prefix:=append(append([]byte(nil),header...),nonce...)
+  sealed:=g.Seal(prefix,nonce,der,header);defer clear(sealed)
+  if e=winWritePrivate(path,sealed);e!=nil{return nil,nil,e}
   raw,e=winReadPrivate(path,4096)
  }
- if e!=nil{return nil,nil,e}
- block,rest:=pem.Decode(raw)
- if block==nil||block.Type!="PRIVATE KEY"||len(bytes.TrimSpace(rest))!=0{clear(raw);return nil,nil,portableRefusal}
- defer clear(block.Bytes)
- v,e:=x509.ParsePKCS8PrivateKey(block.Bytes)
- if e!=nil{clear(raw);return nil,nil,e}
- key,ok:=v.(*ecdsa.PrivateKey);if !ok||key.Curve!=elliptic.P256(){clear(raw);return nil,nil,portableRefusal}
- return key,raw,nil
+ if e!=nil{return nil,nil,e};defer clear(raw)
+ n:=len(header);if len(raw)<=n+g.NonceSize()+g.Overhead()||!bytes.Equal(raw[:n],header){return nil,nil,portableRefusal}
+ der,e:=g.Open(nil,raw[n:n+g.NonceSize()],raw[n+g.NonceSize():],header)
+ if e!=nil{return nil,nil,portableRefusal};defer clear(der)
+ v,e:=x509.ParsePKCS8PrivateKey(der);if e!=nil{return nil,nil,e}
+ key,ok:=v.(*ecdsa.PrivateKey);if !ok||key.Curve!=elliptic.P256(){return nil,nil,portableRefusal}
+ // PEM is constructed only in memory for the existing Go TLS API.
+ return key,pem.EncodeToMemory(&pem.Block{Type:"PRIVATE KEY",Bytes:der}),nil
 }
 func nativeTransportTranscript(r nativeTransportRequest)([]byte,error){
  return json.Marshal([]string{r.Format,r.RequestDigest,r.TokenHash,hexHash([]byte(r.AnchorCSR)),hexHash([]byte(r.CheckpointCSR))})
@@ -63,7 +81,7 @@ func prepareWindowsTransportRequests(dir string,b enrollmentApprovalBundle,roste
  out:=nativeTransportRequest{Format:"quantic-native-transport-csr-lab/v1",RequestDigest:digest,TokenHash:proof.TokenHash}
  var keyPins []string
  for _,role:=range []string{"anchor","checkpoint"}{
-  key,raw,e:=readLocalTransportKey(dir,role,true);if e!=nil{return empty,e};clear(raw)
+  key,raw,e:=readLocalTransportKey(dir,role,digest,token,true);if e!=nil{return empty,e};clear(raw)
   spki,e:=x509.MarshalPKIXPublicKey(&key.PublicKey);if e!=nil{return empty,e}
   keyPins=append(keyPins,hexHash(spki))
   csr,e:=x509.CreateCertificateRequest(rand.Reader,&x509.CertificateRequest{Subject:pkix.Name{CommonName:transportSubject(digest,role)},SignatureAlgorithm:x509.ECDSAWithSHA256},key)
