@@ -1,0 +1,30 @@
+name: Quantic Scattering V1.5 authenticated session lab
+
+on:
+  push:
+    branches:
+      - 'research/scattering-v15-*'
+  pull_request:
+    paths:
+      - 'research/scattering-v14/**'
+      - '.github/workflows/scattering-v15-lab.yml'
+
+jobs:
+  research-lab:
+    name: session and replay tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate V1.4 and V1.5 security regression suite
+        working-directory: research/scattering-v14
+        run: node --test tests/v14.test.mjs tests/v15.test.mjs
+      - name: Two-socket UDP handshake and persisted replay test
+        working-directory: research/scattering-v14
+        run: node scripts/demo-udp-v15.mjs
