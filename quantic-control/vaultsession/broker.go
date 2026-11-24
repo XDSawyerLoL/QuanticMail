@@ -63,7 +63,7 @@ func ExchangeBrokerProof(in io.Reader,out io.Writer,s *Session,signer crypto.Sig
  // operation with the same challenge after an ambiguous broker response.
  s.mu.Lock()
  now:=time.Now()
- if s.consumed||s.exchangeStarted||now.Before(s.born)||now.Sub(s.born)>=maxLifetime{
+ if s.revoked||s.consumed||s.exchangeStarted||now.Before(s.born)||now.Sub(s.born)>=maxLifetime{
   s.mu.Unlock()
   return errors.New("Vault challenge expired or exchange already attempted")
  }
