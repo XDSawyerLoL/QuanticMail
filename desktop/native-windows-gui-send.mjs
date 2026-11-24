@@ -1,12 +1,16 @@
 // Windows-only experimental GUI operation. No browser or terminal, never
 // auto-retries a request whose durable wire/relay state might already exist.
 import {spawn} from 'node:child_process';
+import {randomUUID} from 'node:crypto';
 import {win32} from 'node:path';
 import {createWindowsNativeStorage} from './native-windows-storage.mjs';
 import {bindWindowsDesktopConfig} from './native-windows-desktop.mjs';
 import {saveWindowsDraftFromInput} from './native-windows-draft.mjs';
 import {composeAndSendWindowsLab} from './native-windows-integrated-mail.mjs';
 import {connectNativeVault} from './native-vault-controller.mjs';
+import {runWindowsScatteringMail,windowsScatteringScope} from './native-windows-mail-flow.mjs';
+import {openReceipt} from './native-receipt-store.mjs';
+import {safeMailDisplay} from './native-vault-desktop.mjs';
 
 const check=v=>{if(!v)throw Error('Windows native GUI operation refused');};
 async function readConfig(storage,path){
@@ -68,4 +72,46 @@ export async function composeSendWindowsGUI(boot,fields,{
  return Object.freeze({...result,encryptedDraft:draft.file,
   noAutomaticRetry:true,remoteDeliveryVerified:false,liveAccountEnrollmentAuthorized:false,
   legacyDeletionAuthorized:false});
+}
+
+// Receiving is explicit; an uncertain ACK must never trigger a new decryption.
+// A saved receipt can be opened independently and confirmed after restart.
+export async function receiveWindowsGUI(boot,operation,receiptFile,{
+ makeStorage=createWindowsNativeStorage,
+ run=runWindowsScatteringMail,
+ approve=approveWindowsGUIPrompt,
+ connect=cfg=>connectNativeVault(cfg,{nativeUI:true}),
+ makeId=randomUUID
+}={}){
+ check(['receive','recover-receive','confirm-receipt'].includes(operation));
+ const storage=await makeStorage(boot);
+ const cfg=bindWindowsDesktopConfig(await readConfig(storage,win32.join(boot.dir,'desktop.json')),boot);
+ const scope=windowsScatteringScope(cfg);
+ const name=operation==='confirm-receipt'?receiptFile:'receipt-'+makeId().replaceAll('-','')+'.json';
+ check(typeof name==='string'&&/^receipt-[a-z0-9-]{1,48}\.json$/.test(name));
+ check(operation==='confirm-receipt'||receiptFile===undefined);
+ const path=win32.join(boot.dir,name);
+ async function authenticatedReceipt(){
+  const key=await storage.read(scope.receiptKeyFile);
+  try{return openReceipt(key,scope,await readConfig(storage,path));}
+  finally{key.fill(0);}
+ }
+ let result;
+ try{
+  result=await run(cfg,storage,{operation,path,approve:text=>approve(boot,storage,text),connect});
+ }catch(error){
+  // A failed network acknowledgement may follow a durable write. Report
+  // only a receipt which can be independently authenticated from disk.
+  if(operation==='confirm-receipt')throw error;
+  let receipt;
+  try{receipt=await authenticatedReceipt();}catch{throw error;}
+  return Object.freeze({status:'receipt-saved-ack-unknown',receiptFile:name,display:safeMailDisplay(receipt.payload),
+   noAutomaticRetry:true,liveAccountEnrollmentAuthorized:false});
+ }
+ check(['acknowledged','empty','cancelled'].includes(result?.status));
+ if(result.status!=='acknowledged')return Object.freeze({status:result.status,noAutomaticRetry:true,liveAccountEnrollmentAuthorized:false});
+ const receipt=await authenticatedReceipt();
+ check(receipt.id===result.id&&receipt.digest===result.digest);
+ return Object.freeze({status:'acknowledged',receiptFile:name,display:safeMailDisplay(receipt.payload),
+  noAutomaticRetry:true,liveAccountEnrollmentAuthorized:false});
 }
