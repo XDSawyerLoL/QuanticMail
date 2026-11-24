@@ -85,3 +85,12 @@ func winGUIApprove(detail string)bool{
  runtime.LockOSThread();defer runtime.UnlockOSThread()
  return C.qs_gui_confirm(winWide(detail))!=0
 }
+
+ // Both entries are collected by CredUI; neither crosses Node or PowerShell.
+func winGUIConfirmSecret(prompt string)([]byte,error){
+ p,e:=winGUISecret(prompt,true);if e!=nil{return nil,e}
+ q,e:=winGUISecret("Confirmer la meme phrase secrete",true)
+ if e!=nil{clear(p);return nil,e};defer clear(q)
+ if !validPortablePassword(p)||!equalSecret(p,q){clear(p);return nil,portableRefusal}
+ return p,nil
+}
