@@ -15,12 +15,19 @@ restart. A session identifier or copied receipts alone are insufficient.
 No production mailbox, payment, legacy account or public endpoint is enabled.
 
 The native desktop adapter createWindowsNativeSessionClientLab uses the
-existing graphical Windows proof operation. The trusted UI must call lock()
-on explicit lock, application exit or OS lock. Local access is invalidated
-before network I/O; if the remote request fails, remote closure is NOT
-confirmed and the server's 60-second expiry is the remaining boundary.
-There is no automatic renewal. OS event wiring and interactive Windows
-validation are not yet delivered.
+existing graphical Windows proof operation. The Windows session factory now starts a pinned native watcher before login.
+The watcher subscribes to current-session WTS notifications, checks for an
+active unlocked interactive session, and emits a heartbeat every 500 ms.
+Lock, logoff, disconnect, remote-control change, suspend/resume, helper exit,
+invalid output or a heartbeat deadline (2.5 seconds) permanently invalidate
+that client instance. Unlock requires a new instance and fresh quorum.
+The trusted UI must still call lock() on explicit lock or orderly exit.
+Local access is invalidated before network I/O; if the remote request fails,
+remote closure is NOT confirmed and the server's 60-second expiry is the
+remaining boundary. There is no automatic renewal. The watchdog is not a
+defense against a compromised OS or Windows account. The graphical dashboard
+does not yet expose this session factory, and interactive Windows event
+delivery and physical-host validation remain outstanding.
 
 The service listens on loopback only. Operators must supply independently
 authenticated TLS material and preapproved enrollment receipts. The service

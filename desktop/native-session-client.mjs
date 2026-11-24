@@ -2,6 +2,7 @@
 import {createHash,X509Certificate} from 'node:crypto';
 import {nativeAuthorityRequest,runNativeEnrollmentAuthorityClient} from './native-enrollment-authority-client.mjs';
 import {createWindowsEnrollmentProver} from './native-windows-enrollment-prover.mjs';
+import {watchWindowsSessionLifetime} from './native-windows-session-lifetime.mjs';
 const check=x=>{if(!x)throw Error('Native user session refused');};
 const hex=/^[a-f0-9]{64}$/;
 const sha=b=>createHash('sha256').update(b).digest('hex');
@@ -56,5 +57,5 @@ export function createNativeSessionClientLab({service,authorities,tls,candidate,
 }
 export async function createWindowsNativeSessionClientLab(config){
  const prove=await createWindowsEnrollmentProver(config);
- return createNativeSessionClientLab({...config,prove});
+ return watchWindowsSessionLifetime(config,createNativeSessionClientLab({...config,prove}));
 }

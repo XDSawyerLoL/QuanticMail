@@ -225,3 +225,46 @@ test('mTLS enrollment and fresh authentication over four distinct HTTPS authorit
   await assert.rejects(client.login());assert.equal(client.isUnlocked(),false);
  }finally{await sessionService?.close();await Promise.all([...services.values()].map(s=>s.close()));await rm(dir,{recursive:true,force:true});}
 });
+
+import {EventEmitter} from 'node:events';
+import {bindSessionLifetime} from '../desktop/native-windows-session-lifetime.mjs';
+function watcherFixture(){
+ const watch=new EventEmitter();watch.stdin=new EventEmitter();watch.stdout=new EventEmitter();
+ let killed=0,locked=0,active=false,epoch=0,release;
+ watch.kill=()=>{killed++;};
+ const client={
+  async login(){const start=epoch;await new Promise(r=>{release=r;});if(start!==epoch)throw Error('locked');active=true;return {status:'open'};},
+  async whoami(){assert.ok(active);return {address:'synthetic'};},
+  async lock(){epoch++;locked++;active=false;return {localLocked:true,remoteLockConfirmed:true};},
+  isUnlocked:()=>active
+ };
+ return {watch,client,counts:()=>({killed,locked}),send:s=>watch.stdout.emit('data',Buffer.from(s)),release:()=>release()};
+}
+test('Windows lifetime guard: ready heartbeat, terminal lock, no resurrection',async()=>{
+ const f=watcherFixture(),g=bindSessionLifetime(f.client,f.watch);
+ f.send('RE');f.send('ADY\r\nALIVE\r\n');await g.started;
+ const login=g.login();await Promise.resolve();f.release();await login;
+ assert.equal(g.isUnlocked(),true);assert.equal((await g.whoami()).address,'synthetic');
+ f.send('LOCKED\r\n');assert.equal(g.isUnlocked(),false);
+ await assert.rejects(g.whoami());await assert.rejects(g.login());
+ f.send('READY\n');assert.equal(g.isUnlocked(),false);
+ await g.lock();assert.deepEqual(f.counts(),{killed:1,locked:1});
+});
+test('Windows lifetime guard: lock during login and helper loss refuse late access',async()=>{
+ const f=watcherFixture(),g=bindSessionLifetime(f.client,f.watch);
+ f.send('READY\n');await g.started;
+ const login=g.login();await Promise.resolve();
+ f.watch.emit('exit',1);f.release();
+ await assert.rejects(login);assert.equal(g.isUnlocked(),false);await g.lock();
+ assert.deepEqual(f.counts(),{killed:1,locked:1});
+ const bad=watcherFixture(),b=bindSessionLifetime(bad.client,bad.watch);
+ bad.send('ALIVE\n');await assert.rejects(b.started);assert.equal(b.isUnlocked(),false);
+});
+test('Windows lifetime guard: missing heartbeat locks even without process exit',async()=>{
+ const f=watcherFixture(),g=bindSessionLifetime(f.client,f.watch,{deadline:50});
+ f.send('READY\n');await g.started;
+ const login=g.login();await Promise.resolve();f.release();await login;
+ await new Promise(r=>setTimeout(r,100));
+ assert.equal(g.isUnlocked(),false);await g.lock();
+ assert.deepEqual(f.counts(),{killed:1,locked:1});
+});
