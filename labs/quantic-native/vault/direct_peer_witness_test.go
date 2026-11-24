@@ -1,7 +1,7 @@
 package main
 
 import (
- "context"
+ stdcontext "context"
  "crypto/ed25519"
  "crypto/rand"
  "errors"
@@ -36,7 +36,7 @@ func TestDirectWitnessRollbackAndQuorum(t *testing.T){
   pub,key,e:=ed25519.GenerateKey(rand.Reader);if e!=nil{t.Fatal(e)}
   s:=directTestStore{filepath.Join(dir,string(rune('0'+i))),sign,enc,app,id}
   if e=initReplay(s.path,sign,enc,app);e!=nil{t.Fatal(e)}
-  members[i]=directWitnessMember{pub,func(_ context.Context,q directWitnessRequest)([]byte,error){return signDirectWitness(q,id,s,key)}}
+  members[i]=directWitnessMember{pub,func(_ stdcontext.Context,q directWitnessRequest)([]byte,error){return signDirectWitness(q,id,s,key)}}
  }
  pin,e:=directWitnessRosterPin(members);if e!=nil{t.Fatal(e)}
  if _,e=newDirectPeerQuorum(members,strings.Repeat("f",64));e==nil{t.Fatal("wrong roster accepted")}
@@ -49,7 +49,7 @@ func TestDirectWitnessRollbackAndQuorum(t *testing.T){
  count,tail:=len(j.seen),j.tail;j.close()
  q,e:=newDirectPeerQuorum(members,pin);if e!=nil{t.Fatal(e)}
  if e=q.check(id,count,tail);e!=nil{t.Fatal("durable witness state lost",e)}
- absent:=func(context.Context,directWitnessRequest)([]byte,error){return nil,errors.New("offline")}
+ absent:=func(stdcontext.Context,directWitnessRequest)([]byte,error){return nil,errors.New("offline")}
  missing:=members;missing[0].Exchange=absent
  q,e=newDirectPeerQuorum(missing,pin);if e!=nil{t.Fatal(e)}
  if e=q.check(id,count,tail);e!=nil{t.Fatal("three witnesses refused",e)}
@@ -59,7 +59,7 @@ func TestDirectWitnessRollbackAndQuorum(t *testing.T){
  // A previously valid response must not authorize a new nonce.
  var saved []byte
  original:=members[0].Exchange
- members[0].Exchange=func(c context.Context,r directWitnessRequest)([]byte,error){
+ members[0].Exchange=func(c stdcontext.Context,r directWitnessRequest)([]byte,error){
   if saved!=nil{return saved,nil}
   var err error;saved,err=original(c,r);return saved,err
  }
