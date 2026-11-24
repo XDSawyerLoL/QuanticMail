@@ -36,7 +36,7 @@ func decodeSessionKit(raw []byte,identity map[string]string)(map[string][]byte,e
   files[n]=b
  }
  var cfg sessionKitConfig
- if json.Unmarshal(files["session.json"],&cfg)!=nil||cfg.Format!="quantic-native-session-config-lab/v1"||!cfg.LabOnly||!hashRE.MatchString(cfg.ClientPin)||len(cfg.TLSFiles)!=3||len(cfg.EnrollmentReceipts)<3||len(cfg.EnrollmentReceipts)>4{return nil,portableRefusal}
+ if json.Unmarshal(files["session.json"],&cfg)!=nil||cfg.Format!="quantic-native-session-config-lab/v1"||!cfg.LabOnly||!hashRE.MatchString(cfg.ClientPin)||len(cfg.TLSFiles)!=3||cfg.EnrollmentReceipts==nil||(len(cfg.EnrollmentReceipts)!=0&&len(cfg.EnrollmentReceipts)<3)||len(cfg.EnrollmentReceipts)>4{return nil,portableRefusal}
  for _,n:=range []string{"address","deviceId","signingPin","encryptionPin","kemPin","dsaPin","quorumPin","controllerPublic"}{
   if identity[n]==""||cfg.Expected[n]!=identity[n]{return nil,portableRefusal}
  }
