@@ -1,3 +1,4 @@
+import {startManagedCarrier,validateManagedCarrier} from '../desktop/native-managed-scattering.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createServer,request} from 'node:http';
@@ -23,17 +24,19 @@ test('native Scattering pacers and sinks carry bounded mailbox HTTP operations o
   await new Promise(r=>server.listen(0,'127.0.0.1',r));
   const shared={labOnly:true,secretHex:randomBytes(32).toString('hex'),epochHex:randomBytes(32).toString('hex'),recvPort:0};
   let config,bootstrap;const queues=[];
+  const ports=[await freeUDP(),await freeUDP()];assert.notEqual(ports[0],ports[1]);
   for(const role of ['client','relay']){
    const scope=join(dir,role);
    const queueDir=windows?join(scope,'queue'):join(dir,role+'-queue'),stateDir=windows?join(scope,'state'):join(dir,role+'-state');
    let opts={};if(windows){execFileSync(vault,['--windows-scattering-create-lab',scope]);opts={windowsBootstrap:{binary:vault,binarySha256:createHash('sha256').update(await readFile(vault)).digest('hex'),dir:scope}};}else{await mkdir(queueDir,{mode:0o700});await mkdir(stateDir,{mode:0o700});}
    queues.push(queueDir);
    const c={...shared,role,queueDir,stateDir,httpPort:role==='client'?0:server.address().port};
-   endpoints.push(await startScatteringMailboxEndpoint(c,opts));if(role==='client'){config=c;bootstrap=opts;}
+   if(role==='client'){
+    config=c;bootstrap=opts;endpoints.push(await startManagedCarrier({binary,binaryPin:createHash('sha256').update(await readFile(binary)).digest('hex'),config:c,listen:'127.0.0.1:'+ports[0],target:'127.0.0.1:'+ports[1],...opts}));
+   }else endpoints.push(await startScatteringMailboxEndpoint(c,opts));
   }
-  const ports=[await freeUDP(),await freeUDP()];assert.notEqual(ports[0],ports[1]);
   function launch(args){const p=spawn(binary,args,{stdio:'ignore'});kids.push(p);return p;}
-  for(let i=0;i<2;i++){
+  for(let i=1;i<2;i++){
    launch(['-mode','sink','-listen','127.0.0.1:'+ports[i],'-forward','127.0.0.1:'+endpoints[i].recvPort]);
    launch(['-target','127.0.0.1:'+ports[1-i],'-queue-dir',queues[i],'-period-us','5000','-poll','10ms','-wait-mode','native']);
   }
@@ -51,8 +54,18 @@ test('native Scattering pacers and sinks carry bounded mailbox HTTP operations o
   if(windows){await assert.rejects(startScatteringMailboxEndpoint({...config,epochHex:randomBytes(32).toString('hex')},bootstrap));endpoints[0].close();}
   else{endpoints[0].close();const fresh=join(dir,'fresh');await mkdir(fresh,{mode:0o700});await assert.rejects(startScatteringMailboxEndpoint({...config,queueDir:fresh}));}
  }finally{
-  for(const e of endpoints)e.close();for(const p of kids)p.kill();
+  for(const e of endpoints)await e.close();for(const p of kids)p.kill();
   await Promise.all(kids.map(p=>p.exitCode!==null?Promise.resolve():new Promise(r=>{p.once('exit',r);p.once('error',r);})));
   server.closeAllConnections();await new Promise(r=>server.close(r));await rm(dir,{recursive:true,force:true,maxRetries:10,retryDelay:200});
  }
+});
+
+test('managed profile rejects changes, foreign paths and wrong loopback port',()=>{
+ const c={labOnly:true,role:'client',secretHex:'a'.repeat(64),epochHex:'b'.repeat(64),recvPort:49001,httpPort:49002,queueDir:'private/queue',stateDir:'private/state'};
+ const raw=Buffer.from(JSON.stringify(c)),p={configPin:createHash('sha256').update(raw).digest('hex'),listen:'127.0.0.1:49003',target:'127.0.0.1:49004'},scope={endpoint:'http://127.0.0.1:49002/'},paths={queueDir:c.queueDir,stateDir:c.stateDir};
+ assert.deepEqual(validateManagedCarrier(p,raw,scope,paths),c);
+ assert.throws(()=>validateManagedCarrier({...p,configPin:'f'.repeat(64)},raw,scope,paths));
+ assert.throws(()=>validateManagedCarrier({...p,target:'0.0.0.0:1234'},raw,scope,paths));
+ assert.throws(()=>validateManagedCarrier(p,raw,{endpoint:'http://127.0.0.1:49009/'},paths));
+ assert.throws(()=>validateManagedCarrier(p,raw,scope,{...paths,queueDir:'foreign'}));
 });

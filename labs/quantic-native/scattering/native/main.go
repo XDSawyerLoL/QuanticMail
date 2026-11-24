@@ -31,6 +31,7 @@ const (
 )
 
 var ingested atomic.Uint64
+var readyPipe bool
 
 type Config struct {
 	Target, QueueDir, Report, Slots string
@@ -235,6 +236,7 @@ func loop(c Config) (Stats, error) {
 			return out, err
 		}
 	}
+	if readyPipe { fmt.Println("READY") }
 	period := time.Duration(c.PeriodUs) * time.Microsecond
 	now := time.Now()
 	anchor := now.Add(250 * time.Millisecond)
@@ -332,6 +334,7 @@ func sinkLoop(listen, forward string, duration time.Duration) (string, error) {
 		return "", err
 	}
 	defer local.Close()
+	if readyPipe { fmt.Println("READY") }
 	started := time.Now()
 	received, forwarded, invalid, errorsCount := 0, 0, 0, 0
 	buf := make([]byte, 2048)
@@ -375,7 +378,9 @@ func main() {
 	flag.StringVar(&c.KernelInterface, "kernel-interface", "", "explicit Linux interface with root fq, experimental")
 	flag.DurationVar(&c.Horizon, "horizon", time.Second, "kernel-fq prequeue horizon; 100ms to 2s")
 	flag.BoolVar(&c.Elevated, "above-normal", false, "opt-in Windows above-normal pacing thread priority; not real-time")
+	flag.BoolVar(&readyPipe,"parent-pipe",false,"managed mode: READY on stdout; exit on parent stdin EOF or input")
 	flag.Parse()
+	if readyPipe { go func(){ var b [1]byte; _,_ = os.Stdin.Read(b[:]); os.Exit(0) }() }
 	if mode == "sink" {
 		out, err := sinkLoop(listen, forward, c.Duration)
 		if err != nil {

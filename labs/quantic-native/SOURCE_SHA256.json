@@ -6,7 +6,7 @@
   "scattering/native/go.mod": "4e51ecb7893d7143530844cebd8dba7a0918a8c7062f0ea0d401bbb0b805d5e2",
   "scattering/native/kernel_linux.go": "1ef96003d0a4fd658fd295f8d222c61db756fd6241c4a818eb887539b0beb419",
   "scattering/native/kernel_windows.go": "ebefa98e137f3bbc62381af7f822a9b26b51ceb8437265dfe40d2213f17b2de6",
-  "scattering/native/main.go": "49ce67be383ce14158b7e03b37e9f2696b23ef133f2005d702ae4011db428530",
+  "scattering/native/main.go": "9be1a480e766c0c9bd5f1650884c783dc1215a1554072c848a5a79335c7f1dda",
   "scattering/native/wait_linux.go": "72a3e3652521b912240a9be153e8617a1303e2ba7cd26f5b5d8ffa512587bdf6",
   "scattering/native/wait_windows.go": "77e1b362592b071c808f05aa5297cd5ed556c145b343c0c97998820e4a9b1cf2",
   "scattering/scattering-cell.mjs": "aa1fab9d38366ac1f15bef4183494122caebefa1c0b284e925ca888d4bd05812",
