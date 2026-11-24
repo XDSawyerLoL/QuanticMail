@@ -70,7 +70,7 @@ async function verifyPacer(plan){
 }
 export async function startPrivateCarrierHost(plan,{
  startEndpoint=startScatteringMailboxEndpoint,spawnChild=spawn,verifyBinary=verifyPacer,
- verifyDir=privateDir,inspectQueue=readdir
+ verifyDir=privateDir,inspectQueue=readdir,acceptUntil
 }={}){
  check(process.platform==='linux');
  validatePrivateCarrierPlan(plan);
@@ -107,7 +107,7 @@ export async function startPrivateCarrierHost(plan,{
   });
  }
  try{
-  endpoint=await startEndpoint(plan.carrier);
+  endpoint=await startEndpoint(plan.carrier,{acceptUntil});
   void endpoint.closed.then(()=>{if(!closing)void stop('carrier-epoch-closed');});
   await start(['-mode','sink','-listen',plan.listenIP+':'+plan.listenPort,'-forward','127.0.0.1:'+endpoint.recvPort]);
   check(!closing);
