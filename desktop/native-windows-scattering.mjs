@@ -2,9 +2,12 @@ import {spawn} from 'node:child_process';
 import {win32} from 'node:path';
 import {createWindowsNativeStorage} from './native-windows-storage.mjs';
 export async function reserveWindowsScattering(c,bootstrap){
- if(process.platform!=='win32'||c.queueDir!==win32.join(bootstrap.dir,'queue')||c.stateDir!==win32.join(bootstrap.dir,'state')||!(/^[a-f0-9]{64}$/).test(c.epochHex))throw Error('Windows scattering layout refused');
+ const ledger=bootstrap.ledgerDir;
+ if(process.platform!=='win32'||c.queueDir!==win32.join(bootstrap.dir,'queue')||c.stateDir!==win32.join(ledger??bootstrap.dir,'state')||!(/^[a-f0-9]{64}$/).test(c.epochHex))throw Error('Windows scattering layout refused');
+ if(ledger!==undefined&&(win32.dirname(bootstrap.dir)!==ledger||!/^lane-[a-z0-9]{1,24}$/.test(win32.basename(bootstrap.dir))))throw Error('Windows overlap layout refused');
  const storage=await createWindowsNativeStorage(bootstrap);await storage.verifyBinary();
- const p=spawn(storage.binary,['--windows-scattering-guard-lab',storage.dir],{shell:false,cwd:win32.dirname(storage.binary),env:storage.env,windowsHide:true,stdio:['pipe','pipe','ignore']});
+ const args=ledger===undefined?['--windows-scattering-guard-lab',storage.dir]:['--windows-scattering-overlap-guard-lab',ledger,storage.dir];
+ const p=spawn(storage.binary,args,{shell:false,cwd:win32.dirname(storage.binary),env:storage.env,windowsHide:true,stdio:['pipe','pipe','ignore']});
  let resolveClosed;const closed=new Promise(r=>{resolveClosed=r;});let ended=false;
  const finish=()=>{if(!ended){ended=true;resolveClosed();}};
  p.on('error',finish);p.on('close',finish);p.stdin.on('error',()=>{p.kill();finish();});
