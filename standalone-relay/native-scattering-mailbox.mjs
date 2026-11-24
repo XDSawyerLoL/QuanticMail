@@ -147,6 +147,6 @@ export async function startScatteringMailboxEndpoint(c,{windowsBootstrap,profile
    server.on('error',stop);
   }
   check(!stopped);
-  return Object.freeze({recvPort:udp.address().port,httpPort:server?.address().port,closed,close:stop});
+  return Object.freeze({recvPort:udp.address().port,httpPort:server?.address().port,authenticatedPeerSeen:()=>!stopped&&cells.stats.auth>0,closed,close:stop});
  }catch(e){stop();throw e;}finally{ab.fill(0);ba.fill(0);}
 }
