@@ -58,11 +58,14 @@ func windowsMailboxCredentialCLI(args []string)error{
  pw,e:=winGUIPassphrase("Secret classique de l'appareil",true);if e!=nil{return e};defer clear(pw)
  pqw,e:=winGUIPassphrase("Secret post-quantique de l'appareil",true);if e!=nil{return e};defer clear(pqw)
  proof,digest,e:=prepareWindowsMailboxCredential(dir,bundle,pin,pw,pqw,time.Now());if e!=nil{return e}
+ transport,e:=prepareWindowsTransportRequests(dir,bundle,pin,proof,digest,pw,pqw,time.Now());if e!=nil{return e}
+ csr,e:=json.Marshal(transport);if e!=nil{return e}
  public,e:=json.Marshal(proof);if e!=nil{return e}
  return json.NewEncoder(os.Stdout).Encode(struct{
   Status string `json:"status"`
   Code string `json:"code"`
+  TransportCode string `json:"transportCode"`
   RequestDigest string `json:"requestDigest"`
   MailAuthorized bool `json:"mailAuthorized"`
- }{"mailbox-credential-sealed-not-activated","QSCRED1:"+b64.EncodeToString(public),digest,false})
+ }{"mailbox-credential-sealed-not-activated","QSCRED1:"+b64.EncodeToString(public),"QSTLS1:"+b64.EncodeToString(csr),digest,false})
 }
