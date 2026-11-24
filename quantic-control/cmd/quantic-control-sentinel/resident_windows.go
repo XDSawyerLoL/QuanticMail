@@ -169,23 +169,29 @@ func installResident(root string)error{
  srcHash,err:=fileHash(source);if err!=nil{return err}
  original,err:=os.Open(source);if err!=nil{return err}
  defer original.Close()
- // No executable is overwritten; an interrupted installation can be inspected
- // and safely removed by the user without deleting unknown files.
- temp,err:=os.CreateTemp(dir,".sentinel-*.tmp")
+ // Copy into a newly-created path (O_EXCL): never overwrite an unknown
+ // application or a file created by a concurrent installation.
+ installed,err:=os.OpenFile(dest,os.O_WRONLY|os.O_CREATE|os.O_EXCL,0600)
  if err!=nil{return err}
- tempName:=temp.Name()
- defer os.Remove(tempName)
- _,err=io.Copy(temp,io.LimitReader(original,32<<20+1))
- if err==nil{err=temp.Sync()}
- ce:=temp.Close();if err==nil{err=ce}
+ committed:=false
+ defer func(){
+  if !committed{
+   _=os.Remove(manifest)
+   _=os.Remove(dest)
+  }
+ }()
+ n,err:=io.Copy(installed,io.LimitReader(original,32<<20+1))
+ if err==nil&&n>32<<20{err=errors.New("program too large")}
+ if err==nil{err=installed.Sync()}
+ ce:=installed.Close();if err==nil{err=ce}
  if err!=nil{return err}
- tmpHash,err:=fileHash(tempName)
- if err!=nil||tmpHash!=srcHash{return errors.New("installed executable verification failed")}
- if err:=os.Rename(tempName,dest);err!=nil{return err}
+ newHash,err:=fileHash(dest)
+ if err!=nil||newHash!=srcHash{return errors.New("installed executable verification failed")}
  data,err:=json.Marshal(installManifest{Version:residentVersion,ExeHash:srcHash,Root:root})
  if err!=nil{return err}
  if err:=writeExclusive(manifest,data);err!=nil{return err}
  if err:=regSetStartup(command);err!=nil{return err}
+ committed=true
  // Startup is installed even if immediate launch fails; UI reports that error
  // so the user can disable it. No shell, PowerShell or UAC is launched.
  child:=exec.Command(dest,"--resident")
