@@ -264,12 +264,23 @@ test('integrated native relay with four real mTLS authorities, hybrid ciphertext
    links.set(a,restored);
    assert.notEqual(restored.epochId,failedEpoch);
    assert.notEqual(restored.epochId,original.epochId);
-   const restoredClient=createNativeMailboxClient({endpoint:restored.url,address:a.checkpoint.address,deviceId:a.checkpoint.deviceId,token:authToken(a)});
-   const exact=await restoredClient.send(interrupted);
+   const {runWindowsScatteringMail}=await import('../desktop/native-windows-mail-flow.mjs');
+   const {win32}=await import('node:path');
+   const privateDir=win32.join('C:\\','Quantic','synthetic-recovery'),wirePath=win32.join(privateDir,'wire-interrupted.json');
+   const recoveryScope={enabled:true,address:a.checkpoint.address,deviceId:a.checkpoint.deviceId,
+    endpoint:restored.url,token:authToken(a),receiptKeyFile:win32.join(privateDir,'receipt.key')};
+   const storedWire=Buffer.from(JSON.stringify(interrupted)+'\n');
+   const recoveryStorage={read:async path=>{assert.equal(path,wirePath);return Buffer.from(storedWire);}};
+   const exact=await runWindowsScatteringMail({windowsLab:{dir:privateDir},pqMode:{enabled:true,address:recoveryScope.address,deviceId:recoveryScope.deviceId},windowsScattering:recoveryScope},recoveryStorage,{
+    operation:'retry-send',path:wirePath,expectedDigest:receipt.digest,approve:async()=>true,
+    connect:async()=>{throw Error('retry must not open the signing vault');}
+   });
    assert.equal(exact.id,receipt.id);
    assert.equal(exact.digest,receipt.digest);
    assert.equal(exact.duplicate,true);
-   assert.equal(exact.status,'queued');
+   assert.equal(exact.status,'deposited');
+   assert.equal(exact.relayStatus,'queued');
+   assert.deepEqual(JSON.parse(storedWire),interrupted);
    const receiver=createNativeMailboxClient({endpoint:endpoint(b),address:b.checkpoint.address,deviceId:b.checkpoint.deviceId,token:authToken(b)});
    const item=await receiver.pull();
    assert.equal(item.id,receipt.id);assert.deepEqual(item.record,interrupted);
@@ -279,7 +290,7 @@ test('integrated native relay with four real mTLS authorities, hybrid ciphertext
    assert.deepEqual((await receiver.recover(item.id,item.digest)).record,interrupted);
    console.log('NATIVE_MAIL_INTERRUPTED_RECEIPT '+JSON.stringify({committedBeforeCut:true,
     successReceiptWithheld:true,interruptedClientConfirmed:false,freshEpoch:true,
-    relayRestart:true,exactSignedRetry:true,sameDurableId:true,
+    relayRestart:true,exactSignedRetry:true,windowsRecoveryFlow:true,sameDurableId:true,
     decryptedExactly:true,noDuplicateDelivery:true,authenticatedAck:true,releaseAuthorized:false}));
   }
   policy[1].active=false;
