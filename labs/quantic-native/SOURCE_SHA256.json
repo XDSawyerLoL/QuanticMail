@@ -102,8 +102,8 @@
   "vault/windows_storage_test.go": "18b89948324caa6b6ae338be2cdad948b6f15e94fc7aafebad34781c8ad03114",
   "vault/windows_journal.go": "01ff8e9ef237441024afc71844bebcf4014434aa04d0562a332e23705eaa44c8",
   "vault/windows_console.go": "a44834947eb6239ab5562191ab44f02f1443638331d2ce956ef6e0a0735de5ed",
-  "vault/windows_provision.go": "ffbfdd722d2ed717c41543fce3d96571f9640c97d8ae743ec26abcfd3799c4fe",
-  "vault/windows_provision_stub.go": "ee73ffd51d2f86fe4e33573248a494d7598f5bac28d9ea66f3be46bb85e3d2e5",
+  "vault/windows_provision.go": "c0c7b4426241836a163143b91628d33ebd605ef6d7e0763f25ee5aa4037a4644",
+  "vault/windows_provision_stub.go": "007ad9cbcb2dcc386ee6ed36830343508a48cdbb958dfa7d005f07dd56cf932f",
   "vault/windows_journal_test.go": "b74265ac0102ed76d87006a863fb23afcbe938d5dd5a7f8b99c2011ae94b6f03",
   "vault/windows_broker.go": "f2faeb83e48c0febc794618b0e52c1a6a6f3ad40c8a27a53bf168138e18cf4ab",
   "vault/windows_recovery_test.go": "ebb7f0681edefe56b42c50b87bf6ef21e8924efd501f95c76093565dbf68da49",
@@ -119,7 +119,9 @@
   "vault/windows_migration_audit.go": "a99489335b08301f1db4498ee18896d00ab16db29aa5c8fd9c3f932a2150ec20",
   "vault/windows_draft_protect.go": "4d5282716e44e554bf1aee14517a7d3237208aae862d94fde119e0b67d23a044",
   "vault/windows_draft_protect_test.go": "f6271e93ba2eab8b5fe36b2a7c6779d3b6ecaea009593e51ffc752b1d0193508",
-  "vault/windows_secure_gui.go": "d010dc222cb41cef375e60948b3dba63a614a97f6f247cdff0bc658b30bc8c08",
+  "vault/windows_secure_gui.go": "dff04380a68b1f46f155fca847e499164d16c74c13d47c819692e7ccfebc0f62",
   "vault/windows_mail_status.go": "5ebe2dc797d9771d84fe8cca98071953c6cf1b559c446c0d3306231a82609f96",
-  "vault/windows_mail_status_test.go": "71e2a10a3435ce9b474fcb8c52062548b76d97582f20b61a4ae91a485fe88046"
+  "vault/windows_mail_status_test.go": "71e2a10a3435ce9b474fcb8c52062548b76d97582f20b61a4ae91a485fe88046",
+  "vault/windows_operator_check.go": "80efe983d86f70d97f362916b46e7e85b0f2cdd4d224f59add2f8eb0d3476c51",
+  "vault/windows_operator_check_test.go": "837e6b0c059bc9a7b23f9fee1b8ed58696d9095777f96bce5d1f2c04b5961843"
 }
