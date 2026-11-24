@@ -51,6 +51,7 @@ $actions=@(
  @{Id="RecoverComposeGui";Title="Quantic Mail - Reprendre un message interrompu";Hint="Reprendre le meme brouillon et la meme signature. Aucun nouvel envoi automatique.";Scope=$true},
  @{Id="SendGui";Title="Quantic Mail - Envoyer une enveloppe";Hint="Choisir une enveloppe deja chiffree et signee. Confirmation graphique avant depot sur le relais local.";Scope=$true},
  @{Id="ReceiveGui";Title="Quantic Mail - Recevoir un message";Hint="Lire un message authentifie, conserver automatiquement un recu chiffre avant confirmation.";Scope=$true},
+ @{Id="ImportMailKitGui";Title="Quantic Mail - Activer ma configuration de test";Hint="Importer le kit prive fourni par un operateur de confiance. Aucun remplacement de cle ni inscription distante.";Scope=$true},
  @{Id="MailAttest";Title="Quantic Mail - verifier les quatre autorites en direct";Hint="Exige trois attestations mTLS fraiches sur quatre avant confirmation. N'envoie aucun mail.";Scope=$true}
 )
 function New-OperationArguments($Action,[string]$Directory,[string]$InputName,[string]$OutputName) {
@@ -105,11 +106,11 @@ $browse.ForeColor=[Drawing.Color]::Black;$browse.SetBounds(566,270,130,28)
 $form.Controls.Add($browse)
 $browse.Add_Click({
  $picker=New-Object Windows.Forms.FolderBrowserDialog
- $picker.Description=if($actions[$choice.SelectedIndex].Id -in @("VerifyGui","SendGui","ReceiveGui","ComposeGui","RecoverComposeGui")){"Choisir le dossier du coffre existant"}else{"Choisir le dossier parent du nouveau coffre de test"}
+ $picker.Description=if($actions[$choice.SelectedIndex].Id -in @("VerifyGui","SendGui","ReceiveGui","ComposeGui","RecoverComposeGui","ImportMailKitGui")){"Choisir le dossier du coffre existant"}else{"Choisir le dossier parent du nouveau coffre de test"}
  $picker.ShowNewFolderButton=$false
  try{
   if($picker.ShowDialog() -eq [Windows.Forms.DialogResult]::OK){
-   $directory.Text=if($actions[$choice.SelectedIndex].Id -in @("VerifyGui","SendGui","ReceiveGui","ComposeGui","RecoverComposeGui")){$picker.SelectedPath}else{[IO.Path]::Combine($picker.SelectedPath,("Quantic-Test-"+[Guid]::NewGuid().ToString("N").Substring(0,12)))}
+   $directory.Text=if($actions[$choice.SelectedIndex].Id -in @("VerifyGui","SendGui","ReceiveGui","ComposeGui","RecoverComposeGui","ImportMailKitGui")){$picker.SelectedPath}else{[IO.Path]::Combine($picker.SelectedPath,("Quantic-Test-"+[Guid]::NewGuid().ToString("N").Substring(0,12)))}
   }
  }finally{$picker.Dispose()}
 })
@@ -128,9 +129,9 @@ $script:selectedArguments=$null;$script:selectedAction=$null
 $choice.Add_SelectedIndexChanged({
  $a=$actions[$choice.SelectedIndex]
  $hint.Text=$a.Hint
- $run.Text=if($a.Id -eq "ProvisionGui"){"Creer mon identite"}elseif($a.Id -eq "VerifyGui"){"Verifier et refermer le coffre"}elseif($a.Id -eq "ComposeGui"){"Rediger un message"}elseif($a.Id -eq "RecoverComposeGui"){"Reprendre le message"}elseif($a.Id -eq "SendGui"){"Choisir et envoyer"}elseif($a.Id -eq "ReceiveGui"){"Recevoir"}else{"Ouvrir les outils avances (terminal)"}
+ $run.Text=if($a.Id -eq "ProvisionGui"){"Creer mon identite"}elseif($a.Id -eq "VerifyGui"){"Verifier et refermer le coffre"}elseif($a.Id -eq "ImportMailKitGui"){"Importer la configuration"}elseif($a.Id -eq "ComposeGui"){"Rediger un message"}elseif($a.Id -eq "RecoverComposeGui"){"Reprendre le message"}elseif($a.Id -eq "SendGui"){"Choisir et envoyer"}elseif($a.Id -eq "ReceiveGui"){"Recevoir"}else{"Ouvrir les outils avances (terminal)"}
  $directory.Enabled=[bool]$a.Scope
- $browse.Visible=($a.Id -in @("ProvisionGui","VerifyGui","SendGui","ReceiveGui","ComposeGui","RecoverComposeGui"))
+ $browse.Visible=($a.Id -in @("ProvisionGui","VerifyGui","SendGui","ReceiveGui","ComposeGui","RecoverComposeGui","ImportMailKitGui"))
  $directory.Width=if($browse.Visible){530}else{672}
  $inputName.Enabled=[bool]$a.Input
  $outputName.Enabled=[bool]$a.Output
@@ -149,7 +150,7 @@ $choice.SelectedIndex=0
 if (-not $SelfTest -and -not $AdvancedAction) {$choice.SelectedIndex=10}
 if ($SelfTest) {
  try {
-  if($choice.Items.Count -ne 34 -or -not $inputName.Enabled -or -not $outputName.Enabled){throw "Dashboard initialization failed"}
+  if($choice.Items.Count -ne 35 -or -not $inputName.Enabled -or -not $outputName.Enabled){throw "Dashboard initialization failed"}
   $a=New-OperationArguments $actions[0] "C:\Quantic Lab\vault" "draft-test.json" "wire-test.json"
   if($a -notcontains "C:\Quantic Lab\vault\draft-test.json" -or $a -notcontains "C:\Quantic Lab\vault\wire-test.json"){throw "Wrong arguments"}
   $rejected=$false
@@ -234,7 +235,7 @@ function Invoke-AdvancedOperation([string]$ActionId,$operationArgs) {
 if ($AdvancedAction) {
  try {
   $a=@($actions | Where-Object {$_.Id -ceq $AdvancedAction})
-  if($a.Count -ne 1 -or $AdvancedAction -in @("ProvisionGui","VerifyGui","SendGui","ReceiveGui","ComposeGui","RecoverComposeGui")){throw "Operation avancee refusee"}
+  if($a.Count -ne 1 -or $AdvancedAction -in @("ProvisionGui","VerifyGui","SendGui","ReceiveGui","ComposeGui","RecoverComposeGui","ImportMailKitGui")){throw "Operation avancee refusee"}
   $op=New-OperationArguments $a[0] $AdvancedDirectory $AdvancedInputName $AdvancedOutputName
   Invoke-AdvancedOperation $AdvancedAction $op
  }finally{$form.Dispose()}
@@ -316,6 +317,21 @@ function Invoke-ComposePipe([string]$vaultDir,$fields){
   return (($result -split '\r?\n') | Where-Object {$_ -ne ""} | Select-Object -Last 1)
  }finally{$child.Dispose();$json=$null;$ascii=$null}
 }
+function Invoke-MailKitImport($operationArgs) {
+ $picker=New-Object Windows.Forms.OpenFileDialog
+ $picker.Title="Choisir le kit prive de configuration"
+ $picker.Filter="Kit Quantic (onboarding.json)|onboarding.json";$picker.Multiselect=$false
+ try{if($picker.ShowDialog() -ne [Windows.Forms.DialogResult]::OK){return};$source=$picker.FileName}finally{$picker.Dispose()}
+ $pin=Read-PublicValue "Quantic Mail - Confiance" "Empreinte SHA256 du kit, recue par un canal authentifie independant."
+ if($null -eq $pin){return}
+ if($pin -cnotmatch '^[a-f0-9]{64}$'){throw "Empreinte invalide."}
+ $operationArgs+=@("-InputFile",$source,"-ExpectedTrustSha256",$pin)
+ $result=& $shell -NoProfile -File $launcher @operationArgs
+ if($LASTEXITCODE -ne 0){throw "Import refuse ou incomplet. Conserver le coffre et le kit; aucun remplacement automatique."}
+ $record=($result | Select-Object -Last 1 | ConvertFrom-Json)
+ if($record.status -cne "local-mail-kit-imported-not-enrolled"){throw "Import non confirme."}
+ [Windows.Forms.MessageBox]::Show("Configuration locale importee et relue. Les autorites et le transport doivent encore etre controles. Aucun compte distant inscrit.","Quantic Mail","OK","Information")|Out-Null
+}
 function Invoke-GraphicalMail([string]$action,$operationArgs,[string]$vaultDir) {
  if($action -eq "ComposeGui"){
   $fields=Read-GraphicalMessage
@@ -371,6 +387,8 @@ try {
     Invoke-GraphicalProvision $script:selectedArguments
    }elseif($script:selectedAction -eq "VerifyGui"){
     Invoke-GraphicalVerify $script:selectedArguments
+   }elseif($script:selectedAction -eq "ImportMailKitGui"){
+    Invoke-MailKitImport $script:selectedArguments
    }elseif($script:selectedAction -in @("SendGui","ReceiveGui","ComposeGui","RecoverComposeGui")){
     Invoke-GraphicalMail $script:selectedAction $script:selectedArguments $directory.Text
    }else{
