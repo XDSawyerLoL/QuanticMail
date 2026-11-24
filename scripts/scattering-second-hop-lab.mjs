@@ -14,6 +14,8 @@ const check=(ok,msg)=>{if(!ok)throw Error(msg)};
 check(queue&&isAbsolute(queue)&&['balanced','skewed','sparse'].includes(profile)&&['0','1'].includes(mixRaw),'isolated lab arguments only');
 const expected={balanced:200,skewed:120,sparse:4}[profile];
 const mix=mixRaw==='1';
+const batchSize=Number(process.env.SCATTERING_CHAIN_SECOND_BATCH||8);
+check([4,8].includes(batchSize),'unsupported second-relay batch size');
 check(profile!=='sparse'||mix,'sparse requires padded mixer');
 function keyAt(path){
  check(path&&isAbsolute(path),'key path required');
@@ -38,7 +40,7 @@ function commit(batch){
  writeSpool(queue,frames);
  seq+=real;stats.spooled+=real;stats.paddedCover+=pads;
 }
-const mixer=mix?createScatteringBatchMixer({batchSize:8,onBatch:commit}):null;
+const mixer=mix?createScatteringBatchMixer({batchSize,onBatch:commit}):null;
 try{
  await new Promise((resolve,reject)=>{sock.once('error',reject);sock.bind(49004,'10.252.44.2',resolve);});
  sock.on('message',packet=>{
@@ -65,7 +67,7 @@ try{
  await new Promise(resolve=>setTimeout(resolve,15000));
  clearInterval(timer);
  if(mixer){try{if(profile==='sparse')mixer.flushPadded();else mixer.drain();}catch{stats.spoolErrors++;}}
- console.log(JSON.stringify({mode:'second-hop-lab',profile,mix,...stats,mixer:mixer?.stats()??null,endpointKeySupplied:false,secondLayerEnabled:!!secondKey}));
+ console.log(JSON.stringify({mode:'second-hop-lab',profile,mix,batchSize:mix?batchSize:null,...stats,mixer:mixer?.stats()??null,endpointKeySupplied:false,secondLayerEnabled:!!secondKey}));
  check(stats.received===550&&stats.coverOrInvalid===550-expected&&stats.authenticated===expected&&
   stats.spooled===expected&&stats.duplicates===0&&stats.invalid===0&&stats.spoolErrors===0,
   'second hop delivery/accounting failed');
