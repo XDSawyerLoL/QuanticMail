@@ -59,6 +59,16 @@ func ExchangeBrokerProof(in io.Reader,out io.Writer,s *Session,signer crypto.Sig
  if in==nil||out==nil||s==nil||signer==nil||len(pinnedController)!=ed25519.PublicKeySize{return errors.New("missing trusted broker channel or controller")}
  pub,ok:=signer.Public().(ed25519.PublicKey)
  if !ok||!bytes.Equal(pub,pinnedController){return errors.New("controller key differs from enrollment")}
+ // A transport failure burns the exchange attempt. Never retry a private
+ // operation with the same challenge after an ambiguous broker response.
+ s.mu.Lock()
+ now:=time.Now()
+ if s.consumed||s.exchangeStarted||now.Before(s.born)||now.Sub(s.born)>=maxLifetime{
+  s.mu.Unlock()
+  return errors.New("Vault challenge expired or exchange already attempted")
+ }
+ s.exchangeStarted=true
+ s.mu.Unlock()
  reader:=bufio.NewReaderSize(in,maxBrokerLine)
  hello,err:=brokerLine(reader);if err!=nil{return err}
  var h brokerHello
@@ -66,6 +76,7 @@ func ExchangeBrokerProof(in io.Reader,out io.Writer,s *Session,signer crypto.Sig
  nonce,err:=base64.RawURLEncoding.DecodeString(h.Session)
  if err!=nil||len(nonce)!=32||base64.RawURLEncoding.EncodeToString(nonce)!=h.Session{return errors.New("invalid broker nonce")}
  body,err:=json.Marshal(s.Request());if err!=nil{return err}
+ if time.Since(s.born)>=maxLifetime||time.Now().Before(s.born){return errors.New("Vault challenge expired before request")}
  digest:=controllerDigest(nonce,1,body)
  sig,err:=signer.Sign(rand.Reader,digest[:],crypto.Hash(0))
  if err!=nil||!ed25519.Verify(pinnedController,digest[:],sig){return errors.New("controller signature refused")}
