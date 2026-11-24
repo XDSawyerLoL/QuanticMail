@@ -53,3 +53,14 @@ test('reject missing delivery, incomplete profiles or inconsistent confusion cou
  runs[3].timeOnlyObserver.fifoQueueTimingAttack.scenarios[0].confusion.B.A++;
  assert.throws(()=>summarizeRepeatedRuns(runs,{batchSize:8,bReal:100}),/inconsistent/);
 });
+
+test('screen rejects targeted minority leak even if whole-trace accuracy is only 1/6',()=>{
+ const runs=Array.from({length:5},(_,i)=>fixture(i,{b:20}));
+ const truth=[...Array(100).fill('A'),...Array(20).fill('B'),...Array(430).fill(null)];
+ const guesses=[...Array(100).fill(null),...Array(20).fill('B'),...Array(430).fill(null)];
+ runs[3].timeOnlyObserver.fifoQueueTimingAttack.scenarios=[0,5,12].map(processingSlackMs=>
+  ({processingSlackMs,...scoreAttributionGuesses(guesses,truth)}));
+ const summary=summarizeRepeatedRuns(runs,{batchSize:8,bReal:20});
+ assert.equal(summary.worstAttack.minorityPrecisionAtLeast20PctRecall,1);
+ assert.equal(summary.screening.privacy,false);
+});
