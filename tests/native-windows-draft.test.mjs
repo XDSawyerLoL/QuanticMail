@@ -47,3 +47,14 @@ test('Bounds and malformed fields fail before any private file write',async()=>{
   const s=setup();await assert.rejects(saveWindowsDraft(cfg,contacts,s.storage,f,{makeId:()=>uuid}));assert.equal(s.stats(),0);
  }
 });
+
+test('new enrollment saves exclusively through native encrypted writer, no plaintext fallback',async()=>{
+ const s=setup();const sealed={...cfg,windowsScattering:{...cfg.windowsScattering,receiptKeyFile:win32.join(dir,'receipt.vault'),credentialMode:'vault-sealed-v1'}};
+ await assert.rejects(saveWindowsDraft(sealed,contacts,s.storage,fields,{makeId:()=>uuid}));assert.equal(s.stats(),0);
+ s.storage.writeEncryptedDraft=async(path,raw)=>{
+  assert.equal(JSON.parse(raw).payload.body,fields.body);assert.equal(s.files.has(path),false);
+  s.files.set(path,Buffer.from(JSON.stringify({format:'quantic-local-draft',version:1,file:win32.basename(path),iv:'synthetic',ciphertext:'synthetic'})));
+ };
+ const r=await saveWindowsDraft(sealed,contacts,s.storage,fields,{makeId:()=>uuid});
+ assert.equal(r.status,'draft-saved-not-sent');assert.equal(s.stats(),0);assert.ok(!s.files.get(win32.join(dir,r.file)).includes(Buffer.from(fields.body)));
+});

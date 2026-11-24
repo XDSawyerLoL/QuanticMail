@@ -57,6 +57,11 @@ func prepareWindowsEnrollmentVault(parent,handle,quorum string,devicePW,pqPW,own
  verified,e:=readEnrollmentController(dir,request,devicePW,pqPW);if e!=nil{return empty,"",e};clear(verified)
  receiptCheck,e:=readLocalCustody(dir,"receipt",request,devicePW,pqPW);if e!=nil{return empty,"",e};defer clear(receiptCheck)
  if !equalSecret(receiptCheck,receipt[:]){return empty,"",portableRefusal}
+ draftKey:=make([]byte,32);defer clear(draftKey)
+ if _,e=rand.Read(draftKey);e!=nil{return empty,"",e}
+ if e=writeLocalCustody(dir,"draft",request,draftKey,devicePW,pqPW);e!=nil{return empty,"",e}
+ draftCheck,e:=readLocalCustody(dir,"draft",request,devicePW,pqPW);if e!=nil{return empty,"",e};defer clear(draftCheck)
+ if !equalSecret(draftKey,draftCheck){return empty,"",portableRefusal}
  reopened,e:=winReadClassical(filepath.Join(dir,"classical.vault"),magic,devicePW,claim.SigningPin,claim.EncryptionPin)
  if e!=nil||reopened.signing==nil{return empty,"",portableRefusal}
  reopenedPQ,e:=winReadPQ(filepath.Join(dir,"pq.vault"),binding,pqPW,addr,id,claim.KemPin,claim.DsaPin)

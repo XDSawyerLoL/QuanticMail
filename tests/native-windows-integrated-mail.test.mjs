@@ -177,10 +177,19 @@ test('sealed compose retains the original broker until durable deposit; no plain
  const x=setup(),{token,...scope}=cfg.windowsScattering;
  const sealed={...cfg,windowsScattering:{...scope,receiptKeyFile:win32.join(dir,'receipt.vault'),credentialMode:'vault-sealed-v1'}};
  let connected=0,sent=0,closed=0;
+ const encrypted={format:'quantic-local-draft',version:1,file:win32.basename(input),iv:'synthetic',ciphertext:'synthetic'};
+ x.files.set(input,Buffer.from(JSON.stringify(encrypted)));
  const result=await composeAndSendWindowsLab(sealed,x.storage,{...x.deps,
   connect:async c=>{connected++;assert.equal(c.windowsScattering.token,undefined);assert.equal(c.guiWindowsApproval,true);
-   return {sealHybrid:async()=>x.signed,mailbox:{send:async r=>{assert.equal(closed,0);assert.ok(x.files.has(output));sent++;return {id:'01234567-89ab-4cde-8fab-0123456789ab',digest:nativeRecordDigest(r),status:'queued'};}},close(){closed++;}};},
+   return {openDraft:async(name,record)=>{assert.equal(name,win32.basename(input));assert.deepEqual(record,encrypted);return draft;},sealHybrid:async()=>x.signed,mailbox:{send:async r=>{assert.equal(closed,0);assert.ok(x.files.has(output));sent++;return {id:'01234567-89ab-4cde-8fab-0123456789ab',digest:nativeRecordDigest(r),status:'queued'};}},close(){closed++;}};},
   mailboxFactory:()=>{throw Error('plaintext fallback');}
  });
  assert.equal(result.status,'deposited');assert.deepEqual({connected,sent,closed},{connected:1,sent:1,closed:1});
+});
+
+test('sealed compose rejects legacy plaintext before connecting or sending',async()=>{
+ const x=setup(),{token,...scope}=cfg.windowsScattering;
+ const sealed={...cfg,windowsScattering:{...scope,receiptKeyFile:win32.join(dir,'receipt.vault'),credentialMode:'vault-sealed-v1'}};
+ await assert.rejects(composeAndSendWindowsLab(sealed,x.storage,{...x.deps,connect:async()=>{throw Error('must not open plaintext');}}));
+ assert.equal(x.stats().sends,0);assert.equal(x.stats().write,0);
 });

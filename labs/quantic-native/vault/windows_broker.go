@@ -84,6 +84,8 @@ func winBroker(args []string)error{
   controller,e=readEnrollmentController(dir,request,pw,pqw);if e!=nil{return e};defer clear(controller)
   receiptKey,e:=readLocalCustody(dir,"receipt",request,pw,pqw);if e!=nil{return e};defer clear(receiptKey)
   receiptOps,closeReceipt,e:=nativeReceiptTransport(addr,device,receiptKey);clear(receiptKey);if e!=nil{return e};defer closeReceipt()
+  draftKey,e:=readLocalCustody(dir,"draft",request,pw,pqw);if e!=nil{return e};defer clear(draftKey)
+  draftOps,closeDraft,e:=nativeDraftTransport(addr,device,draftKey);clear(draftKey);if e!=nil{return e};defer closeDraft()
   storageSecret,e:=transportSecret(pw,pqw);clear(pw);clear(pqw);if e!=nil{return e};defer clear(storageSecret)
   q,e=winLoadSealedQuorum(dir,digest,storageSecret);if e!=nil||q.pin!=quorumPinValue{return portableRefusal}
   contactRaw,e:=winReadPrivate(filepath.Join(dir,"contacts.json"),131072);if e!=nil{return e}
@@ -93,7 +95,7 @@ func winBroker(args []string)error{
   var closeTransport func()
   transport,closeTransport,e=newMailboxTransport(args[11],addr,device,token);clear(token);if e!=nil{return e};defer closeTransport()
   mail:=transport
-  transport=func(op string,body json.RawMessage)(json.RawMessage,error){if op=="checkpoint"{return checkpointTransport(op,body)};if op=="receipt-seal"||op=="receipt-open"{return receiptOps(op,body)};return mail(op,body)}
+  transport=func(op string,body json.RawMessage)(json.RawMessage,error){if op=="checkpoint"{return checkpointTransport(op,body)};if op=="receipt-seal"||op=="receipt-open"{return receiptOps(op,body)};if op=="draft-open"{return draftOps(op,body)};return mail(op,body)}
  }
  raw,e:=winReadPrivate(filepath.Join(dir,"contacts.json"),131072);if e!=nil{return e}
  senders,e:=parseSenderTrust(raw);if e!=nil{return e}

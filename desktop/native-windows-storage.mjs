@@ -25,7 +25,7 @@ export async function createWindowsNativeStorage({binary,binarySha256,dir}){
    const child=spawn(binary,[op,dir,n],{shell:false,windowsHide:true,cwd:win32.dirname(binary),env,stdio:['pipe','pipe','ignore']});
    const chunks=[];let length=0,done=false;
    const finish=(e,b)=>{if(done)return;done=true;clearTimeout(timer);if(e){child.kill();for(const c of chunks)c.fill(0);reject(e);}else resolve(b);};
-   const timer=setTimeout(()=>finish(Error('Windows native helper timeout')),10000);
+   const timer=setTimeout(()=>finish(Error('Windows native helper timeout')),op==='--gui-save-encrypted-draft-lab'?160000:10000);
    child.on('error',()=>finish(Error('Windows native helper refused')));
    child.stdin.on('error',()=>finish(Error('Windows native helper refused')));
    child.stdout.on('error',()=>finish(Error('Windows native helper refused')));
@@ -36,6 +36,7 @@ export async function createWindowsNativeStorage({binary,binarySha256,dir}){
  }
  return Object.freeze({binary,binarySha256,dir,env,verifyBinary,
   async read(path){return run('--windows-client-read-lab',path);},
+  async writeEncryptedDraft(path,buffer){check(/^draft-[0-9a-f]{32}\.json$/.test(windowsLabPath(dir,path))&&Buffer.isBuffer(buffer)&&buffer.length>0&&buffer.length<=8192);const r=await run('--gui-save-encrypted-draft-lab',path,buffer);check(r.length===0);},
   async writeDraft(path,buffer){check(/^draft-[a-z0-9-]{1,48}\.json$/.test(windowsLabPath(dir,path))&&Buffer.isBuffer(buffer)&&buffer.length>0&&buffer.length<=8192);const r=await run('--windows-client-write-draft-lab',path,buffer);check(r.length===0);},
   async writeWire(path,buffer){check(/^wire-[a-z0-9-]{1,48}\.json$/.test(windowsLabPath(dir,path))&&Buffer.isBuffer(buffer)&&buffer.length>0&&buffer.length<=32768);const r=await run('--windows-client-write-wire-lab',path,buffer);check(r.length===0);},
   async writeReceipt(path,buffer){check(/^receipt-[a-z0-9-]{1,48}\.json$/.test(windowsLabPath(dir,path))&&Buffer.isBuffer(buffer)&&buffer.length>0&&buffer.length<=32768);const r=await run('--windows-client-write-wire-lab',path,buffer);check(r.length===0);}
