@@ -58,6 +58,11 @@ func windowsVaultCLI(args []string)(bool,error){
  if handled,e:=winScatteringCLI(args);handled{return true,e}
  if handled,e:=winClientIO(args);handled{return true,e}
  if len(args)>1&&args[1]=="--broker-windows-pq-quorum-lab"{return true,winBroker(args)}
+ if len(args)>1&&args[1]=="--provision-windows-controller-gui-lab"{
+  if len(args)!=5{return true,portableRefusal}
+  result,e:=winGUIProvision(args[2],args[3],args[4]);if e!=nil{return true,e}
+  return true,json.NewEncoder(os.Stdout).Encode(result)
+ }
  if len(args)>1&&args[1]=="--provision-windows-controller-lab"{
   if len(args)!=5||!hashRE.MatchString(args[3])||!strongAddr.MatchString(args[4]){return true,portableRefusal}
   if !winApprove("Create NEW synthetic Windows vault and local controller; no real account enrollment."){return true,portableRefusal}
