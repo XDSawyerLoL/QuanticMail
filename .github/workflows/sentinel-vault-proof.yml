@@ -138,7 +138,7 @@ jobs:
         shell: msys2 {0}
         run: |
           set -euo pipefail
-          /ucrt64/bin/makensis.exe \
+          MSYS2_ARG_CONV_EXCL="*" /ucrt64/bin/makensis.exe \
             "/DOUTPUT_EXE=$(cygpath -w "$PWD/Quantic-Sentinel-Suite-Setup-UNSIGNED.exe")" \
             "/DPACKAGE_DIR=$(cygpath -w "$PWD/sentinel-pq-package")" \
             "/DUNINSTALL_LIST_NSH=$(cygpath -w "$PWD/sentinel-uninstall.nsh")" \
