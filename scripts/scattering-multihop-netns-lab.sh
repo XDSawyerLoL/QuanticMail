@@ -79,8 +79,8 @@ if [[ "${SCATTERING_MULTIHOP_CPU_LOAD:-0}" == '1' ]]; then
 fi
 sleep .5
 if [[ "$RESEAL" == "1" ]]; then
- sudo ip netns exec "$NSA" "$NODE" "$ROOT/scripts/scattering-physical-probe.mjs" send-synthetic "$PACER" 10.252.41.2 49001 5 "$WORK/a.key" >"$WORK/a.report" 2>"$WORK/a.err" & PID_A="$!"
- sudo ip netns exec "$NSB" "$NODE" "$ROOT/scripts/scattering-physical-probe.mjs" send-synthetic "$PACER" 10.252.42.2 49002 5 "$WORK/b.key" >"$WORK/b.report" 2>"$WORK/b.err" & PID_B="$!"
+ sudo ip netns exec "$NSA" "$NODE" "$ROOT/scripts/scattering-physical-probe.mjs" send-synthetic "$PACER" 10.252.41.2 49001 5 "$WORK/a.key" 50000 >"$WORK/a.report" 2>"$WORK/a.err" & PID_A="$!"
+ sudo ip netns exec "$NSB" "$NODE" "$ROOT/scripts/scattering-physical-probe.mjs" send-synthetic "$PACER" 10.252.42.2 49002 5 "$WORK/b.key" 50000 >"$WORK/b.report" 2>"$WORK/b.err" & PID_B="$!"
 else
  sudo ip netns exec "$NSA" "$PACER" -target 10.252.41.2:49001 -queue-dir "$WORK/sender-a" -period-us 50000 -poll 10ms -duration 5s >"$WORK/a.report" 2>"$WORK/a.err" & PID_A="$!"
  sudo ip netns exec "$NSB" "$PACER" -target 10.252.42.2:49002 -queue-dir "$WORK/sender-b" -period-us 50000 -poll 10ms -duration 5s >"$WORK/b.report" 2>"$WORK/b.err" & PID_B="$!"
