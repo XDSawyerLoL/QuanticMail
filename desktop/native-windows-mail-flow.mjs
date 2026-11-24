@@ -51,6 +51,7 @@ export async function runWindowsScatteringMail(config,storage,{operation,path,ex
  if(sending){
   const wire=normalizeNativeRecord(await readJSON(storage,path));
   check(wire.context.from===scope.address&&wire.context.fromDeviceId===scope.deviceId);
+  if(config.managedHybridScattering!==undefined)check(wire.context.to===config.managedHybridScattering.peerAddress&&wire.context.toDeviceId===config.managedHybridScattering.peerDeviceId);
   const digest=nativeRecordDigest(wire);
   if(operation==='retry-send')check(typeof expectedDigest==='string'&&/^[a-f0-9]{64}$/.test(expectedDigest)&&digest===expectedDigest);
   const saved={digest,wireFile:name};
@@ -84,6 +85,7 @@ export async function runWindowsScatteringMail(config,storage,{operation,path,ex
   }
   const item=await client.pull();
   if(!item)return {status:'empty'};
+  if(config.managedHybridScattering!==undefined)check(item.record?.context?.from===config.managedHybridScattering.peerAddress&&item.record.context.fromDeviceId===config.managedHybridScattering.peerDeviceId);
   if(!await approve('Ouvrir le message authentifié et conserver un reçu chiffré ?'))return {status:'cancelled'};
   // Check account/id/digest and key before consuming the broker journal right.
   await protect(item,{subject:'',body:''});

@@ -34,3 +34,8 @@ test('explicit retry references only original digest and private wire',async()=>
  await assert.rejects(handleHybridGuiCommand({...f.options,command:{op:'retry',selection:{name:'../wire-original.json',digest}}}));
  assert.equal(f.counts().sent,1);
 });
+
+test('unexpected deposit response cannot claim success',async()=>{
+ const f=fixture('SEND');f.options.session.compose=async()=>({status:'deposited',relayStatus:'unverified'});
+ await assert.rejects(handleHybridGuiCommand({...f.options,command:{op:'send',fields:{to:peer,subject:'test',body:'test'}}}));
+});

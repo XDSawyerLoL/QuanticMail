@@ -9,7 +9,7 @@ import {handleHybridGuiCommand} from '../desktop/native-windows-hybrid-gui.mjs';
 const check=x=>{if(!x)throw Error('Private GUI session refused');};
 const pin=/^[a-f0-9]{64}$/;const stop=new AbortController();
 let session,waiting,buffer=Buffer.alloc(0);
-function shutdown(){if(stop.signal.aborted)return;stop.abort();buffer.fill(0);if(waiting){waiting.reject(Error('Private GUI pipe closed'));waiting=null;}void session?.close();}
+function shutdown(){if(stop.signal.aborted)return;stop.abort();buffer.fill(0);if(waiting){waiting.reject(Error('Private GUI pipe closed'));waiting=null;}void session?.close().catch(()=>{});}
 process.stdin.on('end',shutdown);process.stdin.on('error',shutdown);
 process.stdin.on('data',chunk=>{
  if(stop.signal.aborted)return;

@@ -18,7 +18,7 @@ export async function handleHybridGuiCommand({command,config,contacts,storage,se
   let waiting;
   const r=await session.compose({input:win32.join(dir,draft.file),output:win32.join(dir,'wire-'+makeId().replaceAll('-','')+'.json'),
    approve:makeGuiDepositApproval(phase=>{waiting=decision();publish(phase);},()=>waiting)});
-  if(r.status==='deposited')return reply(r.relayStatus==='acknowledged'?'acknowledged-by-local-relay':'queued-on-local-relay');
+  if(r.status==='deposited'){check(['queued','acknowledged'].includes(r.relayStatus));return reply(r.relayStatus==='acknowledged'?'acknowledged-by-local-relay':'queued-on-local-relay');}
   if(r.status==='deposit-unconfirmed')return reply('delivery-unknown');
   return reply(r.status==='saved-not-sent'?'encrypted-saved-not-sent':'not-sent');
  }
@@ -32,7 +32,7 @@ export async function handleHybridGuiCommand({command,config,contacts,storage,se
  if(command?.op==='retry'){
   check(exact(command,['op','selection'])&&exact(command.selection,['name','digest'])&&/^wire-[a-z0-9-]{1,48}\.json$/.test(command.selection.name)&&/^[a-f0-9]{64}$/.test(command.selection.digest));
   const r=await session.mail({operation:'retry-send',path:win32.join(dir,command.selection.name),expectedDigest:command.selection.digest,approve:()=>true});
-  check(r.digest===command.selection.digest);
+  check(r.digest===command.selection.digest&&['deposited','deposit-unconfirmed','cancelled'].includes(r.status));
   return reply(r.status,{digest:r.digest});
  }
  throw Error('Unsupported command');

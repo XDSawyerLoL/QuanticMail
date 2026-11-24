@@ -50,6 +50,7 @@ export async function composeAndSendWindowsLab(config,storage,{
  const raw=await readPrivateJSON(storage,input);
  if(sealed){check(raw?.format==='quantic-local-draft'&&raw.version===1&&raw.file===win32.basename(input));vault=sessionController??await connect({...config,guiWindowsApproval:true});check(typeof vault.openDraft==='function');}
  const draft=validateDraft(sealed?await vault.openDraft(win32.basename(input),raw):raw,scope);
+ if(config.managedHybridScattering!==undefined)check(draft.context.to===config.managedHybridScattering.peerAddress&&draft.context.toDeviceId===config.managedHybridScattering.peerDeviceId);
  // An operator sees the exact recipient and plaintext before a broker request.
  if(!await approve('Chiffrer dans le coffre natif le brouillon pour '+draft.context.to+
   '\n'+safeMailDisplay(draft.payload)))return {status:'cancelled-before-seal'};
