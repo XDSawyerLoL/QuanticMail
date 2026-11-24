@@ -29,7 +29,7 @@ $actions=@(
  @{Id="ProvisionPair";Title="Creer deux coffres de test PQ";Hint="Deux identites fictives, deux repertoires neufs. Empreintes de quorum independantes exigees ; aucun compte distant.";Scope=$true},
  @{Id="StartBridge";Title="Demarrer le pont Scattering";Hint="Dossier de transport distinct deja configure ; pacer et sink separes requis.";Scope=$true},
  @{Id="Providers";Title="Verifier la cryptographie";Hint="Diagnostic du fournisseur cryptographique natif."},
- @{Id="GuiCheck";Title="Tester les fenetres de securite Windows";Hint="Essai interactif avec un code ephemere fictif, consentement OUI et refus NON. Aucun coffre ni mot de passe reel."},
+ @{Id="GuiCheck";Title="Tester les fenetres de securite Windows";Hint="Code ephemere, saisie masquee et consentement OUI puis refus NON. Aucun compte reel.";Scope=$false},
  @{Id="ProbeLoopback";Title="Tester le transport local";Hint="Diagnostic UDP local, sans compte ni reseau distant."},
  @{Id="MigrationCheck";Title="Verifier une sauvegarde de migration";Hint="Controle hors ligne des anciennes cles. Aucun transfert ou effacement."},
  @{Id="MigrationHistory";Title="Relire les messages historiques";Hint="Lecture locale de la sauvegarde verifiee. Aucun compte reactive."},
@@ -54,7 +54,7 @@ function Get-AlphaModule([string]$Id) {
   '^Migration' { return "IDENTITY VAULT" }
   '^(StartBridge|ProbeLoopback)$' { return "SCATTERING" }
   '^(Pay|StartPayBridge)' { return "QUANTIC PAY - LAB" }
-  '^(Providers|GuiCheck)
+  '^(Providers|GuiCheck)$' { return "DIAGNOSTIC" }
   default { throw "Unknown native operation; fail closed." }
  }
 }
@@ -147,56 +147,12 @@ $choice.Add_SelectedIndexChanged({
 $run.Add_Click({
  try{
   $a=$script:shownActions[$choice.SelectedIndex]
-  if($a.Id -eq 'GuiCheck'){
-   $actual=(Get-FileHash -LiteralPath (Join-Path $root 'bin\Vault-PQ-lab.exe') -Algorithm SHA256).Hash
-   if($actual -ine $TrustedBinarySha256){throw 'Empreinte du coffre invalide'}
-   $psi=New-Object Diagnostics.ProcessStartInfo
-   $psi.FileName=(Join-Path $root 'bin\Vault-PQ-lab.exe')
-   $psi.Arguments='--windows-gui-operator-check-lab'
-   $psi.WorkingDirectory=$root
-   $psi.UseShellExecute=$false
-   $psi.CreateNoWindow=$true
-   $psi.RedirectStandardOutput=$true
-   $psi.RedirectStandardError=$true
-   $psi.EnvironmentVariables.Clear()
-   $psi.EnvironmentVariables['SystemRoot']=$env:SystemRoot
-   $psi.EnvironmentVariables['WINDIR']=$env:SystemRoot
-   $psi.EnvironmentVariables['PATH']=(Join-Path $root 'bin')+';'+(Join-Path $env:SystemRoot 'System32')
-   $p=New-Object Diagnostics.Process
-   $p.StartInfo=$psi
-   $run.Enabled=$false
-   $quit.Enabled=$false
-   $module.Enabled=$false
-   $choice.Enabled=$false
-   try{
-    if(-not $p.Start()){throw 'Impossible de lancer le test'}
-    $elapsed=[Diagnostics.Stopwatch]::StartNew()
-    while(-not $p.WaitForExit(100)){
-     [Windows.Forms.Application]::DoEvents()
-     if($elapsed.ElapsedMilliseconds -gt 180000){
-      $p.Kill()
-      throw 'Test interrompu'
-     }
-    }
-    if($p.ExitCode -ne 0){throw 'Test annule ou refuse'}
-    $reply=$p.StandardOutput.ReadToEnd()
-    if($reply.Length -gt 256){throw 'Reponse du coffre invalide'}
-    $report=ConvertFrom-Json -InputObject $reply
-    if($report.status -cne 'native-windows-operator-check-passed' -or -not $report.nativeUIVerified -or -not $report.humanInteractive -or $report.liveAccountUsed -or $report.networkUsed){
-     throw 'Diagnostic du coffre invalide'
-    }
-    [Windows.Forms.MessageBox]::Show('Les fenetres natives Windows, le code masque, le consentement et le refus ont passe ce test interactif sur ce poste. Cela ne valide pas encore un envoi entre deux PC.','Test des fenetres reussi','OK','Information')|Out-Null
-   }finally{
-    $p.Dispose()
-    $run.Enabled=$true
-    $quit.Enabled=$true
-    $module.Enabled=$true
-    $choice.Enabled=$true
-   }
-   return
-  }
   if($a.Id -eq 'ComposeDraft'){
    & (Join-Path $root 'Quantic-Sillage-Compose.ps1') -ExpectedManifestSha256 $ExpectedManifestSha256 -TrustedBinarySha256 $TrustedBinarySha256
+   return
+  }
+  if($a.Id -eq 'GuiCheck'){
+   & (Join-Path $root 'Quantic-Sillage-GUI-Check.ps1') -ExpectedManifestSha256 $ExpectedManifestSha256 -TrustedBinarySha256 $TrustedBinarySha256
    return
   }
   $warn=[Windows.Forms.MessageBox]::Show('Ceci est une operation de laboratoire reservee aux tests. Elle ouvrira volontairement un terminal technique. Continuer ?','Mode technique','YesNo','Warning')
@@ -221,163 +177,6 @@ if ($SelfTest) {
   if(-not $rejected){throw "Path traversal accepted"}
   $module.SelectedItem="DIAGNOSTIC"
   if ($script:shownActions.Count -ne 2 -or $script:shownActions[0].Id -ne "Providers" -or $script:shownActions[1].Id -ne "GuiCheck") { throw "Diagnostic module wrong" }
-  if($directory.Enabled -or $inputName.Enabled -or $outputName.Enabled){throw "Diagnostic fields enabled"}
-  foreach ($m in $modules) {
-   $module.SelectedItem=$m
-   if ($script:shownActions.Count -lt 1) { throw "Missing module: $m" }
-  }
-  $module.SelectedItem="QUANTIC MAIL"
-  Write-Output "Dashboard controls and operation mapping verified"
- }finally{$form.Dispose()}
- exit 0
-}
-function Quote-AdvancedArg([string]$Value){
- if($Value.Contains('"') -or $Value.Contains([char]10) -or $Value.Contains([char]13)){throw 'Argument advanced non autorise'}
- return '"'+$Value+'"'
-}
-try{
- while($true){
-  $script:selectedArguments=$null;$script:selectedAction=$null
-  if($form.ShowDialog() -ne [Windows.Forms.DialogResult]::OK){break}
-  if(-not $script:selectedAction){continue}
-  $advanced=Join-Path $root 'Quantic-Sillage-Advanced.ps1'
-  $argv=@('-NoLogo','-NoProfile','-STA','-ExecutionPolicy','Bypass',
-   '-File',(Quote-AdvancedArg $advanced),
-   '-ExpectedManifestSha256',$ExpectedManifestSha256,
-   '-TrustedBinarySha256',$TrustedBinarySha256,
-   '-Operation',$script:selectedAction,
-   '-Directory',(Quote-AdvancedArg $directory.Text),
-   '-InputName',(Quote-AdvancedArg $inputName.Text),
-   '-OutputName',(Quote-AdvancedArg $outputName.Text))
-  $psi=New-Object System.Diagnostics.ProcessStartInfo
-  $psi.FileName=$shell
-  $psi.Arguments=$argv -join ' '
-  $psi.UseShellExecute=$true
-  $psi.WindowStyle=[Diagnostics.ProcessWindowStyle]::Normal
-  $child=[Diagnostics.Process]::Start($psi)
-  if($null -eq $child){throw 'Le laboratoire technique ne peut pas demarrer'}
-  $child.Dispose()
- }
-}finally{$form.Dispose()}
- { return "DIAGNOSTIC" }
-  default { throw "Unknown native operation; fail closed." }
- }
-}
-$modules=@("QUANTIC MAIL","QUANTIC ID","IDENTITY VAULT","SCATTERING","QUANTIC PAY - LAB","DIAGNOSTIC")
-foreach ($action in $actions) { if ((Get-AlphaModule $action.Id) -notin $modules) { throw "Unknown module." } }
-function New-OperationArguments($Action,[string]$Directory,[string]$InputName,[string]$OutputName) {
- $a=@("-Operation",$Action.Id,"-ExpectedManifestSha256",$ExpectedManifestSha256,"-TrustedBinarySha256",$TrustedBinarySha256.ToLowerInvariant())
- if ($Action.Scope) {
-  if ($Directory -notmatch '^[A-Za-z]:\\[A-Za-z0-9_. -]+(?:\\[A-Za-z0-9_. -]+)*$') { throw "Dossier absolu local requis (chemin ASCII canonique)." }
-  foreach ($part in $Directory.Substring(3).Split('\')) { if ($part -in @(".","..") -or $part.EndsWith(".") -or $part.EndsWith(" ")) { throw "Chemin ambigu refuse." } }
-  $a+=@("-PrivateDirectory",$Directory)
- }
- if ($Action.Input) {
-  $rx="^"+[Regex]::Escape($Action.Input)+"-[a-z0-9-]{1,48}\.json$"
-  if ($InputName -cnotmatch $rx) { throw ("Nom requis: "+$Action.Input+"-nom.json") }
-  $a+=@("-InputFile",[IO.Path]::Combine($Directory,$InputName))
- }
- if ($Action.Output) {
-  if ($OutputName -cnotmatch '^wire-[a-z0-9-]{1,48}\.json$') { throw "Nouvelle enveloppe wire-nom.json requise." }
-  $a+=@("-OutputFile",[IO.Path]::Combine($Directory,$OutputName))
- }
- return ,$a
-}
-$form=New-Object Windows.Forms.Form
-$form.Text="Quantic Sillage | Alpha privee"
-$form.StartPosition="CenterScreen"
-$form.ClientSize=New-Object Drawing.Size(760,622)
-$form.MinimumSize=New-Object Drawing.Size(776,661)
-$form.BackColor=[Drawing.Color]::FromArgb(19,25,35)
-$form.ForeColor=[Drawing.Color]::WhiteSmoke
-$form.Font=New-Object Drawing.Font("Segoe UI",10)
-function Label-At([string]$Text,[int]$X,[int]$Y,[int]$W,[int]$H) {
- $c=New-Object Windows.Forms.Label; $c.Text=$Text
- $c.SetBounds($X,$Y,$W,$H);$form.Controls.Add($c);return $c
-}
-function Text-At([int]$X,[int]$Y,[int]$W) {
- $c=New-Object Windows.Forms.TextBox;$c.SetBounds($X,$Y,$W,28)
- $form.Controls.Add($c);return $c
-}
-$heading=Label-At "QUANTIC SILLAGE" 22 18 712 36
-$heading.Font=New-Object Drawing.Font("Segoe UI",21,[Drawing.FontStyle]::Bold)
-$null=Label-At "Interface locale | Mail / Quantic ID / Vault / Scattering / Pay" 24 58 710 25
-$notice=Label-At "ALPHA - identites de test uniquement. Aucun compte reel ni migration." 24 90 710 38
-$notice.ForeColor=[Drawing.Color]::Khaki
-$null=Label-At "Module" 24 132 710 22
-$module=New-Object Windows.Forms.ComboBox
-$module.DropDownStyle="DropDownList";$module.SetBounds(24,157,712,30)
-foreach ($m in $modules) { $null=$module.Items.Add($m) }
-$form.Controls.Add($module)
-$null=Label-At "Operation native" 24 197 710 22
-$choice=New-Object Windows.Forms.ComboBox
-$choice.DropDownStyle="DropDownList";$choice.SetBounds(24,221,712,30)
-$form.Controls.Add($choice)
-$hint=Label-At "" 24 262 712 45
-$null=Label-At "Dossier prive du coffre (ou du transport pour le pont)" 24 316 712 23
-$directory=Text-At 24 341 712
-$il=Label-At "Fichier prive" 24 380 712 22
-$inputName=Text-At 24 404 712
-$ol=Label-At "Nouvelle enveloppe" 24 443 712 22
-$outputName=Text-At 24 467 712
-$run=New-Object Windows.Forms.Button;$run.Text="Rediger un brouillon"
-$run.ForeColor=[Drawing.Color]::Black;$run.BackColor=[Drawing.Color]::FromArgb(196,223,244)
-$run.SetBounds(24,533,513,42);$form.Controls.Add($run)
-$quit=New-Object Windows.Forms.Button;$quit.Text="Fermer";$quit.ForeColor=[Drawing.Color]::Black
-$quit.SetBounds(556,533,180,42);$form.Controls.Add($quit)
-$quit.DialogResult=[Windows.Forms.DialogResult]::Cancel;$form.CancelButton=$quit
-$form.AcceptButton=$run
-$script:selectedArguments=$null;$script:selectedAction=$null
-$script:shownActions=@()
-$module.Add_SelectedIndexChanged({
- $choice.Items.Clear()
- $script:shownActions=@($actions | Where-Object { (Get-AlphaModule $_.Id) -ceq $module.SelectedItem })
- if ($script:shownActions.Count -lt 1) { throw "Empty native module." }
- foreach ($a in $script:shownActions) { $null=$choice.Items.Add($a.Title) }
- $choice.SelectedIndex=0
-})
-$choice.Add_SelectedIndexChanged({
- if ($choice.SelectedIndex -lt 0) { return }
- $a=$script:shownActions[$choice.SelectedIndex]
- $hint.Text=$a.Hint
- $run.Text=if($a.Id -eq 'ComposeDraft'){"Rediger mon message"}else{"Ouvrir le laboratoire technique"}
- $simple=$a.Id -eq 'ComposeDraft'
- foreach($control in @($directory,$il,$inputName,$ol,$outputName)){$control.Visible=-not $simple}
- $directory.Enabled=[bool]$a.Scope
- $inputName.Enabled=[bool]$a.Input
- $outputName.Enabled=[bool]$a.Output
- $il.Text=if($a.Input){"Fichier prive ("+$a.Input+"-nom.json)"}else{"Aucun fichier requis"}
- $ol.Text=if($a.Output){"Nouvelle enveloppe (wire-nom.json)"}else{"Aucune sortie a saisir"}
-})
-$run.Add_Click({
- try{
-  $a=$script:shownActions[$choice.SelectedIndex]
-  if($a.Id -eq 'ComposeDraft'){
-   & (Join-Path $root 'Quantic-Sillage-Compose.ps1') -ExpectedManifestSha256 $ExpectedManifestSha256 -TrustedBinarySha256 $TrustedBinarySha256
-   return
-  }
-  $warn=[Windows.Forms.MessageBox]::Show('Ceci est une operation de laboratoire reservee aux tests. Elle ouvrira volontairement un terminal technique. Continuer ?','Mode technique','YesNo','Warning')
-  if($warn -ne [Windows.Forms.DialogResult]::Yes){return}
-  $script:selectedArguments=New-OperationArguments $a $directory.Text $inputName.Text $outputName.Text
-  $script:selectedAction=$a.Id
-  $form.DialogResult=[Windows.Forms.DialogResult]::OK
- }catch{
-  [Windows.Forms.MessageBox]::Show('Operation indisponible : verifiez les conditions du coffre de test. Aucune migration ni envoi implicite.','Operation non confirmee','OK','Warning')|Out-Null
- }
-})
-$module.SelectedIndex=0
-if ($SelfTest) {
- try {
-  if($actions.Count -ne 30 -or $script:shownActions[0].Id -ne 'ComposeDraft' -or $inputName.Visible -or $outputName.Visible){throw "Dashboard initialization failed"}
-  $choice.SelectedIndex=1
-  if(-not $inputName.Enabled -or -not $outputName.Enabled){throw "Advanced input fields missing"}
-  $a=New-OperationArguments $actions[1] "C:\Quantic Lab\vault" "draft-test.json" "wire-test.json"
-  if($a -notcontains "C:\Quantic Lab\vault\draft-test.json" -or $a -notcontains "C:\Quantic Lab\vault\wire-test.json"){throw "Wrong arguments"}
-  $rejected=$false
-  try{$null=New-OperationArguments $actions[4] "C:\Quantic Lab\vault" "..\wire-test.json" ""}catch{$rejected=$true}
-  if(-not $rejected){throw "Path traversal accepted"}
-  $module.SelectedItem="DIAGNOSTIC"
-  if ($script:shownActions.Count -ne 1 -or $script:shownActions[0].Id -ne "Providers") { throw "Diagnostic module wrong" }
   if($directory.Enabled -or $inputName.Enabled -or $outputName.Enabled){throw "Diagnostic fields enabled"}
   foreach ($m in $modules) {
    $module.SelectedItem=$m
