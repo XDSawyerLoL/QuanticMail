@@ -21,7 +21,7 @@ const(
  wsChild=0x40000000;wsVisible=0x10000000;wsOverlappedWindow=0x00CF0000
  wsVScroll=0x00200000;wsBorder=0x00800000;lbsNotify=0x0001
  lbAddString=0x0180;lbSetTopIndex=0x0197;lbResetContent=0x0184
- cmdSelect=201;cmdStop=202;cmdClear=203;cmdInstall=204;cmdUninstall=205;cmdHistory=206;cmdDefender=207;cmdProtectionCheck=208;cmdBackup=209;cmdBackupRelease=210;wmTimer=0x0113
+ cmdSelect=201;cmdStop=202;cmdClear=203;cmdInstall=204;cmdUninstall=205;cmdHistory=206;cmdDefender=207;cmdProtectionCheck=208;cmdBackup=209;cmdBackupRelease=210;cmdVaultHistory=211;wmTimer=0x0113
  colorWindow=5;defaultGuiFont=17
  bifReturnOnlyFSDirs=1;bifEditBox=0x10;bifNewDialogStyle=0x40
 )
@@ -34,7 +34,7 @@ type windowClassEx struct{
 type browseInfo struct{
  owner,root uintptr;displayName *uint16;title *uint16;flags uint32;callback,lparam uintptr;image int32
 }
-type update struct{kind,description string;alert *sentinel.Alert;count uint64;generation uint64}
+type update struct{kind,description string;alert *sentinel.Alert;count uint64;generation uint64;records []sentinel.Record}
 var(
  user32=syscall.NewLazyDLL("user32.dll")
  kernel32=syscall.NewLazyDLL("kernel32.dll")
@@ -66,7 +66,7 @@ var(
  selectedRoot string
 )
 func u16(v string)*uint16{return syscall.StringToUTF16Ptr(strings.ReplaceAll(v,"\x00","�"))}
-func classStyle(class string)uint32{if class=="LISTBOX"{return wsBorder|wsVScroll|lbsNotify};return 0}
+func classStyle(class string)uint32{if class=="EDIT"{return wsBorder|0x0080};if class=="LISTBOX"{return wsBorder|wsVScroll|lbsNotify};return 0}
 func makeControl(parent uintptr,class,title string,x,y,w,h int32,id uintptr)uintptr{
  instance,_,_:=kernel32.NewProc("GetModuleHandleW").Call(0)
  hwnd,_,_:=createWindow.Call(0,uintptr(unsafe.Pointer(u16(class))),uintptr(unsafe.Pointer(u16(title))),
@@ -151,6 +151,7 @@ func drain(hwnd uintptr){
  for _,item:=range items{
    if item.count>totalEvents{totalEvents=item.count}
    switch item.kind{
+   case "vault_history":finishVaultHistory(item)
    case "protection":
      protectionChecking=false
      if item.generation==protectionGeneration{setLabel(protectionLabel,item.description)}else{refreshProtection(hwnd)}
@@ -193,6 +194,10 @@ func wndProc(hwnd uintptr,msg uint32,wparam,lparam uintptr)uintptr{
    makeControl(hwnd,"BUTTON","Vérifier",364,698,132,38,cmdProtectionCheck)
    backupButton=makeControl(hwnd,"BUTTON","Ajouter une copie",510,698,234,38,cmdBackup)
    makeControl(hwnd,"BUTTON","Libérer les verrous de cette fenêtre",22,741,360,35,cmdBackupRelease)
+   vaultHistoryButton=makeControl(hwnd,"BUTTON","Historique via Identity Vault",390,741,354,35,cmdVaultHistory)
+   makeControl(hwnd,"STATIC","Empreinte SHA-256 d’enrôlement :",22,787,245,24,0)
+   enrollmentEdit=makeControl(hwnd,"EDIT","",272,783,472,28,0)
+   sendMessage.Call(enrollmentEdit,0x00C5,64,0)
    refreshBackupLabel()
    user32.NewProc("SetTimer").Call(hwnd,1,30000,0)
    user32.NewProc("SetTimer").Call(hwnd,2,2000,0)
@@ -232,6 +237,7 @@ func wndProc(hwnd uintptr,msg uint32,wparam,lparam uintptr)uintptr{
        addLog("Démarrage automatique supprimé. Agent arrêté et fichiers du programme retirés.")
        setLabel(statusLabel,"AGENT UTILISATEUR DÉSINSTALLÉ — les journaux locaux sont conservés")
      }
+   case cmdVaultHistory:startVaultHistory(hwnd)
    case cmdBackup:toggleBackup(hwnd)
    case cmdBackupRelease:releaseBackup(hwnd)
    case cmdProtectionCheck:refreshProtection(hwnd)
@@ -280,7 +286,7 @@ func wndProc(hwnd uintptr,msg uint32,wparam,lparam uintptr)uintptr{
    return 0
  case wmTimer:if wparam==1{refreshProtection(hwnd)}else if wparam==2{refreshBackupLabel()};return 0
  case wmAppUpdate:drain(hwnd);return 0
- case wmDestroy:for _,l:=range backupHandles{_ =l.Close()};user32.NewProc("KillTimer").Call(hwnd,1);user32.NewProc("KillTimer").Call(hwnd,2);stopMonitor();postQuit.Call(0);return 0
+ case wmDestroy:if vaultHistoryCancel!=nil{vaultHistoryCancel()};for _,l:=range backupHandles{_ =l.Close()};user32.NewProc("KillTimer").Call(hwnd,1);user32.NewProc("KillTimer").Call(hwnd,2);stopMonitor();postQuit.Call(0);return 0
  }
  ret,_,_:=defWindowProc.Call(hwnd,uintptr(msg),wparam,lparam)
  return ret
