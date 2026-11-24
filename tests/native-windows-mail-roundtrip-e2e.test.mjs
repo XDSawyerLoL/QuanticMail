@@ -17,6 +17,7 @@ import {saveWindowsDraft} from '../desktop/native-windows-draft.mjs';
 import {composeAndSendWindowsLab} from '../desktop/native-windows-integrated-mail.mjs';
 import {runWindowsScatteringMail} from '../desktop/native-windows-mail-flow.mjs';
 import {openReceipt} from '../desktop/native-receipt-store.mjs';
+import {createDirectRecipient,createDirectSender,incomingWireName,sendStoredDirectWire} from '../desktop/native-direct-mail.mjs';
 import {nativeSenderTranscript} from '../lib/quantic/native-identity-bridge.mjs';
 import {nativeMailboxEntries,restoreNativeMailbox,normalizeNativeRecord,nativeRecordDigest,enqueueNativeRecord,pullNativeRecord,acknowledgeNativeRecord,recoverNativeRecord} from '../lib/quantic/native-mailbox.mjs';
 
@@ -94,14 +95,14 @@ test('Windows actual PQ vaults, durable draft, native UDP relay, decrypt, receip
   return server.address().port;
  }
  async function stopRelay(){if(!server)return;server.closeAllConnections();await new Promise(r=>server.close(r));server=undefined;}
- async function transport(name){
+ async function transport(name,directReceive){
   const shared={labOnly:true,secretHex:randomBytes(32).toString('hex'),epochHex:randomBytes(32).toString('hex'),recvPort:0};
   const pair=[],queues=[];
   for(const role of ['client','relay']){
    const scope=join(root,name+'-'+role);
    execFileSync(vault,['--windows-scattering-create-lab',scope],{windowsHide:true,timeout:15000});
    const queueDir=join(scope,'queue');queues.push(queueDir);
-   const ep=await startScatteringMailboxEndpoint({...shared,role,queueDir,stateDir:join(scope,'state'),httpPort:role==='client'?0:relayPort},{windowsBootstrap:{binary:vault,binarySha256:pin,dir:scope}});
+   const ep=await startScatteringMailboxEndpoint({...shared,role,queueDir,stateDir:join(scope,'state'),httpPort:role==='client'?0:directReceive?1:relayPort},{windowsBootstrap:{binary:vault,binarySha256:pin,dir:scope},...(directReceive?{profile:'direct-mail',...(role==='relay'?{directReceive}:{})}:{})});
    pair.push(ep);endpoints.push(ep);
   }
   const ports=[await freeUDP(),await freeUDP()];assert.notEqual(ports[0],ports[1]);
@@ -160,6 +161,41 @@ test('Windows actual PQ vaults, durable draft, native UDP relay, decrypt, receip
   assert.equal((await runWindowsScatteringMail(config[1],reopened,{operation:'receive',path:join(boots[1].dir,'receipt-empty.json'),approve:async()=>true,connect:async()=>{throw Error('acknowledged mail must not be redelivered');}})).status,'empty');
   assert.ok(nativeMailboxEntries()[0].acknowledgedAt!==null);
   assert.ok(processes>=3);assert.ok(relayRequests>=6);
+  // No relay service, no mailbox state, no external HTTP endpoint. The same
+  // signed wire is sent over a new domain-separated native UDP carrier
+  // directly into the recipient's ACL-protected local vault.
+  await stopRelay();restoreNativeMailbox([]);
+  const peer=(i)=>({address:peers[i].address,deviceId:peers[i].deviceId});
+  const directToken=randomBytes(32).toString('hex');
+  const contactPin=async(storage)=>{const bytes=await storage.read(join(storage.dir,'contacts.json'));try{return hex(bytes);}finally{bytes.fill(0);}};
+  const ta={format:'quantic-direct-mail/v1',labOnly:true,self:peer(0),peer:peer(1),contactPin:await contactPin(a),token:directToken};
+  const tb={format:'quantic-direct-mail/v1',labOnly:true,self:peer(1),peer:peer(0),contactPin:await contactPin(b),token:directToken};
+  const makeReceiver=()=>createDirectRecipient({trust:tb,storage:b,dir:boots[1].dir});
+  const receive=await makeReceiver();
+  const direct=await transport('direct-1',receive);
+  await pause(600);
+  const dep=await sendStoredDirectWire({trust:ta,storage:a,dir:boots[0].dir,file:output.slice(boots[0].dir.length+1),endpoint:direct,approve:async()=>true});
+  assert.equal(dep.status,'peer-stored');assert.equal(dep.digest,sent.digest);assert.equal(dep.duplicate,false);assert.equal(dep.readVerified,false);
+  const wirePath=join(boots[1].dir,incomingWireName(signed));
+  const stored=await b.read(wirePath);
+  try{
+   assert.ok(!stored.includes(Buffer.from(payload.body)));
+   assert.deepEqual(JSON.parse(stored.toString()),signed);
+   assert.deepEqual(invoke('open',stored),payload);
+  }finally{stored.fill(0);}
+  const wrong=await receive(Buffer.from(JSON.stringify(signed)),randomBytes(32).toString('hex'));
+  assert.equal(wrong.status,403);
+  const tampered=await receive(Buffer.from(JSON.stringify(tamper)),directToken);
+  assert.equal(tampered.status,403);
+  // Reopen the receiver and use a different session: the exact logical
+  // message remains idempotent, and no relay state has reappeared.
+  const reopenedDirect=await transport('direct-2',await makeReceiver());
+  await pause(600);
+  const repeat=await createDirectSender({endpoint:reopenedDirect,trust:ta}).send(signed);
+  assert.equal(repeat.status,'peer-stored');assert.equal(repeat.duplicate,true);assert.equal(repeat.digest,sent.digest);
+  assert.equal(nativeMailboxEntries().length,0);
+  assert.deepEqual(JSON.parse((await a.read(output)).toString()),signed);
+  console.log('QS_DIRECT_MAIL_E2E_PASS: two independent Windows vaults, real native UDP, no relay service, verified hybrid signatures, durable recipient ciphertext, decryption, idempotent redeposit after reopen. Synthetic trust; one runner.');
   console.log('QS_MAIL_E2E_PASS: actual Windows PQ vault reopen, DPAPI long draft ('+Buffer.byteLength(payload.body,'utf8')+' bytes), bounded approvals, separate UDP carriers, receiver decryption, encrypted receipt, relay snapshot restart, recovered ACK. Synthetic trust only; no physical host or production authorization.');
  }finally{
   for(const ep of endpoints)ep.close();
