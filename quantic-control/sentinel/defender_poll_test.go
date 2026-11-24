@@ -46,9 +46,8 @@ func TestDefenderPollMarksLossAndRecovery(t *testing.T){
     close(out)
     failures,recovery,overflow,events:=0,0,0,0
     for notice:=range out{
-        if notice.Err!=nil{
-            if notice.Err.Error()=="Defender CFA journal access restored"{recovery++}else{failures++}
-        }
+        if notice.Err!=nil{failures++}
+        if notice.Restored{recovery++}
         if notice.Overflow{overflow++}
         if notice.Event!=nil{events++}
     }
