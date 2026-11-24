@@ -36,3 +36,19 @@ test('signature tampering, transcript context, key confirmation and early releas
  {const ctx=initial(),[a,b]=pair(ctx),impostor=openHybridSessionLab({role:'responder',...B,peer:C.local,context:ctx});assert.throws(()=>impostor.respond(a.begin()));a.close();b.close();}
  {const [a,b]=pair();b.accept(a.finish(b.respond(a.begin())));a.take().secret.fill(0);assert.throws(()=>a.take());b.close();}
 });
+
+test('pinned P-256 and ML-DSA device keys negotiate without wire algorithm selection',()=>{
+ const device=()=>{const a=generateKeyPairSync('ec',{namedCurve:'prime256v1'}),b=generateKeyPairSync('ml-dsa-65');return {local:{classical:a.publicKey,pq:b.publicKey},privateKeys:{classical:a.privateKey,pq:b.privateKey}};};
+ const D=device(),E=device(),F=device(),context=initial();
+ const make=(role,self,other)=>openHybridSessionLab({role,...self,peer:other.local,context});
+ let a=make('initiator',D,E),b=make('responder',E,D),x,y;
+ try{
+  const h=a.begin(),r=b.respond(h),f=a.finish(r);b.accept(f);x=a.take();y=b.take();assert.deepEqual(x,y);
+ }finally{a.close();b.close();x?.secret.fill(0);y?.secret.fill(0);x?.epoch.fill(0);y?.epoch.fill(0);}
+ a=make('initiator',D,E);b=make('responder',E,F);
+ try{assert.throws(()=>b.respond(a.begin()));assert.throws(()=>b.take());}finally{a.close();b.close();}
+ a=make('initiator',D,E);b=make('responder',E,D);
+ try{const h=a.begin();h.sig.classical=flip(h.sig.classical);assert.throws(()=>b.respond(h));assert.throws(()=>b.take());}finally{a.close();b.close();}
+ const wrong=generateKeyPairSync('ec',{namedCurve:'secp384r1'});
+ assert.throws(()=>openHybridSessionLab({role:'initiator',local:{classical:wrong.publicKey,pq:D.local.pq},privateKeys:{classical:wrong.privateKey,pq:D.privateKeys.pq},peer:E.local,context}));
+});
