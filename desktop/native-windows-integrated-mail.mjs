@@ -1,7 +1,7 @@
 // Explicit Windows PQ synthetic compose -> durable native wire -> relay deposit.
 // Never bypass the independent pinned native vault or retransmit automatically.
 // A failed/unknown transport outcome must preserve the exact original wire.
-import {timingSafeEqual} from 'node:crypto';
+import {timingSafeEqual,createHash} from 'node:crypto';
 import {win32} from 'node:path';
 import {normalizeNativeRecord,nativeRecordDigest} from '../lib/quantic/native-mailbox.mjs';
 import {connectNativeVault} from './native-vault-controller.mjs';
@@ -34,7 +34,7 @@ function validateDraft(draft,scope){
  * against the signed canonical record. No automatic resend, ACK or migration.
  */
 export async function composeAndSendWindowsLab(config,storage,{
- input,output,recover=false,approve,
+ input,output,recover=false,approve,reviewedFields,
  connect=connectNativeVault,mailboxFactory=createNativeMailboxClient
 }){
  const scope=windowsScatteringScope(config);
@@ -43,9 +43,23 @@ export async function composeAndSendWindowsLab(config,storage,{
   &&/^wire-[a-z0-9-]{1,48}\.json$/.test(windowsLabPath(config.windowsLab.dir,output))
   &&input!==output&&(recover===true||recover===false));
  const draft=validateDraft(await readPrivateJSON(storage,input),scope);
- // An operator sees the exact recipient and plaintext before a broker request.
- if(!await approve('Chiffrer dans le coffre natif le brouillon pour '+draft.context.to+
-  '\n'+safeMailDisplay(draft.payload)))return {status:'cancelled-before-seal'};
+ // The graphical composer presents the full text before approval. Bind
+ // the exact reviewed fields to the durable draft independently reopened
+ // here. Never shorten or substitute the message passed to the vault.
+ let prompt='Chiffrer dans le coffre natif le brouillon pour '+draft.context.to+'\n'+safeMailDisplay(draft.payload);
+ if(reviewedFields!==undefined){
+  check(reviewedFields&&Object.getPrototypeOf(reviewedFields)===Object.prototype
+   &&Object.keys(reviewedFields).length===3&&['to','subject','body'].every(k=>Object.hasOwn(reviewedFields,k))
+   &&reviewedFields.to===draft.context.to&&reviewedFields.subject===draft.payload.subject&&reviewedFields.body===draft.payload.body);
+  const raw=Buffer.from(JSON.stringify([draft.context,draft.payload]),'utf8');
+  let digest;try{digest=createHash('sha256').update(raw).digest('hex');}finally{raw.fill(0);}
+  const subject=Array.from(safeMailDisplay({subject:draft.payload.subject,body:''}).slice(8).trim().replace(/\s+/gu,' ')).slice(0,80).join('');
+  prompt='Autoriser le chiffrement du message relu dans la messagerie ?\nDestinataire : '+draft.context.to+
+   '\nObjet (apercu, 80 caracteres maximum) : '+subject+
+   '\nTexte : '+Buffer.byteLength(draft.payload.body,'utf8')+' octets.\nEmpreinte du brouillon : '+digest;
+  check(Buffer.byteLength(prompt.replace(/\r\n?|\n/gu,' | '),'utf8')<=1024);
+ }
+ if(!await approve(prompt))return {status:'cancelled-before-seal'};
  let vault;
  let signed;
  try{
