@@ -36,7 +36,7 @@ function Invoke-Composer([string]$Directory,[string]$Payload,[bool]$List,[bool]$
  $psi.EnvironmentVariables['PATH']=(Join-Path $root 'bin')+';'+(Join-Path $env:SystemRoot 'System32')
  if($script:operationBusy){throw 'Une operation est deja en cours.'}
  $script:operationBusy=$true
- $controls=@($choose,$save,$send,$cancel,$statusButton,$receiveButton,$recoverButton,$confirmButton,$newVault,$connectionButton)
+ $controls=@($choose,$save,$send,$cancel,$statusButton,$receiveButton,$recoverButton,$confirmButton,$newVault,$connectionButton,$recipient,$subject,$body)
  foreach($control in $controls){$control.Enabled=$false}
  $form.ControlBox=$false
  $status.Text='Operation locale en cours. Consultez les demandes du coffre Windows.'
@@ -342,13 +342,24 @@ $send.Add_Click({
  try{
   if(-not $script:privateDirectory -or $recipient.SelectedIndex -lt 0){throw 'Selectionnez un coffre et un contact deja approuves.'}
   if([string]::IsNullOrWhiteSpace($subject.Text) -or [string]::IsNullOrWhiteSpace($body.Text)){throw 'Objet et texte requis.'}
-  if([System.Text.Encoding]::UTF8.GetByteCount($body.Text) -gt 800){
-   throw 'Cet essai graphique limite le texte a 800 octets pour une confirmation integrale.'
-  }
-  $warn=[Windows.Forms.MessageBox]::Show('TEST FICTIF : le coffre natif demandera deux phrases secretes par fenetre Windows puis des confirmations. Si le depot est incertain, aucun renvoi automatique. Aucun paiement ou compte reel. Continuer ?','Essai de transmission','YesNo','Warning')
-  if($warn -ne [Windows.Forms.DialogResult]::Yes){return}
   $fields=@{to=[string]$recipient.SelectedItem;subject=$subject.Text;body=$body.Text}
   $json=ConvertTo-Json -InputObject $fields -Compress -Depth 3
+  if([Text.Encoding]::UTF8.GetByteCount($json) -gt 7800){
+   [Windows.Forms.MessageBox]::Show('Le message depasse la taille autorisee du brouillon chiffre. Reduisez son contenu. Aucun envoi effectue.','Message trop long','OK','Warning')|Out-Null;return
+  }
+  # Review the EXACT captured fields, not a truncated prompt. Render control
+  # and direction characters visibly, just as in the native mail display.
+  $safe={param([string]$value) [regex]::Replace($value,'[\x00-\x08\x0B-\x1F\x7F-\x9F\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]',{param($m) '<U+'+([int][char]$m.Value[0]).ToString('X4')+'>'})}
+  $review=New-Object Windows.Forms.Form
+  $review.Text='Quantic Mail | Relire avant chiffrement';$review.StartPosition='CenterParent';$review.ClientSize=New-Object Drawing.Size(680,500)
+  $notice=New-Object Windows.Forms.Label;$notice.SetBounds(16,12,648,48);$notice.Text='Relisez le destinataire et le texte complet. Le coffre confirmera ensuite son empreinte. Transmission de test uniquement.';$review.Controls.Add($notice)
+  $preview=New-Object Windows.Forms.TextBox;$preview.Multiline=$true;$preview.ReadOnly=$true;$preview.ScrollBars='Vertical';$preview.SetBounds(16,68,648,360)
+  $preview.Text=('Destinataire : '+$fields.to+[Environment]::NewLine+[Environment]::NewLine+'Objet : '+(& $safe $fields.subject)+[Environment]::NewLine+[Environment]::NewLine+(& $safe $fields.body))
+  $review.Controls.Add($preview)
+  $yes=New-Object Windows.Forms.Button;$yes.Text='Chiffrer ce message';$yes.DialogResult=[Windows.Forms.DialogResult]::OK;$yes.SetBounds(270,446,190,38);$review.Controls.Add($yes)
+  $no=New-Object Windows.Forms.Button;$no.Text='Annuler';$no.DialogResult=[Windows.Forms.DialogResult]::Cancel;$no.SetBounds(474,446,190,38);$review.Controls.Add($no)
+  $review.CancelButton=$no
+  try{if($review.ShowDialog($form) -ne [Windows.Forms.DialogResult]::OK){return}}finally{$review.Dispose()}
   $result=Invoke-Composer $script:privateDirectory $json $false $true
   switch($result.status){
    'deposited' {
