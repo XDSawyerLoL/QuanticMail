@@ -224,6 +224,14 @@ func wndProc(hwnd uintptr,msg uint32,wparam,lparam uintptr)uintptr{
      for _,record:=range records{
        at:=record.Time.Local().Format("02/01 15:04:05")
        addLog(at+" ["+record.Type+"] "+record.Message)
+       if record.Type=="defender_cfa"&&record.Defender!=nil{
+         process:=record.Defender.ProcessPath
+         if process==""{process="non indiqué par le journal Defender"}
+         addLog("   Programme selon Defender : "+process)
+         if record.Defender.TargetPath!=""{addLog("   Cible : "+record.Defender.TargetPath)}
+         addLog("   Contexte : "+record.Evidence)
+         addLog("   Suite recommandée : "+record.Advice)
+       }
      }
    }
    return 0

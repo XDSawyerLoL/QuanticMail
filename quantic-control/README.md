@@ -56,6 +56,14 @@ The **same** Win32 GUI program now optionally installs a **per-user**, unelevate
 
 **It is not a Windows SCM service** and does not operate before logon or after sign-out. The agent cannot block ransomware or reliably identify malicious processes. No production Identity Vault integration. Read [SENTINEL_RESIDENT_ALPHA.md](SENTINEL_RESIDENT_ALPHA.md) for exact behavior, cleanup rules and remaining validation requirements.
 
+## Microsoft Defender CFA event evidence (Alpha 1.5)
+
+The opt-in **resident** Windows user agent now reads the **native local Defender Operational Event Log**, without invoking PowerShell or changing Defender policy. It looks only at official Controlled Folder Access event IDs 1123/1124/1127/1128, distinguishes **blocked** from **audited**, and keeps process names/PIDs only when **explicitly supplied by the Defender EventData**.
+
+Its local history includes the relevant Defender evidence and conservative manual next steps. Sentinel's own folder scanner cannot attribute file changes to processes: nearby timestamps and folders are **context only**, not a causal link. Defender log unavailability and poll overflow are visible, not silently masked. There is **no** auto-terminate, quarantine, process suspension or isolation.
+
+See [SENTINEL_DEFENDER_CFA.md](SENTINEL_DEFENDER_CFA.md) for technical limits, native Windows API and validation gates.
+
 ## Local developer demo
 
 From quantic-control:

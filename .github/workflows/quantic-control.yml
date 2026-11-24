@@ -29,6 +29,9 @@ jobs:
           cache-dependency-path: quantic-control/go.mod
       - name: Test
         run: go test ./...
+      - name: Defender Event Log API smoke (explicitly reports SKIP)
+        if: runner.os == 'Windows'
+        run: go test -v -run TestReadNativeDefenderEventLogWithoutModification ./sentinel
       - name: Race test (Linux)
         if: runner.os == 'Linux'
         run: go test -race ./...
