@@ -8,6 +8,8 @@ on:
       - "scripts/scattering-two-relay-netns-lab.sh"
       - "scripts/scattering-two-relay-evidence.mjs"
       - "tests/scattering-two-relay.test.mjs"
+      - "tests/scattering-second-layer.test.mjs"
+      - "lib/quantic/scattering-second-layer-lab.mjs"
   workflow_dispatch:
 permissions:
   contents: read
@@ -24,13 +26,26 @@ jobs:
         include:
           - profile: balanced
             second_mix: "0"
+            layer: "0"
           - profile: balanced
             second_mix: "1"
+            layer: "0"
           - profile: skewed
             second_mix: "1"
+            layer: "0"
           - profile: sparse
             second_mix: "1"
-    name: "Two relays / ${{ matrix.profile }} / mix2=${{ matrix.second_mix }}"
+            layer: "0"
+          - profile: balanced
+            second_mix: "1"
+            layer: "1"
+          - profile: skewed
+            second_mix: "1"
+            layer: "1"
+          - profile: sparse
+            second_mix: "1"
+            layer: "1"
+    name: "Two relays / ${{ matrix.profile }} / mix2=${{ matrix.second_mix }} / layer=${{ matrix.layer }}"
     steps:
       - uses: actions/checkout@v4
         with:
@@ -46,7 +61,7 @@ jobs:
           node --check scripts/scattering-second-hop-lab.mjs
           node --check scripts/scattering-two-relay-evidence.mjs
           bash -n scripts/scattering-two-relay-netns-lab.sh
-          node --test tests/scattering-two-relay.test.mjs tests/scattering-batch-mixer.test.mjs tests/scattering-e2e-envelope.test.mjs
+          node --test tests/scattering-second-layer.test.mjs tests/scattering-temporal-correlation.test.mjs tests/scattering-two-relay.test.mjs tests/scattering-batch-mixer.test.mjs tests/scattering-e2e-envelope.test.mjs
       - name: Install isolated network tools
         run: |
           sudo apt-get update -qq
@@ -58,5 +73,6 @@ jobs:
         env:
           SCATTERING_CHAIN_PROFILE: ${{ matrix.profile }}
           SCATTERING_CHAIN_SECOND_MIX: ${{ matrix.second_mix }}
+          SCATTERING_CHAIN_LAYER: ${{ matrix.layer }}
           SCATTERING_MULTIHOP_SOURCE_OFFSET_MS: "25"
         run: bash scripts/scattering-two-relay-netns-lab.sh "$RUNNER_TEMP/Quantic-Pacer"
