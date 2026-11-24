@@ -86,7 +86,7 @@ async function main(){
   const local=await listenLocal(key);
   let n;
   try{n=await sink(binary,args[0],p,seconds,local);console.log('Receiver started; start the sender on the other authorized machine.');const r=await n.done;check(r.ok);const stats=local.stats();console.log(JSON.stringify({mode:mode==='receive-synthetic'?'physical-synthetic-receive':'physical-cover-receive',...stats,sinkReport:r.data.trim(),authenticatedPayloadProven:mode==='receive-synthetic'&&stats.authenticatedSynthetic>0,indistinguishabilityProven:false}));check(stats.received>0&&(mode!=='receive-synthetic'||(stats.authenticatedSynthetic>0&&stats.replays===0)));}
-  finally{n?.p.kill();local.socket.close();}
+  finally{n?.p.kill();local.socket.close();key?.fill(0);}
  }else if(mode==='loopback'){
   check(args.length===1);const seconds=number(args[0],5,30);
   const p=await freePort(),local=await listenLocal();let n;
