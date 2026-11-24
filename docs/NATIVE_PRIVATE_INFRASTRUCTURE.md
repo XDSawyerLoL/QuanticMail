@@ -221,3 +221,57 @@ arrêt. Le scénario utilise un serveur HTTP de test sur un seul runner,
 pas deux machines physiques. La configuration initiale et les tests
 humains restent indispensables ; couverture agrégée non constante et
 plafond par liaison inchangés.
+
+
+## Direction prioritaire : Quantic Mail direct, sans infrastructure centrale
+
+Le profil de transport direct-mail utilise un domaine HKDF distinct et une
+seule operation send. Le processus destinataire ne lance aucun service HTTP
+et n'appelle aucun upstream. Le pont HTTP loopback du processus emetteur
+est exclusivement un IPC local, pas un client ou relais Web. Le coffre
+destinataire relit son carnet local epingle (empreinte SHA256 approuvee
+independamment), refuse les contacts expires ou modifies, verifie P-256
+et ML-DSA-65 et les identites d'appareils, cree exclusivement un fichier
+wire-in-* chiffre, le relit et compare exactement ses octets avant de
+repondre. Identifiant logique stable par expediteur/appareil/message :
+repetition explicite du meme wire idempotente, autre wire refuse.
+L'expediteur conserve son original, meme en cas de reponse inconnue.
+La reponse peer-stored est authentifiee par le transport de cette session,
+pas un recu signe transferable ni une preuve de lecture distante.
+
+Le profil Windows qu'on prepare hors bande a format
+quantic-windows-direct-mail/v1, labOnly:true, vaultDir, trust, plan.
+trust : format quantic-direct-mail/v1, labOnly:true, self et peer
+(address,deviceId), contactPin (SHA256 des octets contacts.json du coffre
+local, approuve independamment), token aleatoire distinct. plan suit le
+format prive existant; le destinataire utilise le role technique relay
+sans processus relais ni listener HTTP; le champ httpPort reste reserve
+et inutilise cote destinataire. Stockage du profil scattering.json dans
+le repertoire prive du transport, registre state commun, sous-dossier
+lane-N et queue; le plan et le binaire doivent etre epingles. Les deux
+machines doivent partager le secret et epoch d'une session neuve,
+avec les ports et IP inverses, et des coffres differents. Les plans sont
+prepares separement; aucune cle privee d'identite n'est echangee.
+
+Le tableau de bord SCATTERING > Messagerie directe entre deux PC ouvre
+la liaison depuis le profil prepare. L'emetteur choisit une enveloppe
+signee deja enregistree et confirme son depot; le destinataire stocke
+l'enveloppe. Aucune activation automatique ni repli sur Render.
+L'essai Windows etend le test PQ existant : arret de tous les anciens
+processus et du relais synthetique, nouvelle liaison UDP directe, stockage
+dans le vrai coffre, verification et dechiffrement via fixture native,
+refus d'une signature alteree et d'un jeton errone, redemarrage avec
+nouvelle session et verification de l'idempotence. Un runner, deux
+coffres independants; pas une mesure physique.
+
+Limites explicites : preparation manuelle du contact et du profil;
+depot direct a sens unique par session; pas encore de rendez-vous,
+traversee NAT, negociation de cle de session, anonymat d'IP, revocation
+distribuee ou recuperation apres compromission globale. Le carnet local
+expire sous 24 h au maximum et toute modification est refusee jusqu'a
+nouvelle approbation. Ce n'est pas une preuve de revocation mondiale.
+Le broker de chiffrement/dechiffrement normal conserve ses exigences
+de quorum; le test-only fixture ne les remplace pas dans l'installateur.
+Les enveloppes entrantes sont conservees pour ouverture native, pas
+encore integrees a la boite de reception graphique. Les logiciels
+historiques et donnees restent intacts. Pas de deploiement public.
