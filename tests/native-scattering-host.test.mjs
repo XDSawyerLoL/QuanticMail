@@ -110,3 +110,77 @@ test('two independent supervised host processes carry actual UDP traffic and ref
   server.closeAllConnections();await new Promise(r=>server.close(r));await rm(root,{recursive:true,force:true});
  }
 });
+
+
+test('scheduled native host renewal crosses sixteen operations without reusing keys or repeating messages',{skip:process.platform!=='linux'||!binary,timeout:150000},async()=>{
+ const root=await realpath(await mkdtemp(join(tmpdir(),'qs-carrier-rollover-'))),children=[];
+ const pacer=await realpath(resolve(binary)),pin=sha(await readFile(pacer)),seen=[];
+ const server=createServer(async(req,res)=>{
+  const chunks=[];for await(const b of req)chunks.push(b);
+  const payload=JSON.parse(Buffer.concat(chunks));seen.push(payload.id);
+  const raw=Buffer.from(JSON.stringify({received:payload}));
+  res.writeHead(200,{'content-type':'application/json','content-length':raw.length});res.end(raw);
+ });
+ try{
+  await new Promise(r=>server.listen(0,'127.0.0.1',r));
+  const used=new Set([server.address().port]);
+  async function alloc(udp){let p;do{p=await freePort(udp);}while(p<1024||used.has(p));used.add(p);return p;}
+  const ports=[await alloc(true),await alloc(true)],recv=[await alloc(true),await alloc(true)],http=await alloc(false);
+  const shared=Array.from({length:2},()=>({secretHex:randomBytes(32).toString('hex'),epochHex:randomBytes(32).toString('hex')}));
+  const startMs=Date.now()+4000,duration=60000,gap=2000,configs=[];
+  for(let i=0;i<2;i++){
+   const dir=join(root,'host-'+i),stateDir=join(dir,'state');await mkdir(dir,{mode:0o700});await mkdir(stateDir,{mode:0o700});
+   const slots=[];
+   for(let k=0;k<2;k++){
+    const queueDir=join(dir,'queue-'+k);await mkdir(queueDir,{mode:0o700});
+    const p={...plan(),pacerBinary:pacer,pacerSha256:pin,listenPort:ports[i],peerPort:ports[1-i],
+     carrier:{labOnly:true,role:i===0?'client':'relay',...shared[k],queueDir,stateDir,recvPort:recv[i],httpPort:i===0?http:server.address().port}};
+    const file=join(dir,'epoch-'+k+'.json'),raw=Buffer.from(JSON.stringify(p));
+    await writeFile(file,raw,{mode:0o600});
+    const at=startMs+k*(duration+gap);slots.push({startMs:at,endMs:at+duration,file,pin:sha(raw)});
+   }
+   const file=join(dir,'schedule.json'),raw=Buffer.from(JSON.stringify({format:'quantic-private-scattering-schedule/v1',labOnly:true,slots}));
+   await writeFile(file,raw,{mode:0o600});configs.push({file,pin:sha(raw),stateDir});
+  }
+  function launchSchedule(c){
+   const child=spawn(process.execPath,[resolve('scripts/run-native-scattering-schedule.mjs'),c.file,c.pin],{stdio:['ignore','pipe','pipe']});
+   const output=[],lines=createInterface({input:child.stdout});
+   let stderr='';child.stderr.on('data',b=>{if(stderr.length<4096)stderr+=b;});
+   lines.on('line',line=>{try{output.push(JSON.parse(line));}catch{output.push({status:'bad-output'});}});
+   const closed=new Promise((r,j)=>{child.once('error',j);child.once('close',(code,signal)=>r({code,signal}));});
+   void closed.catch(()=>{});
+   return {child,closed,output,get stderr(){return stderr;}};
+  }
+  for(const c of configs)children.push(launchSchedule(c));
+  async function awaitSlot(n,deadline){
+   while(Date.now()<deadline){
+    for(const c of children)assert.equal(c.child.exitCode,null,c.stderr);
+    if(children.every(c=>c.output.some(x=>x.status==='scheduled-private-carrier-active'&&x.slot===n)))return;
+    await new Promise(r=>setTimeout(r,100));
+   }
+   throw Error('scheduled slot did not start: '+n);
+  }
+  await awaitSlot(1,startMs+8000);
+  for(let i=0;i<16;i++){
+   const payload={id:i,synthetic:'rollover'};
+   assert.deepEqual(await post(http,'pull',payload),{status:200,body:{received:payload}});
+  }
+  assert.equal((await post(http,'pull',{id:16})).status,503);
+  assert.equal(seen.length,16);
+  await awaitSlot(2,startMs+duration+gap+8000);
+  for(let i=16;i<20;i++){
+   const payload={id:i,synthetic:'rollover'};
+   assert.deepEqual(await post(http,'pull',payload),{status:200,body:{received:payload}});
+  }
+  assert.deepEqual(seen,Array.from({length:20},(_,i)=>i));
+  for(const c of children)c.child.kill('SIGTERM');
+  for(const c of children)assert.equal((await c.closed).code,0,c.stderr);
+  // Each host must have durably consumed BOTH distinct epochs.
+  const {readdir}=await import('node:fs/promises');
+  for(const c of configs)assert.equal((await readdir(c.stateDir)).filter(x=>x.startsWith('used-')).length,2);
+ }finally{
+  for(const c of children)if(c.child.exitCode===null&&c.child.signalCode===null)c.child.kill('SIGTERM');
+  await Promise.allSettled(children.map(c=>c.closed));
+  server.closeAllConnections();await new Promise(r=>server.close(r));await rm(root,{recursive:true,force:true});
+ }
+});
