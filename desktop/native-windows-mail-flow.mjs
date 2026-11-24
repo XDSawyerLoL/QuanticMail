@@ -35,7 +35,10 @@ export async function runWindowsScatteringMail(config,storage,{operation,path,ap
   check(key.length===32);
   if(operation==='confirm-receipt'){
    const receipt=openReceipt(key,scope,await readJSON(storage,path));
-   if(!await approve('Confirmer le reçu chiffré enregistré ?\n'+safeMailDisplay(receipt.payload)))return {status:'cancelled'};
+   // Confirm only the precise authenticated receipt and action. The full
+   // message can be read independently in the GUI; it is not a bounded
+   // native MessageBox argument and cannot cause a long-message ACK failure.
+   if(!await approve('Confirmer la réception du message authentifié enregistré ? Aucun nouvel envoi ni déchiffrement.\nIdentifiant : '+receipt.id+'\nEmpreinte : '+receipt.digest))return {status:'cancelled'};
    const r=await client.recover(receipt.id,receipt.digest);
    check(r.id===receipt.id&&r.digest===receipt.digest);
    await client.ack(receipt.id,receipt.digest);
