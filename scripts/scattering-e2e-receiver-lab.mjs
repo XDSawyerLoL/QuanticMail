@@ -14,8 +14,9 @@ function keyAt(p){
  return readFileSync(p);
 }
 async function main(){
- const [binary,ip,port,durationRaw,outerPath,innerPath]=process.argv.slice(2);
+ const [binary,ip,port,durationRaw,outerPath,innerPath,profile='regular']=process.argv.slice(2);
  const duration=Number(durationRaw);
+ check(['regular','sparse'].includes(profile),'unknown lab profile');
  check(typeof binary==='string'&&isAbsolute(binary)&&ip==='10.252.43.2'&&port==='49003'&&
   Number.isInteger(duration)&&duration>=10&&duration<=20,
   'bounded isolated receiver only');
@@ -52,7 +53,8 @@ async function main(){
    child.once('error',reject);
    child.once('close',code=>code===0?resolve(stdout.trim()):reject(Error('native sink failed '+code+' '+stderr.slice(-500))));
   });
-  check(stats.authenticatedE2E>=50&&stats.perSender.A>=20&&stats.perSender.B>=20&&
+  check((profile==='sparse'?stats.authenticatedE2E===4&&stats.perSender.A===3&&stats.perSender.B===1:
+    stats.authenticatedE2E>=50&&stats.perSender.A>=20&&stats.perSender.B>=20)&&
    stats.duplicates===0&&stats.invalidInner===0,'endpoint verification failed');
   console.log(JSON.stringify({mode:'nested-e2e-synthetic-receive',...stats,
    hopCanDecryptApplicationContent:false,innerKeyNotProvisionedToRelay:true,
