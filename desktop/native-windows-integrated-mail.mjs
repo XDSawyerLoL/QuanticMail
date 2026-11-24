@@ -35,7 +35,7 @@ function validateDraft(draft,scope){
  */
 export async function composeAndSendWindowsLab(config,storage,{
  input,output,recover=false,approve,
- connect=connectNativeVault,mailboxFactory=createNativeMailboxClient
+ connect=connectNativeVault,mailboxFactory=createNativeMailboxClient,sessionController
 }){
  const scope=windowsScatteringScope(config);
  check(typeof approve==='function'&&typeof input==='string'&&typeof output==='string'
@@ -43,10 +43,12 @@ export async function composeAndSendWindowsLab(config,storage,{
   &&/^wire-[a-z0-9-]{1,48}\.json$/.test(windowsLabPath(config.windowsLab.dir,output))
   &&input!==output&&(recover===true||recover===false));
  const sealed=scope.credentialMode==="vault-sealed-v1";
+ check(!sessionController||sealed&&sessionController.lifecycleSignal&&!sessionController.lifecycleSignal.aborted);
+ check(config.managedHybridScattering===undefined||sessionController);
  let vault;
  try{
  const raw=await readPrivateJSON(storage,input);
- if(sealed){check(raw?.format==='quantic-local-draft'&&raw.version===1&&raw.file===win32.basename(input));vault=await connect({...config,guiWindowsApproval:true});check(typeof vault.openDraft==='function');}
+ if(sealed){check(raw?.format==='quantic-local-draft'&&raw.version===1&&raw.file===win32.basename(input));vault=sessionController??await connect({...config,guiWindowsApproval:true});check(typeof vault.openDraft==='function');}
  const draft=validateDraft(sealed?await vault.openDraft(win32.basename(input),raw):raw,scope);
  // An operator sees the exact recipient and plaintext before a broker request.
  if(!await approve('Chiffrer dans le coffre natif le brouillon pour '+draft.context.to+
@@ -103,5 +105,5 @@ export async function composeAndSendWindowsLab(config,storage,{
   // Do not claim failure of delivery, delete, resign or automatically retry.
   return {status:'deposit-unconfirmed',...saved,retryRequiresConfirmation:true};
  }
- }finally{vault?.close();}
+ }finally{if(!sessionController)vault?.close();}
 }

@@ -36,12 +36,14 @@ export async function listWindowsSignedMail(config,storage,{listNames=readdir}={
  }
  return rows;
 }
-export async function runWindowsScatteringMail(config,storage,{operation,path,expectedDigest,approve,connect=connectNativeVault,mailboxFactory=createNativeMailboxClient}){
+export async function runWindowsScatteringMail(config,storage,{operation,path,expectedDigest,approve,connect=connectNativeVault,mailboxFactory=createNativeMailboxClient,sessionController}){
  const scope=windowsScatteringScope(config),dir=config.windowsLab.dir;
  check(typeof approve==='function'&&['send','retry-send','receive','recover-receive','confirm-receipt'].includes(operation));
  const sealed=scope.credentialMode==="vault-sealed-v1";
+ check(!sessionController||sealed&&sessionController.lifecycleSignal&&!sessionController.lifecycleSignal.aborted);
+ check(config.managedHybridScattering===undefined||sessionController);
  let session;
- const getClient=async()=>{if(!sealed)return mailboxFactory(scope);session??=await connect({...config,guiWindowsApproval:true});check(session.mailbox);return session.mailbox;};
+ const getClient=async()=>{if(!sealed)return mailboxFactory(scope);session??=sessionController??await connect({...config,guiWindowsApproval:true});check(session.mailbox);return session.mailbox;};
  try{
  const name=windowsLabPath(dir,path);
  const sending=operation==='send'||operation==='retry-send';
@@ -97,5 +99,5 @@ export async function runWindowsScatteringMail(config,storage,{operation,path,ex
   await client.ack(item.id,item.digest);
   return {status:'acknowledged',id:item.id,digest:item.digest,display};
  }finally{key?.fill(0);if(!sealed)controller?.close();}
- }finally{session?.close();}
+ }finally{if(!sessionController)session?.close();}
 }

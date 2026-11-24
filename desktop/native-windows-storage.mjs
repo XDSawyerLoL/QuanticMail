@@ -35,6 +35,16 @@ export async function createWindowsNativeStorage({binary,binarySha256,dir}){
   });
  }
  return Object.freeze({binary,binarySha256,dir,env,verifyBinary,
+  async createScatteringEpoch(name){
+   check(typeof name==='string'&&/^carrier-[a-f0-9]{32}-[0-3]$/.test(name));
+   const path=win32.join(dir,name);await verifyBinary();
+   await new Promise((resolve,reject)=>{
+    const child=spawn(binary,['--windows-scattering-create-lab',path],{shell:false,windowsHide:true,cwd:win32.dirname(binary),env,stdio:['ignore','ignore','ignore']});
+    const timer=setTimeout(()=>{child.kill();reject(Error('Windows epoch provisioning timeout'));},10000);
+    child.once('error',()=>{clearTimeout(timer);reject(Error('Windows epoch provisioning refused'));});
+    child.once('close',code=>{clearTimeout(timer);code===0?resolve():reject(Error('Windows epoch provisioning refused'));});
+   });return path;
+  },
   async read(path){return run('--windows-client-read-lab',path);},
   async writeEncryptedDraft(path,buffer){check(/^draft-[0-9a-f]{32}\.json$/.test(windowsLabPath(dir,path))&&Buffer.isBuffer(buffer)&&buffer.length>0&&buffer.length<=8192);const r=await run('--gui-save-encrypted-draft-lab',path,buffer);check(r.length===0);},
   async writeDraft(path,buffer){check(/^draft-[a-z0-9-]{1,48}\.json$/.test(windowsLabPath(dir,path))&&Buffer.isBuffer(buffer)&&buffer.length>0&&buffer.length<=8192);const r=await run('--windows-client-write-draft-lab',path,buffer);check(r.length===0);},
