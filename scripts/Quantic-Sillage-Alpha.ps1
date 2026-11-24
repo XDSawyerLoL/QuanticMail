@@ -42,7 +42,8 @@ $actions=@(
  @{Id="PayOperatorConfigure";Title="Quantic Pay - importer configuration";Hint="Nouveau coffre fictif, configuration privee et empreinte independante.";Scope=$true},
  @{Id="PayCirculation";Title="Quantic Pay - circulation multi-portefeuilles";Hint="Transferts signes et tests du quorum en memoire. Cles fictives ephemeres."},
  @{Id="MailPreflight";Title="Quantic Mail - verifier les deux PC (hors ligne)";Hint="Verifie 4 autorites publiques, contact signe attendu et carrier prive. Aucune connexion ni transmission.";Scope=$true},
- @{Id="MailAttest";Title="Quantic Mail - verifier les quatre autorites en direct";Hint="Exige trois attestations mTLS fraiches sur quatre avant confirmation. N'envoie aucun mail.";Scope=$true}
+ @{Id="MailAttest";Title="Quantic Mail - verifier les quatre autorites en direct";Hint="Exige trois attestations mTLS fraiches sur quatre avant confirmation. N'envoie aucun mail.";Scope=$true},
+ @{Id="MailRecovery";Title="Quantic Mail - reprendre un envoi";Hint="Choisir un message signe conserve, sans saisir de fichier. Le statut de depot n'est pas encore verifie.";Scope=$true}
 )
 function New-OperationArguments($Action,[string]$Directory,[string]$InputName,[string]$OutputName) {
  $a=@("-Operation",$Action.Id,"-ExpectedManifestSha256",$ExpectedManifestSha256,"-TrustedBinarySha256",$TrustedBinarySha256.ToLowerInvariant())
@@ -61,6 +62,84 @@ function New-OperationArguments($Action,[string]$Directory,[string]$InputName,[s
   $a+=@("-OutputFile",[IO.Path]::Combine($Directory,$OutputName))
  }
  return ,$a
+}
+function Invoke-RecoveryHelper([string[]]$Arguments,[string]$Consent="") {
+ # Only trusted package launcher, validated arguments and a bounded hidden child.
+ $tokens=@("-NoLogo","-NoProfile","-NonInteractive","-File",$launcher)+$Arguments
+ foreach($token in $tokens) {
+  if([string]::IsNullOrEmpty($token) -or $token -match '["\r\n]' -or $token.EndsWith('\')) {throw "Parametre interne refuse."}
+ }
+ $psi=New-Object System.Diagnostics.ProcessStartInfo
+ $psi.FileName=$shell
+ $psi.Arguments=($tokens|ForEach-Object{'"'+$_+'"'}) -join ' '
+ $psi.WorkingDirectory=$root
+ $psi.UseShellExecute=$false
+ $psi.CreateNoWindow=$true
+ $psi.WindowStyle=[System.Diagnostics.ProcessWindowStyle]::Hidden
+ $psi.RedirectStandardInput=$true
+ $psi.RedirectStandardOutput=$true
+ $psi.RedirectStandardError=$true
+ $p=New-Object System.Diagnostics.Process
+ $p.StartInfo=$psi
+ try {
+  if(-not $p.Start()){throw "Transport indisponible."}
+  $stdout=$p.StandardOutput.ReadToEndAsync();$stderr=$p.StandardError.ReadToEndAsync()
+  if($Consent){$p.StandardInput.WriteLine($Consent)}
+  $p.StandardInput.Close()
+  if(-not $p.WaitForExit(120000)){try{$p.Kill()}catch{};throw "Operation non confirmee."}
+  $raw=$stdout.GetAwaiter().GetResult();$null=$stderr.GetAwaiter().GetResult()
+  if($raw.Length -gt 65536){throw "Reponse inattendue."}
+  $lines=@($raw -split '\r?\n'|Where-Object{$_ -cmatch '^QUANTIC_GUI_RESULT '})
+  if($lines.Count -ne 1){throw "Operation non confirmee."}
+  $result=$lines[0].Substring(19)|ConvertFrom-Json
+  if($p.ExitCode -ne 0 -and $result.status -ne "deposit-unconfirmed"){throw "Operation non confirmee."}
+  return $result
+ }finally{$p.Dispose()}
+}
+function Show-MailRecovery([string]$Directory) {
+ $argsList=New-OperationArguments @{Id="MailRecoveryList";Scope=$true} $Directory "" ""
+ $result=Invoke-RecoveryHelper $argsList
+ if($result.status -ne "saved-messages"){throw "Liste indisponible."}
+ $rows=@($result.messages)
+ if($rows.Count -eq 0){
+  [Windows.Forms.MessageBox]::Show("Aucun message signe conserve dans ce coffre.","Quantic Mail","OK","Information")|Out-Null
+  return
+ }
+ if($rows.Count -gt 64){throw "Liste trop longue."}
+ $picker=New-Object Windows.Forms.Form
+ $picker.Text="Quantic Mail - reprendre un envoi"
+ $picker.StartPosition="CenterScreen";$picker.ClientSize=New-Object Drawing.Size(670,320)
+ $info=New-Object Windows.Forms.Label
+ $info.Text="Messages signes conserves. Leur statut de depot n'est pas verifie. Choisissez le message a reprendre."
+ $info.SetBounds(15,15,640,48);$picker.Controls.Add($info)
+ $list=New-Object Windows.Forms.ListBox
+ $list.SetBounds(15,70,640,180);$list.HorizontalScrollbar=$true
+ foreach($row in $rows){
+  if($row.name -cnotmatch '^wire-[a-z0-9-]{1,48}\.json$' -or $row.digest -cnotmatch '^[a-f0-9]{64}$' -or $row.recipient -cnotmatch '^[a-z0-9][a-z0-9._-]{2,31}~[a-f0-9]{32}@quantic$'){throw "Message interne invalide."}
+  $reference=([string]$row.reference) -replace '[\x00-\x1f\x7f]',' '
+  $null=$list.Items.Add(($row.recipient+"  |  "+$reference))
+ }
+ $picker.Controls.Add($list)
+ $ok=New-Object Windows.Forms.Button;$ok.Text="Reprendre";$ok.SetBounds(335,265,155,35);$ok.Enabled=$false
+ $ok.DialogResult=[Windows.Forms.DialogResult]::OK;$picker.Controls.Add($ok);$picker.AcceptButton=$ok
+ $cancel=New-Object Windows.Forms.Button;$cancel.Text="Annuler";$cancel.SetBounds(500,265,155,35)
+ $cancel.DialogResult=[Windows.Forms.DialogResult]::Cancel;$picker.Controls.Add($cancel);$picker.CancelButton=$cancel
+ $list.Add_SelectedIndexChanged({$ok.Enabled=$list.SelectedIndex -ge 0})
+ try{
+  if($picker.ShowDialog() -ne [Windows.Forms.DialogResult]::OK -or $list.SelectedIndex -lt 0){return}
+  $selected=$rows[$list.SelectedIndex]
+ }finally{$picker.Dispose()}
+ $question="Reprendre ce message pour "+$selected.recipient+" ? Le message original sera transmis sans nouvelle signature. Si le depot existe deja, le relais ne cree pas de doublon."
+ if([Windows.Forms.MessageBox]::Show($question,"Confirmer la reprise","YesNo","Question") -ne [Windows.Forms.DialogResult]::Yes){return}
+ $argsRetry=New-OperationArguments @{Id="MailRecoveryRetry";Scope=$true} $Directory "" ""
+ $argsRetry+=@("-InputFile",[IO.Path]::Combine($Directory,$selected.name),"-OutputFile",$selected.digest)
+ $reply=Invoke-RecoveryHelper $argsRetry ("APPROVE "+$selected.digest)
+ if($reply.digest -cne $selected.digest){throw "Reponse inattendue."}
+ if($reply.status -eq "deposited"){
+  [Windows.Forms.MessageBox]::Show("Depot confirme par le relais. Le message original reste conserve.","Quantic Mail","OK","Information")|Out-Null
+ }else{
+  [Windows.Forms.MessageBox]::Show("Depot toujours non confirme. Le message original reste conserve. Retablissez le transport avant une nouvelle reprise.","Quantic Mail","OK","Warning")|Out-Null
+ }
 }
 $form=New-Object Windows.Forms.Form
 $form.Text="Quantic Sillage | Alpha privee"
@@ -95,7 +174,7 @@ $il=Label-At "Fichier prive" 24 309 672 22
 $inputName=Text-At 24 333 672
 $ol=Label-At "Nouvelle enveloppe" 24 372 672 22
 $outputName=Text-At 24 396 672
-$run=New-Object Windows.Forms.Button;$run.Text="Continuer dans le terminal securise"
+$run=New-Object Windows.Forms.Button;$run.Text="Continuer"
 $run.ForeColor=[Drawing.Color]::Black;$run.BackColor=[Drawing.Color]::FromArgb(196,223,244)
 $run.SetBounds(24,459,485,38);$form.Controls.Add($run)
 $quit=New-Object Windows.Forms.Button;$quit.Text="Fermer";$quit.ForeColor=[Drawing.Color]::Black
@@ -106,6 +185,7 @@ $script:selectedArguments=$null;$script:selectedAction=$null
 $choice.Add_SelectedIndexChanged({
  $a=$actions[$choice.SelectedIndex]
  $hint.Text=$a.Hint
+ $run.Text=if($a.Id -eq "MailRecovery"){"Choisir un message"}else{"Continuer dans le terminal securise"}
  $directory.Enabled=[bool]$a.Scope
  $inputName.Enabled=[bool]$a.Input
  $outputName.Enabled=[bool]$a.Output
@@ -123,7 +203,7 @@ $run.Add_Click({
 $choice.SelectedIndex=0
 if ($SelfTest) {
  try {
-  if($choice.Items.Count -ne 29 -or -not $inputName.Enabled -or -not $outputName.Enabled){throw "Dashboard initialization failed"}
+  if($choice.Items.Count -ne 30 -or -not $inputName.Enabled -or -not $outputName.Enabled){throw "Dashboard initialization failed"}
   $a=New-OperationArguments $actions[0] "C:\Quantic Lab\vault" "draft-test.json" "wire-test.json"
   if($a -notcontains "C:\Quantic Lab\vault\draft-test.json" -or $a -notcontains "C:\Quantic Lab\vault\wire-test.json"){throw "Wrong arguments"}
   $rejected=$false
@@ -131,6 +211,10 @@ if ($SelfTest) {
   if(-not $rejected){throw "Path traversal accepted"}
   $choice.SelectedIndex=13
   if($directory.Enabled -or $inputName.Enabled -or $outputName.Enabled){throw "Diagnostic fields enabled"}
+  $choice.SelectedIndex=29
+  if(-not $directory.Enabled -or $inputName.Enabled -or $outputName.Enabled -or $run.Text -ne "Choisir un message"){throw "Recovery controls failed"}
+  $recoveryArgs=New-OperationArguments @{Id="MailRecoveryList";Scope=$true} "C:\Quantic Lab\vault" "" ""
+  if($recoveryArgs -contains "-InputFile" -or $recoveryArgs -contains "-OutputFile"){throw "Recovery listing asks for technical filenames"}
   Write-Output "Dashboard controls and operation mapping verified"
  }finally{$form.Dispose()}
  exit 0
@@ -140,6 +224,10 @@ try {
   $script:selectedArguments=$null;$script:selectedAction=$null
   if ($form.ShowDialog() -ne [Windows.Forms.DialogResult]::OK) { break }
   $operationArgs=$script:selectedArguments
+  if($script:selectedAction -eq "MailRecovery"){
+   try{Show-MailRecovery $directory.Text}catch{[Windows.Forms.MessageBox]::Show("Operation non confirmee. Les messages signes sont conserves.","Quantic Mail","OK","Warning")|Out-Null}
+   continue
+  }
   if ($script:selectedAction -in @("PayOperator","PayOperatorConfigure")) {
    $configPin=Read-Host "Empreinte SHA256 independante de la configuration Pay"
    $operationArgs+=@("-PayConfigPin",$configPin)
