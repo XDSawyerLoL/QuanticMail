@@ -9,12 +9,12 @@ import {resealLabHop} from '../lib/quantic/scattering-hop-reseal-lab.mjs';
 import {peelAndResealLab,peelSecondLayer} from '../lib/quantic/scattering-second-layer-lab.mjs';
 import {createScatteringBatchMixer} from '../lib/quantic/scattering-batch-mixer-lab.mjs';
 
-const [queue,inPath,outPath,profile='balanced',mixRaw='1',secondPath]=process.argv.slice(2);
+const [queue,inPath,outPath,profile='balanced',mixRaw='1',batchRaw='8',secondPath]=process.argv.slice(2);
 const check=(ok,msg)=>{if(!ok)throw Error(msg)};
 check(queue&&isAbsolute(queue)&&['balanced','skewed','sparse'].includes(profile)&&['0','1'].includes(mixRaw),'isolated lab arguments only');
 const expected={balanced:200,skewed:120,sparse:4}[profile];
 const mix=mixRaw==='1';
-const batchSize=Number(process.env.SCATTERING_CHAIN_SECOND_BATCH||8);
+const batchSize=Number(batchRaw);
 check([4,8].includes(batchSize),'unsupported second-relay batch size');
 check(profile!=='sparse'||mix,'sparse requires padded mixer');
 function keyAt(path){
