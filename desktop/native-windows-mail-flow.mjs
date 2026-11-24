@@ -16,6 +16,7 @@ export function windowsScatteringScope(config){
  const c=config?.windowsScattering,p=config?.pqMode;
  check(c?.enabled===true&&p?.enabled===true&&c.address===p.address&&c.deviceId===p.deviceId&&c.receiptKeyFile===win32.join(config.windowsLab.dir,'receipt.key'));
  const u=new URL(c.endpoint);check(u.protocol==='http:'&&u.hostname==='127.0.0.1'&&u.port&&u.pathname==='/'&&!u.username&&!u.password&&!u.search&&!u.hash);
+ check(c.credentialMode===undefined||c.credentialMode==="vault-sealed-v1"&&c.token===undefined);
  return c;
 }
 // List only metadata of saved signed messages. This is NOT a pending-only queue:
@@ -38,6 +39,10 @@ export async function listWindowsSignedMail(config,storage,{listNames=readdir}={
 export async function runWindowsScatteringMail(config,storage,{operation,path,expectedDigest,approve,connect=connectNativeVault,mailboxFactory=createNativeMailboxClient}){
  const scope=windowsScatteringScope(config),dir=config.windowsLab.dir;
  check(typeof approve==='function'&&['send','retry-send','receive','recover-receive','confirm-receipt'].includes(operation));
+ const sealed=scope.credentialMode==="vault-sealed-v1";
+ let session;
+ const getClient=async()=>{if(!sealed)return mailboxFactory(scope);session??=await connect({...config,guiWindowsApproval:true});check(session.mailbox);return session.mailbox;};
+ try{
  const name=windowsLabPath(dir,path);
  const sending=operation==='send'||operation==='retry-send';
  check((sending?/^wire-/:/^receipt-/).test(name));
@@ -53,14 +58,14 @@ export async function runWindowsScatteringMail(config,storage,{operation,path,ex
   const reread=normalizeNativeRecord(await readJSON(storage,path));
   check(nativeRecordDigest(reread)===digest);
   try{
-   const client=await mailboxFactory(scope);
+   const client=await getClient();
    const r=await client.send(reread);
    check(r?.digest===digest&&typeof r.duplicate==='boolean'&&['queued','acknowledged'].includes(r.status)
     &&/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(r.id));
    return {status:'deposited',id:r.id,relayStatus:r.status,duplicate:r.duplicate,...saved};
   }catch{return {status:'deposit-unconfirmed',...saved,retryRequiresConfirmation:true};}
  }
- const client=await mailboxFactory(scope);
+ const client=await getClient();
  const key=await storage.read(scope.receiptKeyFile);
  let controller;
  try{
@@ -78,16 +83,17 @@ export async function runWindowsScatteringMail(config,storage,{operation,path,ex
   if(!await approve('Ouvrir le message authentifié et conserver un reçu chiffré ?'))return {status:'cancelled'};
   // Check account/id/digest and key before consuming the broker journal right.
   sealReceipt(key,scope,item,{subject:'',body:''});
-  controller=await connect(config);
+  controller=sealed?session:await connect(config);
   const p=await controller.openHybrid(item.record,{recover:operation==='recover-receive'});
   const payload={subject:p.subject,body:p.body};const display=safeMailDisplay(payload);
   const sealed=sealReceipt(key,scope,item,payload);
   await storage.writeReceipt(path,Buffer.from(JSON.stringify(sealed)+'\n'));
   const stored=openReceipt(key,scope,await readJSON(storage,path));
   check(stored.id===item.id&&stored.digest===item.digest&&stored.payload.subject===payload.subject&&stored.payload.body===payload.body);
-  controller.close();controller=undefined;
+  if(!sealed)controller.close();controller=undefined;
   // Only after exclusive write-through AND authenticated reread.
   await client.ack(item.id,item.digest);
   return {status:'acknowledged',id:item.id,digest:item.digest,display};
- }finally{key.fill(0);controller?.close();}
+ }finally{key.fill(0);if(!sealed)controller?.close();}
+ }finally{session?.close();}
 }

@@ -4,12 +4,13 @@ import {nativeRecordDigest,normalizeNativeRecord} from '../lib/quantic/native-ma
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const hex=/^[0-9a-f]{64}$/;
 const check=(x)=>{if(!x)throw Error('Native mailbox operation not confirmed');};
-export function createNativeMailboxClient({endpoint,address,deviceId,token}){
+export function createNativeMailboxClient({endpoint,address,deviceId,token,credentialMode},{transport}={}){
  const u=new URL(endpoint);
  check(u.protocol==='http:'&&u.hostname==='127.0.0.1'&&u.port&&u.pathname==='/'&&!u.username&&!u.password&&!u.search&&!u.hash);
  check(typeof address==='string'&&/^[a-z0-9][a-z0-9._-]{2,31}~[a-f0-9]{32}@quantic$/.test(address)&&typeof deviceId==='string'&&/^d-[a-f0-9]{32}$/.test(deviceId));
- check(typeof token==='string'&&/^[A-Za-z0-9._~-]{40,256}$/.test(token));
+ if(credentialMode==='vault-sealed-v1'){check(token===undefined&&typeof transport==='function');}else{check(credentialMode===undefined&&transport===undefined&&typeof token==='string'&&/^[A-Za-z0-9._~-]{40,256}$/.test(token));}
  function call(op,body){
+  if(credentialMode==='vault-sealed-v1')return transport(op,body);
   const raw=Buffer.from(JSON.stringify(body));check(raw.length<=32768);
   return new Promise((resolve,reject)=>{
    const req=request(new URL('/api/quantic/native/v1/'+op,u),{method:'POST',agent:false,headers:{'Content-Type':'application/json','Content-Length':raw.length,Authorization:'Bearer '+token,Connection:'close'}},res=>{
