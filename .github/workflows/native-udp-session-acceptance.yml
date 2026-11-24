@@ -4,6 +4,7 @@ on:
     branches: ['feat/native-mailbox-broker-session-20261124']
     paths:
       - 'lib/quantic/scattering-session*.mjs'
+      - 'standalone-relay/native-scattering*-mailbox*.mjs'
       - 'tests/scattering-session*.test.mjs'
       - 'tests/helpers/native-session-peer.mjs'
       - 'tests/helpers/native-scattering-link.mjs'
