@@ -60,7 +60,9 @@ func TestWindowsActivationPrivateImport(t *testing.T){
  kem,e:=pqGenerate("ML-KEM-768");if e!=nil{t.Fatal(e)};defer kem.close()
  dsa,e:=pqGenerate("ML-DSA-65");if e!=nil{t.Fatal(e)};defer dsa.close()
  kd,e:=kem.der(false);if e!=nil{t.Fatal(e)};dd,e:=dsa.der(false);if e!=nil{t.Fatal(e)}
- contacts:=[]senderContact{{Address:"testpeer~"+strings.Repeat("a",32)+"@quantic",Device:"d-"+strings.Repeat("b",32),ClassicalRoot:sk,PQRoot:dd,Encryption:ek,KEM:kd,Expires:now.Add(time.Hour).UnixMilli()}}
+ pt:=peer.agreement.PublicKey().Bytes()
+ peerID:="d-"+hexHash([]byte("P-256:"+b64.EncodeToString(pt[1:33])+":"+b64.EncodeToString(pt[33:])))[:32]
+ contacts:=[]senderContact{{Address:"testpeer~"+strings.Repeat("a",32)+"@quantic",Device:peerID,ClassicalRoot:sk,PQRoot:dd,Encryption:ek,KEM:kd,Expires:now.Add(time.Hour).UnixMilli()}}
  b:=windowsActivationBundle{"quantic-native-windows-activation-lab/v2",true,digest,roster,approvals,proof,"http://127.0.0.1:45001/",anchors,cps,anchorTLS,checkpointTLS,contacts}
  raw,e:=json.Marshal(b);if e!=nil{t.Fatal(e)}
  if _,e=parseWindowsActivation(raw,strings.Repeat("e",64));e==nil{t.Fatal("wrong package pin accepted")}

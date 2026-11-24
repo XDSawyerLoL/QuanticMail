@@ -1,3 +1,5 @@
+import {spawnSync} from 'node:child_process';
+import {verifyNativeTransportRequest} from '../desktop/native-transport-csr.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {generateKeyPairSync,createHash,sign,createPublicKey,diffieHellman,decapsulate,encapsulate,hkdfSync,createDecipheriv,createCipheriv,randomBytes} from 'node:crypto';
@@ -239,4 +241,30 @@ test('native-only relay durably publishes two quorum-enrolled identities, refuse
   }
   assert.deepEqual(await readFile(join(root,'relay-state.json')),legacy);
  }finally{await Promise.all([...links.values()].map(x=>x.close()));await stop();await rm(root,{recursive:true,force:true});}
+});
+
+test('operator verifies two real certificate requests and refuses substitution, duplicate keys and missing quorum',{skip:process.platform!=='linux'},()=>{
+ const f=fixture(),{request,votes,opts,controller}=f;
+ const {credential}=makeNativeEnrollmentCredential(request,votes,opts,controller.privateKey);
+ const {requestDigest}=verifyNativeEnrollmentQuorum(request,votes,opts);
+ function csr(role,key=ec()){
+  const subject='/CN=quantic-lab-'+role+'-'+requestDigest.slice(0,32);
+  const result=spawnSync('openssl',['req','-new','-key','/dev/stdin','-subj',subject,'-outform','DER'],{input:key.privateKey.export({type:'pkcs8',format:'pem'}),timeout:5000,maxBuffer:16384});
+  assert.equal(result.status,0,result.stderr?.toString());return result.stdout.toString('base64url');
+ }
+ function signed(a,c){
+  const value={format:'quantic-native-transport-csr-lab/v1',requestDigest,tokenHash:credential.tokenHash,anchorCsr:a,checkpointCsr:c};
+  value.signature=sign(null,buf([value.format,requestDigest,credential.tokenHash,hash(a),hash(c)]),controller.privateKey).toString('base64url');
+  return value;
+ }
+ const value=signed(csr('anchor'),csr('checkpoint'));
+ const result=verifyNativeTransportRequest(request,votes,opts,credential,value);
+ assert.equal(result.requests.length,2);assert.equal(result.mailAuthorized,false);
+ assert.notEqual(result.requests[0].publicKeyPin,result.requests[1].publicKeyPin);
+ assert.throws(()=>verifyNativeTransportRequest(request,votes.slice(0,2),opts,credential,value));
+ assert.throws(()=>verifyNativeTransportRequest(request,votes,opts,credential,{...value,anchorCsr:csr('anchor')}));
+ assert.throws(()=>verifyNativeTransportRequest(request,votes,opts,credential,signed(value.checkpointCsr,value.anchorCsr)));
+ const key=ec();assert.throws(()=>verifyNativeTransportRequest(request,votes,opts,credential,signed(csr('anchor',key),csr('checkpoint',key))));
+ const der=Buffer.from(value.anchorCsr,'base64url');der[der.length-1]^=1;
+ assert.throws(()=>verifyNativeTransportRequest(request,votes,opts,credential,signed(der.toString('base64url'),value.checkpointCsr)));
 });
