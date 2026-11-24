@@ -4,6 +4,8 @@ package main
 
 import(
  "path/filepath"
+ "fmt"
+ "strings"
  "runtime"
  "syscall"
  "unicode/utf16"
@@ -31,7 +33,7 @@ type backupOpenFileName struct{
  reservedDWORD,flagsEx uint32
 }
 
-var backupHandle *sentinel.BackupLock
+var backupHandles []*sentinel.BackupLock
 var backupButton,backupLabel uintptr
 
 func chooseBackup(owner uintptr)(string,bool){
@@ -47,22 +49,31 @@ func chooseBackup(owner uintptr)(string,bool){
  path:=syscall.UTF16ToString(buf)
  return path,path!=""
 }
-func releaseBackup(hwnd uintptr)bool{
- if backupHandle==nil{return true}
- if err:=backupHandle.Close();err!=nil{
-  messageBox.Call(hwnd,uintptr(unsafe.Pointer(u16("Libération impossible : "+err.Error()))),uintptr(unsafe.Pointer(u16("Copie de sauvegarde"))),0x30)
-  return false
- }
- backupHandle=nil
- setLabel(backupButton,"Verrouiller une copie")
- setLabel(backupLabel,"Copie de sauvegarde : aucun verrou actif.")
- return true
+func selectedBackupIdentities()[]sentinel.BackupIdentity{
+ out:=make([]sentinel.BackupIdentity,0,len(backupHandles))
+ for _,l:=range backupHandles{out=append(out,l.Identity())}
+ return out
+}
+func refreshBackupLabel(){
+ configured:=0
+ if m,e:=readManifest();e==nil{configured=len(m.Backups)}
+ setLabel(backupLabel,fmt.Sprintf("Copies verrouillées ici : %d/16. Agent : %d configurée(s), voir historique.",len(backupHandles),configured))
+}
+func releaseBackup(hwnd uintptr){
+ remaining:=make([]*sentinel.BackupLock,0)
+ for _,l:=range backupHandles{if err:=l.Close();err!=nil{remaining=append(remaining,l)}}
+ backupHandles=remaining
+ refreshBackupLabel()
+ if len(remaining)>0{messageBox.Call(hwnd,uintptr(unsafe.Pointer(u16("Certains verrous locaux n'ont pas pu être libérés."))),uintptr(unsafe.Pointer(u16("Sauvegardes"))),0x30)}
 }
 func toggleBackup(hwnd uintptr){
- if backupHandle!=nil{releaseBackup(hwnd);return}
+ if len(backupHandles)>=sentinel.MaxBackupLocks{
+  messageBox.Call(hwnd,uintptr(unsafe.Pointer(u16("Limite de 16 copies atteinte."))),uintptr(unsafe.Pointer(u16("Sauvegardes"))),0x30)
+  return
+ }
  path,ok:=chooseBackup(hwnd)
  if !ok{return}
- msg:="Protéger cette copie de sauvegarde ?\n\n"+path+"\n\nWindows refusera les nouvelles ouvertures en écriture, suppression et renommage tant que le verrou reste actif.\n\nN'utilisez pas un coffre ou fichier actif. La fermeture de Sentinel libère le verrou. Ce n'est pas une protection générale du PC."
+ msg:="Protéger cette copie inactive ?\n\n"+path+"\n\nLes écritures et suppressions seront refusées tant qu'un verrou est détenu. Installez l'agent après avoir sélectionné toutes les copies pour les reprendre en arrière-plan. Pour modifier sa sélection, désinstallez puis réinstallez l'agent."
  decision,_,_:=messageBox.Call(hwnd,uintptr(unsafe.Pointer(u16(msg))),uintptr(unsafe.Pointer(u16("Protection temporaire d'une copie"))),0x134)
  if decision!=6{return}
  lock,err:=sentinel.LockBackup(path)
@@ -70,8 +81,8 @@ func toggleBackup(hwnd uintptr){
   messageBox.Call(hwnd,uintptr(unsafe.Pointer(u16("Protection non activée : "+err.Error()))),uintptr(unsafe.Pointer(u16("Copie de sauvegarde"))),0x30)
   return
  }
- backupHandle=lock
- setLabel(backupLabel,"Copie verrouillée : "+filepath.Base(path)+" (jusqu'à libération ou fermeture).")
- setLabel(backupButton,"Libérer la copie")
+ for _,old:=range backupHandles{if strings.EqualFold(old.Path(),lock.Path()){_ =lock.Close();return}}
+ backupHandles=append(backupHandles,lock)
+ refreshBackupLabel()
  addLog("Copie verrouillée en lecture seule : "+filepath.Base(path))
 }
