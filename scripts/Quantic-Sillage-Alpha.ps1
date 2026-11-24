@@ -54,7 +54,9 @@ $actions=@(
  @{Id="ImportMailKitGui";Title="Quantic Mail - Activer ma configuration de test";Hint="Importer le kit prive fourni par un operateur de confiance. Aucun remplacement de cle ni inscription distante.";Scope=$true},
  @{Id="ImportSessionKitGui";Title="Quantic ID - Activer ma configuration";Hint="Importer le kit prive approuve, une seule fois. Aucun compte reel.";Scope=$true},
  @{Id="SessionGui";Title="Quantic ID - Ouvrir ma session";Hint="Connexion de test a trois autorites minimum; verrouillage automatique Windows. Configuration privee approuvee requise.";Scope=$true},
- @{Id="MailAttest";Title="Quantic Mail - verifier les quatre autorites en direct";Hint="Exige trois attestations mTLS fraiches sur quatre avant confirmation. N'envoie aucun mail.";Scope=$true}
+ @{Id="MailAttest";Title="Quantic Mail - verifier les quatre autorites en direct";Hint="Exige trois attestations mTLS fraiches sur quatre avant confirmation. N'envoie aucun mail.";Scope=$true},
+ @{Id="ProbeLanReceive";Title="Scattering - tester la reception sur ce PC";Hint="Diagnostic de couverture UDP de 60 secondes sur le reseau prive. Aucun message ni compte."},
+ @{Id="ProbeLanSend";Title="Scattering - tester l'envoi vers un autre PC";Hint="Diagnostic de couverture UDP de 30 secondes vers un PC autorise. Aucun message ni compte."}
 )
 function New-OperationArguments($Action,[string]$Directory,[string]$InputName,[string]$OutputName) {
  $a=@("-Operation",$Action.Id,"-ExpectedManifestSha256",$ExpectedManifestSha256,"-TrustedBinarySha256",$TrustedBinarySha256.ToLowerInvariant())
@@ -131,7 +133,7 @@ $script:selectedArguments=$null;$script:selectedAction=$null
 $choice.Add_SelectedIndexChanged({
  $a=$actions[$choice.SelectedIndex]
  $hint.Text=$a.Hint
- $run.Text=if($a.Id -eq "ProvisionGui"){"Creer mon identite"}elseif($a.Id -eq "VerifyGui"){"Verifier et refermer le coffre"}elseif($a.Id -eq "ImportSessionKitGui"){"Activer ma configuration"}elseif($a.Id -eq "SessionGui"){"Ouvrir ma session"}elseif($a.Id -eq "ImportMailKitGui"){"Importer la configuration"}elseif($a.Id -eq "ComposeGui"){"Rediger un message"}elseif($a.Id -eq "RecoverComposeGui"){"Reprendre le message"}elseif($a.Id -eq "SendGui"){"Choisir et envoyer"}elseif($a.Id -eq "ReceiveGui"){"Recevoir"}else{"Ouvrir les outils avances (terminal)"}
+ $run.Text=if($a.Id -eq "ProvisionGui"){"Creer mon identite"}elseif($a.Id -eq "VerifyGui"){"Verifier et refermer le coffre"}elseif($a.Id -eq "ImportSessionKitGui"){"Activer ma configuration"}elseif($a.Id -in @("ProbeLanReceive","ProbeLanSend")){"Tester la connexion"}elseif($a.Id -eq "SessionGui"){"Ouvrir ma session"}elseif($a.Id -eq "ImportMailKitGui"){"Importer la configuration"}elseif($a.Id -eq "ComposeGui"){"Rediger un message"}elseif($a.Id -eq "RecoverComposeGui"){"Reprendre le message"}elseif($a.Id -eq "SendGui"){"Choisir et envoyer"}elseif($a.Id -eq "ReceiveGui"){"Recevoir"}else{"Ouvrir les outils avances (terminal)"}
  $directory.Enabled=[bool]$a.Scope
  $browse.Visible=($a.Id -in @("ProvisionGui","VerifyGui","SendGui","ReceiveGui","ComposeGui","RecoverComposeGui","ImportMailKitGui","ImportSessionKitGui","SessionGui"))
  $directory.Width=if($browse.Visible){530}else{672}
@@ -152,7 +154,7 @@ $choice.SelectedIndex=0
 if (-not $SelfTest -and -not $AdvancedAction) {$choice.SelectedIndex=10}
 if ($SelfTest) {
  try {
-  if($choice.Items.Count -ne 37 -or -not $inputName.Enabled -or -not $outputName.Enabled){throw "Dashboard initialization failed"}
+  if($choice.Items.Count -ne 39 -or -not $inputName.Enabled -or -not $outputName.Enabled){throw "Dashboard initialization failed"}
   $a=New-OperationArguments $actions[0] "C:\Quantic Lab\vault" "draft-test.json" "wire-test.json"
   if($a -notcontains "C:\Quantic Lab\vault\draft-test.json" -or $a -notcontains "C:\Quantic Lab\vault\wire-test.json"){throw "Wrong arguments"}
   $rejected=$false
@@ -174,7 +176,13 @@ if ($SelfTest) {
    $mailArgs=New-OperationArguments $mailAction[0] "C:\Quantic Lab\vault" "" ""
    if($mailArgs -notcontains $id -or $mailArgs -contains "-InputFile"){throw "Graphical mail mapping refused"}
   }
-  Write-Output "Dashboard controls, graphical identity and mail route verified"
+  foreach($id in @("ProbeLanReceive","ProbeLanSend")){
+   $probe=@($actions|Where-Object {$_.Id -ceq $id})
+   if($probe.Count -ne 1){throw "Missing LAN diagnostic"}
+   $probeArgs=New-OperationArguments $probe[0] "" "" ""
+   if($probeArgs -notcontains $id -or $probeArgs -contains "-PrivateDirectory"){throw "LAN diagnostic mapping refused"}
+  }
+  Write-Output "Dashboard controls, graphical identity, LAN probe and mail route verified"
  }finally{$form.Dispose()}
  exit 0
 }
@@ -349,6 +357,66 @@ function Invoke-SessionKitImport($operationArgs) {
  if($record.status -cne "local-session-kit-imported-lab"){throw "Import non confirme."}
  [Windows.Forms.MessageBox]::Show("Configuration importee et relue. Utiliser Ouvrir ma session. Aucun compte reel active.","Quantic ID","OK","Information")|Out-Null
 }
+function Invoke-GraphicalLanProbe([string]$action) {
+ if($action -notin @("ProbeLanReceive","ProbeLanSend")){throw "Diagnostic inconnu."}
+ $receive=$action -eq "ProbeLanReceive"
+ $prompt=if($receive){
+  $local=@(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction Stop|Where-Object {$_.IPAddress -match '^(10[.]|192[.]168[.]|172[.](1[6-9]|2[0-9]|3[01])[.])'}|Select-Object -ExpandProperty IPAddress -Unique)
+  "Choisir une adresse IPv4 de ce PC. Adresses detectees : "+($local -join ", ")+". Le second PC doit lancer son envoi pendant les 60 secondes du test."
+ }else{"Entrer l'adresse IPv4 privee du PC autorise, qui doit deja avoir lance sa reception."}
+ $ip=Read-PublicValue "Scattering - test reseau prive" $prompt
+ if($null -eq $ip){return}
+ if($ip -cnotmatch '^(?:10|172|192)[.](?:0|[1-9][0-9]{0,2})[.](?:0|[1-9][0-9]{0,2})[.](?:0|[1-9][0-9]{0,2})$'){throw "Adresse IPv4 privee requise."}
+ $o=@($ip.Split('.')|ForEach-Object {[int]$_})
+ if(($o|Where-Object {$_ -gt 255}).Count -gt 0 -or -not ($o[0] -eq 10 -or ($o[0] -eq 172 -and $o[1] -ge 16 -and $o[1] -le 31) -or ($o[0] -eq 192 -and $o[1] -eq 168)) -or $o[3] -in @(0,255)){throw "Adresse privee unicast requise."}
+ if($receive -and $ip -notin $local){throw "Adresse locale inconnue."}
+ $question=if($receive){"Ecouter pendant 60 secondes sur UDP 49001, sans modifier le pare-feu ?"}else{"Envoyer des paquets de test aleatoires pendant 30 secondes au PC autorise "+$ip+" ?"}
+ if([Windows.Forms.MessageBox]::Show($question,"Scattering","YesNo","Question") -ne [Windows.Forms.DialogResult]::Yes){return}
+ $psi=New-Object System.Diagnostics.ProcessStartInfo
+ $psi.FileName=$shell
+ $psi.Arguments='-NoProfile -NonInteractive -File "'+$launcher+'" -Operation '+$action+' -ExpectedManifestSha256 '+$ExpectedManifestSha256+' -ProbeAddress '+$ip
+ $psi.WorkingDirectory=$root;$psi.UseShellExecute=$false;$psi.CreateNoWindow=$true;$psi.RedirectStandardOutput=$true;$psi.RedirectStandardError=$true
+ $dialog=New-Object Windows.Forms.Form
+ $dialog.Text="Scattering | Diagnostic LAN";$dialog.StartPosition="CenterScreen";$dialog.ClientSize=New-Object Drawing.Size(580,200);$dialog.FormBorderStyle="FixedDialog";$dialog.MaximizeBox=$false
+ $status=New-Object Windows.Forms.Label
+ $status.Text=if($receive){"Reception en cours. Lancez maintenant l'envoi sur l'autre PC."}else{"Envoi de couverture en cours. Cela ne confirme pas la reception."}
+ $status.SetBounds(18,18,544,115)
+ $close=New-Object Windows.Forms.Button;$close.Text="Fermer";$close.SetBounds(404,146,158,34);$close.Enabled=$false;$close.DialogResult=[Windows.Forms.DialogResult]::OK
+ $dialog.Controls.AddRange(@($status,$close))
+ $timer=New-Object Windows.Forms.Timer;$timer.Interval=200
+ $state=@{finished=$false;started=[DateTimeOffset]::UtcNow;child=$null;out=$null;err=$null}
+ $dialog.Add_FormClosing({param($sender,$eventArgs) if(-not $state.finished){$eventArgs.Cancel=$true}})
+ try{
+  $state.child=[System.Diagnostics.Process]::Start($psi);$state.out=$state.child.StandardOutput.ReadToEndAsync();$state.err=$state.child.StandardError.ReadToEndAsync()
+  $timer.Add_Tick({
+   try{
+    if(-not $state.child.HasExited){
+     $elapsed=([DateTimeOffset]::UtcNow-$state.started).TotalSeconds
+     if($elapsed -gt 100){$state.child.Kill();throw "Diagnostic interrompu; les processus natifs ont une duree limitee."}
+     return
+    }
+    if(-not $state.out.IsCompleted -or -not $state.err.IsCompleted){return}
+    if($state.child.ExitCode -ne 0){throw "Diagnostic refuse ou aucun paquet recu. Verifier les adresses, le reseau et le pare-feu."}
+    $line=@($state.out.GetAwaiter().GetResult().Split([char]10)|Where-Object {$_.TrimStart().StartsWith("{")}|Select-Object -Last 1)
+    if($line.Count -ne 1){throw "Rapport de diagnostic absent."}
+    $r=$line[0]|ConvertFrom-Json
+    if($receive){
+     if($r.mode -cne "physical-cover-receive" -or $r.received -le 0){throw "Reception non confirmee."}
+     $status.Text="Connectivite UDP observee : "+$r.received+" paquets. Malformes : "+$r.malformed+". Intervalle median : "+$r.gapMedianMs+" ms. P95 : "+$r.gapP95Ms+" ms. Aucun message authentifie teste."
+    }else{
+     if($r.mode -cne "physical-cover-send"){throw "Envoi non confirme."}
+     $status.Text="Emission de couverture terminee. Seul le rapport du PC receveur peut confirmer la connectivite."
+    }
+   }catch{$status.Text=$_.Exception.Message}
+   $timer.Stop();$state.finished=$true;$close.Enabled=$true
+  })
+  $timer.Start();$null=$dialog.ShowDialog()
+ }finally{
+  $timer.Stop();$timer.Dispose()
+  if($null -ne $state.child){try{if(-not $state.child.HasExited){$state.child.Kill()}}catch{};$state.child.Dispose()}
+  $dialog.Dispose()
+ }
+}
 function Invoke-GraphicalSession([string]$vaultDir) {
  $pin="approved"
  # The startup manifest pin is supplied by the native launcher, not the configuration.
@@ -474,6 +542,8 @@ try {
     Invoke-GraphicalVerify $script:selectedArguments
    }elseif($script:selectedAction -eq "ImportSessionKitGui"){
     Invoke-SessionKitImport $script:selectedArguments
+   }elseif($script:selectedAction -in @("ProbeLanReceive","ProbeLanSend")){
+    Invoke-GraphicalLanProbe $script:selectedAction
    }elseif($script:selectedAction -eq "SessionGui"){
     Invoke-GraphicalSession $directory.Text
    }elseif($script:selectedAction -eq "ImportMailKitGui"){
