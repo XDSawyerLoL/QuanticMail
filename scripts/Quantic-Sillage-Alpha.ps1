@@ -29,6 +29,7 @@ $actions=@(
  @{Id="RecoverReceive";Title="Recuperer une reception";Hint="Reprendre le resultat exact ; nouveau fichier de recu obligatoire.";Input="receipt";Scope=$true},
  @{Id="ConfirmReceipt";Title="Confirmer un recu existant";Hint="Verifier le recu conserve et confirmer au relais.";Input="receipt";Scope=$true},
  @{Id="ProvisionGui";Title="Identity Vault - Creer mon identite de test";Hint="Assistant graphique : deux phrases secretes distinctes. Empreinte du quorum approuvee requise. Aucun compte distant.";Scope=$true},
+ @{Id="VerifyGui";Title="Identity Vault - Verifier mon coffre existant";Hint="Ouvrir les deux coffres avec leurs phrases secretes, verifier les cles locales puis les refermer. Aucun compte distant.";Scope=$true},
  @{Id="ProvisionPair";Title="Creer deux coffres de test PQ";Hint="Deux identites fictives, deux repertoires neufs. Empreintes de quorum independantes exigees ; aucun compte distant.";Scope=$true},
  @{Id="StartBridge";Title="Demarrer le pont Scattering";Hint="Dossier de transport distinct deja configure ; pacer et sink separes requis.";Scope=$true},
  @{Id="Providers";Title="Verifier la cryptographie";Hint="Diagnostic du fournisseur cryptographique natif."},
@@ -100,11 +101,11 @@ $browse.ForeColor=[Drawing.Color]::Black;$browse.SetBounds(566,270,130,28)
 $form.Controls.Add($browse)
 $browse.Add_Click({
  $picker=New-Object Windows.Forms.FolderBrowserDialog
- $picker.Description="Choisir le dossier parent du nouveau coffre de test"
+ $picker.Description=if($actions[$choice.SelectedIndex].Id -eq "VerifyGui"){"Choisir le dossier du coffre existant"}else{"Choisir le dossier parent du nouveau coffre de test"}
  $picker.ShowNewFolderButton=$false
  try{
   if($picker.ShowDialog() -eq [Windows.Forms.DialogResult]::OK){
-   $directory.Text=[IO.Path]::Combine($picker.SelectedPath,("Quantic-Test-"+[Guid]::NewGuid().ToString("N").Substring(0,12)))
+   $directory.Text=if($actions[$choice.SelectedIndex].Id -eq "VerifyGui"){$picker.SelectedPath}else{[IO.Path]::Combine($picker.SelectedPath,("Quantic-Test-"+[Guid]::NewGuid().ToString("N").Substring(0,12)))}
   }
  }finally{$picker.Dispose()}
 })
@@ -123,9 +124,9 @@ $script:selectedArguments=$null;$script:selectedAction=$null
 $choice.Add_SelectedIndexChanged({
  $a=$actions[$choice.SelectedIndex]
  $hint.Text=$a.Hint
- $run.Text=if($a.Id -eq "ProvisionGui"){"Creer mon identite"}else{"Ouvrir les outils avances (terminal)"}
+ $run.Text=if($a.Id -eq "ProvisionGui"){"Creer mon identite"}elseif($a.Id -eq "VerifyGui"){"Verifier et refermer le coffre"}else{"Ouvrir les outils avances (terminal)"}
  $directory.Enabled=[bool]$a.Scope
- $browse.Visible=($a.Id -eq "ProvisionGui")
+ $browse.Visible=($a.Id -in @("ProvisionGui","VerifyGui"))
  $directory.Width=if($browse.Visible){530}else{672}
  $inputName.Enabled=[bool]$a.Input
  $outputName.Enabled=[bool]$a.Output
@@ -144,18 +145,22 @@ $choice.SelectedIndex=0
 if (-not $SelfTest -and -not $AdvancedAction) {$choice.SelectedIndex=10}
 if ($SelfTest) {
  try {
-  if($choice.Items.Count -ne 29 -or -not $inputName.Enabled -or -not $outputName.Enabled){throw "Dashboard initialization failed"}
+  if($choice.Items.Count -ne 30 -or -not $inputName.Enabled -or -not $outputName.Enabled){throw "Dashboard initialization failed"}
   $a=New-OperationArguments $actions[0] "C:\Quantic Lab\vault" "draft-test.json" "wire-test.json"
   if($a -notcontains "C:\Quantic Lab\vault\draft-test.json" -or $a -notcontains "C:\Quantic Lab\vault\wire-test.json"){throw "Wrong arguments"}
   $rejected=$false
   try{$null=New-OperationArguments $actions[3] "C:\Quantic Lab\vault" "..\wire-test.json" ""}catch{$rejected=$true}
   if(-not $rejected){throw "Path traversal accepted"}
-  $choice.SelectedIndex=13
+  $choice.SelectedIndex=14
   if($directory.Enabled -or $inputName.Enabled -or $outputName.Enabled){throw "Diagnostic fields enabled"}
   $choice.SelectedIndex=10
   if($actions[10].Id -cne "ProvisionGui" -or $inputName.Enabled -or $outputName.Enabled -or -not $directory.Enabled){throw "Graphical identity action unavailable"}
   $provisionArgs=New-OperationArguments $actions[10] "C:\Quantic Lab\new-test-vault" "" ""
   if($provisionArgs -notcontains "ProvisionGui" -or $provisionArgs -contains "-InputFile" -or $provisionArgs -contains "-OutputFile"){throw "Graphical identity arguments refused"}
+  $choice.SelectedIndex=11
+  if($actions[11].Id -cne "VerifyGui" -or $inputName.Enabled -or $outputName.Enabled -or -not $directory.Enabled){throw "Graphical verification action unavailable"}
+  $verifyArgs=New-OperationArguments $actions[11] "C:\Quantic Lab\new-test-vault" "" ""
+  if($verifyArgs -notcontains "VerifyGui" -or $verifyArgs -contains "-InputFile"){throw "Graphical verification mapping refused"}
   Write-Output "Dashboard controls, graphical identity route and operation mapping verified"
  }finally{$form.Dispose()}
  exit 0
@@ -219,7 +224,7 @@ function Invoke-AdvancedOperation([string]$ActionId,$operationArgs) {
 if ($AdvancedAction) {
  try {
   $a=@($actions | Where-Object {$_.Id -ceq $AdvancedAction})
-  if($a.Count -ne 1 -or $AdvancedAction -eq "ProvisionGui"){throw "Operation avancee refusee"}
+  if($a.Count -ne 1 -or $AdvancedAction -in @("ProvisionGui","VerifyGui")){throw "Operation avancee refusee"}
   $op=New-OperationArguments $a[0] $AdvancedDirectory $AdvancedInputName $AdvancedOutputName
   Invoke-AdvancedOperation $AdvancedAction $op
  }finally{$form.Dispose()}
@@ -256,6 +261,13 @@ function Invoke-GraphicalProvision($operationArgs) {
  if($record.status -cne "local-provision-only-not-enrolled" -or $record.localReadback -cne "verified" -or $record.address -cne $address -or $record.deviceId -cnotmatch '^d-[a-f0-9]{32}$'){throw "Resultat natif non confirme. Conserver le dossier."}
  [Windows.Forms.MessageBox]::Show("Identite de test creee localement. Le coffre est ferme. Aucun compte distant inscrit.","Identity Vault","OK","Information")|Out-Null
 }
+function Invoke-GraphicalVerify($operationArgs) {
+ $publicResult=& $shell -NoProfile -File $launcher @operationArgs
+ if($LASTEXITCODE -ne 0){throw "Verification annulee ou refusee. Le coffre reste ferme."}
+ $record=($publicResult | Select-Object -Last 1 | ConvertFrom-Json)
+ if($record.status -cne "local-vault-verified-closed"){throw "Verification non confirmee."}
+ [Windows.Forms.MessageBox]::Show("Les deux coffres ont ete ouverts et verifies, puis refermes. Aucun compte distant connecte.","Identity Vault","OK","Information")|Out-Null
+}
 try {
  while ($true) {
   $script:selectedArguments=$null;$script:selectedAction=$null
@@ -263,6 +275,8 @@ try {
   try{
    if ($script:selectedAction -eq "ProvisionGui") {
     Invoke-GraphicalProvision $script:selectedArguments
+   }elseif($script:selectedAction -eq "VerifyGui"){
+    Invoke-GraphicalVerify $script:selectedArguments
    }else{
     # All values have already been validated by New-OperationArguments.
     # Quote only the strictly validated public path and technical names.
