@@ -238,8 +238,16 @@ test('CA-valid but wrongly pinned witnesses never receive application metadata',
    const signer=generateKeyPairSync('ed25519');
    authorities.push({url:'https://127.0.0.1:'+server.address().port+'/native-checkpoint',tlsPin:sha('wrong synthetic certificate '+i),pin:sha(spki(signer)),publicKey:spki(signer).toString('base64url')});
   }
-  const source=await createAttestedPeerSource({authorities,caFile:join(root,'ca.crt'),clientCertFile:join(root,'client.crt'),clientKeyFile:join(root,'client.key')});
-  await assert.rejects(source('alice~'+'a'.repeat(32)+'@quantic','d-'+'1'.repeat(32)));
+  const keyPath=join(root,'client.key'),keys=[];
+  const source=await createAttestedPeerSource({authorities,caFile:join(root,'ca.crt'),clientCertFile:join(root,'client.crt'),clientKeyFile:keyPath},{read:async path=>{
+   const bytes=await readFile(path);if(path===keyPath)keys.push(bytes);return bytes;
+  }});
+  assert.equal(keys.length,0,'TLS key loaded before quorum request');
+  for(let n=1;n<=2;n++){
+   await assert.rejects(source('alice~'+'a'.repeat(32)+'@quantic','d-'+'1'.repeat(32)));
+   assert.equal(keys.length,n);
+   assert.ok(keys.every(k=>k.every(b=>b===0)),'TLS key buffer retained after failure');
+  }
   assert.equal(hits,0);
  }finally{
   for(const s of servers){s.closeAllConnections();await new Promise(r=>s.close(r));}

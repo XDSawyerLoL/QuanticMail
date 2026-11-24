@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {generateKeyPairSync,createHash,verify,createHmac,diffieHellman,createPublicKey} from 'node:crypto';
-import {controllerFrame,normalizeClassicalEnvelope,connectNativeVault,newBrokerSessionChallenge} from '../desktop/native-vault-controller.mjs';
+import {controllerFrame,normalizeClassicalEnvelope,connectNativeVault,newBrokerSessionChallenge,parseNativeReply} from '../desktop/native-vault-controller.mjs';
 test('native IPC frame binds exact bytes, nonce and sequence',()=>{
  const k=generateKeyPairSync('ed25519'),nonce=Buffer.alloc(32,5),body={op:'public'};
  const f=JSON.parse(controllerFrame(nonce,1,body,k.privateKey));
@@ -40,4 +40,12 @@ test('broker must possess pinned private key; copied public keys and old proof a
  valid.verify(proof);assert.throws(()=>valid.verify(proof),/consumed/);
  const wrong=newBrokerSessionChallenge(owner.publicKey);assert.throws(()=>wrong.verify(answer(wrong,impostor.privateKey)),/mismatch/);
  const fresh=newBrokerSessionChallenge(owner.publicKey);assert.throws(()=>fresh.verify(proof),/mismatch/);
+});
+
+test('native reply parser clears owned bytes on success, malformed UTF-8 and invalid JSON',()=>{
+ for(const bytes of [Buffer.from('{"ok":true,"message":"synthetic secret"}'),Buffer.from('{bad'),Buffer.from([0xc0,0xaf]),Buffer.from('[]')]){
+  if(bytes[0]===123&&bytes[1]===34)assert.equal(parseNativeReply(bytes).ok,true);
+  else assert.throws(()=>parseNativeReply(bytes));
+  assert.ok(bytes.every(b=>b===0),'reply bytes retained');
+ }
 });

@@ -14,7 +14,7 @@ const check=(ok,msg)=>{if(!ok)throw new Error(msg)};
 function b64(s,min,max,encoding='base64url'){
   check(typeof s==='string'&&s.length<=Math.ceil(max/3)*4,'invalid encoding');
   const b=Buffer.from(s,encoding);
-  check(b.length>=min&&b.length<=max&&b.toString(encoding)===s,'invalid encoding');
+  if(b.length<min||b.length>max||b.toString(encoding)!==s){b.fill(0);throw Error('invalid encoding');}
   return b;
 }
 function publicPoint(s){
@@ -43,10 +43,23 @@ export function newBrokerSessionChallenge(vaultPublicKey){
 }
 export function controllerFrame(nonce,seq,body,key){
   check(Buffer.isBuffer(nonce)&&nonce.length===32&&Number.isInteger(seq)&&seq>=1&&seq<=256,'invalid session');
-  const raw=Buffer.from(JSON.stringify(body));check(raw.length<=32767,'request too large');
-  const count=Buffer.alloc(4);count.writeUInt32BE(seq);
-  const digest=hash(Buffer.concat([Buffer.from('quantic-vault-controller-lab/v1\0'),nonce,count,raw]));
-  return JSON.stringify({seq,body:raw.toString('base64url'),sig:sign(null,digest,key).toString('base64url')})+'\n';
+  const raw=Buffer.from(JSON.stringify(body));
+  try{
+    check(raw.length<=32767,'request too large');
+    const count=Buffer.alloc(4);count.writeUInt32BE(seq);
+    const digest=createHash('sha256').update('quantic-vault-controller-lab/v1\0').update(nonce).update(count).update(raw).digest();
+    try{return JSON.stringify({seq,body:raw.toString('base64url'),sig:sign(null,digest,key).toString('base64url')})+'\n';}
+    finally{digest.fill(0);}
+  }finally{raw.fill(0);}
+}
+// Takes ownership of the reply bytes. This cannot erase immutable JS strings.
+export function parseNativeReply(bytes){
+  try{
+    check(Buffer.isBuffer(bytes)&&bytes.length>0&&bytes.length<=32768,'invalid native reply size');
+    const r=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(bytes));
+    check(r&&typeof r==='object'&&!Array.isArray(r),'invalid native reply');
+    return r;
+  }finally{if(Buffer.isBuffer(bytes))bytes.fill(0);}
 }
 export function normalizeClassicalEnvelope(e){
   check(e&&typeof e==='object'&&!Array.isArray(e),'invalid envelope');
@@ -97,18 +110,26 @@ export async function connectNativeVault({binary,binarySha256,vault,journal,quor
   const child=spawn(binary,args,{shell:false,stdio:['pipe','pipe',guiWindowsApproval?'ignore':'inherit'],...(storage?{cwd:win32.dirname(binary),env:storage.env,windowsHide:guiWindowsApproval}:{})});
   let buf=Buffer.alloc(0),waiter=null,closed=false,busy=false,seq=0,nonce,signing;
   function fail(){
-    if(closed)return;closed=true;child.kill();if(waiter){const w=waiter;waiter=null;clearTimeout(w.timer);w.reject(Error('native vault unavailable'));}
+    if(closed)return;
+    closed=true;buf.fill(0);buf=Buffer.alloc(0);nonce?.fill(0);nonce=undefined;
+    // Release references to native KeyObjects; V8/OpenSSL destruction is not
+    // a guaranteed immediate secure erase.
+    key=undefined;peerSource=undefined;contacts=undefined;
+    if(waiter){const w=waiter;waiter=null;clearTimeout(w.timer);w.reject(Error('native vault unavailable'));}
+    child.kill();
   }
   child.on('error',fail);child.on('exit',fail);child.stdin.on('error',fail);child.stdout.on('error',fail);
   child.stdout.on('data',chunk=>{
-    if(closed)return;
-    if(buf.length+chunk.length>32768){fail();return;}
-    buf=Buffer.concat([buf,chunk]);const end=buf.indexOf(10);
+    if(closed){chunk.fill(0);return;}
+    if(buf.length+chunk.length>32768){chunk.fill(0);fail();return;}
+    const previous=buf;
+    buf=Buffer.concat([previous,chunk]);previous.fill(0);chunk.fill(0);
+    const end=buf.indexOf(10);
     if(end<0)return;
     if(!waiter||end!==buf.length-1){fail();return;}
     const w=waiter;waiter=null;clearTimeout(w.timer);
     const line=buf.subarray(0,end);buf=Buffer.alloc(0);
-    try{const r=JSON.parse(line.toString('utf8'));check(r&&typeof r==='object'&&!Array.isArray(r),'invalid reply');w.resolve(r);}catch{w.reject(Error('invalid native reply'));fail();}
+    try{w.resolve(parseNativeReply(line));}catch{w.reject(Error('invalid native reply'));fail();}
   });
   function receive(){
     check(!closed&&!waiter,'native vault unavailable');
@@ -116,8 +137,13 @@ export async function connectNativeVault({binary,binarySha256,vault,journal,quor
   }
   async function call(body){
     check(!closed&&!busy,'native vault unavailable or busy');busy=true;
-    try{const frame=controllerFrame(nonce,++seq,body,key);const reply=receive();child.stdin.write(frame);const r=await reply;check(r.ok===true,'native operation refused');return r;}
-    finally{busy=false;}
+    try{
+      const frame=Buffer.from(controllerFrame(nonce,++seq,body,key));
+      const reply=receive();
+      // Keep bytes intact until the pipe has consumed them, then clear.
+      try{child.stdin.write(frame,()=>frame.fill(0));}catch(e){frame.fill(0);fail();await reply.catch(()=>{});throw e;}
+      const r=await reply;check(!closed&&r.ok===true,'native operation refused');return r;
+    }catch(e){fail();throw e;}finally{busy=false;}
   }
   async function signNativeEnrollment(challenge){
     // Broker independently validates the same scope and prompts for the
@@ -154,7 +180,9 @@ export async function connectNativeVault({binary,binarySha256,vault,journal,quor
       const ownKeys={classicalSigningSpki:signing.key.export({format:'der',type:'spki'}).toString('base64'),classicalEncryptionSpki:enc.key.export({format:'der',type:'spki'}).toString('base64'),mlKemEncryptionSpki:Buffer.from(pq.pqKem,'base64url').toString('base64'),mlDsaSigningSpki:Buffer.from(pq.pqDsa,'base64url').toString('base64')};
       const sameKeys=(a,b)=>Object.keys(ownKeys).every(k=>a?.[k]===b?.[k]);
       async function peers(c){
+        check(!closed&&peerSource,'native session unavailable');
         const [from,to]=await Promise.all([peerSource(c.from,c.fromDeviceId),peerSource(c.to,c.toDeviceId)]);
+        check(!closed,'native session unavailable');
         const own=c.from===pqMode.address&&c.fromDeviceId===pqMode.deviceId?from:to;
         const other=own===from?to:from;
         check(own.contact.address===pqMode.address&&own.contact.deviceId===pqMode.deviceId&&own.checkpoint.pqRootPin===pqMode.rootPin&&sameKeys(own.contact,ownKeys),'own identity mismatch');
@@ -177,13 +205,15 @@ export async function connectNativeVault({binary,binarySha256,vault,journal,quor
           check(c?.to===pqMode.address&&c.toDeviceId===pqMode.deviceId,'wrong recipient');
           verified(record,await peers(c));
           const r=await call({op:'mail-open-hybrid-lab',pqContext:c,pqEnvelope:record.envelope,senderAuth:record.senderAuth,...(recover===true?{recover:true}:{})});
-          const plain=b64(r.message,1,8192);
-          try{verified(record,await peers(c));return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(plain));}finally{plain.fill(0);}
+          let plain;
+          try{plain=b64(r.message,1,8192);}finally{delete r.message;}
+          try{verified(record,await peers(c));check(!closed,'native session unavailable');return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(plain));}finally{plain.fill(0);}
         });},
         async sealHybrid(context,payload,{recover=false}={}){return exclusive(async()=>{
           check(context?.from===pqMode.address&&context.fromDeviceId===pqMode.deviceId,'wrong sender');
-          const raw=Buffer.from(JSON.stringify(payload));check(raw.length>=1&&raw.length<=8192,'invalid message size');
+          const raw=Buffer.from(JSON.stringify(payload));
           try{
+            check(raw.length>=1&&raw.length<=8192,'invalid message size');
             await peers(context);
             const r=await call({op:'mail-seal-hybrid-lab',pqContext:context,message:raw.toString('base64url'),...(recover===true?{recover:true}:{})});
             const record={format:'quantic-native-mail',version:1,context,envelope:r.pqEnvelope,senderAuth:r.senderAuth};
@@ -197,8 +227,10 @@ export async function connectNativeVault({binary,binarySha256,vault,journal,quor
       publicKeys:Object.freeze({signing:Object.freeze(signing.jwk),encryption:Object.freeze(enc.jwk)}),
       async openStatic(envelope){
         const r=await call({op:'mail-open-static-lab',mail:normalizeClassicalEnvelope(envelope)});
-        try{return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(b64(r.message,1,8192)));}
+        let plain;
+        try{plain=b64(r.message,1,8192);return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(plain));}
         catch{fail();throw Error('invalid native plaintext');}
+        finally{delete r.message;plain?.fill(0);}
       },
       signEnrollment:signNativeEnrollment,
       close(){fail();}
