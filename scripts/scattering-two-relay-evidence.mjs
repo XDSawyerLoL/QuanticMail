@@ -8,7 +8,9 @@ import {openReliable} from '../labs/quantic-native/scattering/scattering-reliabl
 import {openEndToEndLab} from '../lib/quantic/scattering-e2e-envelope-lab.mjs';
 import {peelSecondLayer} from '../lib/quantic/scattering-second-layer-lab.mjs';
 const check=(ok,msg)=>{if(!ok)throw Error(msg)};
-const [dir,profile,mixRaw,layerRaw='0']=process.argv.slice(2);
+const [dir,profile,mixRaw,layerRaw='0',flushRaw='0']=process.argv.slice(2);
+const firstFlushMs=Number(flushRaw);
+check([0,200].includes(firstFlushMs),'invalid first relay flush interval');
 check(['0','1'].includes(layerRaw),'invalid layer mode');
 const layered=layerRaw==='1';
 const batch2=Number(process.env.SCATTERING_CHAIN_SECOND_BATCH||8);
@@ -70,7 +72,7 @@ try{
  const [ka,kb,km,ko,ke,ks=null]=keys;
  const relay1=json('relay.json'),relay2=json('relay2.json'),receiver=json('receive.json');
  const pacer1=native('mid.report',550),pacer2=native('egress.report',700);
- check(relay1.ingressA===aN&&relay1.ingressB===bN&&relay1.spooled===n&&relay1.spoolErrors===0&&relay1.rejected===0&&relay1.innerLength===(layered?120:92),'relay1 evidence failed');
+ check(relay1.ingressA===aN&&relay1.ingressB===bN&&relay1.spooled===n&&relay1.spoolErrors===0&&relay1.rejected===0&&relay1.innerLength===(layered?120:92)&&relay1.flushMs===firstFlushMs,'relay1 evidence failed');
  check(relay2.received===550&&relay2.authenticated===n&&relay2.spooled===n&&relay2.coverOrInvalid===550-n&&relay2.duplicates===0&&relay2.invalid===0&&relay2.spoolErrors===0&&relay2.mix===(mixRaw==='1')&&relay2.secondLayerEnabled===layered&&relay2.batchSize===(mixRaw==='1'?batch2:null),'relay2 evidence failed');
  check(receiver.received===700&&receiver.authenticatedE2E===n&&receiver.authenticatedHop===n&&receiver.perSender.A===aN&&receiver.perSender.B===bN&&receiver.duplicates===0&&receiver.invalidInner===0,'recipient evidence failed');
  const a=trace('a.pcap',ka,ke,100,aN,0,ks),b=trace('b.pcap',kb,ke,100,bN,1,ks);
@@ -81,7 +83,9 @@ try{
  const observer=evaluateTimeOnlyLab({captureA:read('a.pcap'),captureB:read('b.pcap'),captureEgress:read('out.pcap'),outputHopKey:ko,endToEndKey:ke,inputHopAKey:ka,inputHopBKey:kb,inputSecondLayerKey:ks});
  check(observer.truth.A===aN&&observer.truth.B===bN&&observer.observedPackets===700,'incorrect scoring truth');
  if(profile==='sparse')check(relay1.timedFlushes>0&&relay2.timedFlushes>0,'missing sparse timer evidence');
- console.log(JSON.stringify({experiment:'two-successive-native-relays',profile,secondMix:mixRaw==='1',secondBatchSize:mixRaw==='1'?batch2:null,secondLayerEnabled:layered,
+ if(firstFlushMs)check(relay1.mixer?.pending===0&&relay1.mixer?.emitted===n&&
+  relay1.mixer?.batches*8===n+relay1.paddedCover,'first timed mix padding accounting failed');
+ console.log(JSON.stringify({experiment:'two-successive-native-relays',profile,secondMix:mixRaw==='1',secondBatchSize:mixRaw==='1'?batch2:null,secondLayerEnabled:layered,firstFlushMs,
   physicalHosts:1,networkNamespaces:5,sharedFilesystem:true,endpointKeySuppliedToRelays:false,
   native:{first:pacer1,second:pacer2},authenticated:n,relay1,relay2,
   hop1,hop2,endToEnd,
