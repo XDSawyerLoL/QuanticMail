@@ -5,16 +5,18 @@ import {createInterface} from 'node:readline/promises';
 import {createWindowsNativeStorage} from '../desktop/native-windows-storage.mjs';
 import {bindWindowsDesktopConfig} from '../desktop/native-windows-desktop.mjs';
 import {runWindowsScatteringMail} from '../desktop/native-windows-mail-flow.mjs';
-import {composeAndSendWindowsLab} from '../desktop/native-windows-integrated-mail.mjs';
+import {composeAndSendWindowsLab,createWindowsGraphicalDraft} from '../desktop/native-windows-integrated-mail.mjs';
 try{
  const args=process.argv.slice(2);
  const graphical=args.at(-1)==='--gui';
  if(graphical)args.pop();
- const [binary,binarySha256,dir,operation,path,output]=args;
- const compose=['seal-and-send','recover-seal-and-send'].includes(operation);
+ const [binary,binarySha256,dir,operation]=args;
+ let [, , , ,path,output]=args;
+ const newCompose=operation==='compose-gui';
+ const compose=newCompose||['seal-and-send','recover-seal-and-send'].includes(operation);
  if(process.platform!=='win32'||Number(process.versions.node.split('.')[0])<24
   ||(!graphical&&(!process.stdin.isTTY||!process.stderr.isTTY))
-  ||args.length!==(compose?6:5))throw Error('local terminal required');
+  ||newCompose&&!graphical||args.length!==(newCompose?4:compose?6:5))throw Error('local terminal required');
  const boot={binary,binarySha256,dir},storage=await createWindowsNativeStorage(boot);
  const b=await storage.read(win32.join(dir,'desktop.json'));let cfg;
  try{cfg=bindWindowsDesktopConfig(JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(b)),boot);}finally{b.fill(0);}
@@ -39,6 +41,17 @@ try{
  const approve=graphical?guiApprove:async prompt=>{const rl=createInterface({input:process.stdin,output:process.stderr});try{return (await rl.question(prompt+'\nTaper APPROVE : '))==='APPROVE';}finally{rl.close();}};
  let result;
  if(compose){
+  if(newCompose){
+   const chunks=[];let n=0;
+   try{
+    for await(const chunk of process.stdin){n+=chunk.length;if(n>65536){chunk.fill(0);throw Error('compose input bounds');}chunks.push(chunk);}
+    const raw=Buffer.concat(chunks);
+    try{
+     const fields=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(raw));
+     ({input:path,output}=await createWindowsGraphicalDraft(cfg,storage,fields));
+    }finally{raw.fill(0);}
+   }finally{for(const chunk of chunks)chunk.fill(0);}
+  }
   result=await composeAndSendWindowsLab(cfg,storage,{
    input:path,output,recover:operation==='recover-seal-and-send',approve,connect
   });
