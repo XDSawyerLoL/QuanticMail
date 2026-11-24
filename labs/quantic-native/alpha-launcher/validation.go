@@ -54,14 +54,33 @@ func validateInstallation(root,manifestPin,vaultPin string)error{
   actual,err:=fileSHA256(filepath.Join(app,entry.name),entry.size)
   if err!=nil||actual!=entry.pin{return fmt.Errorf("unexpected %s SHA256",entry.name)}
  }
- // The Windows PowerShell entry point repeats full inventory validation
- // before touching the vault, and the native GUI never has a direct relay
- // fallback or a path to historical user keys.
- for _,name:=range []string{"Start-Windows-PQ-Lab.ps1","Test-Windows-PQ-Package.ps1","Quantic-Sillage-Alpha.ps1"}{
-  st,err:=os.Lstat(filepath.Join(app,name))
-  if err!=nil||!st.Mode().IsRegular()||st.Size()<=0||st.Size()>1024*1024{
-   return fmt.Errorf("missing or unsafe application entry point: %s",name)
+ // Verify the actual script bytes against the pinned inventory BEFORE
+ // executing any script, including the inventory verifier itself.
+ return validateStartupScripts(app,manifestPin)
+}
+func validateStartupScripts(app,pin string)error{
+ path:=filepath.Join(app,"SHA256SUMS.txt")
+ st,e:=os.Lstat(path);if e!=nil||!st.Mode().IsRegular()||st.Size()<1||st.Size()>262144{return errors.New("unsafe startup manifest")}
+ f,e:=os.Open(path);if e!=nil{return e};defer f.Close()
+ raw,e:=io.ReadAll(io.LimitReader(f,262145));if e!=nil||int64(len(raw))!=st.Size()||len(raw)>262144{return errors.New("startup manifest changed")}
+ digest:=sha256.Sum256(raw)
+ if hex.EncodeToString(digest[:])!=pin{return errors.New("startup manifest pin mismatch")}
+ names:=[]string{"Start-Windows-PQ-Lab.ps1","Test-Windows-PQ-Package.ps1","Quantic-Sillage-Alpha.ps1"}
+ expected:=map[string]string{}
+ for _,line:=range strings.Split(strings.TrimSuffix(string(raw),"\n"),"\n"){
+  line=strings.TrimSuffix(line,"\r")
+  if len(line)<69||line[64:68]!=" *./"||!validPin(line[:64]){return errors.New("invalid startup manifest entry")}
+  for _,name:=range names {
+   if strings.EqualFold(line[68:],name){
+    if line[68:]!=name||expected[name]!=""{return errors.New("ambiguous startup script entry")}
+    expected[name]=line[:64]
+   }
   }
+ }
+ for _,name:=range names{
+  if !validPin(expected[name]){return fmt.Errorf("startup script not inventoried: %s",name)}
+  actual,e:=fileSHA256(filepath.Join(app,name),1024*1024)
+  if e!=nil||actual!=expected[name]{return fmt.Errorf("startup script integrity refused: %s",name)}
  }
  return nil
 }

@@ -73,6 +73,8 @@ func start()error{
  cmd:=exec.Command(powershell,psArgs...)
  cmd.Dir=filepath.Join(root,"app")
  cmd.Env=childPowerShellEnv(os.Environ(),system)
+ // Dashboard is graphical; explicit advanced tools open their own console.
+ cmd.SysProcAttr=&syscall.SysProcAttr{HideWindow:true}
  var diagnostic bytes.Buffer
  if len(os.Args)==2{
   // Synthetic self-test only: never capture actual human consents,
@@ -80,12 +82,6 @@ func start()error{
   cmd.Stdout=&diagnostic
   cmd.Stderr=&diagnostic
  }
- // The Alpha desktop sends all crypto consent and passphrases through the
- // existing local console: never attempt to swallow these into GUI stdout.
- // Windows creates the necessary console automatically when a console
- // child is started by a GUI-subsystem parent. Forcing CREATE_NEW_CONSOLE
- // while os/exec supplies its standard handles breaks the CI startup.
- // Do not detach: passphrases and explicit local approvals need a console.
  startupStage=6
  if err:=cmd.Start();err!=nil{return err}
  startupStage=7

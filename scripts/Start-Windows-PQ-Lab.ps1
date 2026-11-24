@@ -1,7 +1,7 @@
 # Explicit laboratory launcher. No installation or production login.
 [CmdletBinding()]
 param(
- [Parameter(Mandatory=$true)][ValidateSet("Providers","Open","RecoverOpen","Seal","RecoverSeal","ProbeLoopback","Send","SealAndSend","RecoverSealAndSend","Receive","RecoverReceive","ConfirmReceipt","StartBridge","Provision","ProvisionPair","MailPreflight","MailAttest","Dashboard","DashboardCheck","MigrationCheck","MigrationHistory","MigrationSmoke","MigrationFullSmoke","PayLab","PayLabCheck","PayProvision","PayNative","PayQuorumDemo","PayQuorumCheck","PayNativeQuorum","PayHistoryCheck","PayOperator","PayOperatorConfigure","StartPayBridge","PayCirculation","PayCirculationCheck")][string]$Operation,
+ [Parameter(Mandatory=$true)][ValidateSet("Providers","Open","RecoverOpen","Seal","RecoverSeal","ProbeLoopback","Send","SealAndSend","RecoverSealAndSend","Receive","RecoverReceive","ConfirmReceipt","StartBridge","Provision","ProvisionGui","VerifyGui","SendGui","ReceiveGui","ComposeGui","RecoverComposeGui","ProvisionPair","MailPreflight","MailAttest","Dashboard","DashboardCheck","MigrationCheck","MigrationHistory","MigrationSmoke","MigrationFullSmoke","PayLab","PayLabCheck","PayProvision","PayNative","PayQuorumDemo","PayQuorumCheck","PayNativeQuorum","PayHistoryCheck","PayOperator","PayOperatorConfigure","StartPayBridge","PayCirculation","PayCirculationCheck")][string]$Operation,
  [Parameter(Mandatory=$true)][ValidatePattern('^[a-fA-F0-9]{64}$')][string]$ExpectedManifestSha256,
  [string]$TrustedBinarySha256,
  [string]$PrivateDirectory,
@@ -139,6 +139,15 @@ if ($Operation -eq "ProvisionPair") {
  & $node (Join-Path $root "scripts\provision-windows-two-party-lab.mjs") $vault $TrustedBinarySha256.ToLowerInvariant() $PrivateDirectory $CanonicalAddress $QuorumPin $SecondCanonicalAddress $SecondQuorumPin "--synthetic-only"
  exit $LASTEXITCODE
 }
+if ($Operation -eq "VerifyGui") {
+ & $vault --verify-windows-controller-gui-lab $PrivateDirectory
+ exit $LASTEXITCODE
+}
+if ($Operation -eq "ProvisionGui") {
+ if ($ControllerPublicKey -or $QuorumPin -cnotmatch '^[a-f0-9]{64}$' -or $CanonicalAddress -cnotmatch '^[a-z0-9][a-z0-9._-]{2,31}~[a-f0-9]{32}@quantic$') { throw "Independent public identity parameters required." }
+ & $vault --provision-windows-controller-gui-lab $PrivateDirectory $QuorumPin $CanonicalAddress
+ exit $LASTEXITCODE
+}
 if ($Operation -eq "Provision") {
  if (-not $ControllerPublicKey) {
   if ($QuorumPin -notmatch '^[a-f0-9]{64}$' -or $CanonicalAddress -notmatch '^[a-z0-9][a-z0-9._-]{2,31}~[a-f0-9]{32}@quantic$') { throw "Independent public identity parameters required." }
@@ -151,6 +160,47 @@ if ($Operation -eq "Provision") {
 }
 if ($Operation -eq "StartBridge") {
  & $node --experimental-transform-types (Join-Path $root "scripts\serve-native-scattering-windows.mjs") $vault $TrustedBinarySha256.ToLowerInvariant() $PrivateDirectory
+ exit $LASTEXITCODE
+}
+if ($Operation -eq "ComposeGui") {
+ # The dashboard sends an ASCII-escaped JSON object over redirected stdin.
+ # Never put plaintext in an argument, file, environment variable or log.
+ $buffer=New-Object char[] 65537
+ $length=0
+ try {
+  while($length -lt $buffer.Length){
+   $n=[Console]::In.Read($buffer,$length,$buffer.Length-$length)
+   if($n -eq 0){break};$length+=$n
+  }
+  if($length -lt 1 -or $length -gt 65536){throw "Compose input bounds"}
+  $json=[string]::new($buffer,0,$length)
+  if($json -match '[^\x00-\x7f]'){throw "Compose encoding refused"}
+  if($PrivateDirectory -notmatch '^[A-Za-z]:\\[A-Za-z0-9_. -]+(?:\\[A-Za-z0-9_. -]+)*$'){throw "Invalid private directory"}
+  $psi=New-Object System.Diagnostics.ProcessStartInfo
+  $psi.FileName=$node
+  $script=Join-Path $root "scripts\native-vault-windows-mailbox.mjs"
+  $psi.Arguments='--experimental-transform-types "'+$script+'" "'+$vault+'" '+$TrustedBinarySha256.ToLowerInvariant()+' "'+$PrivateDirectory+'" compose-gui --gui'
+  $psi.UseShellExecute=$false;$psi.CreateNoWindow=$true
+  $psi.RedirectStandardInput=$true;$psi.RedirectStandardOutput=$true
+  $child=[System.Diagnostics.Process]::Start($psi)
+  try{
+   $child.StandardInput.Write($json);$child.StandardInput.Close()
+   $result=$child.StandardOutput.ReadToEnd();$child.WaitForExit()
+   if($child.ExitCode -ne 0){exit $child.ExitCode}
+   Write-Output $result
+  }finally{$child.Dispose()}
+ }finally{[Array]::Clear($buffer,0,$buffer.Length);$json=$null}
+ exit 0
+}
+if ($Operation -eq "RecoverComposeGui") {
+ if(-not $InputFile -or -not $OutputFile){throw "Protected recovery paths required."}
+ & $node --experimental-transform-types (Join-Path $root "scripts\native-vault-windows-mailbox.mjs") $vault $TrustedBinarySha256.ToLowerInvariant() $PrivateDirectory "recover-seal-and-send" $InputFile $OutputFile "--gui"
+ exit $LASTEXITCODE
+}
+if ($Operation -in @("SendGui","ReceiveGui")) {
+ if (-not $InputFile) { throw "Protected native file path required." }
+ $mailOp=if($Operation -eq "SendGui"){"send"}else{"receive"}
+ & $node --experimental-transform-types (Join-Path $root "scripts\native-vault-windows-mailbox.mjs") $vault $TrustedBinarySha256.ToLowerInvariant() $PrivateDirectory $mailOp $InputFile "--gui"
  exit $LASTEXITCODE
 }
 if ($Operation -in @("Send","SealAndSend","RecoverSealAndSend","Receive","RecoverReceive","ConfirmReceipt")) {

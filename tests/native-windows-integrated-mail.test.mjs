@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {generateKeyPairSync,randomBytes} from 'node:crypto';
 import {win32} from 'node:path';
-import {composeAndSendWindowsLab} from '../desktop/native-windows-integrated-mail.mjs';
+import {composeAndSendWindowsLab,createWindowsGraphicalDraft} from '../desktop/native-windows-integrated-mail.mjs';
 import {nativeRecordDigest} from '../lib/quantic/native-mailbox.mjs';
 
 const dir='C:\\Quantic\\private';
@@ -116,4 +116,44 @@ test('Ambiguous network failure never retries or deletes the signed wire',async(
  await assert.rejects(composeAndSendWindowsLab(cfg,mismatchedId.storage,mismatchedId.deps));
  assert.equal(mismatchedId.stats().write,0);
  assert.equal(mismatchedId.stats().sends,0);
+});
+
+test('Graphical draft is encrypted, independently re-read and reused for exact recovery',async()=>{
+ const id='3f8a54c1-46a3-4e92-a157-3f8a54c146a3',now=1000;
+ const files=new Map([
+  [cfg.windowsScattering.receiptKeyFile,randomBytes(32)],
+  [win32.join(dir,'contacts.json'),Buffer.from(JSON.stringify([{address:bob,deviceId:other,expires:now+1000}]))]
+ ]);
+ const storage={
+  async read(p){assert.ok(files.has(p));return Buffer.from(files.get(p));},
+  async writeDraft(p,b){assert.ok(!files.has(p));files.set(p,Buffer.from(b));},
+  async writeWire(p,b){assert.ok(!files.has(p));files.set(p,Buffer.from(b));}
+ };
+ const fields={to:bob,subject:'Objet privé é',body:'Secret intégral — test'};
+ const paths=await createWindowsGraphicalDraft(cfg,storage,fields,{newId:()=>id,now});
+ const sealed=files.get(paths.input);
+ assert.equal(JSON.parse(sealed).format,'quantic-local-draft-v1');
+ assert.equal(sealed.includes(Buffer.from(fields.subject)),false);
+ assert.equal(sealed.includes(Buffer.from(fields.body)),false);
+ assert.equal(JSON.parse(sealed).context,undefined);
+ let signed=0,sent=0;
+ const context={...ctx,clientMessageId:id};
+ const deps={...paths,recover:true,approve:async()=>true,
+  connect:async()=>({async sealHybrid(c,p,o){signed++;assert.deepEqual(c,context);assert.deepEqual(p,{subject:fields.subject,body:fields.body});assert.equal(o.recover,true);return fakeSigned(context);},close(){}}),
+  mailboxFactory:async()=>({async send(r){sent++;return {id:'local',digest:nativeRecordDigest(r),status:'queued'};}})
+ };
+ // Moving a draft to a different name fails authenticated associated data.
+ const wrongPath=win32.join(dir,'draft-renamed.json');files.set(wrongPath,Buffer.from(sealed));
+ await assert.rejects(composeAndSendWindowsLab(cfg,storage,{...deps,input:wrongPath}));assert.equal(signed,0);
+ // Tampering is rejected before native signing or relay access.
+ const parsed=JSON.parse(sealed);const broken=Buffer.from(parsed.ciphertext,'base64url');broken[0]^=1;
+ files.set(paths.input,Buffer.from(JSON.stringify({...parsed,ciphertext:broken.toString('base64url')})));
+ await assert.rejects(composeAndSendWindowsLab(cfg,storage,deps));assert.equal(signed,0);assert.equal(sent,0);
+ files.set(paths.input,sealed);
+ const answer=await composeAndSendWindowsLab(cfg,storage,deps);
+ assert.equal(answer.status,'deposited');assert.equal(signed,1);assert.equal(sent,1);
+ assert.deepEqual(files.get(paths.input),sealed);
+ // Duplicate/untrusted contact selection cannot create another draft.
+ files.set(win32.join(dir,'contacts.json'),Buffer.from(JSON.stringify([{address:bob,deviceId:other,expires:now+1},{address:bob,deviceId:device,expires:now+1}])));
+ await assert.rejects(createWindowsGraphicalDraft(cfg,storage,fields,{newId:()=>id,now}));
 });

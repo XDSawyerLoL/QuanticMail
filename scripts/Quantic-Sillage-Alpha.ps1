@@ -4,7 +4,11 @@
 param(
  [Parameter(Mandatory=$true)][ValidatePattern('^[a-fA-F0-9]{64}$')][string]$ExpectedManifestSha256,
  [Parameter(Mandatory=$true)][ValidatePattern('^[a-fA-F0-9]{64}$')][string]$TrustedBinarySha256,
- [switch]$SelfTest
+ [switch]$SelfTest,
+ [string]$AdvancedAction,
+ [string]$AdvancedDirectory,
+ [string]$AdvancedInputName,
+ [string]$AdvancedOutputName
 )
 $ErrorActionPreference="Stop"
 $root=$PSScriptRoot
@@ -24,7 +28,8 @@ $actions=@(
  @{Id="RecoverOpen";Title="Recuperer une ouverture";Hint="Reprendre le resultat exact d'une enveloppe.";Input="wire";Scope=$true},
  @{Id="RecoverReceive";Title="Recuperer une reception";Hint="Reprendre le resultat exact ; nouveau fichier de recu obligatoire.";Input="receipt";Scope=$true},
  @{Id="ConfirmReceipt";Title="Confirmer un recu existant";Hint="Verifier le recu conserve et confirmer au relais.";Input="receipt";Scope=$true},
- @{Id="Provision";Title="Creer un coffre de test";Hint="Parametres publics independants requis. Ne cree pas de compte distant.";Scope=$true},
+ @{Id="ProvisionGui";Title="Identity Vault - Creer mon identite de test";Hint="Assistant graphique : deux phrases secretes distinctes. Empreinte du quorum approuvee requise. Aucun compte distant.";Scope=$true},
+ @{Id="VerifyGui";Title="Identity Vault - Verifier mon coffre existant";Hint="Ouvrir les deux coffres avec leurs phrases secretes, verifier les cles locales puis les refermer. Aucun compte distant.";Scope=$true},
  @{Id="ProvisionPair";Title="Creer deux coffres de test PQ";Hint="Deux identites fictives, deux repertoires neufs. Empreintes de quorum independantes exigees ; aucun compte distant.";Scope=$true},
  @{Id="StartBridge";Title="Demarrer le pont Scattering";Hint="Dossier de transport distinct deja configure ; pacer et sink separes requis.";Scope=$true},
  @{Id="Providers";Title="Verifier la cryptographie";Hint="Diagnostic du fournisseur cryptographique natif."},
@@ -42,6 +47,10 @@ $actions=@(
  @{Id="PayOperatorConfigure";Title="Quantic Pay - importer configuration";Hint="Nouveau coffre fictif, configuration privee et empreinte independante.";Scope=$true},
  @{Id="PayCirculation";Title="Quantic Pay - circulation multi-portefeuilles";Hint="Transferts signes et tests du quorum en memoire. Cles fictives ephemeres."},
  @{Id="MailPreflight";Title="Quantic Mail - verifier les deux PC (hors ligne)";Hint="Verifie 4 autorites publiques, contact signe attendu et carrier prive. Aucune connexion ni transmission.";Scope=$true},
+ @{Id="ComposeGui";Title="Quantic Mail - Nouveau message";Hint="Rediger dans une fenetre. Le brouillon est chiffre automatiquement dans le coffre; confirmation avant envoi.";Scope=$true},
+ @{Id="RecoverComposeGui";Title="Quantic Mail - Reprendre un message interrompu";Hint="Reprendre le meme brouillon et la meme signature. Aucun nouvel envoi automatique.";Scope=$true},
+ @{Id="SendGui";Title="Quantic Mail - Envoyer une enveloppe";Hint="Choisir une enveloppe deja chiffree et signee. Confirmation graphique avant depot sur le relais local.";Scope=$true},
+ @{Id="ReceiveGui";Title="Quantic Mail - Recevoir un message";Hint="Lire un message authentifie, conserver automatiquement un recu chiffre avant confirmation.";Scope=$true},
  @{Id="MailAttest";Title="Quantic Mail - verifier les quatre autorites en direct";Hint="Exige trois attestations mTLS fraiches sur quatre avant confirmation. N'envoie aucun mail.";Scope=$true}
 )
 function New-OperationArguments($Action,[string]$Directory,[string]$InputName,[string]$OutputName) {
@@ -90,12 +99,25 @@ foreach ($a in $actions) { $null=$choice.Items.Add($a.Title) }
 $form.Controls.Add($choice)
 $hint=Label-At "" 24 196 672 45
 $null=Label-At "Dossier prive du coffre (ou du transport pour le pont)" 24 245 672 23
-$directory=Text-At 24 270 672
+$directory=Text-At 24 270 530
+$browse=New-Object Windows.Forms.Button;$browse.Text="Choisir..."
+$browse.ForeColor=[Drawing.Color]::Black;$browse.SetBounds(566,270,130,28)
+$form.Controls.Add($browse)
+$browse.Add_Click({
+ $picker=New-Object Windows.Forms.FolderBrowserDialog
+ $picker.Description=if($actions[$choice.SelectedIndex].Id -in @("VerifyGui","SendGui","ReceiveGui","ComposeGui","RecoverComposeGui")){"Choisir le dossier du coffre existant"}else{"Choisir le dossier parent du nouveau coffre de test"}
+ $picker.ShowNewFolderButton=$false
+ try{
+  if($picker.ShowDialog() -eq [Windows.Forms.DialogResult]::OK){
+   $directory.Text=if($actions[$choice.SelectedIndex].Id -in @("VerifyGui","SendGui","ReceiveGui","ComposeGui","RecoverComposeGui")){$picker.SelectedPath}else{[IO.Path]::Combine($picker.SelectedPath,("Quantic-Test-"+[Guid]::NewGuid().ToString("N").Substring(0,12)))}
+  }
+ }finally{$picker.Dispose()}
+})
 $il=Label-At "Fichier prive" 24 309 672 22
 $inputName=Text-At 24 333 672
 $ol=Label-At "Nouvelle enveloppe" 24 372 672 22
 $outputName=Text-At 24 396 672
-$run=New-Object Windows.Forms.Button;$run.Text="Continuer dans le terminal securise"
+$run=New-Object Windows.Forms.Button;$run.Text="Continuer"
 $run.ForeColor=[Drawing.Color]::Black;$run.BackColor=[Drawing.Color]::FromArgb(196,223,244)
 $run.SetBounds(24,459,485,38);$form.Controls.Add($run)
 $quit=New-Object Windows.Forms.Button;$quit.Text="Fermer";$quit.ForeColor=[Drawing.Color]::Black
@@ -106,7 +128,10 @@ $script:selectedArguments=$null;$script:selectedAction=$null
 $choice.Add_SelectedIndexChanged({
  $a=$actions[$choice.SelectedIndex]
  $hint.Text=$a.Hint
+ $run.Text=if($a.Id -eq "ProvisionGui"){"Creer mon identite"}elseif($a.Id -eq "VerifyGui"){"Verifier et refermer le coffre"}elseif($a.Id -eq "ComposeGui"){"Rediger un message"}elseif($a.Id -eq "RecoverComposeGui"){"Reprendre le message"}elseif($a.Id -eq "SendGui"){"Choisir et envoyer"}elseif($a.Id -eq "ReceiveGui"){"Recevoir"}else{"Ouvrir les outils avances (terminal)"}
  $directory.Enabled=[bool]$a.Scope
+ $browse.Visible=($a.Id -in @("ProvisionGui","VerifyGui","SendGui","ReceiveGui","ComposeGui","RecoverComposeGui"))
+ $directory.Width=if($browse.Visible){530}else{672}
  $inputName.Enabled=[bool]$a.Input
  $outputName.Enabled=[bool]$a.Output
  $il.Text=if($a.Input){"Fichier prive ("+$a.Input+"-nom.json)"}else{"Aucun fichier requis"}
@@ -121,25 +146,37 @@ $run.Add_Click({
  }catch{[Windows.Forms.MessageBox]::Show($_.Exception.Message,"Parametres refuses","OK","Warning")|Out-Null}
 })
 $choice.SelectedIndex=0
+if (-not $SelfTest -and -not $AdvancedAction) {$choice.SelectedIndex=10}
 if ($SelfTest) {
  try {
-  if($choice.Items.Count -ne 29 -or -not $inputName.Enabled -or -not $outputName.Enabled){throw "Dashboard initialization failed"}
+  if($choice.Items.Count -ne 34 -or -not $inputName.Enabled -or -not $outputName.Enabled){throw "Dashboard initialization failed"}
   $a=New-OperationArguments $actions[0] "C:\Quantic Lab\vault" "draft-test.json" "wire-test.json"
   if($a -notcontains "C:\Quantic Lab\vault\draft-test.json" -or $a -notcontains "C:\Quantic Lab\vault\wire-test.json"){throw "Wrong arguments"}
   $rejected=$false
   try{$null=New-OperationArguments $actions[3] "C:\Quantic Lab\vault" "..\wire-test.json" ""}catch{$rejected=$true}
   if(-not $rejected){throw "Path traversal accepted"}
-  $choice.SelectedIndex=13
+  $choice.SelectedIndex=14
   if($directory.Enabled -or $inputName.Enabled -or $outputName.Enabled){throw "Diagnostic fields enabled"}
-  Write-Output "Dashboard controls and operation mapping verified"
+  $choice.SelectedIndex=10
+  if($actions[10].Id -cne "ProvisionGui" -or $inputName.Enabled -or $outputName.Enabled -or -not $directory.Enabled){throw "Graphical identity action unavailable"}
+  $provisionArgs=New-OperationArguments $actions[10] "C:\Quantic Lab\new-test-vault" "" ""
+  if($provisionArgs -notcontains "ProvisionGui" -or $provisionArgs -contains "-InputFile" -or $provisionArgs -contains "-OutputFile"){throw "Graphical identity arguments refused"}
+  $choice.SelectedIndex=11
+  if($actions[11].Id -cne "VerifyGui" -or $inputName.Enabled -or $outputName.Enabled -or -not $directory.Enabled){throw "Graphical verification action unavailable"}
+  $verifyArgs=New-OperationArguments $actions[11] "C:\Quantic Lab\new-test-vault" "" ""
+  if($verifyArgs -notcontains "VerifyGui" -or $verifyArgs -contains "-InputFile"){throw "Graphical verification mapping refused"}
+  foreach($id in @("SendGui","ReceiveGui","ComposeGui","RecoverComposeGui")){
+   $mailAction=@($actions|Where-Object {$_.Id -ceq $id})
+   if($mailAction.Count -ne 1){throw "Missing graphical mail operation"}
+   $mailArgs=New-OperationArguments $mailAction[0] "C:\Quantic Lab\vault" "" ""
+   if($mailArgs -notcontains $id -or $mailArgs -contains "-InputFile"){throw "Graphical mail mapping refused"}
+  }
+  Write-Output "Dashboard controls, graphical identity and mail route verified"
  }finally{$form.Dispose()}
  exit 0
 }
-try {
- while ($true) {
-  $script:selectedArguments=$null;$script:selectedAction=$null
-  if ($form.ShowDialog() -ne [Windows.Forms.DialogResult]::OK) { break }
-  $operationArgs=$script:selectedArguments
+function Invoke-AdvancedOperation([string]$ActionId,$operationArgs) {
+ $script:selectedAction=$ActionId
   if ($script:selectedAction -in @("PayOperator","PayOperatorConfigure")) {
    $configPin=Read-Host "Empreinte SHA256 independante de la configuration Pay"
    $operationArgs+=@("-PayConfigPin",$configPin)
@@ -179,7 +216,7 @@ try {
    $picker=New-Object Windows.Forms.OpenFileDialog
    $picker.Filter="Archive Quantic (*.qma)|*.qma"
    try {
-    if ($picker.ShowDialog() -ne [Windows.Forms.DialogResult]::OK) { continue }
+    if ($picker.ShowDialog() -ne [Windows.Forms.DialogResult]::OK) { return }
     $archive=$picker.FileName
    }finally{$picker.Dispose()}
    $address=Read-Host "Adresse canonique historique"
@@ -192,5 +229,162 @@ try {
   $code=$LASTEXITCODE
   Write-Host "Code de retour: $code. Un code nul n'est pas une preuve de livraison distante."
   $null=Read-Host "Entree pour revenir au tableau de bord"
+}
+# A visible terminal is opened only for explicitly selected legacy operations.
+if ($AdvancedAction) {
+ try {
+  $a=@($actions | Where-Object {$_.Id -ceq $AdvancedAction})
+  if($a.Count -ne 1 -or $AdvancedAction -in @("ProvisionGui","VerifyGui","SendGui","ReceiveGui","ComposeGui","RecoverComposeGui")){throw "Operation avancee refusee"}
+  $op=New-OperationArguments $a[0] $AdvancedDirectory $AdvancedInputName $AdvancedOutputName
+  Invoke-AdvancedOperation $AdvancedAction $op
+ }finally{$form.Dispose()}
+ exit 0
+}
+function Read-PublicValue([string]$Title,[string]$Prompt) {
+ $dialog=New-Object Windows.Forms.Form
+ $dialog.Text=$Title;$dialog.StartPosition="CenterScreen"
+ $dialog.ClientSize=New-Object Drawing.Size(570,150)
+ $dialog.FormBorderStyle="FixedDialog";$dialog.MaximizeBox=$false;$dialog.MinimizeBox=$false
+ $label=New-Object Windows.Forms.Label;$label.Text=$Prompt;$label.SetBounds(12,12,546,45)
+ $field=New-Object Windows.Forms.TextBox;$field.SetBounds(12,62,546,25)
+ $ok=New-Object Windows.Forms.Button;$ok.Text="Continuer";$ok.SetBounds(345,105,100,30)
+ $ok.DialogResult=[Windows.Forms.DialogResult]::OK
+ $cancel=New-Object Windows.Forms.Button;$cancel.Text="Annuler";$cancel.SetBounds(455,105,100,30)
+ $cancel.DialogResult=[Windows.Forms.DialogResult]::Cancel
+ $dialog.Controls.AddRange(@($label,$field,$ok,$cancel));$dialog.AcceptButton=$ok;$dialog.CancelButton=$cancel
+ try{if($dialog.ShowDialog() -eq [Windows.Forms.DialogResult]::OK){return $field.Text};return $null}
+ finally{$dialog.Dispose()}
+}
+function Invoke-GraphicalProvision($operationArgs) {
+ $address=Read-PublicValue "Identity Vault - Identite" "Adresse canonique de test fournie par la preparation independante."
+ if($null -eq $address){return}
+ $quorum=Read-PublicValue "Identity Vault - Confiance" "Empreinte SHA256 du quorum, obtenue et verifiee independamment."
+ if($null -eq $quorum){return}
+ if($address -cnotmatch '^[a-z0-9][a-z0-9._-]{2,31}~[a-f0-9]{32}@quantic$' -or $quorum -cnotmatch '^[a-f0-9]{64}$'){throw "Adresse ou empreinte publique invalide."}
+ $operationArgs+=@("-CanonicalAddress",$address,"-QuorumPin",$quorum)
+ # The verified package entrypoint invokes the native vault. Native Win32
+ # dialogs collect the passwords; no secret enters PowerShell or the args.
+ $publicResult=& $shell -NoProfile -File $launcher @operationArgs
+ if($LASTEXITCODE -ne 0){throw "Creation annulee ou refusee. Conserver tout dossier partiel."}
+ # Package verifier prints a status before the native JSON result.
+ $record=($publicResult | Select-Object -Last 1 | ConvertFrom-Json)
+ if($record.status -cne "local-provision-only-not-enrolled" -or $record.localReadback -cne "verified" -or $record.address -cne $address -or $record.deviceId -cnotmatch '^d-[a-f0-9]{32}$'){throw "Resultat natif non confirme. Conserver le dossier."}
+ [Windows.Forms.MessageBox]::Show("Identite de test creee localement. Le coffre est ferme. Aucun compte distant inscrit.","Identity Vault","OK","Information")|Out-Null
+}
+function Invoke-GraphicalVerify($operationArgs) {
+ $publicResult=& $shell -NoProfile -File $launcher @operationArgs
+ if($LASTEXITCODE -ne 0){throw "Verification annulee ou refusee. Le coffre reste ferme."}
+ $record=($publicResult | Select-Object -Last 1 | ConvertFrom-Json)
+ if($record.status -cne "local-vault-verified-closed"){throw "Verification non confirmee."}
+ [Windows.Forms.MessageBox]::Show("Les deux coffres ont ete ouverts et verifies, puis refermes. Aucun compte distant connecte.","Identity Vault","OK","Information")|Out-Null
+}
+function Read-GraphicalMessage {
+ $dialog=New-Object Windows.Forms.Form
+ $dialog.Text="Quantic Mail - Nouveau message";$dialog.StartPosition="CenterScreen"
+ $dialog.ClientSize=New-Object Drawing.Size(650,475)
+ $dialog.FormBorderStyle="FixedDialog";$dialog.MaximizeBox=$false
+ $toLabel=New-Object Windows.Forms.Label;$toLabel.Text="Destinataire (adresse Quantic d'un contact valide)";$toLabel.SetBounds(12,12,625,24)
+ $to=New-Object Windows.Forms.TextBox;$to.SetBounds(12,39,625,28);$to.MaxLength=96
+ $subjectLabel=New-Object Windows.Forms.Label;$subjectLabel.Text="Objet";$subjectLabel.SetBounds(12,75,625,24)
+ $subject=New-Object Windows.Forms.TextBox;$subject.SetBounds(12,102,625,28);$subject.MaxLength=512
+ $bodyLabel=New-Object Windows.Forms.Label;$bodyLabel.Text="Message";$bodyLabel.SetBounds(12,138,625,24)
+ $body=New-Object Windows.Forms.TextBox;$body.Multiline=$true;$body.ScrollBars="Vertical";$body.SetBounds(12,165,625,250);$body.MaxLength=7500
+ $ok=New-Object Windows.Forms.Button;$ok.Text="Continuer";$ok.SetBounds(405,430,110,30);$ok.DialogResult=[Windows.Forms.DialogResult]::OK
+ $cancel=New-Object Windows.Forms.Button;$cancel.Text="Annuler";$cancel.SetBounds(525,430,110,30);$cancel.DialogResult=[Windows.Forms.DialogResult]::Cancel
+ $dialog.Controls.AddRange(@($toLabel,$to,$subjectLabel,$subject,$bodyLabel,$body,$ok,$cancel));$dialog.CancelButton=$cancel
+ try {
+  if($dialog.ShowDialog() -ne [Windows.Forms.DialogResult]::OK){return $null}
+  if($to.Text -cnotmatch '^[a-z0-9][a-z0-9._-]{2,31}~[a-f0-9]{32}@quantic$'){throw "Adresse Quantic invalide."}
+  if([Text.Encoding]::UTF8.GetByteCount($subject.Text)+[Text.Encoding]::UTF8.GetByteCount($body.Text) -gt 7500){throw "Message trop long."}
+  return @{to=$to.Text;subject=$subject.Text;body=$body.Text}
+ }finally{$subject.Clear();$body.Clear();$dialog.Dispose()}
+}
+function Invoke-ComposePipe([string]$vaultDir,$fields){
+ $json=$fields|ConvertTo-Json -Compress
+ # JSON travels as ASCII with Unicode escapes; preserve accents and emoji.
+ $ascii=[Regex]::Replace($json,'[^\x00-\x7f]',[System.Text.RegularExpressions.MatchEvaluator]{param($m) '\u{0:x4}' -f [int][char]$m.Value})
+ $psi=New-Object System.Diagnostics.ProcessStartInfo
+ $psi.FileName=$shell
+ $psi.Arguments='-NoProfile -NonInteractive -File "'+$launcher+'" -Operation ComposeGui -ExpectedManifestSha256 '+$ExpectedManifestSha256+' -TrustedBinarySha256 '+$TrustedBinarySha256+' -PrivateDirectory "'+$vaultDir+'"'
+ $psi.UseShellExecute=$false;$psi.CreateNoWindow=$true
+ $psi.RedirectStandardInput=$true;$psi.RedirectStandardOutput=$true
+ $child=[System.Diagnostics.Process]::Start($psi)
+ try{
+  $child.StandardInput.Write($ascii);$child.StandardInput.Close()
+  $result=$child.StandardOutput.ReadToEnd();$child.WaitForExit()
+  if($child.ExitCode -ne 0){throw "Message non confirme. Reprendre le brouillon conserve plutot que creer un nouvel envoi."}
+  return (($result -split '\r?\n') | Where-Object {$_ -ne ""} | Select-Object -Last 1)
+ }finally{$child.Dispose();$json=$null;$ascii=$null}
+}
+function Invoke-GraphicalMail([string]$action,$operationArgs,[string]$vaultDir) {
+ if($action -eq "ComposeGui"){
+  $fields=Read-GraphicalMessage
+  if($null -eq $fields){return}
+  try{$publicResult=Invoke-ComposePipe $vaultDir $fields}finally{$fields.Clear()}
+ }elseif($action -eq "RecoverComposeGui"){
+  $picker=New-Object Windows.Forms.OpenFileDialog
+  $picker.Title="Choisir un brouillon conserve"
+  $picker.Filter="Brouillon Quantic (*.json)|draft-*.json";$picker.InitialDirectory=$vaultDir;$picker.Multiselect=$false
+  try{if($picker.ShowDialog() -ne [Windows.Forms.DialogResult]::OK){return};$file=$picker.FileName}finally{$picker.Dispose()}
+  if([IO.Path]::GetDirectoryName($file) -cne $vaultDir -or [IO.Path]::GetFileName($file) -cnotmatch '^draft-([a-f0-9-]{36})\.json$'){throw "Choisir un brouillon cree par cet assistant."}
+  $wire=[IO.Path]::Combine($vaultDir,("wire-"+$Matches[1]+".json"))
+  if([IO.File]::Exists($wire)){throw "Une enveloppe est deja conservee. Utiliser Envoyer une enveloppe pour ne pas resigner."}
+  $operationArgs+=@("-InputFile",$file,"-OutputFile",$wire)
+  $publicResult=& $shell -NoProfile -File $launcher @operationArgs
+  if($LASTEXITCODE -ne 0){throw "Reprise non confirmee. Conserver le brouillon."}
+ }elseif($action -eq "SendGui"){
+  $picker=New-Object Windows.Forms.OpenFileDialog
+  $picker.Title="Choisir une enveloppe chiffree"
+  $picker.Filter="Enveloppe Quantic (*.json)|wire-*.json"
+  $picker.InitialDirectory=$vaultDir;$picker.Multiselect=$false
+  try{
+   if($picker.ShowDialog() -ne [Windows.Forms.DialogResult]::OK){return}
+   $file=$picker.FileName
+  }finally{$picker.Dispose()}
+  if([IO.Path]::GetDirectoryName($file) -cne $vaultDir -or [IO.Path]::GetFileName($file) -cnotmatch '^wire-[a-z0-9-]{1,48}\.json$'){throw "Choisir une enveloppe du coffre selectionne."}
+ }elseif($action -eq "ReceiveGui"){
+  $file=[IO.Path]::Combine($vaultDir,("receipt-"+[Guid]::NewGuid().ToString("N")+".json"))
+ }else{throw "Action mail refusee"}
+ if($action -in @("SendGui","ReceiveGui")){
+  $operationArgs+=@("-InputFile",$file)
+  $publicResult=& $shell -NoProfile -File $launcher @operationArgs
+  if($LASTEXITCODE -ne 0){throw "Operation non confirmee. Conserver les donnees existantes; aucun nouvel envoi automatique."}
+ }
+ $record=($publicResult | Select-Object -Last 1 | ConvertFrom-Json)
+ $message=switch -CaseSensitive ($record.status){
+  "deposited" {"Depot confirme par le relais local. Ce depot ne prouve pas la lecture.";break}
+  "acknowledged" {"Message authentifie et recu chiffre conserve. Confirmation transmise au relais. "+[Environment]::NewLine+[Environment]::NewLine+$record.display;break}
+  "empty" {"Aucun message en attente.";break}
+  "saved-not-sent" {"Message chiffre et enregistre, mais non envoye.";break}
+  "cancelled-before-seal" {"Operation annulee. Le brouillon chiffre est conserve.";break}
+  "cancelled" {"Operation annulee.";break}
+  default {throw "Resultat de messagerie inconnu."}
+ }
+ [Windows.Forms.MessageBox]::Show($message,"Quantic Mail","OK","Information")|Out-Null
+}
+try {
+ while ($true) {
+  $script:selectedArguments=$null;$script:selectedAction=$null
+  if ($form.ShowDialog() -ne [Windows.Forms.DialogResult]::OK) { break }
+  try{
+   if ($script:selectedAction -eq "ProvisionGui") {
+    Invoke-GraphicalProvision $script:selectedArguments
+   }elseif($script:selectedAction -eq "VerifyGui"){
+    Invoke-GraphicalVerify $script:selectedArguments
+   }elseif($script:selectedAction -in @("SendGui","ReceiveGui","ComposeGui","RecoverComposeGui")){
+    Invoke-GraphicalMail $script:selectedAction $script:selectedArguments $directory.Text
+   }else{
+    # All values have already been validated by New-OperationArguments.
+    # Quote only the strictly validated public path and technical names.
+    $parts=@("-NoProfile","-STA","-File",('"' + $PSCommandPath + '"'),"-ExpectedManifestSha256",$ExpectedManifestSha256,"-TrustedBinarySha256",$TrustedBinarySha256,"-AdvancedAction",$script:selectedAction)
+    $a=$actions[$choice.SelectedIndex]
+    if($a.Scope){$parts+=@("-AdvancedDirectory",('"' + $directory.Text + '"'))}
+    if($a.Input){$parts+=@("-AdvancedInputName",$inputName.Text)}
+    if($a.Output){$parts+=@("-AdvancedOutputName",$outputName.Text)}
+    Start-Process -FilePath $shell -ArgumentList ($parts -join " ") -Wait -WindowStyle Normal
+   }
+  }catch{
+   [Windows.Forms.MessageBox]::Show($_.Exception.Message,"Operation non terminee","OK","Warning")|Out-Null
+  }
  }
 }finally{$form.Dispose()}
