@@ -172,3 +172,15 @@ test('graphical recovery catalog exposes only signed-message selection metadata'
  x.files.set(output,Buffer.from('{}'));
  await assert.rejects(listWindowsSignedMail(cfg,x.storage,{listNames:async()=>[entry('wire-confirmed.json')]}));
 });
+
+test('sealed compose retains the original broker until durable deposit; no plaintext mailbox fallback',async()=>{
+ const x=setup(),{token,...scope}=cfg.windowsScattering;
+ const sealed={...cfg,windowsScattering:{...scope,credentialMode:'vault-sealed-v1'}};
+ let connected=0,sent=0,closed=0;
+ const result=await composeAndSendWindowsLab(sealed,x.storage,{...x.deps,
+  connect:async c=>{connected++;assert.equal(c.windowsScattering.token,undefined);assert.equal(c.guiWindowsApproval,true);
+   return {sealHybrid:async()=>x.signed,mailbox:{send:async r=>{assert.equal(closed,0);assert.ok(x.files.has(output));sent++;return {id:'01234567-89ab-4cde-8fab-0123456789ab',digest:nativeRecordDigest(r),status:'queued'};}},close(){closed++;}};},
+  mailboxFactory:()=>{throw Error('plaintext fallback');}
+ });
+ assert.equal(result.status,'deposited');assert.deepEqual({connected,sent,closed},{connected:1,sent:1,closed:1});
+});

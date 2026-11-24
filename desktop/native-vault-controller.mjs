@@ -175,7 +175,15 @@ export async function connectNativeVault({binary,binarySha256,vault,journal,quor
             verified(record,await peers(context));return record;
           }finally{raw.fill(0);}
         });},
-        close(){fail();}
+        close(){
+          // Close stdin after queued operations so the broker can exit normally
+          // and run its cleanup; a stuck process is forcibly terminated.
+          if(closed)return;
+          if(busy||waiter){fail();return;}
+          closed=true;child.stdin.end();
+          const timer=setTimeout(()=>child.kill(),2000);timer.unref();
+          child.once('exit',()=>clearTimeout(timer));
+        }
       });
     }
     return Object.freeze({

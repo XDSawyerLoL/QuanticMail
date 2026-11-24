@@ -23,3 +23,20 @@ test('receive persists encrypted receipt before acknowledgement; explicit recove
  saved=Buffer.from('{}');
  await assert.rejects(runWindowsScatteringMail(cfg,storage,{...deps,operation:'confirm-receipt',path}));assert.equal(acked,2);
 });
+
+test('sealed receive uses one native broker for pull, authenticated opening and ACK; refuses plain token fallback',async()=>{
+ const {token,...plainScope}=scope;
+ const sealed={...cfg,windowsScattering:{...plainScope,credentialMode:'vault-sealed-v1'}};
+ assert.throws(()=>windowsScatteringScope({...sealed,windowsScattering:{...sealed.windowsScattering,token:'x'.repeat(43)}}));
+ const key=randomBytes(32);let saved,opened=0,closed=0,connected=0,acked=0;
+ const storage={read:async p=>p===scope.receiptKeyFile?Buffer.from(key):Buffer.from(saved),writeReceipt:async(p,b)=>{assert.equal(p,path);saved=Buffer.from(b);}};
+ const item={id,digest,record:{}};
+ const mailbox={pull:async()=>item,ack:async()=>{assert.ok(saved);assert.equal(closed,0);acked++;}};
+ const connect=async config=>{connected++;assert.equal(config.guiWindowsApproval,true);assert.equal(config.windowsScattering.token,undefined);
+  return {mailbox,openHybrid:async()=>{opened++;return payload;},close(){closed++;}};
+ };
+ const res=await runWindowsScatteringMail(sealed,storage,{operation:'receive',path,approve:async()=>true,connect,mailboxFactory:()=>{throw Error('plaintext fallback');}});
+ assert.equal(res.status,'acknowledged');assert.deepEqual({connected,opened,acked,closed},{connected:1,opened:1,acked:1,closed:1});
+ await assert.rejects(runWindowsScatteringMail(sealed,storage,{operation:'receive',path,approve:async()=>true,connect:async()=>({close(){closed++;}}),mailboxFactory:()=>{throw Error('plaintext fallback');}}));
+ assert.equal(closed,2);
+});

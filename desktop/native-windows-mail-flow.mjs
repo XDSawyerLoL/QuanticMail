@@ -86,8 +86,8 @@ export async function runWindowsScatteringMail(config,storage,{operation,path,ex
   controller=sealed?session:await connect(config);
   const p=await controller.openHybrid(item.record,{recover:operation==='recover-receive'});
   const payload={subject:p.subject,body:p.body};const display=safeMailDisplay(payload);
-  const sealed=sealReceipt(key,scope,item,payload);
-  await storage.writeReceipt(path,Buffer.from(JSON.stringify(sealed)+'\n'));
+  const sealedReceipt=sealReceipt(key,scope,item,payload);
+  await storage.writeReceipt(path,Buffer.from(JSON.stringify(sealedReceipt)+'\n'));
   const stored=openReceipt(key,scope,await readJSON(storage,path));
   check(stored.id===item.id&&stored.digest===item.digest&&stored.payload.subject===payload.subject&&stored.payload.body===payload.body);
   if(!sealed)controller.close();controller=undefined;
