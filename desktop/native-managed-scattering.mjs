@@ -55,8 +55,8 @@ export async function startManagedCarrier({binary,binaryPin,config,listen,target
 // Explicit negotiated laboratory path; no shared-secret config accepted.
 // The dashboard continues using its existing activation profile until native
 // signing custody and independently authenticated peer configuration exist.
-export async function startNegotiatedManagedCarrier({socket,local,privateKeys,peer,context,timeoutMs=8000,...options}){
+export async function startNegotiatedManagedCarrier({socket,local,privateKeys,signHandshake,peer,context,timeoutMs=8000,...options}){
  const config=options.config;
  check(config&&!Object.hasOwn(config,'secretHex')&&!Object.hasOwn(config,'epochHex'));
- return startManagedCarrier(options,{start:(c,o)=>startNegotiatedScatteringMailboxEndpoint({config:c,...o,socket,local,privateKeys,peer,context,timeoutMs})});
+ return startManagedCarrier(options,{start:(c,o)=>startNegotiatedScatteringMailboxEndpoint({config:c,...o,socket,local,privateKeys,signHandshake,peer,context,timeoutMs})});
 }

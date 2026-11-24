@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {createServer,request} from 'node:http';
 import {createSocket} from 'node:dgram';
 import {spawn,execFileSync} from 'node:child_process';
-import {randomBytes,createHash,generateKeyPairSync} from 'node:crypto';
+import {randomBytes,createHash,generateKeyPairSync,sign} from 'node:crypto';
 import {mkdtemp,mkdir,rm,readFile,realpath} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
@@ -94,7 +94,8 @@ test('negotiated managed carriers activate native UDP on both endpoints without 
   for(let i=0;i<2;i++)await new Promise((r,j)=>{sockets[i].once('error',j);sockets[i].connect(bootstrapPorts[1-i],'127.0.0.1',r);});
   const ports=[await freeUDP(),await freeUDP()];assert.notEqual(ports[0],ports[1]);
   const binaryPin=createHash('sha256').update(await readFile(binary)).digest('hex'),context={channel:randomBytes(48).toString('hex'),generation:0,previous:'0'.repeat(96)};
-  const options=i=>({binary,binaryPin,config:configs[i],listen:'127.0.0.1:'+ports[i],target:'127.0.0.1:'+ports[1-i],windowsBootstrap:boots[i],socket:sockets[i],...ids[i],peer:ids[1-i].local,context});
+  // Synthetic external signer: the negotiation receives no long-term private keys.
+  const options=i=>({binary,binaryPin,config:configs[i],listen:'127.0.0.1:'+ports[i],target:'127.0.0.1:'+ports[1-i],windowsBootstrap:boots[i],socket:sockets[i],local:ids[i].local,signHandshake:async raw=>({classical:sign('sha256',raw,{key:ids[i].privateKeys.classical,dsaEncoding:'ieee-p1363'}).toString('base64url'),pq:sign(null,raw,ids[i].privateKeys.pq).toString('base64url')}),peer:ids[1-i].local,context});
   await assert.rejects(startNegotiatedManagedCarrier({...options(0),config:{...configs[0],secretHex:'a'.repeat(64)}}));
   const outcomes=await Promise.allSettled([startNegotiatedManagedCarrier(options(0)),startNegotiatedManagedCarrier(options(1))]);
   for(const o of outcomes)if(o.status==='fulfilled')carriers.push(o.value);

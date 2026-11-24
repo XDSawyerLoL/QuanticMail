@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {generateKeyPairSync,randomBytes} from 'node:crypto';
+import {generateKeyPairSync,randomBytes,sign} from 'node:crypto';
 import {openHybridSessionLab} from '../lib/quantic/scattering-session-lab.mjs';
 import {openCompactSender,openCompactReceiver,openOpaqueRouter} from '../lib/quantic/scattering-mux-compact-lab.mjs';
 function identity(){const a=generateKeyPairSync('ed25519'),b=generateKeyPairSync('ml-dsa-65');return {local:{classical:a.publicKey,pq:b.publicKey},privateKeys:{classical:a.privateKey,pq:b.privateKey}};}
@@ -35,4 +35,20 @@ test('signature tampering, transcript context, key confirmation and early releas
  {const ctx=initial(),[a,b]=pair(ctx),replayed=openHybridSessionLab({role:'responder',...B,peer:A.local,context:{...ctx,generation:1,previous:'a'.repeat(96)}});assert.throws(()=>replayed.respond(a.begin()));a.close();b.close();}
  {const ctx=initial(),[a,b]=pair(ctx),impostor=openHybridSessionLab({role:'responder',...B,peer:C.local,context:ctx});assert.throws(()=>impostor.respond(a.begin()));a.close();b.close();}
  {const [a,b]=pair();b.accept(a.finish(b.respond(a.begin())));a.take().secret.fill(0);assert.throws(()=>a.take());b.close();}
+});
+
+test('external asynchronous signer uses pinned keys, refuses invalid signatures and cannot complete after close',async()=>{
+ const signer=(id)=>async raw=>({classical:sign(null,raw,id.privateKeys.classical).toString('base64url'),pq:sign(null,raw,id.privateKeys.pq).toString('base64url')});
+ const context=initial(),options={role:'initiator',local:A.local,peer:B.local,context};
+ const a=openHybridSessionLab({...options,signHandshake:signer(A)}),b=openHybridSessionLab({role:'responder',local:B.local,peer:A.local,context,signHandshake:signer(B)});
+ let x,y;
+ try{const h=await a.begin(),r=await b.respond(h),f=a.finish(r);b.accept(f);x=a.take();y=b.take();assert.deepEqual(x,y);}
+ finally{a.close();b.close();for(const v of [x,y]){v?.secret.fill(0);v?.epoch.fill(0);}}
+ const wrong=openHybridSessionLab({...options,signHandshake:signer(C)});
+ await assert.rejects(wrong.begin());assert.throws(()=>wrong.take());
+ assert.throws(()=>openHybridSessionLab({...options,privateKeys:A.privateKeys,signHandshake:signer(A)}));
+ let release;const pending=openHybridSessionLab({...options,signHandshake:raw=>new Promise(resolve=>{release=()=>resolve(signer(A)(raw));})});
+ const started=pending.begin();pending.close();release();await assert.rejects(started);assert.throws(()=>pending.take());
+ const denied=openHybridSessionLab({...options,signHandshake:async()=>{throw Error('refused');}});
+ await assert.rejects(denied.begin());assert.throws(()=>denied.take());
 });

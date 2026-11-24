@@ -5,7 +5,7 @@ import {createHash} from 'node:crypto';
 import {negotiateUdpSessionLab} from '../lib/quantic/scattering-session-udp-endpoint-lab.mjs';
 import {startScatteringMailboxEndpoint} from './native-scattering-mailbox.mjs';
 const check=x=>{if(!x)throw Error('Negotiated mailbox endpoint refused');};
-export async function startNegotiatedScatteringMailboxEndpoint({config,socket,local,privateKeys,peer,context,windowsBootstrap,timeoutMs=8000}){
+export async function startNegotiatedScatteringMailboxEndpoint({config,socket,local,privateKeys,signHandshake,peer,context,windowsBootstrap,timeoutMs=8000}){
  check(config&&typeof config==='object'&&!Array.isArray(config)&&config.labOnly===true);
  // Do not silently accept the historical pre-shared-key format.
  const keys=['labOnly','role','queueDir','stateDir','recvPort','httpPort'];
@@ -17,7 +17,7 @@ export async function startNegotiatedScatteringMailboxEndpoint({config,socket,lo
  let material,endpoint,ephemeral;
  try{
   material=await negotiateUdpSessionLab({socket,role:config.role==='client'?'initiator':'responder',
-   local,privateKeys,peer,context,timeoutMs});
+   local,privateKeys,signHandshake,peer,context,timeoutMs});
   // The existing transport reserves the negotiated epoch in the local
   // durable guard before opening its data listener. No bypass or fallback.
   ephemeral={...config,secretHex:material.secret.toString('hex'),epochHex:material.epoch.toString('hex')};

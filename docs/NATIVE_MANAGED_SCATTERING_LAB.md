@@ -25,3 +25,14 @@ partagé Scattering reste sous ACL NTFS comme dans le laboratoire historique,
 pas encore scellé. Pas de renouvellement automatique des époques, de
 négociation P2P ni de traversée NAT. Aucun port HTTP public ni modification
 de pare-feu.
+
+## Interface de signature externe (laboratoire)
+
+La négociation hybride accepte maintenant un signataire asynchrone à la
+place des clés privées Node, jamais les deux. Chaque signature retournée
+est vérifiée localement contre les deux clés publiques épinglées. Une
+fermeture ou un refus avant signature interdit la libération de session.
+Le test UDP utilise des signataires fictifs. Le broker Go doit encore
+implémenter l'autorisation dédiée (contact, contexte, expiration, anti-rejeu)
+avant tout raccordement au dashboard. Aucun renouvellement automatique ni
+changement du profil historique n'est introduit par cette interface.
