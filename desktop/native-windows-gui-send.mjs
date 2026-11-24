@@ -67,7 +67,7 @@ export async function composeSendWindowsGUI(boot,fields,{
  check(draft?.status==='draft-saved-not-sent'&&/^draft-[a-z0-9-]{1,48}\.json$/.test(draft.file));
  const input=win32.join(boot.dir,draft.file);
  const output=win32.join(boot.dir,draft.file.replace(/^draft-/,'wire-'));
- const result=await compose(cfg,storage,{input,output,recover:false,
+ const result=await compose(cfg,storage,{input,output,recover:false,reviewedFields:{to:fields.to,subject:fields.subject,body:fields.body},
   approve:text=>approve(boot,storage,text),connect});
  check(['saved-not-sent','deposited','cancelled-before-seal'].includes(result?.status));
  return Object.freeze({...result,encryptedDraft:draft.file,
