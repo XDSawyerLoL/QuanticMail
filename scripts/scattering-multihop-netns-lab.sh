@@ -50,6 +50,12 @@ RESEAL="${SCATTERING_MULTIHOP_RESEAL:-0}"
 E2E="${SCATTERING_MULTIHOP_E2E:-0}"
 MIX="${SCATTERING_MULTIHOP_MIX:-0}"
 OFFSET="${SCATTERING_MULTIHOP_SOURCE_OFFSET_MS:-0}"
+B_REAL="${SCATTERING_MULTIHOP_B_REAL_CELLS:-100}"
+if [[ "$B_REAL" != "100" && "$B_REAL" != "20" ]];then echo 'unsupported real-cell mix' >&2;exit 2;fi
+if [[ "$B_REAL" == "20" && "$E2E" != "1" ]];then echo 'skew needs E2E lab' >&2;exit 2;fi
+B_PRELOAD="140"
+EXPECTED_COVER="0"
+if [[ "$B_REAL" == "20" ]];then B_PRELOAD="20";EXPECTED_COVER="80";fi
 if [[ "$OFFSET" != "0" && "$OFFSET" != "25" ]];then
  echo 'unsupported source offset' >&2; exit 2
 fi
@@ -72,7 +78,7 @@ sudo timeout -s INT 17s ip netns exec "$NSR" tcpdump -i "$VBR" -Q in -n -s 256 -
 sudo timeout -s INT 17s ip netns exec "$NSD" tcpdump -i "$VDR" -Q in -n -s 256 -U -w - 'udp and dst port 49003' >"$WORK/out.pcap" 2>"$WORK/out.caplog" & CAP_PIDS+=("$!")
 sleep .8
 if [[ "$RESEAL" == "1" ]]; then
- sudo ip netns exec "$NSR" "$NODE" "$ROOT/scripts/scattering-hop-reseal-relay-lab.mjs" 10.252.41.2:49001 10.252.42.2:49002 "$WORK/queue" 12 "$WORK/a.key" "$WORK/b.key" "$WORK/out.key" "$MIX" >"$WORK/relay.json" 2>"$WORK/relay.err" &
+ sudo ip netns exec "$NSR" "$NODE" "$ROOT/scripts/scattering-hop-reseal-relay-lab.mjs" 10.252.41.2:49001 10.252.42.2:49002 "$WORK/queue" 12 "$WORK/a.key" "$WORK/b.key" "$WORK/out.key" "$MIX" "$EXPECTED_COVER" >"$WORK/relay.json" 2>"$WORK/relay.err" &
 else
  sudo ip netns exec "$NSR" "$NODE" "$ROOT/scripts/scattering-opaque-relay-lab.mjs" 10.252.41.2:49001 10.252.42.2:49002 "$WORK/queue" 12 >"$WORK/relay.json" 2>"$WORK/relay.err" &
 fi
@@ -97,7 +103,7 @@ sleep .5
 if [[ "$E2E" == "1" ]]; then
  sudo ip netns exec "$NSA" "$NODE" "$ROOT/scripts/scattering-e2e-sender-lab.mjs" "$PACER" 10.252.41.2 49001 5 "$WORK/a.key" "$WORK/e2e.key" 0 >"$WORK/a.report" 2>"$WORK/a.err" & PID_A="$!"
  if [[ "$OFFSET" == "25" ]];then sleep .025;fi
- sudo ip netns exec "$NSB" "$NODE" "$ROOT/scripts/scattering-e2e-sender-lab.mjs" "$PACER" 10.252.42.2 49002 5 "$WORK/b.key" "$WORK/e2e.key" 1 >"$WORK/b.report" 2>"$WORK/b.err" & PID_B="$!"
+ sudo ip netns exec "$NSB" "$NODE" "$ROOT/scripts/scattering-e2e-sender-lab.mjs" "$PACER" 10.252.42.2 49002 5 "$WORK/b.key" "$WORK/e2e.key" 1 "$B_PRELOAD" >"$WORK/b.report" 2>"$WORK/b.err" & PID_B="$!"
 elif [[ "$RESEAL" == "1" ]]; then
  sudo ip netns exec "$NSA" "$NODE" "$ROOT/scripts/scattering-physical-probe.mjs" send-synthetic "$PACER" 10.252.41.2 49001 5 "$WORK/a.key" 50000 >"$WORK/a.report" 2>"$WORK/a.err" & PID_A="$!"
  sudo ip netns exec "$NSB" "$NODE" "$ROOT/scripts/scattering-physical-probe.mjs" send-synthetic "$PACER" 10.252.42.2 49002 5 "$WORK/b.key" 50000 >"$WORK/b.report" 2>"$WORK/b.err" & PID_B="$!"
@@ -133,22 +139,26 @@ if(!match)throw Error('Go egress pacer counters missing');
 const native={planned:Number(match[1]),sent:Number(match[2]),missed:Number(match[3])};
 if(relay.ingressA<50||relay.ingressB<50||
  relay.spooled!==relay.ingressA+relay.ingressB||relay.spoolErrors!==0||
- x.ingress.A!==relay.ingressA||x.ingress.B!==relay.ingressB||
+ x.ingress.A!==100||x.ingress.B!==100||
  x.egress.cells>native.sent||x.egress.repeatedCiphertext!==0)
  throw Error('multi-hop capture mismatch or missing relayed traffic');
 const reseal=process.env.SCATTERING_MULTIHOP_RESEAL==='1';
 const e2e=process.env.SCATTERING_MULTIHOP_E2E==='1';
 const mix=process.env.SCATTERING_MULTIHOP_MIX==='1';
+const bReal=Number(process.env.SCATTERING_MULTIHOP_B_REAL_CELLS||100);
+const expectedData=e2e?100+bReal:200;
+const expectedCover=bReal===20?80:0;
 const rxLines=get('receive.json').toString().trim().split('\n');
 const receiver=JSON.parse(rxLines.at(-1));
 if(e2e){
  if((relay.mixedBatches===true)!==mix)throw Error('relay batch mixing expectation mismatch');
- if(mix&&(relay.mixer?.batchSize!==40||relay.mixer?.batches!==5||
-          relay.mixer?.pending!==0||relay.mixer?.emitted!==200))
+ if(mix&&(relay.mixer?.batchSize!==40||relay.mixer?.batches!==expectedData/40||
+          relay.mixer?.pending!==0||relay.mixer?.emitted!==expectedData))
     throw Error('mixed batch-count/completeness requirement failed');
  if(!reseal||relay.mode!=='trusted-hop-reseal-lab'||relay.ciphertextModified!==true||
-    receiver.mode!=='nested-e2e-synthetic-receive'||receiver.authenticatedE2E!==200||
-    receiver.authenticatedHop!==200||receiver.perSender.A!==100||receiver.perSender.B!==100||
+    relay.unauthenticated!==expectedCover||
+    receiver.mode!=='nested-e2e-synthetic-receive'||receiver.authenticatedE2E!==expectedData||
+    receiver.authenticatedHop!==expectedData||receiver.perSender.A!==100||receiver.perSender.B!==bReal||
     receiver.invalidInner!==0||receiver.duplicates!==0||x.egress.matchedUnique!==0)
     throw Error('nested end-to-end message was not authenticated and correlated correctly');
 }else if(reseal){
@@ -172,14 +182,15 @@ if(e2e){
    captureA:get('a.pcap'),captureB:get('b.pcap'),captureEgress:get('out.pcap'),
    outputHopKey:hopKey,endToEndKey:contentKey,maxLagMs:250
   });
-  if(timeOnlyObserver.data.total!==200||timeOnlyObserver.truth.A!==100||
-     timeOnlyObserver.truth.B!==100||timeOnlyObserver.observedPackets!==native.sent)
+  if(timeOnlyObserver.data.total!==expectedData||timeOnlyObserver.truth.A!==100||
+     timeOnlyObserver.truth.B!==bReal||timeOnlyObserver.observedPackets!==native.sent)
     throw Error('temporal scorer observed incomplete authenticated truth');
  }finally{hopKey.fill(0);contentKey.fill(0);}
 }
 console.log(JSON.stringify({lab:mix?'nested-e2e-40-cell-randomized-mix':e2e?'nested-e2e-inner-under-trusted-hop':reseal?'trusted-hop-reseal-control':'negative-control-2-senders-1-opaque-relay',
  CPUContentionRequested:process.env.SCATTERING_MULTIHOP_CPU_LOAD==='1',
  sourceOffsetRequestedMs:Number(process.env.SCATTERING_MULTIHOP_SOURCE_OFFSET_MS||0),
+ sourceBRealMessagesRequested:e2e?bReal:null,
  measuredFirstSourceOffsetMs,
  impairmentRequested:process.env.SCATTERING_MULTIHOP_IMPAIRMENT==='1',
  native,relay,receiver:{received:receiver.received,authenticatedSynthetic:receiver.authenticatedSynthetic??0,
