@@ -15,7 +15,7 @@ $vault=Join-Path $root 'bin\Vault-PQ-lab.exe'
 $helper=Join-Path $root 'scripts\native-windows-compose-draft.mjs'
 $script:privateDirectory=$null
 function Invoke-Composer([string]$Directory,[string]$Payload,[bool]$List,[bool]$Send=$false,[bool]$StatusOnly=$false,[string]$ReceiveMode=''){
- if($ReceiveMode -notin @('','receive','recover-receive','confirm-receipt')){throw 'Mode reception invalide.'}
+ if($ReceiveMode -notin @('','receive','recover-receive','confirm-receipt','provision','readiness')){throw 'Mode reception invalide.'}
  if($ReceiveMode -and ($List -or $Send -or $StatusOnly)){throw 'Modes incompatibles.'}
  if($Directory -cnotmatch '^[A-Za-z]:\\[A-Za-z0-9_. -]+(?:\\[A-Za-z0-9_. -]+)*$'){throw 'Dossier prive non valide.'}
  foreach($part in $Directory.Substring(3).Split('\')){
@@ -28,7 +28,6 @@ function Invoke-Composer([string]$Directory,[string]$Payload,[bool]$List,[bool]$
  $psi.UseShellExecute=$false;$psi.CreateNoWindow=$true
  $psi.WindowStyle=[Diagnostics.ProcessWindowStyle]::Hidden
  $psi.RedirectStandardInput=$true;$psi.RedirectStandardOutput=$true;$psi.RedirectStandardError=$true
- $psi.StandardInputEncoding=[System.Text.UTF8Encoding]::new($false)
  $psi.StandardOutputEncoding=[System.Text.UTF8Encoding]::new($false)
  $psi.StandardErrorEncoding=[System.Text.UTF8Encoding]::new($false)
  $psi.EnvironmentVariables.Clear()
@@ -37,7 +36,7 @@ function Invoke-Composer([string]$Directory,[string]$Payload,[bool]$List,[bool]$
  $psi.EnvironmentVariables['PATH']=(Join-Path $root 'bin')+';'+(Join-Path $env:SystemRoot 'System32')
  if($script:operationBusy){throw 'Une operation est deja en cours.'}
  $script:operationBusy=$true
- $controls=@($choose,$save,$send,$cancel,$statusButton,$receiveButton,$recoverButton,$confirmButton)
+ $controls=@($choose,$save,$send,$cancel,$statusButton,$receiveButton,$recoverButton,$confirmButton,$newVault,$connectionButton)
  foreach($control in $controls){$control.Enabled=$false}
  $form.ControlBox=$false
  $status.Text='Operation locale en cours. Consultez les demandes du coffre Windows.'
@@ -45,11 +44,14 @@ function Invoke-Composer([string]$Directory,[string]$Payload,[bool]$List,[bool]$
  $p.StartInfo=$psi
  try{
   if(-not $p.Start()){throw 'Demarrage refuse.'}
-  if(-not $List){$p.StandardInput.Write($Payload)}
-  $p.StandardInput.Close()
+  if(-not $List){
+   $bytes=[System.Text.Encoding]::UTF8.GetBytes($Payload)
+   try{$p.StandardInput.BaseStream.Write($bytes,0,$bytes.Length)}finally{[Array]::Clear($bytes,0,$bytes.Length)}
+  }
+  $p.StandardInput.BaseStream.Close()
   $readOut=$p.StandardOutput.ReadToEndAsync()
   $readErr=$p.StandardError.ReadToEndAsync()
-  $maximum=if($Send -or $ReceiveMode){300000}else{15000}
+  $maximum=if($ReceiveMode -eq 'provision'){320000}elseif($Send -or $ReceiveMode){300000}else{15000}
   $clock=[Diagnostics.Stopwatch]::StartNew()
   while(-not $p.WaitForExit(100)){
    [Windows.Forms.Application]::DoEvents()
@@ -79,7 +81,9 @@ $form.Font=New-Object Drawing.Font('Segoe UI',10)
 function Label-At([string]$Text,[int]$Y){
  $l=New-Object Windows.Forms.Label;$l.Text=$Text;$l.SetBounds(24,$Y,660,24);$form.Controls.Add($l)
 }
-Label-At 'NOUVEAU MESSAGE DE TEST' 18
+$heading=New-Object Windows.Forms.Label;$heading.Text='MESSAGERIE DE TEST';$heading.SetBounds(24,18,260,28);$form.Controls.Add($heading)
+$newVault=New-Object Windows.Forms.Button;$newVault.Text='Creer mon coffre';$newVault.SetBounds(293,14,190,32);$form.Controls.Add($newVault)
+$connectionButton=New-Object Windows.Forms.Button;$connectionButton.Text='Verifier la connexion';$connectionButton.SetBounds(490,14,190,32);$form.Controls.Add($connectionButton)
 Label-At 'TEST : brouillon chiffre par Windows DPAPI (utilisateur local). Pas de donnees reelles.' 55
 $vaultLabel=New-Object Windows.Forms.Label;$vaultLabel.Text='Mon coffre de test';$vaultLabel.SetBounds(24,98,470,24);$form.Controls.Add($vaultLabel)
 $chosen=New-Object Windows.Forms.TextBox;$chosen.SetBounds(24,128,464,29);$chosen.ReadOnly=$true;$form.Controls.Add($chosen)
@@ -160,6 +164,86 @@ $confirmButton.Add_Click({
   Invoke-Receive 'confirm-receipt' $name
  }catch{[Windows.Forms.MessageBox]::Show('Choisissez un recu chiffre de votre coffre de test.','Recu refuse','OK','Warning')|Out-Null}finally{$picker.Dispose()}
 })
+
+# The addresses and public pins are independently issued by the lab operator.
+# No passwords are entered into WinForms or passed to Node.
+Add-Type -AssemblyName Microsoft.VisualBasic
+function Pick-SetupFolder([string]$Description){
+ $f=New-Object Windows.Forms.FolderBrowserDialog
+ $f.Description=$Description
+ try{if($f.ShowDialog($form) -eq [Windows.Forms.DialogResult]::OK){return $f.SelectedPath}}finally{$f.Dispose()}
+}
+function Request-SetupText([string]$Prompt,[string]$Title){
+ return [Microsoft.VisualBasic.Interaction]::InputBox($Prompt,$Title,'')
+}
+$newVault.Add_Click({
+ try{
+  $notice=[Windows.Forms.MessageBox]::Show('Creer un nouveau coffre fictif sur ce PC. Vous devez disposer de l adresse et de l empreinte du quorum transmises par le responsable du laboratoire. Les phrases secretes seront saisies uniquement dans des fenetres Windows protegees. Ce coffre ne sera pas encore connecte. Continuer ?','Nouveau coffre','YesNo','Information')
+  if($notice -ne [Windows.Forms.DialogResult]::Yes){return}
+  $parent=Pick-SetupFolder 'Choisissez ou conserver le nouveau coffre local.'
+  if(-not $parent){return}
+  $address=Request-SetupText 'Adresse de test attribuee par le responsable du laboratoire.' 'Adresse de test'
+  if(-not $address){return}
+  if($address -cnotmatch '^[a-z0-9][a-z0-9._-]{2,31}~[a-f0-9]{32}@quantic$'){throw 'Adresse invalide.'}
+  $pin=Request-SetupText 'Empreinte SHA256 du quorum obtenue par un canal de confiance independant.' 'Verification du quorum'
+  if(-not $pin){return}
+  $pin=$pin.Trim().ToLowerInvariant()
+  if($pin -cnotmatch '^[a-f0-9]{64}$' -or $pin -match '^0+$'){throw 'Empreinte invalide.'}
+  $dir=Join-Path $parent ('Quantic-'+[Guid]::NewGuid().ToString('N').Substring(0,12))
+  $payload=ConvertTo-Json -InputObject @{address=$address;quorumPin=$pin} -Compress
+  $result=Invoke-Composer $dir $payload $false $false $false 'provision'
+  if($result.status -cne 'local-vault-created-not-enrolled' -or $result.identity.address -cne $address -or $result.quorumPin -cne $pin -or $result.liveAccountEnrollmentAuthorized -ne $false -or $result.remoteAuthoritiesConfigured -ne $false){throw 'Resultat invalide.'}
+  # The native code already retained the public enrollment record in the
+  # private vault. Export only validated public material, never a private key.
+  $picker=New-Object Windows.Forms.SaveFileDialog
+  $picker.Title='Exporter les informations publiques du nouveau coffre'
+  $picker.Filter='Identite publique (*.json)|*.json';$picker.FileName='quantic-identite-publique.json';$picker.OverwritePrompt=$true
+  try{
+   if($picker.ShowDialog($form) -eq [Windows.Forms.DialogResult]::OK){
+    $public=ConvertTo-Json -InputObject @{identity=$result.identity;quorumPin=$result.quorumPin;labOnly=$true} -Depth 12 -Compress
+    $data=[Text.Encoding]::UTF8.GetBytes($public)
+    $f=[IO.File]::Open($picker.FileName,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+    try{$f.Write($data,0,$data.Length);$f.Flush($true)}finally{$f.Dispose()}
+   }
+  }catch{
+   [Windows.Forms.MessageBox]::Show('Export public non termine. Les informations publiques ont ete conservees dans le coffre. Aucun fichier existant remplace.','Export','OK','Warning')|Out-Null
+  }finally{$picker.Dispose()}
+  [Windows.Forms.MessageBox]::Show(('Coffre cree, non connecte. Dossier : '+$dir+'. Transmettez uniquement les informations PUBLIQUES au responsable pour la preparation des autorisations. Aucun compte distant cree.'),'Coffre local cree','OK','Information')|Out-Null
+ }catch{
+  [Windows.Forms.MessageBox]::Show('Creation refusee, annulee ou incomplete. Conservez tout dossier partiel et ne le remplacez pas. Verifiez les informations fournies.','Coffre non confirme','OK','Warning')|Out-Null
+ }
+})
+$connectionButton.Add_Click({
+ try{
+  $dir=Pick-SetupFolder 'Choisissez le coffre de test deja configure.'
+  if(-not $dir){return}
+  $carrier=Pick-SetupFolder 'Choisissez le dossier de transport prepare par le responsable.'
+  if(-not $carrier){return}
+  $picker=New-Object Windows.Forms.OpenFileDialog
+  $picker.Title='Selectionner la fiche de confiance publique preparee';$picker.Filter='Fiche de confiance (*.json)|*.json';$picker.CheckFileExists=$true
+  try{if($picker.ShowDialog($form) -ne [Windows.Forms.DialogResult]::OK){return};$trust=$picker.FileName}finally{$picker.Dispose()}
+  $pin=Request-SetupText 'Empreinte SHA256 de cette fiche, obtenue par un canal de confiance independant.' 'Verifier la fiche de confiance'
+  if(-not $pin){return};$pin=$pin.Trim().ToLowerInvariant()
+  if($pin -cnotmatch '^[a-f0-9]{64}$' -or $pin -match '^0+$'){throw 'Empreinte invalide.'}
+  $decision=[Windows.Forms.MessageBox]::Show('Verifier les attestations des autorites en direct ? Oui : controle des signatures et connexions mTLS. Non : verification locale hors ligne. Annuler : quitter. Aucun message transmis.','Verification des autorites','YesNoCancel','Question')
+  if($decision -eq [Windows.Forms.DialogResult]::Cancel){return}
+  $live=($decision -eq [Windows.Forms.DialogResult]::Yes)
+  $payload=ConvertTo-Json -InputObject @{carrierDir=$carrier;trustFile=$trust;trustSha256=$pin;live=$live} -Compress
+  $result=Invoke-Composer $dir $payload $false $false $false 'readiness'
+  if($result.liveAccountEnrollmentAuthorized -ne $false -or $result.remoteTransportVerified -ne $false -or $result.contactPinsVerified -ne $true -or $result.authorityCount -ne 4){throw 'Resultat invalide.'}
+  if($live){
+   if($result.status -cne 'fresh-mtls-3-of-4-quorum-and-contact-verified' -or $result.authorityQuorumVerified -ne $true){throw 'Quorum non confirme.'}
+   $text='Autorites : quorum et contact confirmes par attestations fraiches. Transport distant non encore verifie.'
+  }else{
+   if($result.status -cne 'offline-public-anchors-verified' -or $result.authorityQuorumVerified -ne $false){throw 'Verification locale non confirmee.'}
+   $text='Configuration publique et contact verifies localement. Aucun quorum distant ni transport confirme.'
+  }
+  [Windows.Forms.MessageBox]::Show($text,'Verification de connexion','OK','Information')|Out-Null
+ }catch{
+  [Windows.Forms.MessageBox]::Show('Connexion non confirmee. Le coffre, le transport et la fiche de confiance doivent avoir ete prepares par le responsable. Aucune inscription ni modification automatique.','Configuration indisponible','OK','Warning')|Out-Null
+ }
+})
+
 $cancel.Add_Click({$form.Close()})
 $statusButton.Add_Click({
  try {
@@ -245,6 +329,7 @@ $send.Add_Click({
  }
 })
 if($SelfTest){
+ if($newVault.Text -notmatch 'Creer' -or $connectionButton.Text -notmatch 'connexion'){throw 'Setup buttons missing'}
  if($recipient.DropDownStyle -ne 'DropDownList' -or -not $body.Multiline -or -not $chosen.ReadOnly -or $save.Text -notmatch 'brouillon' -or $send.Text -notmatch 'deposer' -or $statusButton.Text -notmatch 'essais' -or $receiveButton.Text -notmatch 'Recevoir' -or $confirmButton.Text -notmatch 'Confirmer'){throw 'Composer self-test failed'}
  $form.Dispose();Write-Output 'Private GUI composer passed';return
 }
