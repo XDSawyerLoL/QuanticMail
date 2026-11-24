@@ -94,7 +94,20 @@ foreach ($a in $actions) { $null=$choice.Items.Add($a.Title) }
 $form.Controls.Add($choice)
 $hint=Label-At "" 24 196 672 45
 $null=Label-At "Dossier prive du coffre (ou du transport pour le pont)" 24 245 672 23
-$directory=Text-At 24 270 672
+$directory=Text-At 24 270 530
+$browse=New-Object Windows.Forms.Button;$browse.Text="Choisir..."
+$browse.ForeColor=[Drawing.Color]::Black;$browse.SetBounds(566,270,130,28)
+$form.Controls.Add($browse)
+$browse.Add_Click({
+ $picker=New-Object Windows.Forms.FolderBrowserDialog
+ $picker.Description="Choisir le dossier parent du nouveau coffre de test"
+ $picker.ShowNewFolderButton=$false
+ try{
+  if($picker.ShowDialog() -eq [Windows.Forms.DialogResult]::OK){
+   $directory.Text=[IO.Path]::Combine($picker.SelectedPath,("Quantic-Test-"+[Guid]::NewGuid().ToString("N").Substring(0,12)))
+  }
+ }finally{$picker.Dispose()}
+})
 $il=Label-At "Fichier prive" 24 309 672 22
 $inputName=Text-At 24 333 672
 $ol=Label-At "Nouvelle enveloppe" 24 372 672 22
@@ -112,6 +125,8 @@ $choice.Add_SelectedIndexChanged({
  $hint.Text=$a.Hint
  $run.Text=if($a.Id -eq "ProvisionGui"){"Creer mon identite"}else{"Ouvrir les outils avances (terminal)"}
  $directory.Enabled=[bool]$a.Scope
+ $browse.Visible=($a.Id -eq "ProvisionGui")
+ $directory.Width=if($browse.Visible){530}else{672}
  $inputName.Enabled=[bool]$a.Input
  $outputName.Enabled=[bool]$a.Output
  $il.Text=if($a.Input){"Fichier prive ("+$a.Input+"-nom.json)"}else{"Aucun fichier requis"}
@@ -137,7 +152,11 @@ if ($SelfTest) {
   if(-not $rejected){throw "Path traversal accepted"}
   $choice.SelectedIndex=13
   if($directory.Enabled -or $inputName.Enabled -or $outputName.Enabled){throw "Diagnostic fields enabled"}
-  Write-Output "Dashboard controls and operation mapping verified"
+  $choice.SelectedIndex=10
+  if($actions[10].Id -cne "ProvisionGui" -or $inputName.Enabled -or $outputName.Enabled -or -not $directory.Enabled){throw "Graphical identity action unavailable"}
+  $provisionArgs=New-OperationArguments $actions[10] "C:\Quantic Lab\new-test-vault" "" ""
+  if($provisionArgs -notcontains "ProvisionGui" -or $provisionArgs -contains "-InputFile" -or $provisionArgs -contains "-OutputFile"){throw "Graphical identity arguments refused"}
+  Write-Output "Dashboard controls, graphical identity route and operation mapping verified"
  }finally{$form.Dispose()}
  exit 0
 }
