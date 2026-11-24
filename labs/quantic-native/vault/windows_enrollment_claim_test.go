@@ -8,6 +8,8 @@ import (
  "path/filepath"
  "strings"
  "testing"
+ "time"
+ "bytes"
 )
 
 func TestWindowsEnrollmentClaimPrivatePersistence(t *testing.T){
@@ -37,4 +39,23 @@ func TestWindowsEnrollmentClaimPrivatePersistence(t *testing.T){
  if e=windowsListEnrollmentCLI([]string{"Vault.exe","--gui-list-enrollment-candidates-lab",parent,"extra"});e==nil{t.Fatal("extra argument accepted")}
 
  if e=windowsPrepareEnrollmentCLI([]string{"Vault.exe","--gui-prepare-enrollment-claim-lab",parent,"testalice"});e==nil{t.Fatal("missing anchor accepted")}
+ now:=time.Now()
+ approvals,roster:=credentialTestApprovals(t,r,now)
+ bad:=approvals;bad.Votes=bad.Votes[:2]
+ if _,_,e=prepareWindowsMailboxCredential(dir,bad,roster,pw,pq,now);e==nil{t.Fatal("two votes accepted")}
+ bad=approvals;bad.Votes=append([]enrollmentVote{},approvals.Votes...);bad.Votes[2]=bad.Votes[0]
+ if _,_,e=prepareWindowsMailboxCredential(dir,bad,roster,pw,pq,now);e==nil{t.Fatal("duplicate vote accepted")}
+ if _,_,e=prepareWindowsMailboxCredential(dir,approvals,strings.Repeat("d",64),pw,pq,now);e==nil{t.Fatal("untrusted roster accepted")}
+ if _,_,e=prepareWindowsMailboxCredential(dir,approvals,roster,pw,pq,now.Add(16*time.Minute));e==nil{t.Fatal("expired approvals accepted")}
+ if _,_,e=prepareWindowsMailboxCredential(dir,approvals,roster,pw,pw,now);e==nil{t.Fatal("wrong PQ secret accepted")}
+ if _,e=os.Stat(filepath.Join(dir,"mailbox-token.vault"));!os.IsNotExist(e){t.Fatal("failed proof wrote credential")}
+ proof,digest,e:=prepareWindowsMailboxCredential(dir,approvals,roster,pw,pq,now);if e!=nil{t.Fatal(e)}
+ raw,e:=winReadPrivate(filepath.Join(dir,"mailbox-token.vault"),1024);if e!=nil{t.Fatal(e)}
+ token,e:=openNativeMailboxCredential(raw,digest,pw,pq);if e!=nil{t.Fatal(e)};defer clear(token)
+ if proof.TokenHash!=hexHash([]byte(b64.EncodeToString(token)))||bytes.Contains(raw,token){t.Fatal("bad token proof or cleartext")}
+ proof2,digest2,e:=prepareWindowsMailboxCredential(dir,approvals,roster,pw,pq,now)
+ if e!=nil||proof2!=proof||digest2!=digest{t.Fatal("re-export changed credential",e)}
+ raw2,e:=winReadPrivate(filepath.Join(dir,"mailbox-token.vault"),1024)
+ if e!=nil||!bytes.Equal(raw,raw2){t.Fatal("credential unexpectedly replaced",e)}
+
 }
