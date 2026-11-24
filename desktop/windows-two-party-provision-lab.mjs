@@ -128,3 +128,46 @@ export async function provisionTwoWindowsLab(plan,{
   nativeMailRelayConfigured:false,liveAccountEnrollmentAuthorized:false,
   legacyDeletionAuthorized:false});
 }
+
+
+// One local Windows GUI identity. The independent address/quorum pin must
+// already have been assigned by the laboratory operator. No enrollment.
+export async function provisionSingleWindowsGUI({binary,binarySha256,dir,address:addr,quorumPin},{
+ read=readFile,inspect=stat,missing=notExists,
+ invoke=nativeWindowsProvisionGUI
+}={}){
+ refuse(typeof dir==='string'&&win32.isAbsolute(dir)&&/^[A-Za-z]:\\/.test(dir)
+  &&win32.normalize(dir)===dir&&dir.length>5&&dir.length<=160&&!dir.includes('~')
+  &&typeof binary==='string'&&win32.isAbsolute(binary)&&hex.test(binarySha256)
+  &&address.test(addr)&&hex.test(quorumPin)&&!/^0+$/.test(quorumPin));
+ const parent=await inspect(win32.dirname(dir));refuse(parent.isDirectory());
+ const exe=await inspect(binary);refuse(exe.isFile()&&exe.size>0&&exe.size<256*1024*1024);
+ refuse(sha(await read(binary))===binarySha256);
+ await missing(dir);
+ const raw=await invoke(binary,dir,quorumPin,addr);
+ const publicRecord=validatePublicProvision(raw,addr);
+ refuse(raw.quorumPin===quorumPin);
+ return Object.freeze({status:'local-vault-created-not-enrolled',labOnly:true,
+  identity:publicRecord,quorumPin,remoteAuthoritiesConfigured:false,
+  nativeMailRelayConfigured:false,liveAccountEnrollmentAuthorized:false});
+}
+export function nativeWindowsProvisionGUI(binary,dir,quorumPin,addr){
+ const system=process.env.SystemRoot??process.env.SYSTEMROOT;
+ refuse(process.platform==='win32'&&typeof system==='string'&&win32.isAbsolute(system));
+ return new Promise((resolve,reject)=>{
+  const child=spawn(binary,['--provision-windows-controller-gui-lab',dir,quorumPin,addr],{
+   shell:false,windowsHide:true,cwd:win32.dirname(binary),stdio:['ignore','pipe','ignore'],
+   env:{SystemRoot:system,WINDIR:system,PATH:win32.dirname(binary)+';'+win32.join(system,'System32')}
+  });
+  let done=false,size=0;const chunks=[];
+  const finish=(err,value)=>{if(done)return;done=true;clearTimeout(timer);if(err)child.kill();for(const c of chunks)c.fill(0);err?reject(err):resolve(value);};
+  const timer=setTimeout(()=>finish(Error('Native provisioning timed out; preserve any partial vault')),300000);
+  child.on('error',()=>finish(Error('Native provisioning unavailable')));
+  child.stdout.on('error',()=>finish(Error('Native provisioning output unavailable')));
+  child.stdout.on('data',c=>{size+=c.length;if(size>16384){finish(Error('Invalid provisioning output'));return;}chunks.push(c);});
+  child.on('close',code=>{
+   if(code!==0){finish(Error('Native provisioning cancelled or refused; preserve any partial vault'));return;}
+   try{finish(null,JSON.parse(Buffer.concat(chunks).toString('utf8')));}catch(e){finish(e);}
+  });
+ });
+}
