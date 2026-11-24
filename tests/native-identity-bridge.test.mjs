@@ -119,6 +119,7 @@ import {createIdentityChallenge,registerIdentity} from '../lib/quantic/relay.ts'
 import {nativeRecordDigest} from '../lib/quantic/native-mailbox.mjs';
 import {startNativeScatteringLink} from './helpers/native-scattering-link.mjs';
 const scatteringBinary=process.env.QUANTIC_INTEGRATED_SCATTERING_BINARY;
+const impairedScattering=process.env.QUANTIC_INTEGRATED_SCATTERING_IMPAIRED==='1';
 test('integrated native relay with four real mTLS authorities, hybrid ciphertext, exact retry, ack and restart'+(scatteringBinary?' via two independent native UDP links':''),{timeout:180000},async()=>{
  const dir=await mkdtemp(join(tmpdir(),'quantic-native-mailbox-'));
  const a=fixture('queuealice'),b=fixture('queuebob');
@@ -184,9 +185,10 @@ test('integrated native relay with four real mTLS authorities, hybrid ciphertext
  };
  try{
   await setupAuthorities();relay=await start();register(a);register(b);
+  assert.ok(!impairedScattering||scatteringBinary,'impaired scenario must use native UDP, never direct HTTP');
   if(scatteringBinary){
    relayPort=Number(new URL(relay.url).port);assert.ok(relayPort>0);
-   for(const [idx,f] of fixtures.entries())links.set(f,await startNativeScatteringLink({dir:join(dir,'carrier-'+idx),binary:scatteringBinary,relayPort}));
+   for(const [idx,f] of fixtures.entries())links.set(f,await startNativeScatteringLink({dir:join(dir,'carrier-'+idx),binary:scatteringBinary,relayPort,impaired:impairedScattering}));
   }
   const r=makeRecord(),changed=makeRecord();
   assert.notEqual((await post('send',r,b))[0],202);
@@ -208,6 +210,18 @@ test('integrated native relay with four real mTLS authorities, hybrid ciphertext
   policy[1].active=false;
   assert.notEqual((await post('send',r,a))[0],202);
   assert.notEqual((await post('pull',target(b),b))[0],200);
+  if(impairedScattering){
+   const evidence=[...links.values()].map(link=>link.faultEvidence());
+   assert.equal(evidence.length,2);
+   for(const path of evidence){
+    assert.equal(path.length,4);
+    for(const hop of path){
+     assert.ok(hop.received>100&&hop.forwarded>0&&hop.dropped>0&&hop.delayed>0&&hop.duplicated>0,'fault fixture was not exercised');
+     assert.equal(hop.errors,0);
+    }
+   }
+   console.log('NATIVE_MAIL_IMPAIRED_EVIDENCE '+JSON.stringify({paths:evidence,hybridPlaintextVerified:true,exactRetry:true,durableRestart:true,authenticatedAck:true,revocationEnforced:true,releaseAuthorized:false}));
+  }
   if(scatteringBinary){await links.get(a).close();await assert.rejects(post('send',r,a));}
  }finally{await Promise.all([...links.values()].map(x=>x.close()));if(relay)await relay.close();await Promise.all(services.map(x=>x.close()));await rm(dir,{recursive:true,force:true});}
 });
