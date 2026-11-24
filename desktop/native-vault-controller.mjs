@@ -2,7 +2,7 @@
  * Requires independently provisioned compact-manifest-quorum laboratory vault.
  */
 import {spawn} from 'node:child_process';
-import {createHash,createPublicKey,createPrivateKey,sign,verify} from 'node:crypto';
+import {createHash,createPublicKey,createPrivateKey,sign,verify,randomBytes} from 'node:crypto';
 import {readFile,stat} from 'node:fs/promises';
 import {isAbsolute,win32} from 'node:path';
 import {createWindowsNativeStorage} from './native-windows-storage.mjs';
@@ -71,7 +71,8 @@ export async function connectNativeVault({binary,binarySha256,vault,journal,quor
     check([pqMode.kemPin,pqMode.dsaPin,pqMode.rootPin].every(p=>pinRE.test(p)),'independent PQ pins required');
     const {createAttestedPeerSource}=await import('./native-attested-peer.mjs');
     bridge=await import('../lib/quantic/native-identity-bridge.mjs');
-    peerSource=await createAttestedPeerSource(pqMode.authority,storage?{read:storage.read}:{});
+    if(!sealed)peerSource=await createAttestedPeerSource(pqMode.authority,storage?{read:storage.read}:{});
+    else check(pqMode.authority?.clientKeyFile===win32.join(storage.dir,'peer-checkpoint-key.vault')&&Array.isArray(pqMode.authority.authorities)&&pqMode.authority.authorities.length===4,'sealed checkpoint configuration required');
     if(storage){contacts=JSON.parse((await storage.read(pqMode.contactDirectory)).toString('utf8'));}
     else{const ds=await stat(pqMode.contactDirectory);check(ds.isFile()&&ds.uid===process.getuid()&&(ds.mode&0o077)===0&&ds.size<=131072,'private contact directory required');contacts=JSON.parse(await readFile(pqMode.contactDirectory,'utf8'));}
     check(Array.isArray(contacts)&&contacts.length>=1&&contacts.length<=32,'invalid contacts');
@@ -132,8 +133,19 @@ export async function connectNativeVault({binary,binarySha256,vault,journal,quor
       check(hex(b64(pq.pqKem,1206,1206))===pqMode.kemPin&&hex(b64(pq.pqDsa,1974,1974))===pqMode.dsaPin,'native PQ pin mismatch');
       const ownKeys={classicalSigningSpki:signing.key.export({format:'der',type:'spki'}).toString('base64'),classicalEncryptionSpki:enc.key.export({format:'der',type:'spki'}).toString('base64'),mlKemEncryptionSpki:Buffer.from(pq.pqKem,'base64url').toString('base64'),mlDsaSigningSpki:Buffer.from(pq.pqDsa,'base64url').toString('base64')};
       const sameKeys=(a,b)=>Object.keys(ownKeys).every(k=>a?.[k]===b?.[k]);
+      if(sealed){
+        const {verifyCheckpointQuorum}=await import('../lib/quantic/native-checkpoint-authority.mjs');
+        peerSource=async(address,deviceId)=>{
+          const request={address,deviceId,nonce:randomBytes(32).toString('hex'),expires:Date.now()+15000};
+          const r=await call({op:'native-mailbox-lab',mailboxOp:'checkpoint',mailboxBody:request});
+          const result=r.mailboxResult;
+          const checkpoint=verifyCheckpointQuorum(result?.attestations,pqMode.authority.authorities,request);
+          return {bundle:result.bundle,checkpoint,contact:bridge.bindNativeContact(result.bundle,checkpoint)};
+        };
+      }
       async function peers(c){
-        const [from,to]=await Promise.all([peerSource(c.from,c.fromDeviceId),peerSource(c.to,c.toDeviceId)]);
+        // The authenticated native pipe allows one outstanding frame at a time.
+        const [from,to]=sealed?[await peerSource(c.from,c.fromDeviceId),await peerSource(c.to,c.toDeviceId)]:await Promise.all([peerSource(c.from,c.fromDeviceId),peerSource(c.to,c.toDeviceId)]);
         const own=c.from===pqMode.address&&c.fromDeviceId===pqMode.deviceId?from:to;
         const other=own===from?to:from;
         check(own.contact.address===pqMode.address&&own.contact.deviceId===pqMode.deviceId&&own.checkpoint.pqRootPin===pqMode.rootPin&&sameKeys(own.contact,ownKeys),'own identity mismatch');

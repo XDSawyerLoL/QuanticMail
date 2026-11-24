@@ -23,7 +23,8 @@ export function verifyNativeTransportRequest(request,votes,options,credential,cs
   // OpenSSL versions differ in exit behavior for an invalid self-signature;
   // additionally require an explicit successful verification diagnostic.
   const result=run(['-verify','-noout']);
-  check(/self-signature verify OK/i.test(result.stderr.toString('utf8'))&&!/failure/i.test(result.stderr.toString('utf8')));
+  const diagnostic=Buffer.concat([result.stdout,result.stderr]).toString('utf8').trim();
+  check(/^(?:Certificate request )?self-signature verify OK$/i.test(diagnostic));
   const subject=run(['-subject','-nameopt','RFC2253','-noout']).stdout.toString('utf8').trim();
   check(subject==='subject=CN=quantic-lab-'+role+'-'+q.requestDigest.slice(0,32));
   const pem=run(['-pubkey','-noout']).stdout;

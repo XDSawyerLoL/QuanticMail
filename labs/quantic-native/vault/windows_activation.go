@@ -74,7 +74,7 @@ func activationEndpoint(raw,path string)(string,bool){
  if len(raw)>512{return "",false}
  return u.Scheme+"://"+u.Host,true
 }
-func activationPlan(dir,binary,binaryPin string,r enrollmentRequest,b windowsActivationBundle,now time.Time)([]activationFile,error){
+func activationPlan(dir,binary,binaryPin string,r enrollmentRequest,b windowsActivationBundle,secret []byte,now time.Time)([]activationFile,error){
  digest,e:=checkEnrollmentApprovals(r,b.Approvals,b.RosterPin,now)
  if e!=nil||digest!=b.RequestDigest||b.Format!="quantic-native-windows-activation-lab/v2"||!b.LabOnly||!hashRE.MatchString(binaryPin){return nil,portableRefusal}
  if _,_,e=winPathParts(dir);e!=nil{return nil,e}
@@ -83,12 +83,12 @@ func activationPlan(dir,binary,binaryPin string,r enrollmentRequest,b windowsAct
  if e!=nil||u.Scheme!="http"||u.Hostname()!="127.0.0.1"||u.User!=nil||u.Path!="/"||u.RawPath!=""||u.RawQuery!=""||u.ForceQuery||u.Fragment!=""||u.Opaque!=""{return nil,portableRefusal}
  port,e:=strconv.Atoi(u.Port());if e!=nil||port<1||port>65535||u.Host!="127.0.0.1:"+strconv.Itoa(port){return nil,portableRefusal}
  if len(b.Anchors)!=4||len(b.Checkpoints)!=4{return nil,portableRefusal}
- ak,anchorKey,e:=readLocalTransportKey(dir,"anchor",false);if e!=nil{return nil,e};defer clear(anchorKey)
- ck,checkpointKey,e:=readLocalTransportKey(dir,"checkpoint",false);if e!=nil{return nil,e};defer clear(checkpointKey)
+ ak,anchorKey,e:=readLocalTransportKey(dir,"anchor",digest,secret,false);if e!=nil{return nil,e};defer clear(anchorKey)
+ ck,checkpointKey,e:=readLocalTransportKey(dir,"checkpoint",digest,secret,false);if e!=nil{return nil,e};defer clear(checkpointKey)
  if publicPin(&ak.PublicKey)==publicPin(&ck.PublicKey)||!activationTLSValid(b.AnchorTLS,anchorKey,digest,"anchor",now)||!activationTLSValid(b.CheckpointTLS,checkpointKey,digest,"checkpoint",now){return nil,portableRefusal}
  files:=[]activationFile{
-  {"peer-anchor-ca.pem",append([]byte(nil),b.AnchorTLS.CA...)},{"peer-anchor-cert.pem",append([]byte(nil),b.AnchorTLS.Cert...)},{"peer-anchor-key.pem",append([]byte(nil),anchorKey...)},
-  {"peer-checkpoint-ca.pem",append([]byte(nil),b.CheckpointTLS.CA...)},{"peer-checkpoint-cert.pem",append([]byte(nil),b.CheckpointTLS.Cert...)},{"peer-checkpoint-key.pem",append([]byte(nil),checkpointKey...)},
+  {"peer-anchor-ca.pem",append([]byte(nil),b.AnchorTLS.CA...)},{"peer-anchor-cert.pem",append([]byte(nil),b.AnchorTLS.Cert...)},
+  {"peer-checkpoint-ca.pem",append([]byte(nil),b.CheckpointTLS.CA...)},{"peer-checkpoint-cert.pem",append([]byte(nil),b.CheckpointTLS.Cert...)},
  }
  path:=func(n string)string{return filepath.Join(dir,n)}
  configs:=make([]anchorConfig,0,4);pins:=[]string{};origins:=map[string]bool{}
@@ -96,7 +96,7 @@ func activationPlan(dir,binary,binaryPin string,r enrollmentRequest,b windowsAct
   origin,ok:=activationEndpoint(a.URL,"")
   if !ok||origins[origin]||!hashRE.MatchString(a.TLSPin){return nil,portableRefusal}
   origins[origin]=true;pins=append(pins,a.TLSPin)
-  configs=append(configs,anchorConfig{URL:a.URL,ServerPin:a.TLSPin,ServerCA:path(files[0].name),ClientCert:path(files[1].name),ClientKey:path(files[2].name)})
+  configs=append(configs,anchorConfig{URL:a.URL,ServerPin:a.TLSPin,ServerCA:path(files[0].name),ClientCert:path(files[1].name),ClientKey:path("peer-anchor-key.vault")})
  }
  q,e:=quorumPin(pins);if e!=nil||q!=r.QuorumPin{return nil,portableRefusal}
  quorum,e:=json.Marshal(configs);if e!=nil{return nil,e}
@@ -104,7 +104,8 @@ func activationPlan(dir,binary,binaryPin string,r enrollmentRequest,b windowsAct
  // in-memory package before any file is created.
  if _,e=parseQuorumAnchor(bytes.NewReader(quorum),func(c anchorConfig)(*remoteAnchor,error){
   return remoteFromConfigReader(c,func(p string)([]byte,error){
-   for _,f:=range files[:3]{if path(f.name)==p{return append([]byte(nil),f.raw...),nil}}
+   if p==path("peer-anchor-key.vault"){return append([]byte(nil),anchorKey...),nil}
+   for _,f:=range files[:2]{if path(f.name)==p{return append([]byte(nil),f.raw...),nil}}
    return nil,portableRefusal
   })
  });e!=nil{return nil,e}
@@ -127,16 +128,17 @@ func activationPlan(dir,binary,binaryPin string,r enrollmentRequest,b windowsAct
   "signingPin":c.SigningPin,"encryptionPin":c.EncryptionPin,
   "windowsLab":map[string]any{"enabled":true,"dir":dir},
   "pqMode":map[string]any{"enabled":true,"sidecar":path("pq.vault"),"contactDirectory":path("contacts.json"),"address":c.Address,"deviceId":c.DeviceID,"kemPin":c.KemPin,"dsaPin":c.DsaPin,"rootPin":c.PQRootPin,
-   "authority":map[string]any{"authorities":b.Checkpoints,"caFile":path(files[3].name),"clientCertFile":path(files[4].name),"clientKeyFile":path(files[5].name)}},
+   "authority":map[string]any{"authorities":b.Checkpoints,"caFile":path(files[2].name),"clientCertFile":path(files[3].name),"clientKeyFile":path("peer-checkpoint-key.vault")}},
   "windowsScattering":map[string]any{"enabled":true,"credentialMode":"vault-sealed-v1","endpoint":b.Endpoint,"address":c.Address,"deviceId":c.DeviceID,"receiptKeyFile":path("receipt.key")},
  }
  desktop,e:=json.Marshal(config);if e!=nil{return nil,e}
- return append(files,activationFile{"quorum.json",quorum},activationFile{"contacts.json",contacts},activationFile{"desktop.json",desktop}),nil
+ checkpointConfig,e:=json.Marshal(b.Checkpoints);if e!=nil{return nil,e}
+ return append(files,activationFile{"quorum.json",quorum},activationFile{"contacts.json",contacts},activationFile{"checkpoint-authorities.json",checkpointConfig},activationFile{"desktop.json",desktop}),nil
 }
 func applyActivationFiles(dir string,files []activationFile)error{
  // Preflight all conflicts before writing anything. CREATE_NEW, never
  // replacement; exact-byte resumption after a partial import is allowed.
- if len(files)!=9||files[8].name!="desktop.json"{return portableRefusal}
+ if len(files)!=8||files[7].name!="desktop.json"{return portableRefusal}
  for _,f:=range files{
   p:=filepath.Join(dir,f.name)
   if _,e:=os.Lstat(p);e==nil{
@@ -154,8 +156,6 @@ func applyActivationFiles(dir string,files []activationFile)error{
 }
 func importWindowsActivation(dir,binary,binaryPin string,b windowsActivationBundle,pw,pqw []byte,now time.Time)error{
  r,e:=readPendingEnrollment(dir);if e!=nil{return e}
- files,e:=activationPlan(dir,binary,binaryPin,r,b,now);if e!=nil{return e}
- for _,f:=range files{defer clear(f.raw)}
  // The local token must already exist, decrypt with both secrets, and match
  // the exact public credential delivered for this account.
  raw,e:=winReadPrivate(filepath.Join(dir,"mailbox-token.vault"),1024);if e!=nil{return e};defer clear(raw)
@@ -163,6 +163,9 @@ func importWindowsActivation(dir,binary,binaryPin string,b windowsActivationBund
  key,e:=readSyntheticControllerKey(dir,syntheticProfile{ControllerPublic:r.ControllerPublic});if e!=nil{return e};defer clear(key)
  proof,e:=nativeMailboxCredentialProof(token,b.RequestDigest,key)
  if e!=nil||proof!=b.Credential{return portableRefusal}
+ secret,e:=transportSecret(pw,pqw);if e!=nil{return e};defer clear(secret)
+ files,e:=activationPlan(dir,binary,binaryPin,r,b,secret,now);if e!=nil{return e}
+ for _,f:=range files{defer clear(f.raw)}
  if _,e=checkEnrollmentApprovals(r,b.Approvals,b.RosterPin,time.Now());e!=nil{return e}
  hs,e:=winLockDirectory(dir,true);if e!=nil{return e};defer winClose(hs)
  return applyActivationFiles(dir,files)
@@ -179,7 +182,7 @@ func windowsActivationCLI(args []string)error{
  f,e:=os.Open(binary);if e!=nil{return e}
  h:=sha256.New();n,e:=io.Copy(h,io.LimitReader(f,256*1024*1024+1));f.Close()
  if e!=nil||n<1||n>256*1024*1024||hex.EncodeToString(h.Sum(nil))!=binaryPin{return portableRefusal}
- planned,e:=activationPlan(dir,binary,binaryPin,r,b,time.Now());if e!=nil{return e};for _,f:=range planned{clear(f.raw)}
+ digest,e:=checkEnrollmentApprovals(r,b.Approvals,b.RosterPin,time.Now());if e!=nil||digest!=b.RequestDigest{return portableRefusal}
  if !winGUIApprove("Configuration de messagerie de laboratoire pour "+r.Claim.Address+". L'empreinte du dossier a ete verifiee. Aucun compte actif ni connexion distante prouvee. Importer ?"){return portableRefusal}
  pw,e:=winGUIPassphrase("Secret classique de l'appareil",true);if e!=nil{return e};defer clear(pw)
  pqw,e:=winGUIPassphrase("Secret post-quantique de l'appareil",true);if e!=nil{return e};defer clear(pqw)

@@ -88,7 +88,8 @@ export function verifyWindowsTwoHostReadiness(config,contacts,carrier,trust,{now
  const allowedPath=path=>{strictPath(path);
   check(win32.dirname(path)===win.dir&&pinnedPaths.test(win32.basename(path)));
  };
- for(const file of [source.caFile,source.clientCertFile,source.clientKeyFile])allowedPath(file);
+ for(const file of [source.caFile,source.clientCertFile])allowedPath(file);
+ if(scoped.credentialMode==='vault-sealed-v1')check(source.clientKeyFile===win32.join(win.dir,'peer-checkpoint-key.vault'));else allowedPath(source.clientKeyFile);
  check(new Set([source.caFile,source.clientCertFile,source.clientKeyFile]).size===3);
  const expected=new Map(trust.authorities.map(x=>[x.pin,x.tlsPin])),observed=new Set(),origins=new Set();
  for(const a of source.authorities){
@@ -151,6 +152,8 @@ export async function runWindowsTwoHostReadiness({binary,binarySha256,dir,carrie
  const carrier=await privateJson(carrierStorage,win32.join(carrierDir,'scattering.json'));
  const result=verifyWindowsTwoHostReadiness(cfg,contacts,carrier,trust,{now:now(),carrierDir});
  if(!live)return result;
+ // The sealed mode deliberately has no non-interactive key export path.
+ check(cfg.windowsScattering.credentialMode!=='vault-sealed-v1');
  const source=await peerSourceFactory(cfg.pqMode.authority,{read:storage.read});
  const self=await source(trust.self.address,trust.self.deviceId);
  const remote=await source(trust.peer.address,trust.peer.deviceId);

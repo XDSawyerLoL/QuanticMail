@@ -36,6 +36,16 @@ func TestWindowsActivationPrivateImport(t *testing.T){
  certPEM:=pem.EncodeToMemory(&pem.Block{Type:"CERTIFICATE",Bytes:der})
  ca,e:=x509.ParseCertificate(der);if e!=nil{t.Fatal(e)}
  requests,e:=prepareWindowsTransportRequests(dir,approvals,roster,proof,digest,pw,pqw,now);if e!=nil{t.Fatal(e)}
+ sealedToken,e:=winReadPrivate(filepath.Join(dir,"mailbox-token.vault"),1024);if e!=nil{t.Fatal(e)}
+ token,e:=openNativeMailboxCredential(sealedToken,digest,pw,pqw);if e!=nil{t.Fatal(e)};defer clear(token)
+ storageSecret,e:=transportSecret(pw,pqw);if e!=nil{t.Fatal(e)};defer clear(storageSecret)
+ for _,role:=range []string{"anchor","checkpoint"}{
+  if _,e=os.Stat(filepath.Join(dir,"peer-"+role+"-key.pem"));!os.IsNotExist(e){t.Fatal("plaintext key exists")}
+  raw,e:=winReadPrivate(filepath.Join(dir,"peer-"+role+"-key.vault"),4096);if e!=nil{t.Fatal(e)}
+  if bytes.Contains(raw,[]byte("PRIVATE KEY")){t.Fatal("plaintext PEM")}
+  if _,_,e=readLocalTransportKey(dir,role,digest,token,false);e==nil{t.Fatal("network bearer decrypts TLS key")}
+  if _,_,e=readLocalTransportKey(dir,role,strings.Repeat("e",64),storageSecret,false);e==nil{t.Fatal("wrong identity accepted")}
+ }
  pub,e:=decode(r.ControllerPublic,32,32);if e!=nil{t.Fatal(e)}
  tr,e:=nativeTransportTranscript(requests);if e!=nil{t.Fatal(e)}
  sig,e:=decode(requests.Signature,64,64);if e!=nil||!ed25519.Verify(ed25519.PublicKey(pub),tr,sig){t.Fatal("unsigned request")}
@@ -81,6 +91,12 @@ func TestWindowsActivationPrivateImport(t *testing.T){
  if e=importWindowsActivation(dir,binary,pin,bad,pw,pqw,now);e==nil{t.Fatal("wrong credential accepted")}
  if _,e=os.Stat(filepath.Join(dir,"desktop.json"));!os.IsNotExist(e){t.Fatal("failed import configured desktop")}
  if e=importWindowsActivation(dir,binary,pin,b,pw,pqw,now);e!=nil{t.Fatal(e)}
+ if _,e=winLoadSealedQuorum(dir,digest,storageSecret);e!=nil{t.Fatal("sealed anchor TLS load",e)}
+ if _,e=winLoadQuorum(dir);e==nil{t.Fatal("plaintext fallback accepted")}
+ rawContacts,e:=winReadPrivate(filepath.Join(dir,"contacts.json"),131072);if e!=nil{t.Fatal(e)}
+ trust,e:=parseSenderTrust(rawContacts);if e!=nil{t.Fatal(e)}
+ query,closeQuery,e:=winCheckpointTransport(dir,digest,r.Claim.Address,r.Claim.DeviceID,storageSecret,trust);if e!=nil{t.Fatal("sealed checkpoint TLS load",e)}
+ closeQuery();if _,e=query("checkpoint",[]byte("{}"));e==nil{t.Fatal("closed session reused")}
  saved,e:=winReadPrivate(filepath.Join(dir,"desktop.json"),131072);if e!=nil{t.Fatal(e)}
  var config map[string]any;if e=json.Unmarshal(saved,&config);e!=nil{t.Fatal(e)}
  scope:=config["windowsScattering"].(map[string]any)

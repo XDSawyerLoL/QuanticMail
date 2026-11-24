@@ -105,9 +105,10 @@
   "vault/tests/dual-enrollment.test.mjs": "b237d536238557d52b226baa05bceb7d9045715c079bd02a7d4a8e43e2bc2ced",
   "vault/tests/isolated-enrollment.test.mjs": "3c90b9b3ce5522877b175176a372508834719a7447a28f342d0296df00d93e7f",
   "vault/tests/native-enrollment.test.mjs": "a07c4711d5a7a18f5ee48f969fcf07b4e81ecab5771e11739c3f93a91c011807",
-  "vault/windows_activation.go": "efe5add078ac0335259dc903ee86a371ba30985e983094a5310927f176c86024",
-  "vault/windows_activation_test.go": "feed6214ac03e42d365ddf940adbc22b86cb2b0303c5f2d1ee2af58f609b6971",
-  "vault/windows_broker.go": "837b1dab333e15b897a3eb79f82331f401431e8ad7e616215971a3b418c3a11b",
+  "vault/windows_activation.go": "00039f75d36cf7ccc699ebbd43303ca88a9dd271d5be39453e9ffa0d76abe92b",
+  "vault/windows_activation_test.go": "cca1f83c2b5e96f9fadcfd8f4e90d0ece3d8b2c8eef79e6536dcd6fc0aaa9c79",
+  "vault/windows_broker.go": "e45245abccd7e9e8f95072b5a70b60b13a5ba3f7649c33161e69b8537e76a69c",
+  "vault/windows_checkpoint_transport.go": "cd44140cad309198eace9244405a38e5c74a5fe1897744e2865a252f5f3e6c49",
   "vault/windows_client_io.go": "e0731582f0dbe867c19fc4379263f6d6dd7432b584bad200a2b37d3c89786f35",
   "vault/windows_console.go": "a44834947eb6239ab5562191ab44f02f1443638331d2ce956ef6e0a0735de5ed",
   "vault/windows_enrollment_claim.go": "12f02278224e85ee2d0313b15f09d37f9efa03f249dbee549eb9b71c6c249fe4",
@@ -138,5 +139,5 @@
   "vault/windows_scattering_test.go": "1b8ca9c6ecd3bc9796587ed5e167c1e6eaef8b5873073406acb2d94b60e33dc4",
   "vault/windows_storage.go": "9dcaf3876bcd65a64a81f5051736e06a641564046bff59214b52a3ba66de59e2",
   "vault/windows_storage_test.go": "18b89948324caa6b6ae338be2cdad948b6f15e94fc7aafebad34781c8ad03114",
-  "vault/windows_transport_csr.go": "460773ada3a2813a2bf4ad166ec9f9f3f9dbda04aec2b4e748fda96696b8a505"
+  "vault/windows_transport_csr.go": "3d412cb244ab1dddff9345f6d97669af553da11383c4d8d176c875cd33d92cc6"
 }
