@@ -69,6 +69,7 @@ jobs:
             mingw-w64-ucrt-x86_64-gcc
             mingw-w64-ucrt-x86_64-pkgconf
             mingw-w64-ucrt-x86_64-openssl
+            mingw-w64-ucrt-x86_64-nsis
       - name: Real Windows OpenSSL verifier and existing native Vault proof
         shell: msys2 {0}
         run: |
@@ -126,5 +127,72 @@ jobs:
         with:
           name: quantic-sentinel-vault-native-pq-windows-unsigned
           path: sentinel-pq-package/
+          if-no-files-found: error
+          retention-days: 7
+      - name: Generate verified installer inventory
+        shell: pwsh
+        run: |
+          node quantic-control/scripts/generate-sentinel-uninstall.mjs sentinel-pq-package sentinel-uninstall.nsh sentinel-checks.nsh
+          if ($LASTEXITCODE -ne 0) { throw 'Inventory refused' }
+      - name: Build single native Windows setup EXE
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          /ucrt64/bin/makensis.exe \
+            "/DOUTPUT_EXE=$(cygpath -w "$PWD/Quantic-Sentinel-Suite-Setup-UNSIGNED.exe")" \
+            "/DPACKAGE_DIR=$(cygpath -w "$PWD/sentinel-pq-package")" \
+            "/DUNINSTALL_LIST_NSH=$(cygpath -w "$PWD/sentinel-uninstall.nsh")" \
+            "/DUNINSTALL_CHECKS_NSH=$(cygpath -w "$PWD/sentinel-checks.nsh")" \
+            "/DBUILD_ID=$(printf %.12s "$GITHUB_SHA")" \
+            "$(cygpath -w "$PWD/quantic-control/scripts/Quantic-Sentinel-Suite.nsi")"
+      - name: Actual setup and exact uninstall on Windows
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $setup = (Resolve-Path 'Quantic-Sentinel-Suite-Setup-UNSIGNED.exe').Path
+          $build = $env:GITHUB_SHA.Substring(0,12)
+          $installed = Join-Path $env:LOCALAPPDATA "QuanticSillage\SentinelSuite-$build"
+          if (Test-Path -LiteralPath $installed) { throw 'Unexpected prior installation' }
+          $p = Start-Process -FilePath $setup -ArgumentList '/S' -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw "Installation failed: $($p.ExitCode)" }
+          $package = (Resolve-Path 'sentinel-pq-package').Path
+          function Assert-Payload {
+            foreach ($file in Get-ChildItem -LiteralPath $package -Recurse -File) {
+              $relative = $file.FullName.Substring($package.Length + 1)
+              $target = Join-Path $installed $relative
+              if ((Get-FileHash -LiteralPath $target).Hash -ne (Get-FileHash -LiteralPath $file.FullName).Hash) { throw "Payload mismatch: $relative" }
+            }
+          }
+          Assert-Payload
+          $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"
+          $p = Start-Process -FilePath "$installed\QuanticSentinel.exe" -ArgumentList '--selftest-pq-provider' -WorkingDirectory $installed -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw 'Installed Sentinel cryptography probe failed' }
+          $p = Start-Process -FilePath $setup -ArgumentList '/S' -PassThru -Wait
+          if ($p.ExitCode -eq 0) { throw 'Setup accepted existing version' }
+          Assert-Payload
+          $unknown = Join-Path $installed 'user-kept.txt'
+          $vault = Join-Path $env:RUNNER_TEMP 'independent-synthetic-vault.txt'
+          [IO.File]::WriteAllText($unknown,'keep')
+          [IO.File]::WriteAllText($vault,'keep vault')
+          $copy = Join-Path $env:RUNNER_TEMP 'Uninstall-Sentinel-CI.exe'
+          Copy-Item -LiteralPath "$installed\Uninstall-QuanticSentinelSuite.exe" -Destination $copy
+          $args = "/S _?=$installed"
+          $p = Start-Process -FilePath $copy -ArgumentList $args -Wait -PassThru
+          if ($p.ExitCode -eq 0 -or [IO.File]::ReadAllText($unknown) -ne 'keep') { throw 'Unknown user data not preserved' }
+          Remove-Item -LiteralPath $unknown
+          $p = Start-Process -FilePath $copy -ArgumentList $args -Wait -PassThru
+          if ($p.ExitCode -ne 0 -or (Test-Path -LiteralPath $installed)) { throw "Exact uninstall failed: $($p.ExitCode)" }
+          if ([IO.File]::ReadAllText($vault) -ne 'keep vault') { throw 'Independent vault changed' }
+          if (Test-Path -LiteralPath "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\QuanticSentinelSuite-$build") { throw 'Uninstall registry entry remains' }
+          if ((Get-AuthenticodeSignature -LiteralPath $setup).Status -eq 'Valid') { throw 'Unexpected signature on unsigned build' }
+          (Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash.ToLowerInvariant() | Set-Content -LiteralPath "$setup.sha256"
+          Write-Host 'Native setup, duplicate refusal, installed PQ provider and targeted uninstall passed'
+      - name: Upload tested single-file native setup (unsigned Alpha)
+        uses: actions/upload-artifact@v4
+        with:
+          name: quantic-sentinel-suite-setup-windows-unsigned
+          path: |
+            Quantic-Sentinel-Suite-Setup-UNSIGNED.exe
+            Quantic-Sentinel-Suite-Setup-UNSIGNED.exe.sha256
           if-no-files-found: error
           retention-days: 7
