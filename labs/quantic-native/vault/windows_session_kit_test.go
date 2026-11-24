@@ -31,6 +31,17 @@ func TestWindowsSessionKitImport(t *testing.T){
  for n,b:=range map[string][]byte{"session.json":rawCfg,"peer-id-ca.pem":certPEM,"peer-id-cert.pem":certPEM,"peer-id-key.pem":keyPEM}{kit.Files[n]=base64.RawURLEncoding.EncodeToString(b)}
  raw,_:=json.Marshal(kit)
  files,e:=decodeSessionKit(raw,identity);if e!=nil{t.Fatal(e)};defer clearMailKit(files)
+ cfg.EnrollmentReceipts=[]json.RawMessage{}
+ initial,_:=json.Marshal(cfg)
+ kit.Files["session.json"]=base64.RawURLEncoding.EncodeToString(initial)
+ initialRaw,_:=json.Marshal(kit)
+ initialFiles,e:=decodeSessionKit(initialRaw,identity);if e!=nil{t.Fatal("initial enrollment kit rejected",e)};clearMailKit(initialFiles)
+ cfg.EnrollmentReceipts=nil
+ invalid,_:=json.Marshal(cfg)
+ kit.Files["session.json"]=base64.RawURLEncoding.EncodeToString(invalid)
+ invalidRaw,_:=json.Marshal(kit)
+ if _,e=decodeSessionKit(invalidRaw,identity);e==nil{t.Fatal("missing enrollment receipt list accepted")}
+ kit.Files["session.json"]=base64.RawURLEncoding.EncodeToString(rawCfg)
  // Scope and private key mismatch rejected before writes.
  other:=map[string]string{};for n,v:=range identity{other[n]=v};other["kemPin"]=strings.Repeat("0",64)
  if _,e=decodeSessionKit(raw,other);e==nil{t.Fatal("wrong key pin accepted")}

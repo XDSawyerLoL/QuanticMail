@@ -44,7 +44,7 @@ try{
  try{
   validateNativeSessionConfiguration(cfg,tls);
   if(stopping)throw Error('Cancelled');
-  client=await createWindowsNativeSessionClientLab({binary,binarySha256,dir,service:cfg.service,authorities:cfg.authorities,tls,candidate:cfg.candidate,expected:cfg.expected,enrollmentReceipts:cfg.enrollmentReceipts,clientPin:cfg.clientPin,labOnly:true});
+  client=await createWindowsNativeSessionClientLab({binary,binarySha256,dir,service:cfg.service,authorities:cfg.authorities,tls,candidate:cfg.candidate,expected:cfg.expected,enrollmentReceipts:cfg.enrollmentReceipts,clientPin:cfg.clientPin,labOnly:true,onEnrollment:status=>emit(status)});
   if(stopping){await client.lock();throw Error('Cancelled');}
   emit('authenticating');
   const session=await client.login();

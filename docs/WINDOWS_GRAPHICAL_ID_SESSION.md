@@ -2,9 +2,12 @@
 
 ## Operator preparation
 
-A test candidate must already have enrollment receipts from at least three
-independently approved authorities. The relying-party service and four
-authority endpoints must be provisioned by their operators. This remains a
+The test candidate and its device pins must be independently approved by
+the operators of the four authority services and the relying party. A kit may
+contain an explicitly empty enrollmentReceipts array for first enrollment.
+For this mode the relying party must start with allowInitialEnrollment:true
+and enrollmentReceipts:[]. It verifies three signed enrollment receipts
+before issuing its own login challenge. No trust is derived from the client. This remains a
 private laboratory workflow, not self-service enrollment or production access.
 
 In a private Linux directory (mode 0700) place configuration.json and the
@@ -16,7 +19,7 @@ is exactly:
 - authorities: four approved HTTPS descriptors (url, tlsPin, pin, publicKey)
 - candidate: exact inactive owner-signed identity candidate
 - expected: independently approved public identity pins
-- enrollmentReceipts: three or four signed enrollment receipts
+- enrollmentReceipts: explicitly empty for initial enrollment, or three or four signed receipts
 - clientPin: SHA256 of the pinned client certificate DER
 - tlsFiles: distinct basenames ca, cert and key
 
@@ -44,7 +47,14 @@ after rereading all files. Identical interrupted imports may resume.
 The marker is protected by the existing NTFS security boundary; it is not
 a defense against the same trusted Windows account being compromised.
 
-Choose "Quantic ID - Ouvrir ma session". No repeated configuration digest
+Choose "Quantic ID - Ouvrir ma session". With an initial enrollment kit,
+the controller obtains independent durable enrollment receipts using the
+native four-key possession proof, then performs fresh authentication.
+On later launches it retrieves the existing signed receipts from the
+authorities; no locally persisted session or new enrollment is required
+where receipts already exist. Closing or locking the client interrupts
+subsequent proof operations, but cannot undo a previously committed
+approved enrollment. No repeated configuration digest
 or manual JSON editing is needed. The controller independently verifies the
 approved file hashes, signed receipts and TLS pair before network access.
 The window shows only the authenticated test address, status and lock button.
