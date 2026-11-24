@@ -15,6 +15,7 @@ import(
  "time"
  "unsafe"
  "github.com/XDSawyerLoL/QuanticMail/quantic-control/sentinel"
+ "github.com/XDSawyerLoL/QuanticMail/quantic-control/vaultsession"
 )
 const(
  wmCreate=0x0001;wmDestroy=0x0002;wmCommand=0x0111;wmSetFont=0x0030;wmAppUpdate=0x8001
@@ -292,6 +293,10 @@ func wndProc(hwnd uintptr,msg uint32,wparam,lparam uintptr)uintptr{
  return ret
 }
 func main(){
+ if len(os.Args)==2&&os.Args[1]=="--selftest-pq-provider"{
+  if !vaultsession.GraphicalProviderAvailable(){os.Exit(1)}
+  return
+ }
  if len(os.Args)==2&&os.Args[1]=="--resident"{
    // Non-interactive per-user agent; errors are not hidden by fallback modes.
    _=residentAgent()
