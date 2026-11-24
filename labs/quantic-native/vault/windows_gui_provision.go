@@ -31,6 +31,9 @@ import "C"
 
 import (
  "errors"
+ "encoding/json"
+ "os"
+ "path/filepath"
  "unsafe"
 )
 
@@ -65,12 +68,40 @@ func winGUIProvision(dir,quorum,addr string)(map[string]string,error){
  // Refuse invalid parameters and existing target before asking for secrets.
  if !hashRE.MatchString(quorum)||!strongAddr.MatchString(addr){return nil,portableRefusal}
  if _,_,e:=winPathParts(dir);e!=nil{return nil,e}
+ if _,e:=os.Lstat(dir);!os.IsNotExist(e){return nil,windowsStorageRefusal}
  if !winGUIApprove(){return nil,portableRefusal}
  pw,e:=winGUIConfirmSecret("Choisir une phrase secrete classique (20 a 256 caracteres ASCII).")
  if e!=nil{return nil,e};defer clear(pw)
  pq,e:=winGUIConfirmSecret("Choisir une phrase post-quantique DIFFERENTE (20 a 256 caracteres ASCII).")
  if e!=nil{return nil,e};defer clear(pq)
  if equalSecret(pw,pq){return nil,portableRefusal}
- return winProvisionAutoController(dir,quorum,addr,pw,pq)
+ return winGUIProvisionAndVerify(dir,quorum,addr,pw,pq)
 }
 func winGUIApprove()bool{return C.qv_gui_approve()!=0}
+
+// No successful GUI creation is reported until both encrypted stores have
+// been independently reopened and their public bindings verified. The local
+// identity record is public metadata, not an external trust anchor.
+func winGUIProvisionAndVerify(dir,quorum,addr string,pw,pq []byte)(map[string]string,error){
+ result,e:=winProvisionAutoController(dir,quorum,addr,pw,pq)
+ if e!=nil{return nil,e}
+ if e=winGUIVerifyStored(dir,quorum,result,pw,pq);e!=nil{return nil,e}
+ result["quorumPin"]=quorum
+ result["localReadback"]="verified"
+ data,e:=json.Marshal(result);if e!=nil{return nil,e}
+ if e=winWritePrivate(filepath.Join(dir,"identity-public.json"),data);e!=nil{return nil,e}
+ return result,nil
+}
+func winGUIVerifyStored(dir,quorum string,r map[string]string,pw,pq []byte)error{
+ pub,e:=appPublic(r["controllerPublic"]);if e!=nil{return e}
+ k,e:=winReadClassical(filepath.Join(dir,"classical.vault"),anchoredMagic+"compact-manifest-quorum:"+quorum+"\x00",pw,r["signingPin"],r["encryptionPin"])
+ if e!=nil{return e}
+ point:=k.agreement.PublicKey().Bytes()
+ device:="d-"+hexHash([]byte("P-256:"+b64.EncodeToString(point[1:33])+":"+b64.EncodeToString(point[33:])))[:32]
+ if device!=r["deviceId"]{return portableRefusal}
+ binding,e:=pqBinding(r["signingPin"],r["encryptionPin"],hexHash(pub),quorum,r["address"],device);if e!=nil{return e}
+ p,e:=winReadPQ(filepath.Join(dir,"pq.vault"),binding,pq,r["address"],device,r["kemPin"],r["dsaPin"])
+ if e!=nil{return e}
+ p.close()
+ return nil
+}
