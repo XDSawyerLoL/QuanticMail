@@ -162,7 +162,11 @@ test('native-only relay durably publishes two quorum-enrolled identities, refuse
  }
  function scope(f){return {address:f.request.claim.address,deviceId:f.request.claim.deviceId};}
  try{
+  const legacy=Buffer.from('legacy file left untouched');
+  await writeFile(join(root,'relay-state.json'),legacy,{mode:0o600,flag:'wx'});
   await start(enrollment(a,ca));
+  assert.deepEqual(await readFile(join(root,'relay-state.json')),legacy);
+  await assert.rejects(startNativeMailboxOnly({dataDir:root,peerSource:source}));
   assert.equal(service.publication.status,'native-enrollment-persisted-pending-checkpoints');
   snapshot=await service.exportAuthoritySnapshot();
   assert.equal(snapshot.manifests.length,1);assert.equal(Object.hasOwn(snapshot,'nativeEnrollments'),false);
@@ -175,7 +179,7 @@ test('native-only relay durably publishes two quorum-enrolled identities, refuse
   snapshot=await service.exportAuthoritySnapshot();
   assert.equal(snapshot.manifests.length,2);
   assert.ok(!JSON.stringify(snapshot).includes(ca.credential.tokenHash));
-  const persisted=JSON.parse(await readFile(join(root,'relay-state.json'),'utf8'));
+  const persisted=JSON.parse(await readFile(join(root,'native-mailbox-state.json'),'utf8'));
   assert.equal(persisted.nativeEnrollments.length,2);assert.equal(persisted.identities.length,0);assert.equal(persisted.devices.length,0);
   assert.ok(!JSON.stringify(persisted).includes(ca.token));
   assert.ok(!JSON.stringify(persisted).includes(cb.token));
@@ -210,5 +214,6 @@ test('native-only relay durably publishes two quorum-enrolled identities, refuse
   assert.equal((await call('native/v1/pull',scope(b),cb.token)).body.item,null);
   await stop();await start();snapshot=await service.exportAuthoritySnapshot();
   assert.equal((await call('native/v1/recover',{...scope(b),id:item.id,digest:item.digest},cb.token)).body.item.id,item.id);
+  assert.deepEqual(await readFile(join(root,'relay-state.json')),legacy);
  }finally{await stop();await rm(root,{recursive:true,force:true});}
 });
