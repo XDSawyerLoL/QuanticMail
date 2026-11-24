@@ -17,8 +17,8 @@ const sha=b=>createHash('sha256').update(b).digest('hex');
 const exact=(o,ks)=>o&&Object.getPrototypeOf(o)===Object.prototype&&Object.keys(o).length===ks.length&&ks.every(k=>Object.hasOwn(o,k));
 const parse=b=>JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(b));
 async function readJSON(s,p){const raw=await s.read(p);try{return parse(raw);}finally{raw.fill(0);}}
-export function verifyLocalDirectIdentity(id){
- check(exact(id,['format','address','deviceId','signingPin','encryptionPin','kemPin','dsaPin','signing','encryption','kemPublic','dsaPublic','controllerPublic','localPin'])&&id.format==='quantic-local-direct-identity/v1'&&addr.test(id.address)&&dev.test(id.deviceId));
+export function verifyLocalDirectIdentity(id,protectedMode=false){
+ check(exact(id,['format','address','deviceId','signingPin','encryptionPin','kemPin','dsaPin','signing','encryption','kemPublic','dsaPublic','controllerPublic','localPin'])&&id.format===(protectedMode?'quantic-protected-direct-identity/v1':'quantic-local-direct-identity/v1')&&addr.test(id.address)&&dev.test(id.deviceId));
  check([id.signingPin,id.encryptionPin,id.kemPin,id.dsaPin,id.localPin].every(p=>hex.test(p)&&!/^0+$/.test(p)));
  function decode(s,n){check(typeof s==='string'&&s.length<=Math.ceil(n/3)*4);const b=Buffer.from(s,'base64url');check(b.length===n&&b.toString('base64url')===s);return b;}
  function ec(s,p){
@@ -51,14 +51,17 @@ async function invoke(boot,args,input,{spawnProcess=spawn,timeout=300000}={}){
 }
 export async function localDirectOperation(boot,action,fields,{makeStorage=createWindowsNativeStorage,call=invoke,enumerate=readdir,now=Date.now}={}){
  check(typeof action==='string'&&fields&&Object.getPrototypeOf(fields)===Object.prototype);
+ const protectedMode=action.startsWith('protected-');if(protectedMode)action=action.slice(10);
  if(action==='create'){
-  check(exact(fields,['alias'])&&/^[a-z0-9][a-z0-9._-]{2,31}$/.test(fields.alias));
-  const id=await call(boot,['--provision-windows-direct-gui-lab',boot.dir,fields.alias]);
-  const contact=verifyLocalDirectIdentity(id);
+  check(exact(fields,protectedMode?['alias','roster']:['alias'])&&/^[a-z0-9][a-z0-9._-]{2,31}$/.test(fields.alias));
+  if(protectedMode)check(hex.test(fields.roster)&&!/^0+$/.test(fields.roster));
+  const id=await call(boot,[protectedMode?'--provision-windows-protected-direct-gui-lab':'--provision-windows-direct-gui-lab',boot.dir,fields.alias,...(protectedMode?[fields.roster]:[])]);
+  const contact=verifyLocalDirectIdentity(id,protectedMode);
+  if(protectedMode)check(id.localPin===fields.roster);
   return {status:'direct-created',address:contact.address,deviceId:contact.deviceId};
  }
  const s=await makeStorage(boot);
- const id=await readJSON(s,win32.join(boot.dir,'direct-identity.json')),self=verifyLocalDirectIdentity(id);
+ const id=await readJSON(s,win32.join(boot.dir,'direct-identity.json')),self=verifyLocalDirectIdentity(id,protectedMode);
  if(action==='card'){
   check(exact(fields,[]));
   const card=JSON.stringify([{...self,expires:now()+23*3600000}]);
@@ -66,7 +69,7 @@ export async function localDirectOperation(boot,action,fields,{makeStorage=creat
  }
  if(action==='import'){
   check(exact(fields,['card','pin'])&&typeof fields.card==='string'&&Buffer.byteLength(fields.card)<=131072&&hex.test(fields.pin)&&sha(fields.card)===fields.pin);
-  const raw=Buffer.from(fields.card,'utf8');try{check(await call(boot,['--import-windows-direct-contact-gui-lab',boot.dir,fields.pin],raw)===null);}finally{raw.fill(0);}
+  const raw=Buffer.from(fields.card,'utf8');try{check(await call(boot,[protectedMode?'--import-windows-protected-contact-gui-lab':'--import-windows-direct-contact-gui-lab',boot.dir,fields.pin],raw)===null);}finally{raw.fill(0);}
   return {status:'direct-contact-imported'};
  }
  if(action==='list'){
@@ -76,11 +79,16 @@ export async function localDirectOperation(boot,action,fields,{makeStorage=creat
   return {status:'direct-incoming',items};
  }
  const pin=fields.pin;check(hex.test(pin));
+ const protectedCall=(op,input)=>call(boot,['--windows-protected-direct-gui-lab',boot.dir,pin,op],input);
+ if(protectedMode&&['initialize','status','revoke'].includes(action)){
+  check(exact(fields,['pin']));return protectedCall(action);
+ }
  const bytes=await s.read(win32.join(boot.dir,'contacts.json'));let contacts;
  try{check(sha(bytes)===pin);contacts=parse(bytes);}finally{bytes.fill(0);}
- check(Array.isArray(contacts)&&contacts.length===1&&contacts[0].expires>now());
+ check(Array.isArray(contacts)&&contacts.length===1&&(protectedMode||contacts[0].expires>now()));
  const peer=contacts[0];check(addr.test(peer.address)&&dev.test(peer.deviceId)&&peer.address!==self.address);
- async function native(op,file,recover){const raw=Buffer.from(JSON.stringify({op,file,contactPin:pin,recover}));try{return await call(boot,['--windows-direct-mail-gui-lab',boot.dir],raw);}finally{raw.fill(0);}}
+ if(protectedMode){const state=await protectedCall('status');check(state?.status==='direct-protected-active'&&state.address===peer.address&&state.deviceId===peer.deviceId&&Number.isSafeInteger(state.expires)&&state.expires>now());peer.expires=state.expires;}
+ async function native(op,file,recover){const raw=Buffer.from(JSON.stringify({op,file,contactPin:pin,recover}));try{return protectedMode?await protectedCall('mail',raw):await call(boot,['--windows-direct-mail-gui-lab',boot.dir],raw);}finally{raw.fill(0);}}
  if(action==='seal'||action==='recover-seal'){
   const recover=action==='recover-seal';let file;
   if(recover){check(exact(fields,['pin','file'])&&/^draft-[a-f0-9]{32}\.json$/.test(fields.file));file=fields.file;}
