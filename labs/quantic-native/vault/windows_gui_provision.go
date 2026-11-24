@@ -7,6 +7,10 @@ package main
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <wincred.h>
+static int qv_gui_confirm(const WCHAR *prompt) {
+ return MessageBoxW(NULL,prompt,L"Quantic Sillage - Confirmation locale",
+  MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2|MB_SETFOREGROUND)==IDYES;
+}
 static int qv_gui_approve(void) {
  return MessageBoxW(NULL,L"Creer un nouveau coffre de TEST local ? Aucun compte reel ne sera modifie.",
   L"Quantic Sillage - Identity Vault",MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2|MB_SETFOREGROUND)==IDYES;
@@ -38,6 +42,9 @@ import (
  "encoding/json"
  "os"
  "path/filepath"
+ "io"
+ "strings"
+ "unicode/utf8"
  "unsafe"
 )
 
@@ -134,4 +141,19 @@ func winGUIVerifyExisting(dir string)(map[string]string,error){
  // No ongoing session, relay login or key export. The child exits after
  // returning public confirmation; this is a local integrity check only.
  return map[string]string{"status":"local-vault-verified-closed","address":r["address"],"deviceId":r["deviceId"]},nil
+}
+
+func winGUIApproveText(prompt string)bool{
+ if len(prompt)==0||len(prompt)>16384||!utf8.ValidString(prompt)||strings.ContainsRune(prompt,0){return false}
+ return C.qv_gui_confirm(winWide(prompt))!=0
+}
+// Local desktop confirmation only. No vault operation or authority is
+// authorized by this response; the broker performs its own independent check.
+func winGUIApprovalCLI(args []string)error{
+ if len(args)!=2{return portableRefusal}
+ raw,e:=io.ReadAll(io.LimitReader(os.Stdin,16385));if e!=nil{return e};defer clear(raw)
+ if len(raw)==0||len(raw)>16384||!utf8.Valid(raw)||strings.ContainsRune(string(raw),0){return portableRefusal}
+ status:="cancelled"
+ if winGUIApproveText(string(raw)){status="approved"}
+ return json.NewEncoder(os.Stdout).Encode(map[string]string{"status":status})
 }
