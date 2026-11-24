@@ -78,7 +78,8 @@ A_PRELOAD="140"
 B_PRELOAD="140"
 EXPECTED_COVER="0"
 PROFILE="${SCATTERING_MULTIHOP_PROFILE:-regular}"
-FLUSH="0"
+FLUSH="${SCATTERING_CHAIN_FIRST_FLUSH_MS:-0}"
+[[ "$FLUSH" == 0 || "$FLUSH" == 200 ]] || exit 2
 if [[ "$B_REAL" == "20" ]];then B_PRELOAD="20";EXPECTED_COVER="80";fi
 if [[ "$PROFILE" == "sparse" ]];then
  [[ "$E2E" == "1" && "$MIX" == "1" && "$BATCH" == "8" ]] || exit 2
@@ -159,4 +160,4 @@ for p in "$RELAY_PID" "$MID_PID" "$RELAY2_PID" "$RECEIVE_PID" "$EGRESS_PID"; do
  fi
 done
 for p in "${CAP_PIDS[@]}";do wait "$p" || true; done
-"$NODE" "$ROOT/scripts/scattering-two-relay-evidence.mjs" "$WORK" "$CHAIN_PROFILE" "$CHAIN_MIX" "$LAYER"
+"$NODE" "$ROOT/scripts/scattering-two-relay-evidence.mjs" "$WORK" "$CHAIN_PROFILE" "$CHAIN_MIX" "$LAYER" "$FLUSH"
