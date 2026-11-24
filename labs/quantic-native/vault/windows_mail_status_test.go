@@ -30,7 +30,7 @@ func TestWindowsMailLabInventory(t *testing.T){
  if _,e=winMailLabInventory(dir);e==nil{t.Fatal("fake wire accepted")}
  if e=os.Remove(other);e!=nil{t.Fatal(e)}
  raw,e:=winReadPrivate(draft,16384);if e!=nil{t.Fatal(e)}
- raw[0]^=1
+ raw[len(raw)-1]^=1
  if e=os.WriteFile(draft,raw,0600);e!=nil{t.Fatal(e)}
  if _,e=winMailLabInventory(dir);e==nil{t.Fatal("clear or tampered draft accepted")}
 }
