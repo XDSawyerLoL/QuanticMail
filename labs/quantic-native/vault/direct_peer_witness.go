@@ -1,7 +1,7 @@
 package main
 
 import (
- "context"
+ stdcontext "context"
  "crypto/ed25519"
  "crypto/rand"
  "encoding/hex"
@@ -22,7 +22,7 @@ type directWitnessRequest struct {
  Record [32]byte
  Nonce [32]byte
 }
-type directWitnessExchange func(context.Context,directWitnessRequest)([]byte,error)
+type directWitnessExchange func(stdcontext.Context,directWitnessRequest)([]byte,error)
 type directWitnessMember struct {
  Public ed25519.PublicKey
  Exchange directWitnessExchange
@@ -48,7 +48,7 @@ func signDirectWitness(q directWitnessRequest,authorizedID string,store checkpoi
 func(a *directPeerAnchor)call(q directWitnessRequest)error{
  if _,e:=rand.Read(q.Nonce[:]);e!=nil{return e}
  raw,e:=directWitnessTranscript(q);if e!=nil{return e}
- ctx,cancel:=context.WithTimeout(context.Background(),5*time.Second);defer cancel()
+ ctx,cancel:=stdcontext.WithTimeout(stdcontext.Background(),5*time.Second);defer cancel()
  type response struct{sig []byte;err error}
  done:=make(chan response,1)
  go func(){sig,e:=a.member.Exchange(ctx,q);done<-response{sig,e}}()
