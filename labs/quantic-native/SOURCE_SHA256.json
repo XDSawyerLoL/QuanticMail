@@ -120,8 +120,8 @@
   "vault/windows_provision.go": "ac42e74a7184e24a7509e838ea632c8e08402ad32bfa9e1a1e62ef592d3eea01",
   "vault/windows_provision_stub.go": "007ad9cbcb2dcc386ee6ed36830343508a48cdbb958dfa7d005f07dd56cf932f",
   "vault/windows_recovery_test.go": "ebb7f0681edefe56b42c50b87bf6ef21e8924efd501f95c76093565dbf68da49",
-  "vault/windows_scattering.go": "b0eb6c596fb98a35495ee05796c8762307a422630dbd1cc81a49c9d9c674fcc6",
-  "vault/windows_scattering_test.go": "1b8ca9c6ecd3bc9796587ed5e167c1e6eaef8b5873073406acb2d94b60e33dc4",
+  "vault/windows_scattering.go": "6ff62ff43f040464fdb716ee9d30e2e0d7391b02cace516c29a0d1ec9b8d7133",
+  "vault/windows_scattering_test.go": "944f0de4ad069839fef6364ac96092e8f1c2937fec8c5619973eee7487ad5676",
   "vault/windows_secure_gui.go": "48923041099042ae8f7038bfff5419975f50274d5e4ac9c430194eec1c87bcc2",
   "vault/windows_storage.go": "9dcaf3876bcd65a64a81f5051736e06a641564046bff59214b52a3ba66de59e2",
   "vault/windows_storage_test.go": "18b89948324caa6b6ae338be2cdad948b6f15e94fc7aafebad34781c8ad03114"
