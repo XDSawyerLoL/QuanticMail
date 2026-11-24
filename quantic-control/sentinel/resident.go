@@ -8,6 +8,7 @@ import (
  "io"
  "os"
  "path/filepath"
+ "runtime"
  "strings"
  "time"
 )
@@ -19,6 +20,9 @@ type Record struct{
  Type string `json:"type"`
  Message string `json:"message,omitempty"`
  Alert *Alert `json:"alert,omitempty"`
+ Defender *DefenderCFAEvent `json:"defender,omitempty"`
+ Evidence string `json:"evidence,omitempty"`
+ Advice string `json:"advice,omitempty"`
 }
 
 type localAudit struct{file *os.File;path string;size int64}
@@ -46,6 +50,14 @@ func (a *localAudit) Append(r Record)error{
  if r.Type==""{return errors.New("event type required")}
  if r.Time.IsZero(){r.Time=time.Now().UTC()}
  if r.Message!=""&&len(r.Message)>512{r.Message=r.Message[:512]}
+ if len(r.Evidence)>512 {r.Evidence=r.Evidence[:512]}
+ if len(r.Advice)>512 {r.Advice=r.Advice[:512]}
+ if r.Defender!=nil{
+  cp:=*r.Defender
+  if len(cp.ProcessPath)>512{cp.ProcessPath=cp.ProcessPath[:512]}
+  if len(cp.TargetPath)>512{cp.TargetPath=cp.TargetPath[:512]}
+  r.Defender=&cp
+ }
  if r.Alert!=nil{
   cp:=*r.Alert
   if len(cp.Example)>512{cp.Example=cp.Example[:512]}
@@ -80,6 +92,18 @@ func RunResident(ctx context.Context,root,logPath string)error{
  heartbeat:=time.NewTicker(time.Minute)
  defer heartbeat.Stop()
  var received uint64
+ var lastFileAlert *Alert
+ // Only Windows can read the local Defender Operational journal. No remote
+ // subscription or privileged Event Log configuration is performed.
+ var defenderNotices <-chan DefenderNotice
+ if runtime.GOOS=="windows" {
+  notices:=make(chan DefenderNotice,64)
+  defenderNotices=notices
+  go func(){
+   defer close(notices)
+   MonitorDefenderEvents(watchCtx,time.Now().UTC(),10*time.Second,ReadRecentCFA,notices)
+  }()
+ }
  for{
   select{
   case <-ctx.Done():
@@ -97,7 +121,27 @@ func RunResident(ctx context.Context,root,logPath string)error{
    if !ok{events=nil;continue}
    received++
    if alert:=detector.Observe(ev);alert!=nil{
+    lastFileAlert=alert
     if err:=audit.Append(Record{Type:"alert",Message:alert.Rule,Alert:alert});err!=nil{return err}
+   }
+  case notice,ok:=<-defenderNotices:
+   if !ok{defenderNotices=nil;continue}
+   switch{
+   case notice.Err!=nil:
+    if err:=audit.Append(Record{Type:"defender_unavailable",Message:notice.Err.Error()});err!=nil{return err}
+   case notice.Restored:
+    if err:=audit.Append(Record{Type:"defender_restored",Message:"Accès au journal Defender rétabli"});err!=nil{return err}
+   case notice.Overflow:
+    if err:=audit.Append(Record{Type:"defender_incomplete",Message:"Flux CFA supérieur à la limite de lecture : certains événements peuvent manquer"});err!=nil{return err}
+   case notice.Event!=nil:
+    cf:=CorrelateCFAEvent(*notice.Event,root,lastFileAlert)
+    process:="processus non indiqué"
+    if notice.Event.ProcessPath!="" {process="processus indiqué par Defender : "+notice.Event.ProcessPath}
+    message:=fmt.Sprintf("Defender CFA %d (%s), %s",notice.Event.EventID,notice.Event.Outcome,process)
+    if err:=audit.Append(Record{
+      Time:notice.Event.Time,Type:"defender_cfa",Message:message,
+      Defender:notice.Event,Evidence:cf.Evidence,Advice:cf.RecommendedAction,
+    });err!=nil{return err}
    }
   case <-heartbeat.C:
    if err:=audit.Append(Record{Type:"heartbeat",Message:fmt.Sprintf("%d événements détectés",received)});err!=nil{return err}
