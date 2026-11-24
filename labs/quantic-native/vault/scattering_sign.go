@@ -23,7 +23,7 @@ type scatteringResponseBody struct { Nonce string `json:"nonce"`; EC string `jso
 type scatteringSignature struct { Classical string `json:"classical"`; PQ string `json:"pq"` }
 type scatteringHello struct { Body scatteringHelloBody `json:"body"`; Sig scatteringSignature `json:"sig"` }
 type scatteringEvidence struct { Hello scatteringHello `json:"hello"`; Response scatteringResponseBody `json:"responseBody"` }
-type scatteringSignRequest struct { Address string `json:"address"`; Device string `json:"deviceId"`; Raw string `json:"raw"`; Evidence *scatteringEvidence `json:"evidence,omitempty"` }
+type scatteringSignRequest struct { Address string `json:"address"`; Device string `json:"deviceId"`; Raw string `json:"raw"`; Evidence *scatteringEvidence `json:"evidence,omitempty"`; Renewal bool `json:"renewal,omitempty"` }
 func scatteringDecode(raw []byte,v any)bool{
  d:=json.NewDecoder(bytes.NewReader(raw));d.DisallowUnknownFields()
  var extra any
@@ -83,23 +83,27 @@ func scatteringSigningInput(raw []byte,ownClassical,ownPQ []byte,peer senderCont
  scope,_:=json.Marshal([]any{peer.Address,peer.Device,channel,generation,stage})
  return replayID("scattering-sign-lab/v1",scope),nil
 }
-func authorizeScatteringSignature(s signer,p *pqKeys,trust *senderTrust,j *replayLog,approve func(string)bool,body []byte)(json.RawMessage,error){
+func authorizeScatteringSignature(s signer,p *pqKeys,trust *senderTrust,j *replayLog,approve func(string)bool,body []byte,grant *scatteringRenewalGrant)(out json.RawMessage,err error){
  var q scatteringSignRequest
+ // A failed or ambiguous delegated request terminates the grant. No fallback.
+ defer func(){if q.Renewal&&err!=nil&&grant!=nil{grant.closed=true}}()
  if p==nil||trust==nil||j==nil||j.anchor==nil||len(body)>16000||!scatteringDecode(body,&q)||!strongAddr.MatchString(q.Address)||!strongDevice.MatchString(q.Device)||q.Address==p.address&&q.Device==p.device{return nil,portableRefusal}
  peer,ok:=trust.contacts[senderKey(q.Address,q.Device)];if !ok||peer.Expires<=time.Now().UnixMilli(){return nil,portableRefusal}
  raw,e:=decode(q.Raw,1,4096);if e!=nil{return nil,e}
  own,e:=x509.MarshalPKIXPublicKey(s.Public());if e!=nil{return nil,e}
  id,e:=scatteringSigningInput(raw,own,p.dsaPub,peer,q.Evidence);if e!=nil||j.has(id){return nil,portableRefusal}
- if !approve("Session Scattering LAB avec "+peer.Address+" / "+peer.Device+" / SHA256 "+hexHash(raw))||peer.Expires<=time.Now().UnixMilli()||!j.beginContact(peer){return nil,portableRefusal}
+ if q.Renewal{if grant==nil||!grant.consume(peer,raw,time.Now()){return nil,portableRefusal}}else if !approve("Session Scattering LAB avec "+peer.Address+" / "+peer.Device+" / SHA256 "+hexHash(raw)){return nil,portableRefusal}
+ if peer.Expires<=time.Now().UnixMilli()||!j.beginContact(peer){return nil,portableRefusal}
  defer j.endContact()
  result,e:=j.reservePrivateSignature(id,func()([]byte,error){
-  if peer.Expires<=time.Now().UnixMilli(){return nil,portableRefusal}
+  if peer.Expires<=time.Now().UnixMilli()||q.Renewal&&!grant.live(time.Now()){return nil,portableRefusal}
   a,e:=s.SignDigest(sha256.Sum256(raw));if e!=nil||len(a)!=64{return nil,portableRefusal}
   b,e:=p.dsa.sign(raw);if e!=nil||len(b)!=3309{return nil,portableRefusal}
   return json.Marshal(scatteringSignature{b64.EncodeToString(a),b64.EncodeToString(b)})
  })
  if e!=nil{return nil,e}
- if peer.Expires<=time.Now().UnixMilli(){return nil,portableRefusal}
+ if peer.Expires<=time.Now().UnixMilli()||q.Renewal&&!grant.live(time.Now()){return nil,portableRefusal}
  if e=j.anchor.check(j.anchorID,len(j.seen),j.tail);e!=nil{return nil,e}
+ if q.Renewal&&!grant.live(time.Now()){return nil,portableRefusal}
  return result,nil
 }

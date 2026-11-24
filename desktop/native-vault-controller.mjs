@@ -182,11 +182,17 @@ export async function connectNativeVault({binary,binarySha256,vault,journal,quor
           const matches=contacts.filter(x=>x.address===address&&x.deviceId===deviceId&&x.expires>Date.now());
           check(matches.length===1&&!(address===pqMode.address&&deviceId===pqMode.deviceId),'unknown contact');
           const peer=matches[0],pub=(v)=>createPublicKey({key:Buffer.from(v,'base64'),format:'der',type:'spki'});
+          let renewal=false;
           return Object.freeze({local:Object.freeze({classical:signing.key,pq:pub(ownKeys.mlDsaSigningSpki)}),
             peer:Object.freeze({classical:pub(peer.classicalSigningSpki),pq:pub(peer.mlDsaSigningSpki)}),
+            authorizeRenewal:(channel,role)=>exclusive(async()=>{
+              check(!renewal&&/^[0-9a-f]{96}$/.test(channel)&&['initiator','responder'].includes(role),'invalid renewal scope');
+              const r=await call({op:'scattering-renewal-grant-lab',mailboxBody:{address,deviceId,channel,role}});
+              const g=r.mailboxResult;check(Number.isSafeInteger(g?.expires)&&g.expires>Date.now()&&g.attempts===4,'invalid renewal grant');renewal=true;return Object.freeze({expires:g.expires,attempts:g.attempts});
+            }),
             signHandshake:(raw,evidence)=>exclusive(async()=>{
               check(Buffer.isBuffer(raw)&&raw.length<=4096&&peer.expires>Date.now(),'invalid scattering request');
-              const r=await call({op:'scattering-sign-lab',mailboxBody:{address,deviceId,raw:raw.toString('base64url'),...(evidence?{evidence}:{})}});
+              const r=await call({op:'scattering-sign-lab',mailboxBody:{address,deviceId,raw:raw.toString('base64url'),...(renewal?{renewal:true}:{}),...(evidence?{evidence}:{})}});
               const sig=r.mailboxResult;
               b64(sig?.classical,64,64);b64(sig?.pq,3309,3309);return sig;
             })});
