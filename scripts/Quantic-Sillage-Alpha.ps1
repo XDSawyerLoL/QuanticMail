@@ -161,7 +161,7 @@ $run.Add_Click({
    $scriptPath=Join-Path $root 'Quantic-Sillage-Scattering.ps1'
    $psi=New-Object Diagnostics.ProcessStartInfo
    $psi.FileName=$shell
-   $psi.Arguments=('-NoProfile -STA -WindowStyle Hidden -File "{0}" -ExpectedManifestSha256 {1} -TrustedBinarySha256 {2}' -f $scriptPath,$ExpectedManifestSha256,$TrustedBinarySha256)
+   $psi.Arguments=('-NoProfile -STA -ExecutionPolicy Bypass -WindowStyle Hidden -File "{0}" -ExpectedManifestSha256 {1} -TrustedBinarySha256 {2}' -f $scriptPath,$ExpectedManifestSha256,$TrustedBinarySha256)
    $psi.UseShellExecute=$false;$psi.CreateNoWindow=$true;$psi.WindowStyle=[Diagnostics.ProcessWindowStyle]::Hidden
    $child=[Diagnostics.Process]::Start($psi)
    if($null -eq $child){throw 'Liaison indisponible'}
