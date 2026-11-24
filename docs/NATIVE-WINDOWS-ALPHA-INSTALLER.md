@@ -47,6 +47,16 @@ Le paquet installe `Uninstall-Quantic-Sillage-Alpha.exe` dans son dossier de bui
 - Les coffres privés hors paquet, les identités existantes et les autres builds Alpha ne sont **pas** visés. Aucune purge de données utilisateur n'est proposée.
 - La CI Windows doit vérifier installation, refus d'écrasement, désinstallation silencieuse et survie d'un fichier étranger dans le dossier installé ainsi que d'un coffre synthétique privé. Tant que ce test n'est pas vert, la fonctionnalité reste **non validée**.
 
+## Vérifier les véritables fenêtres de sécurité Windows
+
+Dans l'Alpha Windows, ouvrir **Quantic Mail → Rédiger un message** puis choisir **Tester les fenêtres de sécurité Windows**. Ce diagnostic ne demande ni coffre, ni contact, ni fichier technique, ni accès réseau.
+
+1. Accepter le dialogue d'autorisation Windows. Un refus est considéré comme un test non validé.
+2. Dans la fenêtre Windows de saisie, taper exclusivement la phrase **`ALPHA-TEST-ONLY`**, jamais une vraie phrase secrète. L'application doit confirmer que les deux fenêtres fonctionnent.
+3. Aucune clé ou identité n'est chargée : l'exécutable natif renvoie uniquement un état constant `windows-native-credential-dialogs-verified`, `labOnly=true`, `vaultOpened=false`, `networkUsed=false`. Le mot de passe fictif est effacé de la mémoire native après vérification.
+
+Une annulation, un mauvais texte, un terminal sans dialogue graphique ou un processus bloqué donnent **échec**. Une compilation CI réussie ne remplace pas ce test sur un poste Windows disposant d'un bureau interactif. Cette vérification ne démontre pas l'envoi ni la réception entre deux ordinateurs.
+
 ## Essai d'envoi chiffré sans terminal (branche de laboratoire)
 
 Le composeur Windows propose désormais, en plus de l'enregistrement du brouillon, une action **Chiffrer et déposer (test uniquement)**. C'est un prototype, **pas** une messagerie générale déployable.
