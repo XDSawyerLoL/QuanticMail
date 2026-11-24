@@ -432,7 +432,7 @@ function Start-ManagedCarrier {
    $notice.Text='Scattering local demarre | correspondant distant non verifie.'
   }elseif($r.status -ceq 'hybrid-session-required' -and $r.directory -cmatch ('^'+[Regex]::Escape($parent)+'\\quantic-enroll-[0-9a-f]{16}$')){
    $script:configuredEnrollment=[string]$r.directory
-   $notice.Text='Profil hybride importe | ouverture de session commune requise. Aucun ancien transport lance.'
+   $notice.Text='Profil hybride importe | ouvrir Quantic Mail pour demarrer la session commune.'
   }elseif($r.status -ceq 'not-configured'){$script:managedAttempted=$false}
   else{$notice.Text='Transport non disponible | aucune relance automatique.'}
  }catch{$notice.Text='Transport non disponible | aucune relance automatique.'}

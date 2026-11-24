@@ -69,6 +69,7 @@ export async function openWindowsNegotiatedMailSession(config,storage,{pacer,bin
   for(const e of epochs)e.socket=socket;
   check(!stop.signal.aborted);
   rotation=rotate({controller,address:profile.peerAddress,deviceId:profile.peerDeviceId,channel:profile.channel,role:'initiator',epochs,signal:stop.signal,onState:state=>{
+   if(busy&&state.status==='negotiating'){abort();throw Error('Operation overlaps rotation');}
    ready=!closed&&state.status==='ready'&&state.httpPort===profile.httpPort;
    onState({status:state.status,generation:state.generation});
   }});
