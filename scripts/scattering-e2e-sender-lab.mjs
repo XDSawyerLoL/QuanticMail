@@ -7,6 +7,7 @@ import {tmpdir} from 'node:os';
 import {join,isAbsolute} from 'node:path';
 import {spawn} from 'node:child_process';
 import {sealNestedLab,E2E_LAB} from '../lib/quantic/scattering-e2e-envelope-lab.mjs';
+import {sealLayeredLab} from '../lib/quantic/scattering-second-layer-lab.mjs';
 import {writeSpool} from '../labs/quantic-native/scattering/scattering-cell.mjs';
 
 const check=(x,msg)=>{if(!x)throw Error(msg)};
@@ -17,7 +18,7 @@ function readLabKey(p){
  return readFileSync(p);
 }
 async function main(){
- const [binary,target,port,secondsRaw,hopPath,e2ePath,senderRaw,realCellsRaw]=process.argv.slice(2);
+ const [binary,target,port,secondsRaw,hopPath,e2ePath,senderRaw,realCellsRaw,secondPath]=process.argv.slice(2);
  const seconds=Number(secondsRaw),senderId=Number(senderRaw);
  const realCells=realCellsRaw===undefined?seconds*20+40:Number(realCellsRaw);
  check(Number.isInteger(realCells)&&realCells>=1&&realCells<=seconds*20+40,
@@ -26,11 +27,12 @@ async function main(){
   (target==='10.252.41.2'?(port==='49001'&&senderId===0):(port==='49002'&&senderId===1))&&
   Number.isInteger(seconds)&&seconds>=5&&seconds<=10,'bounded lab source only');
  const hopKey=readLabKey(hopPath),e2eKey=readLabKey(e2ePath);
+ const secondKey=secondPath?readLabKey(secondPath):null;
  const dir=await mkdtemp(join(tmpdir(),'qs-e2e-source-'));
  try{
   const count=realCells,cells=[];
   for(let seq=0;seq<count;seq++)
-   cells.push(sealNestedLab({hopKey,endToEndKey:e2eKey,senderId,seq,
+   cells.push((secondKey?sealLayeredLab:sealNestedLab)({hopKey,secondKey,endToEndKey:e2eKey,senderId,seq,
       data:randomBytes(E2E_LAB.dataLength)}));
   writeSpool(dir,cells);
   const args=['-target',target+':'+port,'-queue-dir',dir,'-period-us','50000',
@@ -47,8 +49,8 @@ async function main(){
   check(m&&Number(m[2])>=seconds*18&&Number(m[3])<=Number(m[1]),'native pacer missed slots');
   console.log(JSON.stringify({mode:'nested-e2e-synthetic-send',senderId,planned:Number(m[1]),
     sent:Number(m[2]),missed:Number(m[3]),preparedAuthenticatedCells:realCells,
-    cellBytes:168,innerBytes:92,
+    cellBytes:168,innerBytes:secondKey?120:92,
     e2eKeyGivenToRelay:false,realAccountsUsed:false}));
- }finally{hopKey.fill(0);e2eKey.fill(0);await rm(dir,{recursive:true,force:true});}
+ }finally{hopKey.fill(0);e2eKey.fill(0);secondKey?.fill(0);await rm(dir,{recursive:true,force:true});}
 }
 main().catch(e=>{console.error('nested source failed: '+e.message);process.exitCode=1;});
