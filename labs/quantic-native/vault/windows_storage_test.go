@@ -87,3 +87,24 @@ func TestWindowsProtectedDraftAtRest(t *testing.T){
  if _,e=winReadProtectedDraft(legacy);e==nil{t.Fatal("plaintext fallback accepted")}
  retained,e:=winReadPrivate(legacy,8192);if e!=nil||!bytes.Equal(retained,plain){t.Fatal("historical file changed")}
 }
+
+func TestWindowsLocalSecretProtection(t *testing.T){
+ dir:=filepath.Join(t.TempDir(),"secret-private")
+ if e:=winCreatePrivateDirectory(dir);e!=nil{t.Fatal(e)}
+ plain:=bytes.Repeat([]byte{0x42},32)
+ path:=filepath.Join(dir,"receipt.key")
+ if e:=winWriteLocalSecret(path,plain);e!=nil{t.Fatal(e)}
+ raw,e:=winReadPrivate(path,32768);if e!=nil{t.Fatal(e)}
+ if !bytes.HasPrefix(raw,[]byte(localSecretMagic))||bytes.Contains(raw,plain){t.Fatal("receipt key stored in clear")}
+ opened,e:=winReadLocalSecret(path);if e!=nil||!bytes.Equal(opened,plain){t.Fatal("roundtrip",e)};clear(opened)
+ if e=winWriteLocalSecret(path,plain);e==nil{t.Fatal("overwrite")}
+ other:=filepath.Join(dir,"controller.pem")
+ if e=winWritePrivate(other,raw);e!=nil{t.Fatal(e)}
+ if _,e=winReadLocalSecret(other);e==nil{t.Fatal("cross-file ciphertext accepted")}
+ raw[len(raw)-1]^=1
+ if e=os.WriteFile(path,raw,0600);e!=nil{t.Fatal(e)}
+ if _,e=winReadLocalSecret(path);e==nil{t.Fatal("tamper accepted")}
+ if e=os.WriteFile(other,plain,0600);e!=nil{t.Fatal(e)}
+ if _,e=winReadLocalSecret(other);e==nil{t.Fatal("legacy plaintext fallback")}
+ retained,e:=winReadPrivate(other,4096);if e!=nil||!bytes.Equal(retained,plain){t.Fatal("legacy secret changed")}
+}

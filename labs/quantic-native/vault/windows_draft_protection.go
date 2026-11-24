@@ -33,6 +33,10 @@ func winDraftCrypt(path string, data []byte, decrypt bool)([]byte,error){
  if !clientDraftName.MatchString(filepath.Base(path)) || len(data)<1 || len(data)>32768{return nil,portableRefusal}
  if _,_,e:=winPathParts(path);e!=nil{return nil,e}
  entropy:=sha256.Sum256([]byte("quantic-draft-path/v1\x00"+path))
+ return winProtectUserData(data,entropy,decrypt)
+}
+func winProtectUserData(data []byte,entropy [32]byte,decrypt bool)([]byte,error){
+ if len(data)<1||len(data)>32768{return nil,portableRefusal}
  var out C.DATA_BLOB
  mode:=C.int(0);if decrypt{mode=1}
  ok:=C.qv_draft_crypt(mode,(*C.BYTE)(unsafe.Pointer(&data[0])),C.DWORD(len(data)),(*C.BYTE)(unsafe.Pointer(&entropy[0])),C.DWORD(len(entropy)),&out)
@@ -52,5 +56,32 @@ func winReadProtectedDraft(path string)([]byte,error){
  plain,e:=winDraftCrypt(path,raw[len(draftMagic):],true)
  if e!=nil{return nil,e}
  if len(plain)>8192||!json.Valid(plain){clear(plain);return nil,portableRefusal}
+ return plain,nil
+}
+
+const localSecretMagic="QSSECRET-DPAPI-v1\x00"
+func winLocalSecretName(name string)bool{return name=="controller.pem"||name=="receipt.key"}
+func winLocalSecretValid(name string,plain []byte)bool{
+ if name=="receipt.key"{return len(plain)==32}
+ return name=="controller.pem"&&len(plain)>0&&len(plain)<=4096
+}
+func winWriteLocalSecret(path string,plain []byte)error{
+ name:=filepath.Base(path)
+ if !winLocalSecretName(name)||!winLocalSecretValid(name,plain){return portableRefusal}
+ if _,_,e:=winPathParts(path);e!=nil{return e}
+ entropy:=sha256.Sum256([]byte("quantic-local-secret-path/v1\x00"+path))
+ sealed,e:=winProtectUserData(plain,entropy,false);if e!=nil{return e};defer clear(sealed)
+ raw:=append([]byte(localSecretMagic),sealed...);defer clear(raw)
+ return winWritePrivate(path,raw)
+}
+func winReadLocalSecret(path string)([]byte,error){
+ name:=filepath.Base(path)
+ if !winLocalSecretName(name){return nil,portableRefusal}
+ if _,_,e:=winPathParts(path);e!=nil{return nil,e}
+ raw,e:=winReadPrivate(path,32768+len(localSecretMagic));if e!=nil{return nil,e};defer clear(raw)
+ if !bytes.HasPrefix(raw,[]byte(localSecretMagic)){return nil,portableRefusal}
+ entropy:=sha256.Sum256([]byte("quantic-local-secret-path/v1\x00"+path))
+ plain,e:=winProtectUserData(raw[len(localSecretMagic):],entropy,true);if e!=nil{return nil,e}
+ if !winLocalSecretValid(name,plain){clear(plain);return nil,portableRefusal}
  return plain,nil
 }

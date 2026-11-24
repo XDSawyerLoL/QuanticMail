@@ -111,7 +111,7 @@ func verifySyntheticCard(code,ownAddress string,now int64)(syntheticContactCandi
  },nil
 }
 func readSyntheticControllerKey(dir string,p syntheticProfile)(ed25519.PrivateKey,error){
- raw,e:=winReadPrivate(filepath.Join(dir,"controller.pem"),4096)
+ raw,e:=winReadLocalSecret(filepath.Join(dir,"controller.pem"))
  if e!=nil{return nil,e}
  defer clear(raw)
  block,_:=pem.Decode(raw)
