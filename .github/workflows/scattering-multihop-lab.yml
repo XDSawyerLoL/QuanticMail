@@ -47,36 +47,56 @@ jobs:
             reseal: "0"
             e2e: "0"
             mix: "0"
+            offset_ms: "0"
           - name: loss-and-jitter
             cpu: "0"
             impairment: "1"
             reseal: "0"
             e2e: "0"
             mix: "0"
+            offset_ms: "0"
           - name: cpu-contention
             cpu: "1"
             impairment: "0"
             reseal: "0"
             e2e: "0"
             mix: "0"
+            offset_ms: "0"
           - name: trusted-hop-reseal
             cpu: "0"
             impairment: "0"
             reseal: "1"
             e2e: "0"
             mix: "0"
+            offset_ms: "0"
           - name: recipient-only-nested-e2e
             cpu: "0"
             impairment: "0"
             reseal: "1"
             e2e: "1"
             mix: "0"
+            offset_ms: "0"
           - name: recipient-only-nested-e2e-batch-mix
             cpu: "0"
             impairment: "0"
             reseal: "1"
             e2e: "1"
             mix: "1"
+            offset_ms: "0"
+          - name: nested-e2e-staggered-fifo
+            cpu: "0"
+            impairment: "0"
+            reseal: "1"
+            e2e: "1"
+            mix: "0"
+            offset_ms: "25"
+          - name: nested-e2e-staggered-batch-mix
+            cpu: "0"
+            impairment: "0"
+            reseal: "1"
+            e2e: "1"
+            mix: "1"
+            offset_ms: "25"
     name: "Network observer / ${{ matrix.name }}"
     steps:
       - uses: actions/checkout@v4
@@ -111,4 +131,5 @@ jobs:
           SCATTERING_MULTIHOP_RESEAL: ${{ matrix.reseal }}
           SCATTERING_MULTIHOP_E2E: ${{ matrix.e2e }}
           SCATTERING_MULTIHOP_MIX: ${{ matrix.mix }}
+          SCATTERING_MULTIHOP_SOURCE_OFFSET_MS: ${{ matrix.offset_ms }}
         run: bash scripts/scattering-multihop-netns-lab.sh "$RUNNER_TEMP/Quantic-Pacer"
