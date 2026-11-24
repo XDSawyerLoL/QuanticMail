@@ -8,7 +8,8 @@ import {createServer,request} from 'node:http';
 import {cellKey} from '../labs/quantic-native/scattering/scattering-cell.mjs';
 import {reliableCellStream} from '../labs/quantic-native/scattering/scattering-reliable-lab.mjs';
 const MAX=32768,FRAME=65536,OPS=16;
-const profiles=Object.freeze({'direct-mail':Object.freeze({base:'/api/quantic/direct/v1/',ops:Object.freeze(['send'])}),mailbox:Object.freeze({base:'/api/quantic/native/v1/',ops:Object.freeze(['send','pull','ack','recover'])}), 'pay-lab':Object.freeze({base:'/api/quantic/pay-lab/v1/',ops:Object.freeze(['checkpoint','submit'])}), 'pay-round-lab':Object.freeze({base:'/api/quantic/pay-round-lab/v1/',ops:Object.freeze(['status','prepare','change-view','commit','learn','upload-begin','upload-chunk','upload-finish'])}), 'pay-replica-lab':Object.freeze({base:'/api/quantic/pay-replica-lab/v1/',ops:Object.freeze(['status','admission-report','vote-admission','admit','prepare','change-view','commit','learn','upload-begin','upload-chunk','upload-finish','record-begin','record-chunk'])}), 'pay-committee-recovery-lab':Object.freeze({base:'/api/quantic/pay-committee-recovery-lab/v1/',ops:Object.freeze(['status','learn','upload-begin','upload-chunk','upload-finish','record-begin','record-chunk']),maxOps:48}), 'pay-committee-vote-lab':Object.freeze({base:'/api/quantic/pay-committee-vote-lab/v1/',ops:Object.freeze(['status','admission-prepare','admission-change','admission-commit','admit','prepare','change-view','commit','upload-begin','upload-chunk','upload-finish','result-chunk']),maxOps:48})});
+const RENEW_TOKEN='quantic-native-direct-renewal-carrier-v1';
+const profiles=Object.freeze({'direct-renewal':Object.freeze({base:'/unused/',ops:Object.freeze(['renew'])}),'direct-mail':Object.freeze({base:'/api/quantic/direct/v1/',ops:Object.freeze(['send'])}),mailbox:Object.freeze({base:'/api/quantic/native/v1/',ops:Object.freeze(['send','pull','ack','recover'])}), 'pay-lab':Object.freeze({base:'/api/quantic/pay-lab/v1/',ops:Object.freeze(['checkpoint','submit'])}), 'pay-round-lab':Object.freeze({base:'/api/quantic/pay-round-lab/v1/',ops:Object.freeze(['status','prepare','change-view','commit','learn','upload-begin','upload-chunk','upload-finish'])}), 'pay-replica-lab':Object.freeze({base:'/api/quantic/pay-replica-lab/v1/',ops:Object.freeze(['status','admission-report','vote-admission','admit','prepare','change-view','commit','learn','upload-begin','upload-chunk','upload-finish','record-begin','record-chunk'])}), 'pay-committee-recovery-lab':Object.freeze({base:'/api/quantic/pay-committee-recovery-lab/v1/',ops:Object.freeze(['status','learn','upload-begin','upload-chunk','upload-finish','record-begin','record-chunk']),maxOps:48}), 'pay-committee-vote-lab':Object.freeze({base:'/api/quantic/pay-committee-vote-lab/v1/',ops:Object.freeze(['status','admission-prepare','admission-change','admission-commit','admit','prepare','change-view','commit','upload-begin','upload-chunk','upload-finish','result-chunk']),maxOps:48})});
 const check=x=>{if(!x)throw Error('Scattering mailbox lab refused');};
 const port=(v,zero=false)=>Number.isInteger(v)&&v>=(zero?0:1)&&v<=65535;
 const tokenOK=v=>typeof v==='string'&&/^[A-Za-z0-9._~-]{40,256}$/.test(v);
@@ -38,8 +39,10 @@ function response(res,status,body){
  res.writeHead(status,{'Content-Type':'application/json','Content-Length':body.length,'Cache-Control':'no-store',Connection:'close'});res.end(body);
 }
 const errorBody=Buffer.from('{"error":"native mailbox operation not confirmed"}');
-export async function startScatteringMailboxEndpoint(c,{windowsBootstrap,profile='mailbox',acceptUntil,directReceive}={}){
+export async function startScatteringMailboxEndpoint(c,{windowsBootstrap,profile='mailbox',acceptUntil,directReceive,directRenew}={}){
  check(Object.hasOwn(profiles,profile));
+ const renewal=profile==='direct-renewal';
+ check(renewal?(c?.role==='relay'?typeof directRenew==='function':directRenew===undefined):directRenew===undefined);
  check(profile==='direct-mail'?(c?.role==='relay'?typeof directReceive==='function':directReceive===undefined):directReceive===undefined);
  // A scheduled epoch may stop accepting new work well before it closes.
  // The fixed carrier cadence itself is not changed by this admission gate.
@@ -98,13 +101,14 @@ export async function startScatteringMailboxEndpoint(c,{windowsBootstrap,profile
     try{await relayResponse;}finally{waitingNext=false;}
     check(!stopped&&!busy&&frame.seq===next);
    }
+   if(renewal)check(frame.token===RENEW_TOKEN);
    const data=decode(frame.body,1);busy=true;next++;
    try{
     let result;
     try{
      // Direct mode has NO upstream HTTP or mailbox relay. The remote
      // recipient writes its own local ciphertext before returning success.
-     result=!admissionOpen()?{status:503,body:errorBody}:profile==='direct-mail'?await directReceive(data,frame.token):await forward(frame,data);
+     result=!admissionOpen()?{status:503,body:errorBody}:renewal?await directRenew(data):profile==='direct-mail'?await directReceive(data,frame.token):await forward(frame,data);
      check(result&&Number.isInteger(result.status)&&result.status>=200&&result.status<=599&&Buffer.isBuffer(result.body)&&result.body.length<=MAX);
     }catch{result={status:502,body:errorBody};}
     // The upstream response, not a volatile carrier ACK, is returned to the client.
@@ -125,6 +129,19 @@ export async function startScatteringMailboxEndpoint(c,{windowsBootstrap,profile
     input=input.subarray(n+4);void onFrame(frame).catch(stop);
    }
   }catch{stop();}
+ }
+ // Native-only renewal lane: no HTTP listener, including loopback.
+ // The receiver callback MUST authenticate the hybrid signed request before
+ // returning a proof; the requester verifies the proof in its native vault.
+ async function requestRenewal(data){
+  check(renewal&&c.role==='client'&&!stopped&&!busy&&next<=operationLimit&&admissionOpen()&&Buffer.isBuffer(data)&&data.length>0&&data.length<=MAX);
+  busy=true;
+  try{
+   const seq=next++;
+   const reply=new Promise((resolve,reject)=>{pending={seq,resolve,reject,timer:setTimeout(stop,18000)};});
+   const [,result]=await Promise.all([sendFrame({kind:'request',seq,op:'renew',token:RENEW_TOKEN,body:data.toString('base64url')}),reply]);
+   return result;
+  }catch(e){stop();throw e;}finally{busy=false;}
  }
  async function handle(req,res){
   const op=typeof req.url==='string'&&req.url.startsWith(BASE)?req.url.slice(BASE.length):'';
@@ -150,13 +167,13 @@ export async function startScatteringMailboxEndpoint(c,{windowsBootstrap,profile
   cells=reliableCellStream({sendKey:c.role==='client'?ab:ba,recvKey:c.role==='client'?ba:ab,dir:c.queueDir,compactPacing:true,dualProofPacing:true});
   cells.stream.on('error',stop);cells.stream.on('close',stop);cells.stream.on('data',consume);
   udp.on('message',m=>cells.receive(m));
-  if(c.role==='client'){
+  if(c.role==='client'&&!renewal){
    server=createServer((req,res)=>{void handle(req,res).catch(stop);});
    server.maxConnections=8;server.requestTimeout=10000;server.headersTimeout=5000;server.setTimeout(20000,s=>s.destroy());
    await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(c.httpPort,'127.0.0.1',()=>{server.removeListener('error',reject);resolve();});});
    server.on('error',stop);
   }
   check(!stopped);
-  return Object.freeze({recvPort:udp.address().port,httpPort:server?.address().port,authenticatedPeerSeen:()=>!stopped&&cells.stats.auth>0,closed,close:stop});
+  return Object.freeze({recvPort:udp.address().port,httpPort:server?.address().port,...(renewal&&c.role==='client'?{requestRenewal}:{}),authenticatedPeerSeen:()=>!stopped&&cells.stats.auth>0,closed,close:stop});
  }catch(e){stop();throw e;}finally{ab.fill(0);ba.fill(0);}
 }
