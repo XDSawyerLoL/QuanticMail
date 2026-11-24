@@ -38,8 +38,12 @@ function response(res,status,body){
  res.writeHead(status,{'Content-Type':'application/json','Content-Length':body.length,'Cache-Control':'no-store',Connection:'close'});res.end(body);
 }
 const errorBody=Buffer.from('{"error":"native mailbox operation not confirmed"}');
-export async function startScatteringMailboxEndpoint(c,{windowsBootstrap,profile='mailbox'}={}){
+export async function startScatteringMailboxEndpoint(c,{windowsBootstrap,profile='mailbox',acceptUntil}={}){
  check(Object.hasOwn(profiles,profile));
+ // A scheduled epoch may stop accepting new work well before it closes.
+ // The fixed carrier cadence itself is not changed by this admission gate.
+ check(acceptUntil===undefined||Number.isSafeInteger(acceptUntil)&&acceptUntil>Date.now());
+ const admissionOpen=()=>acceptUntil===undefined||Date.now()<acceptUntil;
  const BASE=profiles[profile].base,allowed=new Set(profiles[profile].ops),operationLimit=profiles[profile].maxOps??OPS;
  check(c?.labOnly===true&&['client','relay'].includes(c.role)&&/^[a-f0-9]{64}$/.test(c.secretHex)&&/^[a-f0-9]{64}$/.test(c.epochHex)&&!/^0+$/.test(c.secretHex)&&!/^0+$/.test(c.epochHex)&&c.secretHex!==c.epochHex&&port(c.recvPort,true)&&port(c.httpPort,c.role==='client'));
  let guard;
@@ -117,10 +121,11 @@ export async function startScatteringMailboxEndpoint(c,{windowsBootstrap,profile
   const auth=req.headers.authorization;
   const len=Number(req.headers['content-length']);
   if(req.method!=='POST'||!allowed.has(op)||typeof auth!=='string'||!auth.startsWith('Bearer ')||!tokenOK(auth.slice(7))||req.headers.origin!==undefined||req.headers['transfer-encoding']!==undefined||req.headers['content-type']!=='application/json'||!Number.isInteger(len)||len<1||len>MAX){response(res,400,errorBody);req.resume();return;}
-  if(stopped||busy||next>operationLimit){response(res,503,errorBody);req.resume();return;}
+  if(stopped||busy||next>operationLimit||!admissionOpen()){response(res,503,errorBody);req.resume();return;}
   busy=true;let transmitted=false,data;
   try{
    data=await readBounded(req);check(data.length===len);
+   if(!admissionOpen()){response(res,503,errorBody);return;}
    const seq=next++;
    transmitted=true;
    const reply=new Promise((resolve,reject)=>{pending={seq,resolve,reject,timer:setTimeout(stop,18000)};});
