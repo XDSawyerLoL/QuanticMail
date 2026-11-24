@@ -15,7 +15,7 @@ import {
  restoreNativeMailbox,normalizeNativeRecord,nativeRecordDigest,
  enqueueNativeRecord,pullNativeRecord,acknowledgeNativeRecord,recoverNativeRecord
 } from '../lib/quantic/native-mailbox.mjs';
-import {sealReceipt,openReceipt} from '../desktop/native-receipt-store.mjs';
+import {openReceipt} from '../desktop/native-receipt-store.mjs';
 
 const binary=process.env.QUANTIC_SCATTERING_NATIVE_TEST
  ?resolve(process.env.QUANTIC_SCATTERING_NATIVE_TEST):null;
@@ -48,7 +48,7 @@ function newActor(address,deviceId,dir,url,messages){
   windowsScattering:{enabled:true,address,deviceId,endpoint:url,
    token:tokens[address],receiptKeyFile:win32.join(dir,'receipt.key')}};
  const files=new Map();
- let writes=0,opened=0,acksAllowed=0;
+ let writes=0,opened=0;
  const storage={
   async read(path){
    if(path===cfg.windowsScattering.receiptKeyFile)return Buffer.from(key);
@@ -100,7 +100,7 @@ function newActor(address,deviceId,dir,url,messages){
   assert.equal(r.remoteDeliveryVerified,false);
   return r;
  };
- return {cfg,storage,files,seal,receive,stats:()=>({writes,opened,acksAllowed})};
+ return {cfg,storage,files,seal,receive,stats:()=>({writes,opened})};
 }
 test('two isolated GUI clients exchange synthetic encrypted envelopes across two real native UDP links; receipt persists before ACK',
  {skip:process.platform!=='linux'||!binary,timeout:180000},async()=>{
