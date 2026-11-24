@@ -16,6 +16,8 @@ on:
       - "tests/scattering-e2e-envelope.test.mjs"
       - "tests/scattering-temporal-correlation.test.mjs"
       - "lib/quantic/scattering-temporal-correlation-lab.mjs"
+      - "lib/quantic/scattering-fifo-timing-observer.mjs"
+      - "tests/scattering-fifo-timing-observer.test.mjs"
       - "scripts/scattering-e2e-sender-lab.mjs"
       - "scripts/scattering-e2e-receiver-lab.mjs"
       - "scripts/scattering-physical-probe.mjs"
@@ -80,7 +82,7 @@ jobs:
       - name: Validate passive PCAP parser and shell syntax
         run: |
           node --test tests/scattering-multihop-observer.test.mjs
-          node --test tests/scattering-hop-reseal.test.mjs tests/scattering-e2e-envelope.test.mjs tests/scattering-temporal-correlation.test.mjs
+          node --test tests/scattering-hop-reseal.test.mjs tests/scattering-e2e-envelope.test.mjs tests/scattering-temporal-correlation.test.mjs tests/scattering-fifo-timing-observer.test.mjs
           node --check scripts/scattering-e2e-sender-lab.mjs
           node --check scripts/scattering-e2e-receiver-lab.mjs
           node --check scripts/scattering-hop-reseal-relay-lab.mjs
