@@ -390,6 +390,8 @@ function Invoke-GraphicalSession([string]$vaultDir) {
      if($line.Length -gt 4096){throw "Resultat invalide."}
      $record=$line|ConvertFrom-Json
      switch -CaseSensitive ($record.status){
+      "enrolling" {$status.Text="Inscription initiale : validation par les autorites..."}
+      "enrolled" {$status.Text="Inscription de test confirmee. Ouverture de session..."}
       "authenticating" {$status.Text="Authentification du coffre et des autorites..."}
       "authenticated" {
        if($record.address -cnotmatch '^[a-z0-9][a-z0-9._-]{2,31}~[a-f0-9]{32}@quantic$'){throw "Identite invalide."}
