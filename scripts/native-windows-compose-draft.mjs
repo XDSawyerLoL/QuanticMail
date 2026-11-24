@@ -2,10 +2,28 @@
 import {saveWindowsDraftFromInput} from '../desktop/native-windows-draft.mjs';
 import {composeSendWindowsGUI,receiveWindowsGUI} from '../desktop/native-windows-gui-send.mjs';
 import {listWindowsMailAttempts} from '../desktop/native-windows-mail-status.mjs';
+import {provisionSingleWindowsGUI} from '../desktop/windows-two-party-provision-lab.mjs';
+import {runWindowsTwoHostReadiness} from '../desktop/native-windows-mail-readiness.mjs';
 try{
  const args=process.argv.slice(2);
- if(process.platform!=='win32'||process.versions.node.split('.')[0]!=='24'||!([3,4].includes(args.length))||args.length===4&&!['--list','--send','--status','--receive','--recover-receive','--confirm-receipt'].includes(args[3])||process.stdin.isTTY)throw Error('Not the Windows GUI lab');
- if(args[3]==='--status'){
+ if(process.platform!=='win32'||process.versions.node.split('.')[0]!=='24'||!([3,4].includes(args.length))||args.length===4&&!['--list','--send','--status','--receive','--recover-receive','--confirm-receipt','--provision','--readiness'].includes(args[3])||process.stdin.isTTY)throw Error('Not the Windows GUI lab');
+ if(['--provision','--readiness'].includes(args[3])){
+  const chunks=[];let length=0;
+  for await(const c of process.stdin){length+=c.length;if(length>8192)throw Error('Setup input too large');chunks.push(c);}
+  const raw=Buffer.concat(chunks);for(const c of chunks)c.fill(0);
+  let fields;try{fields=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(raw));}finally{raw.fill(0);}
+  const boot={binary:args[0],binarySha256:args[1],dir:args[2]};
+  const exact=keys=>fields&&Object.getPrototypeOf(fields)===Object.prototype&&Object.keys(fields).length===keys.length&&keys.every(k=>Object.hasOwn(fields,k));
+  let result;
+  if(args[3]==='--provision'){
+   if(!exact(['address','quorumPin']))throw Error('Invalid provisioning fields');
+   result=await provisionSingleWindowsGUI({...boot,...fields});
+  }else{
+   if(!exact(['carrierDir','trustFile','trustSha256','live'])||typeof fields.live!=='boolean')throw Error('Invalid readiness fields');
+   result=await runWindowsTwoHostReadiness({...boot,...fields});
+  }
+  process.stdout.write(JSON.stringify(result)+'\n');
+ }else if(args[3]==='--status'){
   process.stdout.write(JSON.stringify(await listWindowsMailAttempts({binary:args[0],binarySha256:args[1],dir:args[2]}))+'\n');
  }else if(['--receive','--recover-receive','--confirm-receipt'].includes(args[3])){
  const chunks=[];let length=0;
