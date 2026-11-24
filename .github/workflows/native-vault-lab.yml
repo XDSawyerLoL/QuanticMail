@@ -73,7 +73,7 @@ jobs:
       - name: Four independent enrollment votes and existing checkpoint policy gate
         run: node --experimental-transform-types --test tests/native-enrollment-quorum.test.mjs
       - name: Native device authenticated session negotiation and tamper refusal
-        run: node --experimental-transform-types --test tests/scattering-session.test.mjs tests/scattering-session-integrated.test.mjs
+        run: node --experimental-transform-types --test tests/scattering-session.test.mjs tests/scattering-session-integrated.test.mjs tests/scattering-session-processes.test.mjs
       - name: Approved native enrollment mailbox over two UDP carriers (no direct fallback)
         run: |
           test -x "$GITHUB_WORKSPACE/labs/quantic-native/scattering/QuanticNativePacer_v7_1_linux_amd64"
