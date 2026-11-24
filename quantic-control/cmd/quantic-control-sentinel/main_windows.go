@@ -21,7 +21,7 @@ const(
  wsChild=0x40000000;wsVisible=0x10000000;wsOverlappedWindow=0x00CF0000
  wsVScroll=0x00200000;wsBorder=0x00800000;lbsNotify=0x0001
  lbAddString=0x0180;lbSetTopIndex=0x0197;lbResetContent=0x0184
- cmdSelect=201;cmdStop=202;cmdClear=203;cmdInstall=204;cmdUninstall=205;cmdHistory=206;cmdDefender=207;cmdProtectionCheck=208;cmdBackup=209;wmTimer=0x0113
+ cmdSelect=201;cmdStop=202;cmdClear=203;cmdInstall=204;cmdUninstall=205;cmdHistory=206;cmdDefender=207;cmdProtectionCheck=208;cmdBackup=209;cmdBackupRelease=210;wmTimer=0x0113
  colorWindow=5;defaultGuiFont=17
  bifReturnOnlyFSDirs=1;bifEditBox=0x10;bifNewDialogStyle=0x40
 )
@@ -191,7 +191,9 @@ func wndProc(hwnd uintptr,msg uint32,wparam,lparam uintptr)uintptr{
    protectionLabel=makeControl(hwnd,"STATIC","Protection Windows : état non vérifié.",22,646,730,48,0)
    makeControl(hwnd,"BUTTON","Configurer la protection Windows",22,698,330,38,cmdDefender)
    makeControl(hwnd,"BUTTON","Vérifier",364,698,132,38,cmdProtectionCheck)
-   backupButton=makeControl(hwnd,"BUTTON","Verrouiller une copie",510,698,234,38,cmdBackup)
+   backupButton=makeControl(hwnd,"BUTTON","Ajouter une copie",510,698,234,38,cmdBackup)
+   makeControl(hwnd,"BUTTON","Libérer les verrous de cette fenêtre",22,741,360,35,cmdBackupRelease)
+   refreshBackupLabel()
    user32.NewProc("SetTimer").Call(hwnd,1,30000,0)
    refreshProtection(hwnd)
    return 0
@@ -210,12 +212,13 @@ func wndProc(hwnd uintptr,msg uint32,wparam,lparam uintptr)uintptr{
        if !ok{return 0}
        selectedRoot=path;protectionGeneration++;refreshProtection(hwnd)
      }
-     if err:=installResident(selectedRoot);err!=nil{
+     if err:=installResident(selectedRoot,selectedBackupIdentities()...);err!=nil{
        messageBox.Call(hwnd,uintptr(unsafe.Pointer(u16("Installation refusée : "+err.Error()))),
          uintptr(unsafe.Pointer(u16("Quantic Sentinel — installation"))),0x30)
      }else{
        setLabel(statusLabel,"AGENT UTILISATEUR INSTALLÉ — démarrage à l'ouverture de votre session")
-       addLog("Installation volontaire. Le moniteur reste actif après fermeture de cette fenêtre.")
+       refreshBackupLabel()
+       addLog("Installation volontaire. Les copies configurées sont reprises par l’agent ; vérifier le résultat dans Historique local avant de fermer la fenêtre.")
        messageBox.Call(hwnd,uintptr(unsafe.Pointer(u16("Agent installé pour votre compte Windows.\nIl démarre à l'ouverture de session et journalise localement les alertes.\n\nAucun privilège administrateur n'est requis.\nLe programme reste expérimental : il ne bloque pas les rançongiciels."))),
         uintptr(unsafe.Pointer(u16("Quantic Sentinel — installation"))),0x40)
      }
@@ -224,10 +227,12 @@ func wndProc(hwnd uintptr,msg uint32,wparam,lparam uintptr)uintptr{
        messageBox.Call(hwnd,uintptr(unsafe.Pointer(u16("Désinstallation non terminée : "+err.Error()))),
         uintptr(unsafe.Pointer(u16("Quantic Sentinel — désinstallation"))),0x30)
      }else{
+       refreshBackupLabel()
        addLog("Démarrage automatique supprimé. Agent arrêté et fichiers du programme retirés.")
        setLabel(statusLabel,"AGENT UTILISATEUR DÉSINSTALLÉ — les journaux locaux sont conservés")
      }
    case cmdBackup:toggleBackup(hwnd)
+   case cmdBackupRelease:releaseBackup(hwnd)
    case cmdProtectionCheck:refreshProtection(hwnd)
    case cmdDefender:
      // Open existing Windows protections; never change antivirus settings
@@ -274,7 +279,7 @@ func wndProc(hwnd uintptr,msg uint32,wparam,lparam uintptr)uintptr{
    return 0
  case wmTimer:if wparam==1{refreshProtection(hwnd)};return 0
  case wmAppUpdate:drain(hwnd);return 0
- case wmDestroy:if backupHandle!=nil{_ = backupHandle.Close()};user32.NewProc("KillTimer").Call(hwnd,1);stopMonitor();postQuit.Call(0);return 0
+ case wmDestroy:for _,l:=range backupHandles{_ =l.Close()};user32.NewProc("KillTimer").Call(hwnd,1);stopMonitor();postQuit.Call(0);return 0
  }
  ret,_,_:=defWindowProc.Call(hwnd,uintptr(msg),wparam,lparam)
  return ret
@@ -296,7 +301,7 @@ func main(){
  valid,_,_:=registerClass.Call(uintptr(unsafe.Pointer(&wc)))
  if valid==0{return}
  hwnd,_,_:=createWindow.Call(0,uintptr(unsafe.Pointer(class)),uintptr(unsafe.Pointer(u16("Quantic Sillage — Sentinel Alpha"))),
-   wsOverlappedWindow|wsVisible,180,60,780,835,0,0,instance,0)
+   wsOverlappedWindow|wsVisible,180,40,780,875,0,0,instance,0)
  if hwnd==0{return}
  var msg message
  for{
