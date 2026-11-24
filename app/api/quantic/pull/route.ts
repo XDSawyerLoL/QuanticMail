@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { assertManifestDeviceActive, ManifestStateError } from "@/lib/quantic/manifest-state";
-import { pullEnvelopes, RelayError } from "@/lib/quantic/relay";
+import { assertCurrentManifestDeviceActive, ManifestStateError } from "@/lib/quantic/manifest-state";
+import { authenticateLocalDevice, pullEnvelopes, RelayError } from "@/lib/quantic/relay";
 
 function bearer(request: Request) {
   const value = request.headers.get("authorization");
@@ -12,8 +12,10 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const handle = url.searchParams.get("handle") ?? "";
     const deviceId = url.searchParams.get("deviceId");
-    if (deviceId) assertManifestDeviceActive(handle, deviceId);
-    return NextResponse.json({ envelopes: pullEnvelopes(handle, bearer(request), deviceId) });
+    const token = bearer(request);
+    const authenticated = authenticateLocalDevice(handle, token, deviceId);
+    await assertCurrentManifestDeviceActive(authenticated.canonicalAddress, authenticated.deviceId);
+    return NextResponse.json({ envelopes: pullEnvelopes(authenticated.canonicalAddress, token, authenticated.deviceId) });
   } catch (error) {
     if (error instanceof ManifestStateError || error instanceof RelayError) {
       return NextResponse.json({ error: error.message }, { status: error.status });

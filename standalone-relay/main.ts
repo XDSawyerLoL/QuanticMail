@@ -25,6 +25,8 @@ async function main() {
     port,
     dataDir,
     databaseUrl,
+    requirePostgres: process.env.QUANTIC_RELAY_REQUIRE_POSTGRES === "1",
+    sharedAuthRateLimit: process.env.QUANTIC_SHARED_AUTH_RATE_LIMIT === "1",
     identitySecret,
     publicEndpoint,
     bootstrapEndpoints,

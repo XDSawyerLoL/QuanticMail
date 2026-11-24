@@ -53,13 +53,17 @@ function peer(index: number): DiscoveryPeer {
   return {
     relayId: relayId(index),
     endpoint: `https://relay-${index}.mesh.example`,
-    lastSeenAt: "2026-09-17T11:30:00.000Z",
+    lastSeenAt: new Date().toISOString(),
     failures: 0,
     bucketIndex: 0,
   };
 }
 
 function bundleFactory(handle = "converge") {
+  const now = Date.now();
+  const issuedAt = new Date(now - 60_000).toISOString();
+  const expiresAt = new Date(now + 24 * 60 * 60_000).toISOString();
+  const identities = new Map<number, QuanticIdentityManifest>();
   const owner = keyPair();
   const encryption = keyPair();
   const routeRelay = keyPair();
@@ -81,12 +85,12 @@ function bundleFactory(handle = "converge") {
         publicKey: encryption.publicKey,
         deviceSigningPublicKey: owner.publicKey,
         kind: "root" as const,
-        issuedAt: "2026-09-17T00:00:00.000Z",
+        issuedAt: issuedAt,
       }],
       revocations: [],
-      issuedAt: "2026-09-17T00:00:00.000Z",
+      issuedAt: issuedAt,
     };
-    const identityManifest: QuanticIdentityManifest = {
+    const identityManifest: QuanticIdentityManifest = identities.get(identitySequence) ?? {
       format: "quantic-identity-manifest",
       version: 1,
       payload: identityPayload,
@@ -95,6 +99,7 @@ function bundleFactory(handle = "converge") {
         dsaEncoding: "ieee-p1363",
       }).toString("base64"),
     };
+    identities.set(identitySequence, identityManifest);
     const routePayload = {
       version: 1 as const,
       sequence: routeSequence,
@@ -109,10 +114,10 @@ function bundleFactory(handle = "converge") {
         priority: 10,
         protocols: ["quantic-federation/1"],
         classicalSigningPublicKey: routeRelay.publicKey,
-        expiresAt: "2026-10-17T00:00:00.000Z",
+        expiresAt: expiresAt,
       }],
-      issuedAt: "2026-09-17T00:00:00.000Z",
-      expiresAt: "2026-10-17T00:00:00.000Z",
+      issuedAt: issuedAt,
+      expiresAt: expiresAt,
     };
     const routeManifest: QuanticRouteManifest = {
       format: "quantic-route-manifest",
@@ -125,7 +130,7 @@ function bundleFactory(handle = "converge") {
         }).toString("base64"),
       },
     };
-    return { identityManifest, routeManifest };
+    return { identityManifest: structuredClone(identityManifest), routeManifest };
   }
 
   return { canonicalAddress, make };

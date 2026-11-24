@@ -1,3 +1,5 @@
+import {ARCHIVE_MAX_ROWS, type MigrationSnapshot} from "@/lib/quantic/migration-archive";
+import { summarizeMigration, type MigrationInventory } from "@/lib/quantic/migration-inventory";
 import {
   generateLocalPqcKeyMaterial,
   type LocalPqcKeyMaterial,
@@ -355,4 +357,63 @@ export async function deleteLocalPreKey(preKeyId: string) {
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
+}
+
+/** Atomic insert, never replace a concurrently installed local identity. */
+export async function installRecoveredIdentity(identity: LocalIdentity) {
+  const pqc = identity.pqc ?? (await generateLocalPqcKeyMaterial());
+  const db = await openDb();
+  return new Promise<void>((resolve, reject) => {
+    const tx = db.transaction("identity", "readwrite");
+    const request = tx.objectStore("identity").add({ ...identity, pqc: pqc ?? undefined }, "current");
+    tx.oncomplete = () => resolve();
+    tx.onabort = () => reject(new Error("Restauration refusée : identité déjà installée ou stockage indisponible."));
+    tx.onerror = () => reject(request.error ?? tx.error);
+  });
+}
+
+/** Read a consistent snapshot; count rows without fetching message or prekey bodies.
+ * No identity write, export, storage deletion or network call.
+ * Existing database only: openDb may initialize absent stores as usual.
+ */
+export async function inspectLocalMigration():Promise<MigrationInventory>{
+  const db=await openDb();
+  return new Promise((resolve,reject)=>{
+    const tx=db.transaction(["identity","pairing","prekeys","messages","outbox","contacts"],"readonly");
+    const identity=tx.objectStore("identity").get("current");
+    const pending=tx.objectStore("pairing").count("pending-device");
+    const prekeys=tx.objectStore("prekeys").count();
+    const messages=tx.objectStore("messages").count();
+    const outbox=tx.objectStore("outbox").count();
+    const contacts=tx.objectStore("contacts").count();
+    tx.oncomplete=()=>{
+      try{resolve(summarizeMigration(identity.result,{pendingDevice:pending.result>0,prekeys:prekeys.result,messages:messages.result,outbox:outbox.result,contacts:contacts.result}));}
+      catch(error){reject(error);}
+      finally{db.close();}
+    };
+    tx.onabort=()=>{db.close();reject(new Error("Inventaire local interrompu."));};
+    tx.onerror=()=>{db.close();reject(new Error("Inventaire local indisponible."));};
+  });
+}
+
+/** One read-only transaction. No live session token will be included by the archive encoder. */
+export async function captureMigrationSnapshot():Promise<MigrationSnapshot>{
+ const db=await openDb();
+ return new Promise((resolve,reject)=>{
+  const tx=db.transaction(["identity","pairing","prekeys","messages","outbox","contacts"],"readonly");
+  const identity=tx.objectStore("identity").get("current");
+  const pending=tx.objectStore("pairing").get("pending-device");
+  const prekeys=tx.objectStore("prekeys").getAll(undefined,ARCHIVE_MAX_ROWS+1);
+  const messages=tx.objectStore("messages").getAll(undefined,ARCHIVE_MAX_ROWS+1);
+  const contacts=tx.objectStore("contacts").getAll(undefined,ARCHIVE_MAX_ROWS+1);
+  const outbox=tx.objectStore("outbox").getAll(undefined,ARCHIVE_MAX_ROWS+1);
+  tx.oncomplete=()=>{
+   try{
+    if(!identity.result||[prekeys,messages,contacts,outbox].some(r=>r.result.length>ARCHIVE_MAX_ROWS))throw Error("Inventaire hors limites : aucune donnée supprimée.");
+    resolve({identity:identity.result,pending:pending.result??null,prekeys:prekeys.result,messages:messages.result,contacts:contacts.result,outbox:outbox.result});
+   }catch(e){reject(e);}finally{db.close();}
+  };
+  tx.onabort=()=>{db.close();reject(Error("Capture interrompue."));};
+  tx.onerror=()=>{db.close();reject(Error("Capture locale impossible."));};
+ });
 }

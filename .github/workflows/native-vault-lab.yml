@@ -1,0 +1,467 @@
+name: Native Vault laboratory
+on:
+  pull_request:
+    branches: [main, feat/identity-vault-security-hardening-20261121, feat/native-id-possession-proof-20261124, feat/native-id-durable-enrollment-20261124, feat/native-id-windows-lock-20261124, feat/native-id-dashboard-session-20261124, feat/native-id-enrollment-kit-20261124, feat/native-id-first-enrollment-20261124]
+    paths: ['labs/quantic-native/**', 'desktop/**', 'lib/quantic/**', 'scripts/native-vault-windows-local.mjs', 'scripts/package-windows-pq-lab.sh', 'scripts/scattering-physical-probe.mjs', 'scripts/Start-Windows-PQ-Lab.ps1', 'scripts/Test-Windows-PQ-Package.ps1', 'scripts/Quantic-Sillage-Alpha.ps1', 'scripts/Quantic-Sillage-Alpha.nsi', 'scripts/Test-Native-Installer-Signature.ps1', 'scripts/Sign-Native-Lab-Installer.ps1', 'tests/native-windows-desktop.test.mjs', 'tests/native-owner-candidate.test.mjs', 'tests/native-windows-mail-flow.test.mjs', 'tests/native-scattering-mailbox.test.mjs', 'tests/native-identity-bridge.test.mjs', 'tests/helpers/native-scattering-link.mjs', 'standalone-relay/native-scattering-mailbox.mjs', 'standalone-relay/native-enrollment-authority-lab.mjs', 'standalone-relay/native-session-service-lab.mjs', 'scripts/serve-native-scattering-windows.mjs', 'scripts/native-vault-windows-mailbox.mjs', 'scripts/native-windows-session-ui.mjs', 'scripts/verify-migration-local.mjs', '.github/workflows/native-vault-lab.yml']
+  push:
+    branches: [main, "feat/**"]
+    paths: ['labs/quantic-native/**', 'desktop/**', 'lib/quantic/**', 'scripts/native-vault-windows-local.mjs', 'scripts/package-windows-pq-lab.sh', 'scripts/scattering-physical-probe.mjs', 'scripts/Start-Windows-PQ-Lab.ps1', 'scripts/Test-Windows-PQ-Package.ps1', 'scripts/Quantic-Sillage-Alpha.ps1', 'scripts/Quantic-Sillage-Alpha.nsi', 'scripts/Test-Native-Installer-Signature.ps1', 'scripts/Sign-Native-Lab-Installer.ps1', 'tests/native-windows-desktop.test.mjs', 'tests/native-owner-candidate.test.mjs', 'tests/native-windows-mail-flow.test.mjs', 'tests/native-scattering-mailbox.test.mjs', 'tests/native-identity-bridge.test.mjs', 'tests/helpers/native-scattering-link.mjs', 'standalone-relay/native-scattering-mailbox.mjs', 'standalone-relay/native-enrollment-authority-lab.mjs', 'standalone-relay/native-session-service-lab.mjs', 'scripts/serve-native-scattering-windows.mjs', 'scripts/native-vault-windows-mailbox.mjs', 'scripts/native-windows-session-ui.mjs', 'scripts/verify-migration-local.mjs', '.github/workflows/native-vault-lab.yml']
+permissions:
+  contents: read
+# Keep only the latest feature validation; retain independent main runs.
+concurrency:
+  group: ${{ github.workflow }}-${{ (github.event_name == 'pull_request' || startsWith(github.ref, 'refs/heads/feat/')) && (github.head_ref || github.ref_name) || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || startsWith(github.ref, 'refs/heads/feat/') }}
+
+jobs:
+  native-mail-roundtrip-linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      GOTOOLCHAIN: local
+      GOPROXY: "off"
+      GOSUMDB: "off"
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24.8.0
+      - name: Compile the native UDP carrier
+        working-directory: labs/quantic-native/scattering/native
+        run: go build -trimpath -o ../QuanticNativePacer_v7_1_linux_amd64 .
+      - name: Bidirectional encrypted mail with real native carriers and durable receipts
+        run: |
+          export QUANTIC_INTEGRATED_SCATTERING_BINARY="$GITHUB_WORKSPACE/labs/quantic-native/scattering/QuanticNativePacer_v7_1_linux_amd64"
+          test -x "$QUANTIC_INTEGRATED_SCATTERING_BINARY"
+          node --experimental-transform-types --test tests/native-identity-bridge.test.mjs
+
+  native-enrollment-registry-linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24.8.0
+      - name: Verify independent durable enrollment and quorum receipts
+        run: node --experimental-transform-types --test tests/native-owner-candidate.test.mjs
+
+  native-linux-pq:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    container: debian:trixie-slim
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      GOTOOLCHAIN: local
+      GOPROXY: "off"
+      GOSUMDB: "off"
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - name: Install native build and test dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates git golang-go gcc libc6-dev pkg-config libssl-dev openssl python3 python3-cryptography nodejs
+          openssl version
+          openssl list -kem-algorithms | grep -qi ML-KEM-768
+          openssl list -signature-algorithms | grep -qi ML-DSA-65
+          go version
+          node --version
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Configure trusted CI checkout
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git status --porcelain
+      - name: Verify exact frozen source inventory
+        working-directory: labs/quantic-native
+        run: python3 verify_sources.py
+      - name: Build carrier from source
+        working-directory: labs/quantic-native/scattering/native
+        run: |
+          go test -count=1 ./...
+          go build -trimpath -o ../QuanticNativePacer_v7_1_linux_amd64 .
+      - name: Real native carrier bounded connection handoff
+        run: node --test labs/quantic-native/scattering/anchor-bridge-handoff.test.mjs
+      - name: Native Scattering mailbox traffic over UDP
+        run: QUANTIC_SCATTERING_NATIVE_TEST="$GITHUB_WORKSPACE/labs/quantic-native/scattering/QuanticNativePacer_v7_1_linux_amd64" node --test tests/native-scattering-mailbox.test.mjs
+      - name: Vault default and PQ build and tests
+        working-directory: labs/quantic-native/vault
+        run: |
+          go test -count=1 ./...
+          go test -count=1 -tags pqopenssl ./...
+          go vet -tags pqopenssl ./...
+          go build -trimpath -tags pqopenssl -o VaultIsolated-linux .
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -o /tmp/VaultIsolated-Windows-nonPQ.exe .
+      - name: Authority and native enrolment regressions
+        working-directory: labs/quantic-native
+        run: |
+          node --test vault/tests/*.test.mjs scattering/compact-pacing.test.mjs scattering/dual-proof-pacing.test.mjs
+          cd vault
+          python3 -m unittest test_pq_dual_unit test_schedule_unit test_dual_proof_feed test_contact_proof_feed -v
+      - name: Real local dual-authority network and PQ-only revocation
+        working-directory: labs/quantic-native/vault
+        run: timeout 180s python3 -u test_pq_dual_network.py
+
+  native-windows-pq-provider:
+    # Synthetic provider-only test. No release, no account keys, no physical TPM claim.
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      GOTOOLCHAIN: local
+      GOPROXY: "off"
+      GOSUMDB: "off"
+      CGO_ENABLED: "1"
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: msys2/setup-msys2@3c51bf698df1e37b2261f53cb67797b97761185c
+        with:
+          msystem: UCRT64
+          path-type: inherit
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-openssl
+            mingw-w64-ucrt-x86_64-nsis
+      - name: Compile and exercise real Windows PQ provider
+        shell: msys2 {0}
+        working-directory: labs/quantic-native/vault
+        run: |
+          set -euo pipefail
+          export CC=gcc
+          export PKG_CONFIG=pkg-config
+          go version
+          openssl version
+          openssl list -kem-algorithms | grep -qi ML-KEM-768
+          openssl list -signature-algorithms | grep -qi ML-DSA-65
+          go test -count=1 -tags pqopenssl -run '^(TestPQProviderRoundTrip|TestWindowsPrivateStorage|TestWindowsPQStorageReopen|TestWindowsProvisionJournalRestart|TestWindowsConsoleParsing|TestWindowsGUISecretBounds|TestWindowsGUIProvisionReadback|TestWindowsRecoveryExactResult|TestWindowsQuorumConfigRefusal|TestWindowsScatteringEpochGuard|TestWindowsLabImport|TestWindowsMailKitRefusesWrongScope|TestWindowsMailKitResumeNoOverwrite|TestWindowsSessionKitImport|TestWindowsNativePossessionFourKeys|TestWindowsAutoController|TestWindowsPayLab|TestWindowsAnchoredPayLab|TestNativeFinancialPermitVerification|TestWindowsPayQuorumImportBinding)$' -v .
+          go build -trimpath -tags pqopenssl -o "$RUNNER_TEMP/Vault-PQ-provider-lab.exe" .
+          cd ../scattering/native
+          CGO_ENABLED=0 go build -trimpath -o "$RUNNER_TEMP/Scattering-Pacer.exe" .
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24.8.0
+      - name: Windows trusted client workflow regressions
+        run: node --test tests/native-windows-desktop.test.mjs tests/native-vault-controller.test.mjs tests/native-windows-mail-flow.test.mjs
+      - name: Windows multi-host mail readiness with four pinned mTLS authorities and Scattering
+        shell: pwsh
+        run: |
+          node --experimental-transform-types --test tests/native-windows-mail-readiness.test.mjs tests/native-owner-candidate.test.mjs
+          if ($LASTEXITCODE -ne 0) { throw "Windows mail readiness rejected the trust or Scattering topology" }
+      - name: Provision two distinct native PQ synthetic identities without remote enrollment
+        shell: pwsh
+        run: |
+          node --experimental-transform-types --test tests/windows-two-party-provision-lab.test.mjs
+          if ($LASTEXITCODE -ne 0) { throw "Synthetic two-party PQ provisioning validation failed" }
+      - name: Integrated Windows PQ compose and send (durable wire and fail-closed transport)
+        shell: pwsh
+        run: |
+          node --experimental-transform-types --test tests/native-windows-integrated-mail.test.mjs
+          if ($LASTEXITCODE -ne 0) { throw "Windows end-to-end compose/send lab refused" }
+      - name: Verify relay mailbox remains unacknowledged across restart and audit journal refuses tampering
+        shell: pwsh
+        run: |
+          node --experimental-transform-types --test tests/migration-relay-observation.test.mjs tests/migration-audit-journal-lab.test.mjs
+          if ($LASTEXITCODE -ne 0) { throw "Read-only relay migration audit failed" }
+      - name: Signed complete relay mailbox snapshot (>100) and concurrent-arrival refusal
+        shell: pwsh
+        run: |
+          node --experimental-transform-types --test tests/migration-signed-full-relay.test.mjs
+          if ($LASTEXITCODE -ne 0) { throw "Complete signed relay mailbox snapshot failed" }
+      - name: Durable laboratory relay write fence persists after restart and refuses concurrent writes
+        shell: pwsh
+        run: |
+          node --experimental-transform-types --test tests/migration-relay-durable-fence.test.mjs
+          if ($LASTEXITCODE -ne 0) { throw "Durable relay migration fence failed" }
+      - name: Two independent relays - signed cross-relay freeze and crash recovery without cutover
+        shell: pwsh
+        timeout-minutes: 8
+        run: |
+          node --experimental-transform-types --test tests/migration-multirelay-coordinator.test.mjs
+          if ($LASTEXITCODE -ne 0) { throw "Multi-relay synthetic coordinator refused or failed" }
+      - name: Windows private migration snapshots and independent post-restart readback
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          export QUANTIC_WINDOWS_VAULT_TEST="$(cygpath -w "$RUNNER_TEMP/Vault-PQ-provider-lab.exe")"
+          node.exe --test tests/migration-durable-codec.test.mjs tests/migration-windows-durable.test.mjs
+      - name: Stage isolated portable Windows laboratory
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          bash scripts/package-windows-pq-lab.sh "$RUNNER_TEMP/Vault-PQ-provider-lab.exe" "$RUNNER_TEMP/QuanticMail-Windows-PQ-Lab" "$RUNNER_TEMP/Scattering-Pacer.exe" "$(cygpath -w "$(command -v node.exe)")"
+      - name: Verify complete package and detect tampering before execution
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP "QuanticMail-Windows-PQ-Lab"
+          $pin = (Get-FileHash -LiteralPath "$dir\SHA256SUMS.txt" -Algorithm SHA256).Hash
+          & ./scripts/Test-Windows-PQ-Package.ps1 -PackageDirectory $dir -ExpectedManifestSha256 $pin
+          $bad = Join-Path $dir "unexpected.dll"
+          try {
+            [IO.File]::WriteAllText($bad,"synthetic")
+            $rejected=$false
+            try { & ./scripts/Test-Windows-PQ-Package.ps1 -PackageDirectory $dir -ExpectedManifestSha256 $pin } catch { $rejected=$true }
+            if (-not $rejected) { throw "Extra DLL accepted" }
+          } finally { Remove-Item -LiteralPath $bad -Force }
+          $file=Join-Path $dir "README.md"
+          $original=[IO.File]::ReadAllBytes($file)
+          try {
+            [IO.File]::AppendAllText($file,"synthetic tampering")
+            $rejected=$false
+            try { & ./scripts/Test-Windows-PQ-Package.ps1 -PackageDirectory $dir -ExpectedManifestSha256 $pin } catch { $rejected=$true }
+            if (-not $rejected) { throw "Changed file accepted" }
+          } finally { [IO.File]::WriteAllBytes($file,$original) }
+          & ./scripts/Test-Windows-PQ-Package.ps1 -PackageDirectory $dir -ExpectedManifestSha256 $pin
+          "Package manifest SHA256 (CI provenance only): $pin"
+      - name: Parse and execute the actual packaged launcher
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP "QuanticMail-Windows-PQ-Lab"
+          foreach ($path in @("$dir\Start-Windows-PQ-Lab.ps1","$dir\Test-Windows-PQ-Package.ps1","$dir\Quantic-Sillage-Alpha.ps1")) {
+            $tokens=$null
+            $errors=$null
+            $null=[System.Management.Automation.Language.Parser]::ParseFile($path,[ref]$tokens,[ref]$errors)
+            if ($errors.Count -ne 0) { throw ("Invalid packaged PowerShell: "+($errors -join "; ")) }
+          }
+          $manifestPin=(Get-FileHash -LiteralPath "$dir\SHA256SUMS.txt" -Algorithm SHA256).Hash
+          $binaryPin=(Get-FileHash -LiteralPath "$dir\bin\Vault-PQ-lab.exe" -Algorithm SHA256).Hash
+          $shell=(Get-Process -Id $PID).Path
+          & $shell -NoProfile -NonInteractive -File "$dir\Start-Windows-PQ-Lab.ps1" -Operation Providers -ExpectedManifestSha256 $manifestPin -TrustedBinarySha256 $binaryPin
+          if ($LASTEXITCODE -ne 0) { throw "Packaged launcher providers failed" }
+          & $shell -NoProfile -NonInteractive -File "$dir\Start-Windows-PQ-Lab.ps1" -Operation Providers -ExpectedManifestSha256 ("0"*64) -TrustedBinarySha256 $binaryPin
+          if ($LASTEXITCODE -eq 0) { throw "Launcher accepted an incorrect manifest pin" }
+          & $shell -NoProfile -NonInteractive -File "$dir\Start-Windows-PQ-Lab.ps1" -Operation Providers -ExpectedManifestSha256 $manifestPin -TrustedBinarySha256 ("0"*64)
+          if ($LASTEXITCODE -eq 0) { throw "Launcher accepted an incorrect binary pin" }
+          & $shell -NoProfile -NonInteractive -File "$dir\Start-Windows-PQ-Lab.ps1" -Operation ProbeLoopback -ExpectedManifestSha256 $manifestPin
+          if ($LASTEXITCODE -ne 0) { throw "Packaged launcher loopback failed" }
+          & $shell -NoProfile -NonInteractive -File "$dir\Start-Windows-PQ-Lab.ps1" -Operation DashboardCheck -ExpectedManifestSha256 $manifestPin -TrustedBinarySha256 $binaryPin
+          if ($LASTEXITCODE -ne 0) { throw "Packaged dashboard check failed" }
+          & $shell -NoProfile -NonInteractive -File "$dir\Start-Windows-PQ-Lab.ps1" -Operation PayLabCheck -ExpectedManifestSha256 $manifestPin -TrustedBinarySha256 $binaryPin
+          if ($LASTEXITCODE -ne 0) { throw "Packaged Pay simulation check failed" }
+          & $shell -NoProfile -NonInteractive -File "$dir\Start-Windows-PQ-Lab.ps1" -Operation PayQuorumCheck -ExpectedManifestSha256 $manifestPin -TrustedBinarySha256 $binaryPin
+          if ($LASTEXITCODE -ne 0) { throw "Packaged Pay quorum simulation failed" }
+          & $shell -NoProfile -NonInteractive -File "$dir\Start-Windows-PQ-Lab.ps1" -Operation PayCirculationCheck -ExpectedManifestSha256 $manifestPin -TrustedBinarySha256 $binaryPin
+          if ($LASTEXITCODE -ne 0) { throw "Packaged Pay circulation simulation failed" }
+          & "$dir\runtime\node.exe" --check "$dir\scripts\quantic-pay-native-quorum.mjs"
+          if ($LASTEXITCODE -ne 0) { throw "Packaged native Pay quorum syntax failed" }
+          & "$dir\runtime\node.exe" --check "$dir\scripts\quantic-pay-operator.mjs"
+          if ($LASTEXITCODE -ne 0) { throw "Packaged Pay operator syntax failed" }
+      - name: Packaged Windows migration smoke across two processes
+        shell: pwsh
+        run: |
+          $package = Join-Path $env:RUNNER_TEMP "QuanticMail-Windows-PQ-Lab"
+          $manifestPin = (Get-FileHash -LiteralPath "$package\SHA256SUMS.txt" -Algorithm SHA256).Hash
+          $binaryPin = (Get-FileHash -LiteralPath "$package\bin\Vault-PQ-lab.exe" -Algorithm SHA256).Hash
+          $direct = Join-Path $env:RUNNER_TEMP ("qs-migrate-direct-" + $env:GITHUB_SHA.Substring(0,12))
+          & "$package\runtime\node.exe" "$package\scripts\migration-windows-smoke-lab.mjs" "$package\bin\Vault-PQ-lab.exe" $binaryPin.ToLowerInvariant() $direct "--synthetic-only"
+          if ($LASTEXITCODE -ne 0) { throw "Direct packaged native smoke failed" }
+          $private = Join-Path $env:RUNNER_TEMP ("qs-migrate-" + $env:GITHUB_SHA.Substring(0,12))
+          $shell = (Get-Process -Id $PID).Path
+          $ErrorActionPreference = "Continue"
+          $result = & $shell -NoProfile -NonInteractive -File "$package\Start-Windows-PQ-Lab.ps1" -Operation MigrationSmoke -PrivateDirectory $private -ExpectedManifestSha256 $manifestPin -TrustedBinarySha256 $binaryPin 2>&1
+          $firstExitCode = $LASTEXITCODE
+          $result | ForEach-Object { Write-Host $_ }
+          $ErrorActionPreference = "Stop"
+          if ($firstExitCode -ne 0) { throw "Packaged migration readback failed" }
+          $report = ($result | Select-Object -Last 1 | ConvertFrom-Json)
+          if ($report.status -ne "synthetic-windows-migration-smoke-passed" -or -not $report.windowsPrivateStorage -or -not $report.separateReadbackProcess -or $report.exactCollections -ne 4 -or $report.liveRestoreAuthorized -or $report.legacyDeletionAuthorized) { throw "Missing synthetic migration guarantees" }
+          $savedPreference = $ErrorActionPreference
+          $ErrorActionPreference = "Continue"
+          try {
+            & $shell -NoProfile -NonInteractive -File "$package\Start-Windows-PQ-Lab.ps1" -Operation MigrationSmoke -PrivateDirectory $private -ExpectedManifestSha256 $manifestPin -TrustedBinarySha256 $binaryPin 2>$null | Out-Null
+            $repeatExitCode = $LASTEXITCODE
+          } finally { $ErrorActionPreference = $savedPreference }
+          if ($repeatExitCode -eq 0) { throw "Reused migration directory was accepted" }
+          # The rejected second invocation deliberately exits nonzero. The
+          # workflow itself succeeds only after the assertion above passes.
+          exit 0
+
+      - name: 16 MiB synthetic Windows restoration, interrupted copy and independent restart
+        shell: pwsh
+        timeout-minutes: 10
+        run: |
+          $package = Join-Path $env:RUNNER_TEMP "QuanticMail-Windows-PQ-Lab"
+          $manifestPin = (Get-FileHash -LiteralPath "$package\SHA256SUMS.txt" -Algorithm SHA256).Hash
+          $binaryPin = (Get-FileHash -LiteralPath "$package\bin\Vault-PQ-lab.exe" -Algorithm SHA256).Hash
+          $private = Join-Path $env:RUNNER_TEMP ("qs-16mib-" + $env:GITHUB_SHA.Substring(0,12))
+          $shell = (Get-Process -Id $PID).Path
+          $result = & $shell -NoProfile -NonInteractive -File "$package\Start-Windows-PQ-Lab.ps1" -Operation MigrationFullSmoke -PrivateDirectory $private -ExpectedManifestSha256 $manifestPin -TrustedBinarySha256 $binaryPin
+          if ($LASTEXITCODE -ne 0) { throw "16 MiB Windows encrypted recovery failed" }
+          $report = ($result | Select-Object -Last 1 | ConvertFrom-Json)
+          if ($report.status -ne "synthetic-16mib-windows-restart-passed" -or -not $report.fullSizeVerified -or $report.resumedPreviouslyWrittenChunks -lt 3 -or -not $report.localAuditJournalVerified -or -not $report.historicalCollectionsMatch -or -not $report.sourceIntact -or $report.liveRestoreAuthorized -or $report.legacyDeletionAuthorized) { throw "Incomplete 16 MiB reconciliation" }
+          Write-Host "Windows 16 MiB native interruption/restart reconciliation passed: $($report.chunkCount) sealed chunks per role"
+
+      - name: Windows native Scattering mailbox loopback using packaged binaries
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP "QuanticMail-Windows-PQ-Lab"
+          $node = "$dir\runtime\node.exe"
+          $env:QUANTIC_WINDOWS_TEST_ROOT = $env:RUNNER_TEMP
+          $env:QUANTIC_WINDOWS_VAULT_TEST = "$dir\bin\Vault-PQ-lab.exe"
+          $env:QUANTIC_SCATTERING_NATIVE_TEST = "$dir\bin\Scattering-Pacer.exe"
+          $env:PATH = "$dir\bin;$env:SystemRoot\System32"
+          & $node --test tests/native-scattering-mailbox.test.mjs
+          if ($LASTEXITCODE -ne 0) { throw "Packaged Scattering mailbox failed" }
+      - name: Verify packaged entry points and cryptography runtime
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP "QuanticMail-Windows-PQ-Lab"
+          $originalPath = $env:PATH
+          try {
+            $env:PATH = "$env:SystemRoot\System32"
+            $provider = & "$dir\bin\Vault-PQ-lab.exe" --providers
+            if ($LASTEXITCODE -ne 0) { throw "Packaged native executable failed" }
+            $provider | Write-Output
+          } finally { $env:PATH = $originalPath }
+          $env:QV_PACKAGE = $dir
+          & "$dir\runtime\node.exe" --experimental-transform-types --input-type=module -e "import {pathToFileURL} from 'node:url'; import {join} from 'node:path'; import {generateKeyPairSync} from 'node:crypto'; generateKeyPairSync('ml-kem-768'); generateKeyPairSync('ml-dsa-65'); await import(pathToFileURL(join(process.env.QV_PACKAGE,'desktop','native-windows-desktop.mjs')).href); await import(pathToFileURL(join(process.env.QV_PACKAGE,'lib','quantic','native-identity-bridge.mjs')).href); await import(pathToFileURL(join(process.env.QV_PACKAGE,'lib','quantic','migration-proof-node.mjs')).href); await import(pathToFileURL(join(process.env.QV_PACKAGE,'desktop','native-windows-mail-flow.mjs')).href); await import(pathToFileURL(join(process.env.QV_PACKAGE,'desktop','native-session-client.mjs')).href);"
+          if ($LASTEXITCODE -ne 0) { throw "Packaged Node bridge failed" }
+          & "$dir\runtime\node.exe" --check "$dir\scripts\verify-migration-local.mjs"
+          if ($LASTEXITCODE -ne 0) { throw "Migration verification entry point syntax failed" }
+          & "$dir\runtime\node.exe" --experimental-transform-types "$dir\scripts\verify-migration-local.mjs"
+          if ($LASTEXITCODE -eq 0) { throw "Migration verifier accepted missing inputs" }
+          & "$dir\runtime\node.exe" "$dir\scripts\scattering-physical-probe.mjs" loopback "$dir\bin\Scattering-Pacer.exe" 5
+          if ($LASTEXITCODE -ne 0) { throw "Packaged pacer loopback failed" }
+          Get-Content "$dir\SHA256SUMS.txt"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: QuanticMail-Windows-PQ-Lab-unsigned
+          path: ${{ runner.temp }}/QuanticMail-Windows-PQ-Lab/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Build native double-clickable Alpha GUI EXE with immutable package pins
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          package="$(cygpath -u "$RUNNER_TEMP")/QuanticMail-Windows-PQ-Lab"
+          exe="$(cygpath -u "$RUNNER_TEMP")/Quantic-Sillage-Alpha-App.exe"
+          manifest_pin="$(sha256sum --binary "$package/SHA256SUMS.txt" | cut -d ' ' -f 1)"
+          vault_pin="$(sha256sum --binary "$package/bin/Vault-PQ-lab.exe" | cut -d ' ' -f 1)"
+          cd labs/quantic-native/alpha-launcher
+          go test -count=1 ./...
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="-H windowsgui -X main.expectedManifestSHA256=$manifest_pin -X main.expectedVaultSHA256=$vault_pin" -o "$exe" .
+          test -s "$exe"
+          file "$exe" || true
+      - name: Generate independently verified and nonrecursive NSIS uninstall list
+        shell: pwsh
+        run: |
+          $package = Join-Path $env:RUNNER_TEMP "QuanticMail-Windows-PQ-Lab"
+          $target = Join-Path $env:RUNNER_TEMP "Alpha-Uninstall-Exact.nsh"
+          node scripts/generate-alpha-uninstall-inventory.mjs $package $target
+          if ($LASTEXITCODE -ne 0) { throw "Uninstall list must match exact package manifest" }
+          if ((Get-Content -LiteralPath $target -Raw) -match '(?i)RMDir\s+/r') { throw "Recursive uninstaller deletion forbidden" }
+          if (-not (Test-Path -LiteralPath $target -PathType Leaf)) { throw "Missing strict uninstall list" }
+      - name: Compile single-file unsigned native laboratory installer
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          dir="$(cygpath -u "$RUNNER_TEMP")/QuanticMail-Windows-PQ-Lab"
+          exe="$(cygpath -u "$RUNNER_TEMP")/Quantic-Sillage-Alpha-UNSIGNED.exe"
+          pacman -Q mingw-w64-ucrt-x86_64-nsis
+          test -x /ucrt64/bin/makensis.exe
+          manifest_pin="$(sha256sum --binary "$dir/SHA256SUMS.txt" | cut -d ' ' -f 1)"
+          vault_pin="$(sha256sum --binary "$dir/bin/Vault-PQ-lab.exe" | cut -d ' ' -f 1)"
+          export MSYS2_ARG_CONV_EXCL='*'
+          /ucrt64/bin/makensis.exe "/DOUTPUT_EXE=$(cygpath -w "$exe")" "/DPACKAGE_DIR=$(cygpath -w "$dir")" "/DLAUNCHER_EXE=$(cygpath -w "$RUNNER_TEMP/Quantic-Sillage-Alpha-App.exe")" "/DUNINSTALL_LIST_NSH=$(cygpath -w "$RUNNER_TEMP/Alpha-Uninstall-Exact.nsh")" "/DBUILD_ID=$(printf %.12s "$GITHUB_SHA")" "/DMANIFEST_PIN=$manifest_pin" "/DVAULT_PIN=$vault_pin" "$(cygpath -w scripts/Quantic-Sillage-Alpha.nsi)"
+          test -s "$exe"
+      - name: Exercise single-file unsigned native laboratory installer
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP "QuanticMail-Windows-PQ-Lab"
+          $exe = Join-Path $env:RUNNER_TEMP "Quantic-Sillage-Alpha-UNSIGNED.exe"
+          $build = $env:GITHUB_SHA.Substring(0,12)
+          $manifestPin = (Get-FileHash -LiteralPath "$dir\SHA256SUMS.txt" -Algorithm SHA256).Hash
+          $p = Start-Process -FilePath $exe -ArgumentList "/S" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "Native installation failed" }
+          $installed = Join-Path $env:LOCALAPPDATA "QuanticSillage\Alpha-$build\app"
+          & ./scripts/Test-Windows-PQ-Package.ps1 -PackageDirectory $installed -ExpectedManifestSha256 $manifestPin
+          $nativeApp = Join-Path $env:LOCALAPPDATA "QuanticSillage\Alpha-$build\Quantic-Sillage-Alpha.exe"
+          if (-not (Test-Path -LiteralPath $nativeApp -PathType Leaf)) { throw "Installed native double-clickable Alpha EXE missing" }
+          $nativeTest = Start-Process -FilePath $nativeApp -ArgumentList "--self-test" -Wait -PassThru
+          if ($nativeTest.ExitCode -ne 0) {
+            $report = Join-Path $env:RUNNER_TEMP "quantic-alpha-launcher-diagnostic.txt"
+            if (Test-Path -LiteralPath $report -PathType Leaf) {
+              Get-Content -LiteralPath $report | ForEach-Object { Write-Host ("Native GUI self-test: " + $_) }
+            }
+            $vaultPin = (Get-FileHash -LiteralPath "$installed\bin\Vault-PQ-lab.exe" -Algorithm SHA256).Hash
+            $ps = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
+            & $ps -NoProfile -NonInteractive -STA -File "$installed\Start-Windows-PQ-Lab.ps1" -Operation DashboardCheck -ExpectedManifestSha256 $manifestPin -TrustedBinarySha256 $vaultPin
+            $psExit = $LASTEXITCODE
+            throw "Native GUI EXE installed self-test failed: nativeStageExit=$($nativeTest.ExitCode), directDashboardExit=$psExit"
+          }
+          Write-Host "Installed native Quantic Sillage Alpha EXE launched with embedded package pins"
+          $p = Start-Process -FilePath $exe -ArgumentList "/S" -Wait -PassThru
+          if ($p.ExitCode -eq 0) { throw "Installer overlaid an existing build" }
+          & ./scripts/Test-Windows-PQ-Package.ps1 -PackageDirectory $installed -ExpectedManifestSha256 $manifestPin
+          $rejected = $false
+          try { & ./scripts/Test-Native-Installer-Signature.ps1 -Installer $exe -ExpectedPublisherSha256 ("0"*64) } catch { $rejected = $true }
+          if (-not $rejected) { throw "Unsigned installer passed release gate" }
+          $tokens=$null; $errors=$null
+          $null=[System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD "scripts\Sign-Native-Lab-Installer.ps1"),[ref]$tokens,[ref]$errors)
+          if ($errors.Count -ne 0) { throw "Operator signing script syntax invalid" }
+          $tokens=$null; $errors=$null
+          $null=[System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD "scripts\Test-Quantic-Sillage-Signed-Alpha.ps1"),[ref]$tokens,[ref]$errors)
+          if ($errors.Count -ne 0) { throw "Signed app and installer release-gate script syntax invalid" }
+          $signatureRejected = $false
+          try {
+            & ./scripts/Test-Quantic-Sillage-Signed-Alpha.ps1 -Installer $exe -InstalledLauncher $nativeApp -ExpectedPublisherSha256 ("0"*64) -ExpectedManifestSha256 $manifestPin -ExpectedVaultSha256 ((Get-FileHash -LiteralPath "$installed\bin\Vault-PQ-lab.exe" -Algorithm SHA256).Hash) | Out-Null
+          } catch { $signatureRejected = $true }
+          if (-not $signatureRejected) { throw "Unsigned native Alpha application passed signed-release gate" }
+          # An uninstall must never delete private data, even if a user
+          # accidentally puts something unexpected inside the version tree.
+          $vault = Join-Path $env:LOCALAPPDATA "QuanticSillage\IdentityVaults\synthetic-preserve"
+          [IO.Directory]::CreateDirectory($vault) | Out-Null
+          $vaultFile = Join-Path $vault "do-not-delete.txt"
+          [IO.File]::WriteAllText($vaultFile, "retain synthetic test identity across installer cleanup")
+          $sibling = Join-Path $env:LOCALAPPDATA "QuanticSillage\Alpha-other-build"
+          [IO.Directory]::CreateDirectory($sibling) | Out-Null
+          $other = Join-Path $sibling "independent-installation.txt"
+          [IO.File]::WriteAllText($other,"different Alpha build must survive")
+          $uninstaller=Join-Path $env:LOCALAPPDATA "QuanticSillage\Alpha-$build\Uninstall-Quantic-Sillage-Alpha.exe"
+          if (-not (Test-Path -LiteralPath $uninstaller -PathType Leaf)) { throw "Installed uninstaller missing" }
+          $userUnexpected=Join-Path $installed "synthetic-user-kept.txt"
+          [IO.File]::WriteAllText($userUnexpected,"user data must not be recursively removed")
+          # NSIS uninstallers copy themselves and return immediately to the
+          # parent with status 0, hiding the true status. Invoke an independent
+          # copy with the documented _?= argument as the LAST raw argument.
+          # This also lets the original installed uninstaller be removed.
+          $uninstallerCopy=Join-Path $env:RUNNER_TEMP "Quantic-Sillage-Alpha-Cleanup-Test.exe"
+          Copy-Item -LiteralPath $uninstaller -Destination $uninstallerCopy -ErrorAction Stop
+          $uninstallDir=Join-Path $env:LOCALAPPDATA "QuanticSillage\Alpha-$build"
+          $uninstallArgs="/S _?=$uninstallDir"
+          $p = Start-Process -FilePath $uninstallerCopy -ArgumentList $uninstallArgs -Wait -PassThru
+          if ($p.ExitCode -eq 0) { throw "Uninstaller accepted unrecognized user data" }
+          if (-not (Test-Path -LiteralPath $userUnexpected -PathType Leaf) -or -not (Test-Path -LiteralPath $vaultFile -PathType Leaf)) { throw "Private user files deleted" }
+          Remove-Item -LiteralPath $userUnexpected -Force
+          $p = Start-Process -FilePath $uninstallerCopy -ArgumentList $uninstallArgs -Wait -PassThru
+          if ($p.ExitCode -ne 0) {
+            Write-Host ("Uninstaller failed with native exit code: " + $p.ExitCode)
+            if (Test-Path -LiteralPath $uninstallDir) {
+              Get-ChildItem -LiteralPath $uninstallDir -Recurse -Force |
+                ForEach-Object { Write-Host ("Remaining CI synthetic entry: " + $_.FullName.Substring($uninstallDir.Length)) }
+            }
+            throw "Exact-package uninstall failed"
+          }
+          if (Test-Path -LiteralPath (Join-Path $env:LOCALAPPDATA "QuanticSillage\Alpha-$build")) { throw "Uninstall left behind complete build" }
+          if (-not (Test-Path -LiteralPath $vaultFile -PathType Leaf) -or -not (Test-Path -LiteralPath $other -PathType Leaf)) { throw "Uninstaller touched identity data or other build" }
+          $registry= "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\QuanticSillageAlpha-$build"
+          if (Test-Path -LiteralPath $registry) { throw "Uninstaller left behind Add/Remove Programs registration" }
+          Write-Host "Version-scoped uninstaller preserved both independent private vault and sibling installation"
+          (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant() | Set-Content -Encoding ascii "$exe.sha256"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: Quantic-Sillage-Alpha-UNSIGNED-Installer
+          path: |
+            ${{ runner.temp }}/Quantic-Sillage-Alpha-UNSIGNED.exe
+            ${{ runner.temp }}/Quantic-Sillage-Alpha-UNSIGNED.exe.sha256
+          if-no-files-found: error
+          retention-days: 30

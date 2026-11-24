@@ -1,0 +1,13 @@
+# Windows Pay operator (synthetic native-v1 only)
+
+This packages the existing native payment vault, four-link quorum, history reconciliation and European requirements baseline into one interactive operator. Separate circulation-v2 consensus is not wired to this native-v1 signer. No real payment or DESP integration.
+
+1. Use a trusted independently pinned package. Provision a NEW Pay lab vault with PayProvision, save its two public fingerprints.
+2. Provision four witness services with distinct Ed25519/ML-DSA keys and private stores using docs/PAY_WITNESS_LAB.md. Each uses this vault scope.
+3. Prepare four separate Pay-only Scattering links. StartPayBridge starts the existing constrained Windows loopback endpoint in pay-lab mode; it is NOT a remote network deployment wizard. Existing native carrier guard, one-use epochs, bounded operation profile and pacer/sink prerequisites still apply.
+4. Prepare confidential JSON: {"format":"quantic-native-pay-operator/v1","simulationOnly":true,"scope":{"signingPin":"...","pqPin":"..."},"authorities":[four entries with pin,publicKey,pqPin,pqPublicKey,loopbackPort,token]}. Public keys are canonical base64url DER, pins lowercase hex SHA256, token private 64 hex. Four unique ports and tokens. Obtain the exact file hash via independent trusted provisioning; do not display or publish the file. Keep source privately protected.
+5. Select PayOperatorConfigure, enter the new vault directory, independent configuration hash, source path. Native terminal verifies exact hash, requires explicit approval, creates private NTFS configuration without overwrite, only before any receipts. No recovery reset or automatic rotation.
+6. Select PayOperator, enter vault directory and independent configuration hash. It reads configuration through pinned native executable, verifies all authority keys, reconciles full retained native history with three witnesses before enabling payments. Choose fictional recipient and amount; native console shows exact consent and unlocks separately. On uncertainty it halts. C displays European readiness status without keys/tokens or financial history.
+7. On restart do not reset or recreate witnesses; reopen only after exact history matches. An interrupted submission with divergent history is blocked and requires diagnostic recovery. Four physical hosts, full native interactive test, service orchestration and real PSP remain unverified. Native config tests and package syntax checks do not constitute end-to-end Windows validation.
+
+No authentication certification. No general BFT view-change, actual ISO 20022 schema, EUDI/CPACE or offline payments delivered in this increment. See PAY_EU_REQUIREMENTS.md for tracked gaps.

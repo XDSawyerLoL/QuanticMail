@@ -1,85 +1,41 @@
-import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
-import { cookies } from "next/headers";
-
-const COOKIE_NAME = "qm_session";
-const MAX_AGE_SECONDS = 60 * 60 * 8;
-
-export type MailSession = {
-  email: string;
-  authorization: string;
-  expiresAt: number;
-};
-
-function key() {
-  const secret = process.env.SESSION_SECRET;
-  if (!secret || secret.length < 32) {
-    throw new Error("SESSION_SECRET must contain at least 32 characters");
+import {cookies} from "next/headers";
+import {Pool} from "pg";
+import {createSessionStore, type MailSession} from "./session-store";
+export type {MailSession};
+const COOKIE_NAME="qm_session_v2";
+const LEGACY_COOKIE="qm_session";
+const MAX_AGE_SECONDS=8*60*60;
+let pending:ReturnType<typeof createSessionStore>|undefined;
+function sessionStore() {
+  if(!pending) {
+    const connectionString=process.env.QUANTIC_MAIL_SESSION_DATABASE_URL?.trim();
+    const secret=process.env.SESSION_SECRET;
+    if(!connectionString||!secret||secret.length<32)throw new Error("Mail session authority not configured");
+    const pool=new Pool({connectionString,max:5,connectionTimeoutMillis:3000,statement_timeout:5000});
+    // A storage outage never falls back to a locally accepted cookie.
+    pool.on("error",()=>{});
+    pending=createSessionStore((sql,params)=>pool.query(sql,params),secret).catch(async error=>{
+      pending=undefined;await pool.end();throw error;
+    });
   }
-  return createHash("sha256").update(secret).digest();
+  return pending;
 }
-
-function encrypt(value: MailSession) {
-  const iv = randomBytes(12);
-  const cipher = createCipheriv("aes-256-gcm", key(), iv);
-  const encrypted = Buffer.concat([
-    cipher.update(JSON.stringify(value), "utf8"),
-    cipher.final(),
-  ]);
-  const tag = cipher.getAuthTag();
-  return Buffer.concat([iv, tag, encrypted]).toString("base64url");
+const options={httpOnly:true,secure:process.env.NODE_ENV==="production",sameSite:"strict" as const,path:"/"};
+export async function createSession(email:string,authorization:string) {
+  const cookiesStore=await cookies();
+  const token=await (await sessionStore()).create(email,authorization,cookiesStore.get(COOKIE_NAME)?.value);
+  cookiesStore.set(COOKIE_NAME,token,{...options,maxAge:MAX_AGE_SECONDS});
+  cookiesStore.set(LEGACY_COOKIE,"",{...options,maxAge:0});
 }
-
-function decrypt(token: string): MailSession | null {
-  try {
-    const buffer = Buffer.from(token, "base64url");
-    if (buffer.length < 29) return null;
-    const iv = buffer.subarray(0, 12);
-    const tag = buffer.subarray(12, 28);
-    const encrypted = buffer.subarray(28);
-    const decipher = createDecipheriv("aes-256-gcm", key(), iv);
-    decipher.setAuthTag(tag);
-    const payload = Buffer.concat([
-      decipher.update(encrypted),
-      decipher.final(),
-    ]).toString("utf8");
-    const session = JSON.parse(payload) as MailSession;
-    if (!session.email || !session.authorization || session.expiresAt <= Date.now()) return null;
-    return session;
-  } catch {
-    return null;
-  }
+export async function readSession():Promise<MailSession|null> {
+  const token=(await cookies()).get(COOKIE_NAME)?.value;
+  if(!token||!/^[A-Za-z0-9_-]{43}$/.test(token))return null;
+  return (await sessionStore()).read(token);
 }
-
-export async function createSession(email: string, authorization: string) {
-  const store = await cookies();
-  const session: MailSession = {
-    email,
-    authorization,
-    expiresAt: Date.now() + MAX_AGE_SECONDS * 1000,
-  };
-
-  store.set(COOKIE_NAME, encrypt(session), {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "strict",
-    path: "/",
-    maxAge: MAX_AGE_SECONDS,
-  });
-}
-
-export async function readSession() {
-  const store = await cookies();
-  const token = store.get(COOKIE_NAME)?.value;
-  return token ? decrypt(token) : null;
-}
-
 export async function destroySession() {
-  const store = await cookies();
-  store.set(COOKIE_NAME, "", {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "strict",
-    path: "/",
-    maxAge: 0,
-  });
+  const cookiesStore=await cookies();
+  const token=cookiesStore.get(COOKIE_NAME)?.value;
+  if(token&&/^[A-Za-z0-9_-]{43}$/.test(token))await (await sessionStore()).revoke(token);
+  cookiesStore.set(COOKIE_NAME,"",{...options,maxAge:0});
+  cookiesStore.set(LEGACY_COOKIE,"",{...options,maxAge:0});
 }

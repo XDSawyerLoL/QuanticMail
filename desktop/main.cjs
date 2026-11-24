@@ -1,24 +1,16 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
-const { app, BrowserWindow, shell } = require("electron");
+const { app, BrowserWindow, shell, dialog } = require("electron");
 
-const MAIL_ORIGIN = "https://quanticmail.onrender.com";
-const PORTAL_ORIGIN = "https://mediumorchid-badger-314305.hostingersite.com";
+const { MAIL_ORIGIN, navigationTarget } = require("./navigation-policy.cjs");
 
-function isMailUrl(raw) {
-  try {
-    const url = new URL(raw);
-    return url.origin === MAIL_ORIGIN;
-  } catch {
-    return false;
-  }
+function target(raw) {
+  return navigationTarget(typeof raw === "string" ? raw : raw?.url);
 }
 
-function isSafeExternal(raw) {
-  try {
-    const url = new URL(raw);
-    return url.protocol === "https:" || url.protocol === "mailto:";
-  } catch {
-    return false;
+function openPortal(raw) {
+  if (target(raw) === "portal") {
+    const url = typeof raw === "string" ? raw : raw.url;
+    void shell.openExternal(url).catch(() => {});
   }
 }
 
@@ -35,34 +27,64 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
+      webviewTag: false,
       spellcheck: true
     }
   });
 
+  const ses = win.webContents.session;
+  ses.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
+  ses.setPermissionCheckHandler(() => false);
+  win.webContents.on("will-attach-webview", (event) => event.preventDefault());
   win.webContents.setWindowOpenHandler(({ url }) => {
-    if (isMailUrl(url)) return { action: "allow" };
-    if (isSafeExternal(url)) shell.openExternal(url);
+    if (target(url) === "portal") openPortal(url);
     return { action: "deny" };
   });
-
   win.webContents.on("will-navigate", (event, url) => {
-    if (isMailUrl(url)) return;
+    if (target(url) === "mail") return;
     event.preventDefault();
-    if (isSafeExternal(url)) shell.openExternal(url);
+    if (target(url) === "portal") openPortal(url);
   });
-
   win.webContents.on("will-redirect", (event, url) => {
-    if (isMailUrl(url)) return;
-    if (url.startsWith(PORTAL_ORIGIN)) {
-      event.preventDefault();
-      shell.openExternal(url);
-    }
+    if (target(url) === "mail") return;
+    event.preventDefault();
+    // Never launch external handlers from a server-controlled redirect.
   });
 
   win.loadURL(MAIL_ORIGIN);
 }
 
-app.whenReady().then(() => {
+const nativeLab=process.argv.includes("--native-vault-lab");
+const windowsLab=process.argv.includes("--native-vault-windows-lab");
+app.whenReady().then(async () => {
+  if(windowsLab){
+    try{
+      if(process.platform!=="win32"||Number(process.versions.node.split(".")[0])<24){
+        await dialog.showMessageBox({type:"error",message:"Le laboratoire Windows exige un moteur Node 24 et une console locale."});
+        app.exit(1);return;
+      }
+      const i=process.argv.indexOf("--native-vault-windows-lab");
+      const [binary,binarySha256,dir]=process.argv.slice(i+1);
+      const {runWindowsNativeDesktop}=await import("./native-windows-desktop.mjs");
+      const result=await runWindowsNativeDesktop(dialog,{binary,binarySha256,dir});
+      app.exit(result==="failed"?1:0);
+    }catch{app.exit(1);}
+    return;
+  }
+  if(nativeLab){
+    try{
+      if(process.platform!=="linux"||!process.stderr.isTTY){
+        await dialog.showMessageBox({type:"error",message:"Le coffre natif expérimental nécessite Linux et un terminal actif."});
+        app.exit(1);return;
+      }
+      const {runNativeDesktop}=await import("./native-vault-desktop.mjs");
+      const result=await runNativeDesktop(dialog);
+      app.exit(result==="failed"?1:0);
+    }catch{app.exit(1);}
+    return; // Never create or load the remote window in this mode.
+  }
   app.setAppUserModelId("com.quanticsillage.quanticmail");
   createWindow();
   app.on("activate", () => {

@@ -51,34 +51,22 @@ export async function POST(request: Request) {
 
     const received = await resend.emails.receiving.get(event.data.email_id);
     if (received.error || !received.data) {
-      console.error('Unable to retrieve inbound email', {
-        emailId: event.data.email_id,
-        error: received.error,
-      });
+      console.error('Unable to retrieve inbound email');
       return new NextResponse('Unable to retrieve inbound email', { status: 502 });
     }
-
-    const email = received.data;
 
     // V0.4 intentionally does not persist mailbox contents on Render.
     // Resend remains the temporary ingress queue until the QuanticMail Node
     // running on the user's PC pulls the message into local storage.
-    console.info('QuanticMail inbound email received', {
-      emailId: event.data.email_id,
-      from: email.from,
-      to: email.to,
-      subject: email.subject,
-      hasHtml: Boolean(email.html),
-      hasText: Boolean(email.text),
-    });
+    console.info('QuanticMail inbound email received');
 
     return NextResponse.json({
       ok: true,
       emailId: event.data.email_id,
       delivery: 'accepted-for-local-node',
     });
-  } catch (error) {
-    console.error('Invalid or failed Resend inbound webhook', error);
+  } catch {
+    console.error('Invalid or failed Resend inbound webhook');
     return new NextResponse('Invalid webhook', { status: 400 });
   }
 }
