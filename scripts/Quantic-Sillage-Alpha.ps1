@@ -253,7 +253,7 @@ function Invoke-GraphicalProvision($operationArgs) {
  if($LASTEXITCODE -ne 0){throw "Creation annulee ou refusee. Conserver tout dossier partiel."}
  # Package verifier prints a status before the native JSON result.
  $record=($publicResult | Select-Object -Last 1 | ConvertFrom-Json)
- if($record.status -cne "local-provision-only-not-enrolled" -or $record.address -cne $address -or $record.deviceId -cnotmatch '^d-[a-f0-9]{32}$'){throw "Resultat natif non confirme. Conserver le dossier."}
+ if($record.status -cne "local-provision-only-not-enrolled" -or $record.localReadback -cne "verified" -or $record.address -cne $address -or $record.deviceId -cnotmatch '^d-[a-f0-9]{32}$'){throw "Resultat natif non confirme. Conserver le dossier."}
  [Windows.Forms.MessageBox]::Show("Identite de test creee localement. Le coffre est ferme. Aucun compte distant inscrit.","Identity Vault","OK","Information")|Out-Null
 }
 try {
