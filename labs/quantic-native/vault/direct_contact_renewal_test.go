@@ -11,6 +11,9 @@ import (
  "strings"
  "testing"
  "time"
+ "io"
+ "os"
+ "path/filepath"
 )
 
 func TestDirectRenewalHybrid(t *testing.T){
@@ -52,4 +55,75 @@ func TestDirectRenewalHybrid(t *testing.T){
  !bytes.Equal(renewed.ClassicalRoot,old.ClassicalRoot)||!bytes.Equal(renewed.PQRoot,old.PQRoot)||
  !bytes.Equal(renewed.Encryption,old.Encryption)||!bytes.Equal(renewed.KEM,old.KEM){t.Fatal("identity changed")}
  if _,e=pending.accept(old,proof,now);e==nil{t.Fatal("proof reused")}
+ testDirectLeasePersistence(t,old,recipient,receiver,now,softwareSigner{sk},p)
 }
+
+func testDirectLeasePersistence(t *testing.T,old senderContact,recipient,receiver string,now int64,signer signer,p *pqKeys){
+ t.Helper()
+ path,sp,ep,app:=testJournal(t)
+ j,e:=openReplay(path,sp,ep,app);if e!=nil{t.Fatal(e)}
+ initial,e:=os.ReadFile(path);if e!=nil{j.close();t.Fatal(e)}
+ pin:=strings.Repeat("a",64)
+ id,e:=directLeaseJournalID(old,recipient,receiver,pin);if e!=nil{j.close();t.Fatal(e)}
+ q:=&quorumAnchor{pin:pin}
+ var ws [4]*fakeAnchor
+ for i:=range ws{ws[i]=&fakeAnchor{tail:j.tail};q.members[i]=ws[i]}
+ dir:=filepath.Dir(path)
+ read:=func(path string,max int)([]byte,error){
+  raw,e:=os.ReadFile(path);if e!=nil{return nil,e}
+  if len(raw)>max{return nil,portableRefusal};return raw,nil
+ }
+ write:=func(path string,raw []byte)error{
+  f,e:=os.OpenFile(path,os.O_CREATE|os.O_EXCL|os.O_WRONLY,0600);if e!=nil{return e}
+  n,e:=f.Write(raw);if e==nil&&n!=len(raw){e=io.ErrShortWrite}
+  if e==nil{e=f.Sync()};closeErr:=f.Close();if e==nil{e=closeErr};return e
+ }
+ makeStore:=func(j *replayLog)(*directLeaseStore,error){return newDirectLeaseStore(j,dir,old,recipient,receiver,pin,read,write)}
+ if _,e=makeStore(j);e==nil{j.close();t.Fatal("unanchored store accepted")}
+ if e=j.attachAnchor(q,id);e!=nil{j.close();t.Fatal(e)}
+ s,e:=makeStore(j);if e!=nil{j.close();t.Fatal(e)}
+ if _,e=s.active(now);e==nil{j.close();t.Fatal("expired original lease accepted")}
+ pending,e:=s.begin(now);if e!=nil{j.close();t.Fatal(e)}
+ expires:=now+23*3600000
+ proof,e:=signDirectRenew(pending.req,expires,now,signer,p);if e!=nil{j.close();t.Fatal(e)}
+ renewed,e:=s.commit(pending,proof,now);if e!=nil||renewed.Expires!=expires{j.close();t.Fatal("commit",e)}
+ if _,e=s.commit(pending,proof,now);e==nil{j.close();t.Fatal("duplicate commit")}
+ j.close()
+ j,e=openReplay(path,sp,ep,app);if e!=nil{t.Fatal(e)}
+ if e=j.attachAnchor(q,id);e!=nil{j.close();t.Fatal(e)}
+ s,e=makeStore(j);if e!=nil{j.close();t.Fatal(e)}
+ renewed,e=s.active(now+directRenewWindow+1);if e!=nil||renewed.Expires!=expires{j.close();t.Fatal("restart",e)}
+ if _,e=s.active(expires);e==nil{j.close();t.Fatal("expired renewed lease accepted")}
+ if _,e=s.active(now-1);e==nil{j.close();t.Fatal("clock before acceptance")}
+ entryPath:=s.path(0)
+ raw,e:=os.ReadFile(entryPath);if e!=nil{j.close();t.Fatal(e)}
+ if e=os.WriteFile(entryPath,append(bytes.Clone(raw),' '),0600);e!=nil{j.close();t.Fatal(e)}
+ if _,e=s.active(now);e==nil{j.close();t.Fatal("tampered entry accepted")}
+ if e=os.Remove(entryPath);e!=nil{j.close();t.Fatal(e)}
+ if _,e=s.active(now);e==nil{j.close();t.Fatal("missing entry accepted")}
+ if e=write(entryPath,raw);e!=nil{j.close();t.Fatal(e)}
+ // A valid renewal is not activated when fewer than three witnesses can
+ // commit it. Local state is intentionally quarantined on uncertain commit.
+ later:=expires-3600000
+ pending,e=s.begin(later);if e!=nil{j.close();t.Fatal(e)}
+ proof,e=signDirectRenew(pending.req,later+23*3600000,later,signer,p);if e!=nil{j.close();t.Fatal(e)}
+ // Pre-create an orphan at the next sequence; it must not be overwritten.
+ orphan:=s.path(1)
+ if e=write(orphan,[]byte("orphan"));e!=nil{j.close();t.Fatal(e)}
+ if _,e=s.commit(pending,proof,later);e==nil{j.close();t.Fatal("overwrote orphan")}
+ if b,e:=os.ReadFile(orphan);e!=nil||string(b)!="orphan"{j.close();t.Fatal("orphan changed")}
+ if e=os.Remove(orphan);e!=nil{j.close();t.Fatal(e)}
+ pending,e=s.begin(later);if e!=nil{j.close();t.Fatal(e)}
+ proof,e=signDirectRenew(pending.req,later+23*3600000,later,signer,p);if e!=nil{j.close();t.Fatal(e)}
+ // Failure is injected only after the pre-commit check, on advance.
+ q.members[0]=directAdvanceRefusal{ws[0]}
+ q.members[1]=directAdvanceRefusal{ws[1]}
+ if _,e=s.commit(pending,proof,later);e==nil||!j.failed{j.close();t.Fatal("failed quorum released renewal")}
+ j.close()
+ if e=os.WriteFile(path,initial,0600);e!=nil{t.Fatal(e)}
+ j,e=openReplay(path,sp,ep,app);if e!=nil{t.Fatal(e)};defer j.close()
+ if e=j.attachAnchor(q,id);e==nil{t.Fatal("old snapshot accepted")}
+}
+type directAdvanceRefusal struct{*fakeAnchor}
+func(d directAdvanceRefusal)advance(string,int,[32]byte,[32]byte)error{return portableRefusal}
+
