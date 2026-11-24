@@ -4,23 +4,26 @@ package vaultsession
 
 /*
 #cgo !pqstatic pkg-config: openssl
-#cgo windows,pqstatic CFLAGS: -I/ucrt64/include
-#cgo windows,pqstatic LDFLAGS: -Wl,-Bstatic -lcrypto -Wl,-Bdynamic -lws2_32 -lcrypt32 -lbcrypt -ladvapi32 -luser32 -lgdi32
+#cgo windows,pqstatic pkg-config: --static openssl
+#cgo windows,pqstatic LDFLAGS: -static
+#include <openssl/crypto.h>
 #include <openssl/evp.h>
 #include <openssl/x509.h>
 static int available(void) {
- EVP_SIGNATURE *s=EVP_SIGNATURE_fetch(NULL,"ML-DSA-65",NULL);
+ if (!OPENSSL_init_crypto(OPENSSL_INIT_NO_LOAD_CONFIG,NULL)) return 0;
+ EVP_SIGNATURE *s=EVP_SIGNATURE_fetch(NULL,"ML-DSA-65","provider=default");
  int ok=s!=NULL;
  EVP_SIGNATURE_free(s);
  return ok;
 }
 static int verify65(const unsigned char *der, long dn, const unsigned char *msg,
  size_t mn, const unsigned char *sig, size_t sn) {
+ if (!OPENSSL_init_crypto(OPENSSL_INIT_NO_LOAD_CONFIG,NULL)) return 0;
  const unsigned char *p=der;
  EVP_PKEY *k=d2i_PUBKEY(NULL,&p,dn);
  EVP_MD_CTX *c=EVP_MD_CTX_new();
  int ok=k&&p==der+dn&&EVP_PKEY_is_a(k,"ML-DSA-65")==1&&c&&
- EVP_DigestVerifyInit(c,NULL,NULL,NULL,k)>0&&EVP_DigestVerify(c,sig,sn,msg,mn)==1;
+ EVP_DigestVerifyInit_ex(c,NULL,NULL,NULL,"provider=default",k,NULL)>0&&EVP_DigestVerify(c,sig,sn,msg,mn)==1;
  EVP_MD_CTX_free(c); EVP_PKEY_free(k);
  return ok;
 }
