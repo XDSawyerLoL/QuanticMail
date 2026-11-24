@@ -29,9 +29,12 @@ Le comparatif descriptif n'est **pas** un test statistique indépendant. Une dif
 Sur deux machines qui vous appartiennent, avec le pacer compilé pour leur OS et un port UDP autorisé par l'opérateur :
 
 1. **B, réception :** `node scripts/scattering-physical-probe.mjs receive CHEMIN_ABSOLU_PACER IP_B 49001 60`.
-2. **A, envoi :** `node scripts/scattering-physical-probe.mjs send CHEMIN_ABSOLU_PACER IP_B 49001 30`.
-3. Répéter en inversant A/B, avec une capture réseau passive sur la machine B ou sur un équipement réseau contrôlé. Capturer **uniquement le port de test**, sans comptes ni conversations réelles. Conserver localement les traces ; ne jamais publier des PCAP contenant des adresses privées/publiques.
-4. Pour une étude de **couverture vs activité** réelle, le banc de deux machines devra aussi envoyer des cellules synthétiques authentifiées par la même voie, vérifier leur arrivée et comparer les captures **à charge et débit constant**. La sonde physique existante n'envoie actuellement que de la couverture : les étapes 1–3 valident donc **seulement la connectivité et la cadence**, pas l'indistinguabilité.
+2. **A, envoi couverture seule :** `node scripts/scattering-physical-probe.mjs send CHEMIN_ABSOLU_PACER IP_B 49001 30`.
+3. **B, nouvelle réception :** redémarrer la commande de réception avec un journal local distinct.
+4. **A, envoi synthétique :** `node scripts/scattering-physical-probe.mjs send-synthetic CHEMIN_ABSOLU_PACER IP_B 49001 30`. Les 1 540 cellules AES-256-GCM synthétiques sont préparées à l'avance et transmises par le pacer natif à cadence identique. Ce chiffre est un nombre préparé, **pas** un nombre reçu et authentifié.
+5. Répéter les deux modes en inversant A et B. Comparer les mesures de B, idéalement complétées par une capture passive indépendante du port de test, puis par plusieurs répétitions dans un ordre alterné.
+Capturer **uniquement le port de test**, sans comptes ni conversations réelles. Conserver localement les traces ; ne jamais publier des PCAP contenant des adresses privées/publiques.
+La sonde peut désormais émettre les cellules synthétiques. En revanche, son récepteur Go transmet les datagrammes sans déchiffrer ni vérifier leur authenticité : il faut ajouter un consommateur authentifié et comparer des captures indépendantes avant toute affirmation sur la confidentialité ou la livraison de contenu.
 
 Les conditions de passage à une affirmation de sécurité sont plus strictes : sources indépendantes (idéalement au moins trois sites), captures d'entrée et de sortie corrélées, essais de charge CPU, réseau avec pertes et jitter, et hypothèses d'attaquant préenregistrées. Un relais connaissant les expéditeurs et les correspondances de pseudonymes peut annuler un modèle de mélange idéal.
 
