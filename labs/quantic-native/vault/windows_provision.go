@@ -54,6 +54,7 @@ func winProvisionVaultLocal(dir,app,quorum,addr string,pw,pqPassword,controller 
 func windowsVaultCLI(args []string)(bool,error){
  if handled,e:=winMigrationIO(args);handled{return true,e}
  if handled,e:=windowsPayCLI(args);handled{return true,e}
+ if len(args)>1&&args[1]=="--prove-windows-enrollment-possession-gui-lab"{return true,winPossessionProofGUI(args)}
  if len(args)>1&&args[1]=="--import-windows-mail-kit-gui-lab"{return true,winImportMailKitGUI(args)}
  if len(args)>1&&args[1]=="--windows-import-lab-file"{return true,winImportCLI(args)}
  if handled,e:=winScatteringCLI(args);handled{return true,e}
