@@ -54,6 +54,17 @@ func LockBackup(path string)(*BackupLock,error){
  k:=syscall.NewLazyDLL("kernel32.dll")
  drive,_,_:=k.NewProc("GetDriveTypeW").Call(uintptr(unsafe.Pointer(root)))
  if drive!=3{return nil,errors.New("disque local fixe requis")}
+ // Windows may supply 8.3 names (for example in TEMP). Expand those
+ // before comparing with the normalized handle path. Reject reparse
+ // components before and after expansion; do not treat aliases as trust.
+ if err:=checkBackupComponents(path);err!=nil{return nil,err}
+ original,err:=syscall.UTF16PtrFromString(path)
+ if err!=nil{return nil,err}
+ long:=make([]uint16,32768)
+ count,_,callErr:=k.NewProc("GetLongPathNameW").Call(uintptr(unsafe.Pointer(original)),uintptr(unsafe.Pointer(&long[0])),uintptr(len(long)))
+ if count==0||count>=uintptr(len(long)){return nil,fmt.Errorf("chemin Windows non résolu : %v",callErr)}
+ path=syscall.UTF16ToString(long[:count])
+ if err:=checkBackupComponents(path);err!=nil{return nil,err}
  before,err:=os.Lstat(path)
  if err!=nil||!before.Mode().IsRegular()||before.Mode()&os.ModeSymlink!=0{
   return nil,errors.New("copie de sauvegarde ordinaire requise")
@@ -72,14 +83,29 @@ func LockBackup(path string)(*BackupLock,error){
  if err=syscall.GetFileInformationByHandle(h,&info);err!=nil{return nil,err}
  if info.FileAttributes&(0x10|0x400)!=0{return nil,errors.New("dossier ou point de réanalyse refusé")}
  // Restrict to disk file handles and verify the resolved path is exactly the
- // chosen path (reject parent junctions, aliases and unexpected targets).
+ // expanded chosen path (reject parent junctions and unexpected targets).
  kind,_,_:=k.NewProc("GetFileType").Call(uintptr(h))
  if kind!=1{return nil,errors.New("fichier disque requis")}
  resolved:=make([]uint16,32768)
  n,_,e:=k.NewProc("GetFinalPathNameByHandleW").Call(uintptr(h),uintptr(unsafe.Pointer(&resolved[0])),uintptr(len(resolved)),0)
  if n==0||n>=uintptr(len(resolved)){return nil,fmt.Errorf("chemin du fichier non vérifié : %v",e)}
  actual:=strings.TrimPrefix(syscall.UTF16ToString(resolved[:n]),"\\\\?\\")
- if !strings.EqualFold(actual,path){return nil,errors.New("chemin résolu différent : verrou refusé")}
+ if !strings.EqualFold(actual,path){return nil,fmt.Errorf("chemin résolu différent : verrou refusé (%q != %q)",actual,path)}
  accepted=true
  return &BackupLock{handle:h,path:path},nil
+}
+
+
+// Reject any reparse component on the selected path. This is a defensive
+// preflight, not atomic ancestor custody against a hostile local administrator.
+func checkBackupComponents(path string)error{
+ for current:=path;;current=filepath.Dir(current){
+  ptr,err:=syscall.UTF16PtrFromString(current)
+  if err!=nil{return err}
+  attrs,err:=syscall.GetFileAttributes(ptr)
+  if err!=nil{return err}
+  if attrs&0x400!=0{return errors.New("point de réanalyse refusé")}
+  if filepath.Dir(current)==current{break}
+ }
+ return nil
 }
