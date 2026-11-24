@@ -5,6 +5,8 @@ set -Eeuo pipefail
 export SCATTERING_MULTIHOP_RESEAL=1 SCATTERING_MULTIHOP_E2E=1 SCATTERING_MULTIHOP_MIX=1 SCATTERING_MULTIHOP_BATCH_SIZE=8
 CHAIN_PROFILE="${SCATTERING_CHAIN_PROFILE:-balanced}"
 CHAIN_MIX="${SCATTERING_CHAIN_SECOND_MIX:-1}"
+CHAIN_BATCH="${SCATTERING_CHAIN_SECOND_BATCH:-8}"
+[[ "$CHAIN_BATCH" == 4 || "$CHAIN_BATCH" == 8 ]] || exit 2
 LAYER="${SCATTERING_CHAIN_LAYER:-0}"
 [[ "$LAYER" == 0 || "$LAYER" == 1 ]] || exit 2
 LAYER_ARGS=(); INNER_BYTES=92
@@ -108,7 +110,7 @@ sudo timeout -s INT 19s ip netns exec "$NSR" tcpdump -i "$VBR" -Q in -n -s 256 -
 sudo timeout -s INT 19s ip netns exec "$NSD" tcpdump -i "$VDR" -Q in -n -s 256 -U -w - 'udp and dst port 49003' >"$WORK/out.pcap" 2>"$WORK/out.caplog" & CAP_PIDS+=("$!")
 sudo timeout -s INT 19s ip netns exec "$NS2" tcpdump -i "$VM2" -Q in -n -s 256 -U -w - 'udp and dst port 49004' >"$WORK/mid.pcap" 2>"$WORK/mid.caplog" & CAP_PIDS+=("$!")
 sleep .8
-sudo ip netns exec "$NS2" "$NODE" "$ROOT/scripts/scattering-second-hop-lab.mjs" "$WORK/queue2" "$WORK/mid.key" "$WORK/out.key" "$CHAIN_PROFILE" "$CHAIN_MIX" "${LAYER_ARGS[@]}" >"$WORK/relay2.json" 2>"$WORK/relay2.err" &
+sudo ip netns exec "$NS2" "$NODE" "$ROOT/scripts/scattering-second-hop-lab.mjs" "$WORK/queue2" "$WORK/mid.key" "$WORK/out.key" "$CHAIN_PROFILE" "$CHAIN_MIX" "$CHAIN_BATCH" "${LAYER_ARGS[@]}" >"$WORK/relay2.json" 2>"$WORK/relay2.err" &
 RELAY2_PID="$!"; CHILD_PIDS+=("$!")
 if [[ "$RESEAL" == "1" ]]; then
  sudo ip netns exec "$NSR" "$NODE" "$ROOT/scripts/scattering-hop-reseal-relay-lab.mjs" 10.252.41.2:49001 10.252.42.2:49002 "$WORK/queue" 12 "$WORK/a.key" "$WORK/b.key" "$WORK/mid.key" "$MIX" "$EXPECTED_COVER" "$BATCH" "$FLUSH" "$INNER_BYTES" >"$WORK/relay.json" 2>"$WORK/relay.err" &
