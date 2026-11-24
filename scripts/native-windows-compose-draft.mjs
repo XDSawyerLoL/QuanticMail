@@ -1,12 +1,12 @@
 // One-shot headless GUI helper. Plaintext is read only over a local private pipe.
 import {saveWindowsDraftFromInput} from '../desktop/native-windows-draft.mjs';
-import {composeSendWindowsGUI,receiveWindowsGUI} from '../desktop/native-windows-gui-send.mjs';
+import {composeSendWindowsGUI,receiveWindowsGUI,listWindowsGUIReceipts,readWindowsGUIReceipt} from '../desktop/native-windows-gui-send.mjs';
 import {listWindowsMailAttempts} from '../desktop/native-windows-mail-status.mjs';
 import {provisionSingleWindowsGUI} from '../desktop/windows-two-party-provision-lab.mjs';
 import {runWindowsTwoHostReadiness} from '../desktop/native-windows-mail-readiness.mjs';
 try{
  const args=process.argv.slice(2);
- if(process.platform!=='win32'||process.versions.node.split('.')[0]!=='24'||!([3,4].includes(args.length))||args.length===4&&!['--list','--send','--status','--receive','--recover-receive','--confirm-receipt','--provision','--readiness'].includes(args[3])||process.stdin.isTTY)throw Error('Not the Windows GUI lab');
+ if(process.platform!=='win32'||process.versions.node.split('.')[0]!=='24'||!([3,4].includes(args.length))||args.length===4&&!['--list','--send','--status','--receive','--recover-receive','--confirm-receipt','--receipt-list','--receipt-read','--provision','--readiness'].includes(args[3])||process.stdin.isTTY)throw Error('Not the Windows GUI lab');
  if(['--provision','--readiness'].includes(args[3])){
   const chunks=[];let length=0;
   for await(const c of process.stdin){length+=c.length;if(length>8192)throw Error('Setup input too large');chunks.push(c);}
@@ -25,6 +25,14 @@ try{
   process.stdout.write(JSON.stringify(result)+'\n');
  }else if(args[3]==='--status'){
   process.stdout.write(JSON.stringify(await listWindowsMailAttempts({binary:args[0],binarySha256:args[1],dir:args[2]}))+'\n');
+ }else if(args[3]==='--receipt-list'){
+  process.stdout.write(JSON.stringify(await listWindowsGUIReceipts({binary:args[0],binarySha256:args[1],dir:args[2]}))+'\n');
+ }else if(args[3]==='--receipt-read'){
+  const chunks=[];let n=0;
+  for await(const c of process.stdin){n+=c.length;if(n>128)throw Error('Receipt input too large');chunks.push(c);}
+  const bytes=Buffer.concat(chunks);for(const c of chunks)c.fill(0);
+  let name;try{name=new TextDecoder('utf-8',{fatal:true}).decode(bytes);}finally{bytes.fill(0);}
+  process.stdout.write(JSON.stringify(await readWindowsGUIReceipt({binary:args[0],binarySha256:args[1],dir:args[2]},name))+'\n');
  }else if(['--receive','--recover-receive','--confirm-receipt'].includes(args[3])){
  const chunks=[];let length=0;
  for await(const chunk of process.stdin){length+=chunk.length;if(length>128)throw Error('Input too large');chunks.push(chunk);}
