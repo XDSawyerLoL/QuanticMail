@@ -88,6 +88,14 @@ func RunResident(ctx context.Context,root,logPath string)error{
  return runResidentWithSources(ctx,root,logPath,ReadRecentCFA,runtime.GOOS=="windows",ReadRecentFileAudits,runtime.GOOS=="windows")
 }
 
+// RunResidentWithBackupReport records a startup observation, not a live
+// guarantee. The caller owns the actual backup handles until agent exit.
+func RunResidentWithBackupReport(ctx context.Context,root,logPath string,requested,held int,backupErr error)error{
+ record:=Record{Type:"backup_locks_active",Message:fmt.Sprintf("%d/%d verrous de sauvegarde acquis au démarrage",held,requested)}
+ if backupErr!=nil||held!=requested{record=Record{Type:"backup_locks_failed",Message:"Verrous de sauvegarde non acquis : vérifier les copies sélectionnées."}}
+ return runResidentWithSources(ctx,root,logPath,ReadRecentCFA,runtime.GOOS=="windows",ReadRecentFileAudits,runtime.GOOS=="windows",record)
+}
+
 // runResidentWithDefender makes the native event-log source replaceable by a
 // test double, without exposing an API for untrusted code to inject events
 // into the installed agent. Only RunResident is called by the Windows binary.
@@ -96,12 +104,13 @@ func runResidentWithDefender(ctx context.Context,root,logPath string,reader CFAR
 }
 
 func runResidentWithSources(ctx context.Context,root,logPath string,reader CFAReader,enabled bool,
- fileAuditReader FileAuditReader,fileAuditEnabled bool)error{
+ fileAuditReader FileAuditReader,fileAuditEnabled bool,startup ...Record)error{
  if ctx==nil{return errors.New("context required")}
  audit,err:=openAudit(logPath)
  if err!=nil{return err}
  defer audit.Close()
  if err:=audit.Append(Record{Type:"started",Message:"Surveillance locale démarrée"});err!=nil{return err}
+ for _,record:=range startup{if err:=audit.Append(record);err!=nil{return err}}
  events:=make(chan Event,256)
  watchCtx,cancel:=context.WithCancel(ctx)
  defer cancel()

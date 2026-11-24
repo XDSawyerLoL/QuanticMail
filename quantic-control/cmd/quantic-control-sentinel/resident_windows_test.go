@@ -5,6 +5,7 @@ import(
  "encoding/json"
  "os"
  "path/filepath"
+ "reflect"
  "strings"
  "testing"
 )
@@ -31,7 +32,7 @@ func TestManifestFormatAndNoImplicitAgentInstallation(t *testing.T){
  raw,err:=json.Marshal(m)
  if err!=nil{t.Fatal(err)}
  var back installManifest
- if err:=json.Unmarshal(raw,&back);err!=nil||back!=m{t.Fatalf("manifest mismatch %+v %v",back,err)}
+ if err:=json.Unmarshal(raw,&back);err!=nil||!reflect.DeepEqual(back,m){t.Fatalf("manifest mismatch %+v %v",back,err)}
  // A test executable not explicitly installed at the canonical path must
  // never be able to start the resident agent, even with --resident.
  if err:=residentAgent();err==nil{t.Fatal("uninstalled test process became a resident agent")}

@@ -7,19 +7,22 @@ import(
  "context"
  "fmt"
  "os"
+ "runtime"
+ "strings"
  "path/filepath"
  "sync"
  "syscall"
  "time"
  "unsafe"
  "github.com/XDSawyerLoL/QuanticMail/quantic-control/sentinel"
+ "github.com/XDSawyerLoL/QuanticMail/quantic-control/vaultsession"
 )
 const(
  wmCreate=0x0001;wmDestroy=0x0002;wmCommand=0x0111;wmSetFont=0x0030;wmAppUpdate=0x8001
  wsChild=0x40000000;wsVisible=0x10000000;wsOverlappedWindow=0x00CF0000
  wsVScroll=0x00200000;wsBorder=0x00800000;lbsNotify=0x0001
  lbAddString=0x0180;lbSetTopIndex=0x0197;lbResetContent=0x0184
- cmdSelect=201;cmdStop=202;cmdClear=203;cmdInstall=204;cmdUninstall=205;cmdHistory=206;cmdDefender=207
+ cmdSelect=201;cmdStop=202;cmdClear=203;cmdInstall=204;cmdUninstall=205;cmdHistory=206;cmdDefender=207;cmdProtectionCheck=208;cmdBackup=209;cmdBackupRelease=210;cmdVaultHistory=211;wmTimer=0x0113
  colorWindow=5;defaultGuiFont=17
  bifReturnOnlyFSDirs=1;bifEditBox=0x10;bifNewDialogStyle=0x40
 )
@@ -32,7 +35,7 @@ type windowClassEx struct{
 type browseInfo struct{
  owner,root uintptr;displayName *uint16;title *uint16;flags uint32;callback,lparam uintptr;image int32
 }
-type update struct{kind,description string;alert *sentinel.Alert;count uint64}
+type update struct{kind,description string;alert *sentinel.Alert;count uint64;generation uint64;records []sentinel.Record}
 var(
  user32=syscall.NewLazyDLL("user32.dll")
  kernel32=syscall.NewLazyDLL("kernel32.dll")
@@ -54,15 +57,17 @@ var(
  browseForFolder=shell32.NewProc("SHBrowseForFolderW")
  getPathFromID=shell32.NewProc("SHGetPathFromIDListW")
  coTaskMemFree=ole32.NewProc("CoTaskMemFree")
- statusLabel,folderLabel,statsLabel,activityList,stopButton uintptr
+ statusLabel,folderLabel,statsLabel,activityList,stopButton,protectionLabel uintptr
+ protectionChecking bool
+ protectionGeneration uint64
  monitorCancel context.CancelFunc
  uiQueue []update
  uiMu sync.Mutex
  totalEvents uint64
  selectedRoot string
 )
-func u16(v string)*uint16{return syscall.StringToUTF16Ptr(v)}
-func classStyle(class string)uint32{if class=="LISTBOX"{return wsBorder|wsVScroll|lbsNotify};return 0}
+func u16(v string)*uint16{return syscall.StringToUTF16Ptr(strings.ReplaceAll(v,"\x00","�"))}
+func classStyle(class string)uint32{if class=="EDIT"{return wsBorder|0x0080};if class=="LISTBOX"{return wsBorder|wsVScroll|lbsNotify};return 0}
 func makeControl(parent uintptr,class,title string,x,y,w,h int32,id uintptr)uintptr{
  instance,_,_:=kernel32.NewProc("GetModuleHandleW").Call(0)
  hwnd,_,_:=createWindow.Call(0,uintptr(unsafe.Pointer(u16(class))),uintptr(unsafe.Pointer(u16(title))),
@@ -128,11 +133,29 @@ func startMonitor(hwnd uintptr,root string){
    }
  }()
 }
+func refreshProtection(hwnd uintptr){
+ if protectionChecking{return}
+ protectionChecking=true
+ root:=selectedRoot
+ if root==""{if m,e:=readManifest();e==nil{root=m.Root}}
+ generation:=protectionGeneration
+ setLabel(protectionLabel,"Protection Windows : vérification en cours…")
+ go func(){
+  snapshot,err:=sentinel.ReadProtectionSnapshot(context.Background())
+  detail:="Protection Windows : état inconnu (consultation indisponible)."
+  if err==nil{detail=sentinel.AssessProtection(snapshot,root,time.Now()).Detail}
+  enqueue(hwnd,update{kind:"protection",description:detail,generation:generation})
+ }()
+}
 func drain(hwnd uintptr){
  uiMu.Lock();items:=uiQueue;uiQueue=nil;uiMu.Unlock()
  for _,item:=range items{
    if item.count>totalEvents{totalEvents=item.count}
    switch item.kind{
+   case "vault_history":finishVaultHistory(item)
+   case "protection":
+     protectionChecking=false
+     if item.generation==protectionGeneration{setLabel(protectionLabel,item.description)}else{refreshProtection(hwnd)}
    case "activity":
      setLabel(statsLabel,fmt.Sprintf("Événements : %d | surveillance en cours",totalEvents))
    case "error":
@@ -166,14 +189,26 @@ func wndProc(hwnd uintptr,msg uint32,wparam,lparam uintptr)uintptr{
    statsLabel=makeControl(hwnd,"STATIC","Événements : 0",22,334,700,28,0)
    makeControl(hwnd,"STATIC","Activité et alertes (session courante ou historisées)",22,373,700,28,0)
    activityList=makeControl(hwnd,"LISTBOX","",22,409,722,190,0)
-   makeControl(hwnd,"STATIC","Agent volontaire au prochain login. Pas de réseau. Microsoft Defender reste actif.",22,610,730,34,0)
-   makeControl(hwnd,"BUTTON","Protection antirançongiciel Windows",22,650,360,38,cmdDefender)
+   backupLabel=makeControl(hwnd,"STATIC","Copie de sauvegarde : aucun verrou actif.",22,610,730,34,0)
+   protectionLabel=makeControl(hwnd,"STATIC","Protection Windows : état non vérifié.",22,646,730,48,0)
+   makeControl(hwnd,"BUTTON","Configurer la protection Windows",22,698,330,38,cmdDefender)
+   makeControl(hwnd,"BUTTON","Vérifier",364,698,132,38,cmdProtectionCheck)
+   backupButton=makeControl(hwnd,"BUTTON","Ajouter une copie",510,698,234,38,cmdBackup)
+   makeControl(hwnd,"BUTTON","Libérer les verrous de cette fenêtre",22,741,360,35,cmdBackupRelease)
+   vaultHistoryButton=makeControl(hwnd,"BUTTON","Historique via Identity Vault",390,741,354,35,cmdVaultHistory)
+   makeControl(hwnd,"STATIC","Empreinte SHA-256 d’enrôlement :",22,787,245,24,0)
+   enrollmentEdit=makeControl(hwnd,"EDIT","",272,783,472,28,0)
+   sendMessage.Call(enrollmentEdit,0x00C5,64,0)
+   refreshBackupLabel()
+   user32.NewProc("SetTimer").Call(hwnd,1,30000,0)
+   user32.NewProc("SetTimer").Call(hwnd,2,2000,0)
+   refreshProtection(hwnd)
    return 0
  case wmCommand:
    switch wparam&0xffff{
    case cmdSelect:
      path,ok:=chooseFolder(hwnd)
-     if ok{selectedRoot=path;startMonitor(hwnd,path)}
+     if ok{selectedRoot=path;protectionGeneration++;startMonitor(hwnd,path);refreshProtection(hwnd)}
    case cmdStop:
      stopMonitor();setLabel(statusLabel,"SURVEILLANCE ARRÊTÉE")
      addLog(time.Now().Format("15:04:05")+"  Surveillance arrêtée")
@@ -182,14 +217,15 @@ func wndProc(hwnd uintptr,msg uint32,wparam,lparam uintptr)uintptr{
      if selectedRoot=="" {
        path,ok:=chooseFolder(hwnd)
        if !ok{return 0}
-       selectedRoot=path
+       selectedRoot=path;protectionGeneration++;refreshProtection(hwnd)
      }
-     if err:=installResident(selectedRoot);err!=nil{
+     if err:=installResident(selectedRoot,selectedBackupIdentities()...);err!=nil{
        messageBox.Call(hwnd,uintptr(unsafe.Pointer(u16("Installation refusée : "+err.Error()))),
          uintptr(unsafe.Pointer(u16("Quantic Sentinel — installation"))),0x30)
      }else{
        setLabel(statusLabel,"AGENT UTILISATEUR INSTALLÉ — démarrage à l'ouverture de votre session")
-       addLog("Installation volontaire. Le moniteur reste actif après fermeture de cette fenêtre.")
+       refreshBackupLabel()
+       addLog("Installation volontaire. Les copies configurées sont reprises par l’agent ; vérifier le résultat dans Historique local avant de fermer la fenêtre.")
        messageBox.Call(hwnd,uintptr(unsafe.Pointer(u16("Agent installé pour votre compte Windows.\nIl démarre à l'ouverture de session et journalise localement les alertes.\n\nAucun privilège administrateur n'est requis.\nLe programme reste expérimental : il ne bloque pas les rançongiciels."))),
         uintptr(unsafe.Pointer(u16("Quantic Sentinel — installation"))),0x40)
      }
@@ -198,9 +234,14 @@ func wndProc(hwnd uintptr,msg uint32,wparam,lparam uintptr)uintptr{
        messageBox.Call(hwnd,uintptr(unsafe.Pointer(u16("Désinstallation non terminée : "+err.Error()))),
         uintptr(unsafe.Pointer(u16("Quantic Sentinel — désinstallation"))),0x30)
      }else{
+       refreshBackupLabel()
        addLog("Démarrage automatique supprimé. Agent arrêté et fichiers du programme retirés.")
        setLabel(statusLabel,"AGENT UTILISATEUR DÉSINSTALLÉ — les journaux locaux sont conservés")
      }
+   case cmdVaultHistory:startVaultHistory(hwnd)
+   case cmdBackup:toggleBackup(hwnd)
+   case cmdBackupRelease:releaseBackup(hwnd)
+   case cmdProtectionCheck:refreshProtection(hwnd)
    case cmdDefender:
      // Open existing Windows protections; never change antivirus settings
      // or add any Defender exclusions automatically.
@@ -244,18 +285,25 @@ func wndProc(hwnd uintptr,msg uint32,wparam,lparam uintptr)uintptr{
      }
    }
    return 0
+ case wmTimer:if wparam==1{refreshProtection(hwnd)}else if wparam==2{refreshBackupLabel()};return 0
  case wmAppUpdate:drain(hwnd);return 0
- case wmDestroy:stopMonitor();postQuit.Call(0);return 0
+ case wmDestroy:if vaultHistoryCancel!=nil{vaultHistoryCancel()};for _,l:=range backupHandles{_ =l.Close()};user32.NewProc("KillTimer").Call(hwnd,1);user32.NewProc("KillTimer").Call(hwnd,2);stopMonitor();postQuit.Call(0);return 0
  }
  ret,_,_:=defWindowProc.Call(hwnd,uintptr(msg),wparam,lparam)
  return ret
 }
 func main(){
+ if len(os.Args)==2&&os.Args[1]=="--selftest-pq-provider"{
+  if !vaultsession.GraphicalProviderAvailable(){os.Exit(1)}
+  return
+ }
  if len(os.Args)==2&&os.Args[1]=="--resident"{
    // Non-interactive per-user agent; errors are not hidden by fallback modes.
    _=residentAgent()
    return
  }
+ runtime.LockOSThread()
+ defer runtime.UnlockOSThread()
  ole32.NewProc("CoInitializeEx").Call(0,2)
  defer ole32.NewProc("CoUninitialize").Call()
  instance,_,_:=kernel32.NewProc("GetModuleHandleW").Call(0)
@@ -265,7 +313,7 @@ func main(){
  valid,_,_:=registerClass.Call(uintptr(unsafe.Pointer(&wc)))
  if valid==0{return}
  hwnd,_,_:=createWindow.Call(0,uintptr(unsafe.Pointer(class)),uintptr(unsafe.Pointer(u16("Quantic Sillage — Sentinel Alpha"))),
-   wsOverlappedWindow|wsVisible,180,100,780,810,0,0,instance,0)
+   wsOverlappedWindow|wsVisible,180,40,780,875,0,0,instance,0)
  if hwnd==0{return}
  var msg message
  for{
