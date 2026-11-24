@@ -15,7 +15,7 @@ $vault=Join-Path $root 'bin\Vault-PQ-lab.exe'
 $helper=Join-Path $root 'scripts\native-windows-compose-draft.mjs'
 $script:privateDirectory=$null
 function Invoke-Composer([string]$Directory,[string]$Payload,[bool]$List,[bool]$Send=$false,[bool]$StatusOnly=$false,[string]$ReceiveMode=''){
- if($ReceiveMode -notin @('','receive','recover-receive','confirm-receipt','provision','readiness')){throw 'Mode reception invalide.'}
+ if($ReceiveMode -notin @('','receive','recover-receive','confirm-receipt','receipt-list','receipt-read','provision','readiness')){throw 'Mode reception invalide.'}
  if($ReceiveMode -and ($List -or $Send -or $StatusOnly)){throw 'Modes incompatibles.'}
  if($Directory -cnotmatch '^[A-Za-z]:\\[A-Za-z0-9_. -]+(?:\\[A-Za-z0-9_. -]+)*$'){throw 'Dossier prive non valide.'}
  foreach($part in $Directory.Substring(3).Split('\')){
@@ -51,7 +51,7 @@ function Invoke-Composer([string]$Directory,[string]$Payload,[bool]$List,[bool]$
   $p.StandardInput.BaseStream.Close()
   $readOut=$p.StandardOutput.ReadToEndAsync()
   $readErr=$p.StandardError.ReadToEndAsync()
-  $maximum=if($ReceiveMode -eq 'provision'){320000}elseif($Send -or $ReceiveMode){300000}else{15000}
+  $maximum=if($ReceiveMode -eq 'receipt-list'){180000}elseif($ReceiveMode -eq 'provision'){320000}elseif($Send -or $ReceiveMode){300000}else{15000}
   $clock=[Diagnostics.Stopwatch]::StartNew()
   while(-not $p.WaitForExit(100)){
    [Windows.Forms.Application]::DoEvents()
@@ -114,7 +114,7 @@ $send.SetBounds(276,558,208,43)
 $form.Controls.Add($send)
 $receiveButton=New-Object Windows.Forms.Button;$receiveButton.Text='Recevoir un message';$receiveButton.SetBounds(24,617,210,43);$form.Controls.Add($receiveButton)
 $recoverButton=New-Object Windows.Forms.Button;$recoverButton.Text='Reprendre reception';$recoverButton.SetBounds(247,617,210,43);$form.Controls.Add($recoverButton)
-$confirmButton=New-Object Windows.Forms.Button;$confirmButton.Text='Confirmer un recu';$confirmButton.SetBounds(470,617,210,43);$form.Controls.Add($confirmButton)
+$confirmButton=New-Object Windows.Forms.Button;$confirmButton.Text='Messages recus';$confirmButton.SetBounds(470,617,210,43);$form.Controls.Add($confirmButton)
 function Invoke-Receive([string]$Mode,[string]$Receipt){
  try{
   if(-not $script:privateDirectory){throw 'Choisissez un coffre de test.'}
@@ -147,22 +147,61 @@ function Show-ReceivedText([string]$Info,$Result){
  $dialog.StartPosition='CenterParent';$dialog.ClientSize=New-Object Drawing.Size(620,510)
  $notice=New-Object Windows.Forms.Label;$notice.Text=$Info;$notice.SetBounds(18,15,584,70);$dialog.Controls.Add($notice)
  $message=New-Object Windows.Forms.TextBox;$message.Multiline=$true;$message.ReadOnly=$true;$message.ScrollBars='Vertical';$message.SetBounds(18,90,584,340);$message.Text=$Result.display;$dialog.Controls.Add($message)
- $fileLabel=New-Object Windows.Forms.Label;$fileLabel.Text='Recu : '+$Result.receiptFile;$fileLabel.SetBounds(18,437,584,25);$dialog.Controls.Add($fileLabel)
+ $fileLabel=New-Object Windows.Forms.Label;$fileLabel.Text='Copie locale chiffree et authentifiee';$fileLabel.SetBounds(18,437,584,25);$dialog.Controls.Add($fileLabel)
  $close=New-Object Windows.Forms.Button;$close.Text='Fermer';$close.SetBounds(452,464,150,30);$close.Add_Click({$dialog.Close()});$dialog.Controls.Add($close)
  try{[void]$dialog.ShowDialog($form)}finally{$dialog.Dispose()}
 }
 $receiveButton.Add_Click({Invoke-Receive 'receive' ''})
 $recoverButton.Add_Click({Invoke-Receive 'recover-receive' ''})
 $confirmButton.Add_Click({
- if(-not $script:privateDirectory){[Windows.Forms.MessageBox]::Show('Choisissez un coffre de test.','Recu','OK','Warning')|Out-Null;return}
- $picker=New-Object Windows.Forms.OpenFileDialog;$picker.InitialDirectory=$script:privateDirectory;$picker.Filter='Recus chiffres (receipt-*.json)|receipt-*.json';$picker.CheckFileExists=$true;$picker.Multiselect=$false
+ if(-not $script:privateDirectory){[Windows.Forms.MessageBox]::Show('Choisissez un coffre de test.','Messages recus','OK','Warning')|Out-Null;return}
+ $dialog=$null
  try{
-  if($picker.ShowDialog() -ne [Windows.Forms.DialogResult]::OK){return}
-  if([IO.Path]::GetDirectoryName($picker.FileName) -cne $script:privateDirectory){throw 'Recu hors du coffre.'}
-  $name=[IO.Path]::GetFileName($picker.FileName)
-  if($name -cnotmatch '^receipt-[a-z0-9-]{1,48}\.json$'){throw 'Nom de recu refuse.'}
-  Invoke-Receive 'confirm-receipt' $name
- }catch{[Windows.Forms.MessageBox]::Show('Choisissez un recu chiffre de votre coffre de test.','Recu refuse','OK','Warning')|Out-Null}finally{$picker.Dispose()}
+  $items=Invoke-Composer $script:privateDirectory '' $false $false $false 'receipt-list'
+  if($items.status -cne 'authenticated-local-receipts' -or $items.deliveryVerified -ne $false -or @($items.items).Count -gt 64){throw 'Inventaire invalide'}
+  $rows=@($items.items)
+  foreach($item in $rows){
+   if($item.file -cnotmatch '^receipt-[a-z0-9-]{1,48}\.json$' -or $item.subject -isnot [string] -or $item.subject.Length -gt 240){throw 'Message invalide'}
+  }
+  if($rows.Count -eq 0){
+   [Windows.Forms.MessageBox]::Show(('Aucun message local authentifie. Messages refuses : '+$items.refused),'Messages recus','OK','Information')|Out-Null;return
+  }
+  $dialog=New-Object Windows.Forms.Form
+  $dialog.Text='Quantic Mail | Messages recus';$dialog.StartPosition='CenterParent';$dialog.ClientSize=New-Object Drawing.Size(650,500)
+  $note=New-Object Windows.Forms.Label;$note.SetBounds(16,12,618,45)
+  $note.Text=('Copies locales authentifiees. Confirmation distante non verifiee. Refuses : '+$items.refused+' ; non listes : '+$items.remaining)
+  $dialog.Controls.Add($note)
+  $list=New-Object Windows.Forms.ListBox;$list.SetBounds(16,62,618,160);$dialog.Controls.Add($list)
+  foreach($item in $rows){[void]$list.Items.Add($item.subject)}
+  $view=New-Object Windows.Forms.TextBox;$view.Multiline=$true;$view.ReadOnly=$true;$view.ScrollBars='Vertical';$view.SetBounds(16,230,618,195);$dialog.Controls.Add($view)
+  $open=New-Object Windows.Forms.Button;$open.Text='Lire le message';$open.SetBounds(16,444,180,38);$dialog.Controls.Add($open)
+  $ack=New-Object Windows.Forms.Button;$ack.Text='Confirmer la reception';$ack.SetBounds(206,444,238,38);$ack.Enabled=$false;$dialog.Controls.Add($ack)
+  $close=New-Object Windows.Forms.Button;$close.Text='Fermer';$close.SetBounds(454,444,180,38);$dialog.Controls.Add($close)
+  $selected=@{file=$null;busy=$false;confirm=$null}
+  $list.Add_SelectedIndexChanged({$selected.file=$null;$ack.Enabled=$false;$view.Clear()})
+  $open.Add_Click({
+   if($selected.busy -or $list.SelectedIndex -lt 0){return}
+   $selected.busy=$true;$list.Enabled=$false;$open.Enabled=$false;$close.Enabled=$false;$dialog.ControlBox=$false;$ack.Enabled=$false
+   try{
+    $file=$rows[$list.SelectedIndex].file
+    $message=Invoke-Composer $script:privateDirectory $file $false $false $false 'receipt-read'
+    if($message.status -cne 'authenticated-local-receipt' -or $message.receiptFile -cne $file -or $message.display -isnot [string] -or $message.deliveryVerified -ne $false){throw 'Lecture invalide'}
+    $view.Text=$message.display;$selected.file=$file;$ack.Enabled=$true
+   }catch{$view.Text='Lecture non confirmee. Aucun message modifie.';$selected.file=$null}
+   finally{$selected.busy=$false;$list.Enabled=$true;$open.Enabled=$true;$close.Enabled=$true;$dialog.ControlBox=$true}
+  })
+  $ack.Add_Click({
+   if($selected.busy -or -not $selected.file){return}
+   $selected.confirm=$selected.file;$dialog.Close()
+  })
+  $close.Add_Click({$dialog.Close()})
+  $list.SelectedIndex=0
+  [void]$dialog.ShowDialog($form)
+  $file=$selected.confirm
+  $dialog.Dispose();$dialog=$null
+  if($file){Invoke-Receive 'confirm-receipt' $file}
+ }catch{[Windows.Forms.MessageBox]::Show('Les messages locaux ne sont pas disponibles. Aucun renvoi automatique.','Messages recus','OK','Warning')|Out-Null}
+ finally{if($dialog){$dialog.Dispose()}}
 })
 
 # The addresses and public pins are independently issued by the lab operator.
