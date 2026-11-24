@@ -214,6 +214,7 @@ func winDirectMailMode(dir string,op directOperation,prompt func(string,bool)([]
  return result,nil
 }
 func winDirectVaultCLI(args []string)(bool,error){
+ if handled,e:=winProtectedDirectCLI(args);handled{return true,e}
  if len(args)<2{return false,nil}
  switch args[1]{
  case "--provision-windows-direct-gui-lab":
