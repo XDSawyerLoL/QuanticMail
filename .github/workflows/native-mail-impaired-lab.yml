@@ -1,0 +1,40 @@
+name: Native Mail impaired UDP integration
+on:
+  push:
+    branches: ["feat/scattering-mix-compare-*"]
+    paths:
+      - ".github/workflows/native-mail-impaired-lab.yml"
+      - "tests/helpers/native-scattering-link.mjs"
+      - "tests/native-identity-bridge.test.mjs"
+      - "standalone-relay/native-scattering-mailbox.mjs"
+      - "labs/quantic-native/scattering/**"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  impaired-mail:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.8.0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+      - run: npm install
+      - name: Build native carrier
+        working-directory: labs/quantic-native/scattering/native
+        run: go build -trimpath -o "$RUNNER_TEMP/Quantic-Pacer" .
+      - name: Authenticated mailbox with two impaired opaque intermediaries per direction
+        env:
+          QUANTIC_INTEGRATED_SCATTERING_IMPAIRED: "1"
+        run: |
+          export QUANTIC_INTEGRATED_SCATTERING_BINARY="$RUNNER_TEMP/Quantic-Pacer"
+          node --experimental-transform-types --test --test-name-pattern="integrated native relay" tests/native-identity-bridge.test.mjs
