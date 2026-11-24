@@ -116,7 +116,7 @@ jobs:
       - name: Windows multi-host mail readiness with four pinned mTLS authorities and Scattering
         shell: pwsh
         run: |
-          node --experimental-transform-types --test tests/native-windows-mail-readiness.test.mjs
+          node --experimental-transform-types --test tests/native-windows-mail-readiness.test.mjs tests/native-owner-candidate.test.mjs
           if ($LASTEXITCODE -ne 0) { throw "Windows mail readiness rejected the trust or Scattering topology" }
       - name: Provision two distinct native PQ synthetic identities without remote enrollment
         shell: pwsh
