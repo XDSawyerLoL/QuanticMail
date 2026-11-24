@@ -37,11 +37,19 @@ func appPublic(raw string) (ed25519.PublicKey, error) {
 	return ed25519.PublicKey(b), e
 }
 func authenticateFrames(pub ed25519.PublicKey, in io.Reader, out io.Writer, serve func(io.Reader, io.Writer) error) error {
+ return authenticateFramesDelegated(pub,nil,in,out,serve)
+}
+func delegatedSessionDigest(nonce,ephemeral []byte)[]byte{
+ h:=sha256.New();h.Write([]byte("quantic-native-controller-session-lab/v1\x00"));h.Write(nonce);h.Write(ephemeral);return h.Sum(nil)
+}
+func authenticateFramesDelegated(pub ed25519.PublicKey,controller ed25519.PrivateKey,in io.Reader,out io.Writer,serve func(io.Reader,io.Writer)error)error{
 	nonce := make([]byte, 32)
 	if _, e := rand.Read(nonce); e != nil {
 		return e
 	}
-	if e := json.NewEncoder(out).Encode(map[string]string{"session": b64.EncodeToString(nonce)}); e != nil {
+	hello:=map[string]string{"session":b64.EncodeToString(nonce)}
+ if controller!=nil{hello["delegation"]=b64.EncodeToString(ed25519.Sign(controller,delegatedSessionDigest(nonce,pub)))}
+ if e := json.NewEncoder(out).Encode(hello); e != nil {
 		return e
 	}
 	pr, pw := io.Pipe()

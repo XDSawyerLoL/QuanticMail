@@ -175,7 +175,7 @@ test('graphical recovery catalog exposes only signed-message selection metadata'
 
 test('sealed compose retains the original broker until durable deposit; no plaintext mailbox fallback',async()=>{
  const x=setup(),{token,...scope}=cfg.windowsScattering;
- const sealed={...cfg,windowsScattering:{...scope,credentialMode:'vault-sealed-v1'}};
+ const sealed={...cfg,windowsScattering:{...scope,receiptKeyFile:win32.join(dir,'receipt.vault'),credentialMode:'vault-sealed-v1'}};
  let connected=0,sent=0,closed=0;
  const result=await composeAndSendWindowsLab(sealed,x.storage,{...x.deps,
   connect:async c=>{connected++;assert.equal(c.windowsScattering.token,undefined);assert.equal(c.guiWindowsApproval,true);
