@@ -52,7 +52,10 @@ export async function loadPrivateCarrierSchedule(file,pin){
  for(const s of spec.slots)check(exact(s,['startMs','endMs','file','pin'])&&pathOK(s.file)&&dirname(s.file)===dirname(file)&&hex.test(s.pin));
  const plans=[];
  for(const s of spec.slots)plans.push(await loadPrivateCarrierPlan(s.file,s.pin));
- validateCarrierSchedule(spec,plans);
+ if(spec.format==='quantic-private-scattering-overlap/v1'){
+  const {validateOverlapSchedule}=await import('./native-scattering-overlap.mjs');
+  validateOverlapSchedule(spec,plans);
+ }else validateCarrierSchedule(spec,plans);
  return {spec,plans};
 }
 export async function runPrivateCarrierSchedule({spec,plans},{
