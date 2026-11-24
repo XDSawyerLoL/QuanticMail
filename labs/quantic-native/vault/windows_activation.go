@@ -62,6 +62,35 @@ func verifyManagedCarrierProfile(dir,endpoint string,p *managedCarrierProfile)er
  cfg.RecvPort<1||cfg.RecvPort>65535||cfg.HTTPPort<1||cfg.HTTPPort>65535||cfg.RecvPort==cfg.HTTPPort||endpoint!="http://127.0.0.1:"+strconv.Itoa(cfg.HTTPPort)+"/"||cfg.QueueDir!=filepath.Join(carrier,"queue")||cfg.StateDir!=filepath.Join(carrier,"state")||p.Listen=="127.0.0.1:"+strconv.Itoa(cfg.RecvPort){return portableRefusal}
  return nil
 }
+// No pre-shared transport keys, filesystem paths or remote HTTP endpoints
+// are accepted in the negotiated profile.
+type managedHybridCarrierProfile struct{
+ Version int `json:"version"`
+ Channel string `json:"channel"`
+ PeerAddress string `json:"peerAddress"`
+ PeerDeviceID string `json:"peerDeviceId"`
+ BootstrapListen string `json:"bootstrapListen"`
+ BootstrapTarget string `json:"bootstrapTarget"`
+ Listen string `json:"listen"`
+ Target string `json:"target"`
+ Epochs int `json:"epochs"`
+}
+func verifyManagedHybridProfile(endpoint string,p *managedHybridCarrierProfile,trust *senderTrust,ownAddress,ownDevice string,now time.Time)error{
+ if p==nil{return nil}
+ if p.Version!=1||!scatteringHex.MatchString(p.Channel)||p.Channel==scatteringZero||p.Epochs<1||p.Epochs>4||!strongAddr.MatchString(p.PeerAddress)||!strongDevice.MatchString(p.PeerDeviceID)||p.PeerAddress==ownAddress||p.PeerDeviceID==ownDevice||trust==nil{return portableRefusal}
+ peer,ok:=trust.contacts[senderKey(p.PeerAddress,p.PeerDeviceID)]
+ if !ok||peer.Expires<=now.UnixMilli(){return portableRefusal}
+ seen:=map[string]bool{}
+ for _,v:=range []string{p.BootstrapListen,p.BootstrapTarget,p.Listen,p.Target}{
+  if !managedCarrierEndpoint(v)||seen[v]{return portableRefusal}
+  seen[v]=true
+ }
+ u,e:=url.Parse(endpoint);if e!=nil||u.Scheme!="http"||u.Hostname()!="127.0.0.1"||u.User!=nil||u.Path!="/"||u.RawPath!=""||u.RawQuery!=""||u.ForceQuery||u.Fragment!=""||u.Opaque!=""{return portableRefusal}
+ port,e:=strconv.Atoi(u.Port());if e!=nil||port<1||port>65535||u.Host!="127.0.0.1:"+strconv.Itoa(port){return portableRefusal}
+ _,bPort,_:=net.SplitHostPort(p.BootstrapListen);_,lPort,_:=net.SplitHostPort(p.Listen)
+ if bPort==lPort||bPort==u.Port()||lPort==u.Port(){return portableRefusal}
+ return nil
+}
 type windowsActivationBundle struct {
  Format string `json:"format"`
  LabOnly bool `json:"labOnly"`
@@ -76,6 +105,7 @@ type windowsActivationBundle struct {
  CheckpointTLS activationTLS `json:"checkpointTls"`
  Contacts []senderContact `json:"contacts"`
  ManagedCarrier *managedCarrierProfile `json:"managedCarrier,omitempty"`
+ ManagedHybridCarrier *managedHybridCarrierProfile `json:"managedHybridCarrier,omitempty"`
 }
 type activationFile struct {name string;raw []byte}
 func parseWindowsActivation(raw []byte,pin string)(windowsActivationBundle,error){
@@ -83,7 +113,7 @@ func parseWindowsActivation(raw []byte,pin string)(windowsActivationBundle,error
  if len(raw)<2||len(raw)>131072||!hashRE.MatchString(pin)||hexHash(raw)!=pin{return b,portableRefusal}
  d:=json.NewDecoder(bytes.NewReader(raw));d.DisallowUnknownFields()
  var trailing any
- if d.Decode(&b)!=nil||d.Decode(&trailing)!=io.EOF||b.Format!="quantic-native-windows-activation-lab/v2"||!b.LabOnly{return windowsActivationBundle{},portableRefusal}
+ if d.Decode(&b)!=nil||d.Decode(&trailing)!=io.EOF||b.Format!="quantic-native-windows-activation-lab/v2"||!b.LabOnly||b.ManagedCarrier!=nil&&b.ManagedHybridCarrier!=nil{return windowsActivationBundle{},portableRefusal}
  return b,nil
 }
 func activationTLSValid(t activationTLS,key []byte,digest,role string,now time.Time)bool{
@@ -164,8 +194,11 @@ func activationPlan(dir,binary,binaryPin string,r enrollmentRequest,b windowsAct
    "authority":map[string]any{"authorities":b.Checkpoints,"caFile":path(files[2].name),"clientCertFile":path(files[3].name),"clientKeyFile":path("peer-checkpoint-key.vault")}},
   "windowsScattering":map[string]any{"enabled":true,"credentialMode":"vault-sealed-v1","endpoint":b.Endpoint,"address":c.Address,"deviceId":c.DeviceID,"receiptKeyFile":path("receipt.vault")},
  }
+ if b.ManagedCarrier!=nil&&b.ManagedHybridCarrier!=nil{return nil,portableRefusal}
  if e=verifyManagedCarrierProfile(dir,b.Endpoint,b.ManagedCarrier);e!=nil{return nil,e}
+ if e=verifyManagedHybridProfile(b.Endpoint,b.ManagedHybridCarrier,trust,c.Address,c.DeviceID,now);e!=nil{return nil,e}
  if b.ManagedCarrier!=nil{config["managedScattering"]=b.ManagedCarrier}
+ if b.ManagedHybridCarrier!=nil{config["managedHybridScattering"]=b.ManagedHybridCarrier}
  desktop,e:=json.Marshal(config);if e!=nil{return nil,e}
  checkpointConfig,e:=json.Marshal(b.Checkpoints);if e!=nil{return nil,e}
  return append(files,activationFile{"quorum.json",quorum},activationFile{"contacts.json",contacts},activationFile{"checkpoint-authorities.json",checkpointConfig},activationFile{"desktop.json",desktop}),nil
@@ -218,7 +251,7 @@ func windowsActivationCLI(args []string)error{
  h:=sha256.New();n,e:=io.Copy(h,io.LimitReader(f,256*1024*1024+1));f.Close()
  if e!=nil||n<1||n>256*1024*1024||hex.EncodeToString(h.Sum(nil))!=binaryPin{return portableRefusal}
  digest,e:=checkEnrollmentApprovals(r,b.Approvals,b.RosterPin,time.Now());if e!=nil||digest!=b.RequestDigest{return portableRefusal}
- if !winGUIApprove("Configuration de messagerie de laboratoire pour "+r.Claim.Address+". L'empreinte du dossier a ete verifiee. Aucun compte actif ni connexion distante prouvee. Importer ? Si un transport est configure, son trafic UDP de laboratoire demarrera avec l application."){return portableRefusal}
+ if !winGUIApprove("Configuration de messagerie de laboratoire pour "+r.Claim.Address+". L'empreinte du dossier a ete verifiee. Aucun compte actif ni connexion distante prouvee. Importer ? Le profil hybride ne contient aucun secret partage. Une session commune du coffre est requise pour son activation."){return portableRefusal}
  pw,e:=winGUIPassphrase("Secret classique de l'appareil",true);if e!=nil{return e};defer clear(pw)
  pqw,e:=winGUIPassphrase("Secret post-quantique de l'appareil",true);if e!=nil{return e};defer clear(pqw)
  if e=importWindowsActivation(dir,binary,binaryPin,b,pw,pqw,time.Now());e!=nil{return e}

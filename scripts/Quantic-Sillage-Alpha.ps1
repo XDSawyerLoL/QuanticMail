@@ -430,6 +430,314 @@ function Start-ManagedCarrier {
   if($r.status -ceq 'local-carrier-ready-not-remote-verified' -and $r.directory -cmatch ('^'+[Regex]::Escape($parent)+'\\quantic-enroll-[0-9a-f]{16}$') -and -not $p.HasExited){
    $script:configuredEnrollment=[string]$r.directory;$script:managedCarrier=$p;$p=$null
    $notice.Text='Scattering local demarre | correspondant distant non verifie.'
+  }elseif($r.status -ceq 'hybrid-session-required' -and $r.directory -cmatch ('^'+[Regex]::Escape($parent)+'\\quantic-enroll-[0-9a-f]{16}{$script:managedAttempted=$false}
+  else{$notice.Text='Transport non disponible | aucune relance automatique.'}
+ }catch{$notice.Text='Transport non disponible | aucune relance automatique.'}
+ finally{if($p){try{$p.StandardInput.Close();if(-not $p.WaitForExit(5000)){$p.Kill()}}catch{};$p.Dispose()}}
+}
+
+function Show-MailboxActivation {
+ $parent=[Environment]::GetFolderPath('LocalApplicationData')
+ $data=Invoke-EnrollmentNative 'list' $parent
+ if($data.status -cne 'pending-enrollment-candidates-only' -or $data.candidates.Count -gt 32){throw 'Registre non valide.'}
+ $items=@($data.candidates)
+ if($items.Count -eq 0){[Windows.Forms.MessageBox]::Show('Preparez votre identite de test.','Aucune candidature','OK','Information')|Out-Null;return}
+ foreach($item in $items){
+  if($item.directory -cnotmatch ('^'+[Regex]::Escape($parent)+'\\quantic-enroll-[0-9a-f]{16}$') -or $item.address -cnotmatch '^[a-z0-9][a-z0-9._-]{2,31}~[0-9a-f]{32}@quantic$'){throw 'Identite locale invalide.'}
+ }
+ $dlg=New-Object Windows.Forms.Form;$dlg.Text='Quantic Mail | Configurer ma messagerie de test';$dlg.StartPosition='CenterParent'
+ $dlg.ClientSize=New-Object Drawing.Size(700,410);$dlg.BackColor=[Drawing.Color]::FromArgb(19,25,35);$dlg.ForeColor=[Drawing.Color]::WhiteSmoke
+ $help=New-Object Windows.Forms.Label;$help.Text='Selectionnez votre identite et le dossier prive fourni par votre operateur. Comparez son empreinte par un canal independant. Aucune activation distante automatique.'
+ $help.SetBounds(20,15,660,65);$dlg.Controls.Add($help)
+ $choose=New-Object Windows.Forms.ComboBox;$choose.DropDownStyle='DropDownList';$choose.SetBounds(20,90,660,30)
+ foreach($item in $items){[void]$choose.Items.Add([string]$item.address)};$choose.SelectedIndex=0;$dlg.Controls.Add($choose)
+ $selected=New-Object Windows.Forms.TextBox;$selected.ReadOnly=$true;$selected.SetBounds(20,145,470,30);$dlg.Controls.Add($selected)
+ $browse=New-Object Windows.Forms.Button;$browse.Text='Choisir le dossier';$browse.ForeColor=[Drawing.Color]::Black;$browse.SetBounds(505,142,175,35);$dlg.Controls.Add($browse)
+ $browse.Add_Click({
+  $p=New-Object Windows.Forms.OpenFileDialog;$p.Filter='Configuration Quantic (*.json)|*.json';$p.CheckFileExists=$true;$p.Multiselect=$false
+  try{if($p.ShowDialog() -eq [Windows.Forms.DialogResult]::OK){$selected.Text=$p.FileName}}finally{$p.Dispose()}
+ })
+ $label=New-Object Windows.Forms.Label;$label.Text='Empreinte SHA-256 du dossier authentifie';$label.SetBounds(20,195,660,25);$dlg.Controls.Add($label)
+ $pin=New-Object Windows.Forms.TextBox;$pin.MaxLength=64;$pin.SetBounds(20,225,660,30);$dlg.Controls.Add($pin)
+ $confirmed=New-Object Windows.Forms.CheckBox;$confirmed.Text='Empreinte comparee independamment et dossier prive.';$confirmed.SetBounds(20,270,660,35);$dlg.Controls.Add($confirmed)
+ $apply=New-Object Windows.Forms.Button;$apply.Text='Configurer ma messagerie';$apply.ForeColor=[Drawing.Color]::Black;$apply.SetBounds(20,330,330,45);$dlg.Controls.Add($apply)
+ $cancel=New-Object Windows.Forms.Button;$cancel.Text='Annuler';$cancel.ForeColor=[Drawing.Color]::Black;$cancel.DialogResult=[Windows.Forms.DialogResult]::Cancel;$cancel.SetBounds(500,330,180,45);$dlg.Controls.Add($cancel);$dlg.CancelButton=$cancel
+ $apply.Add_Click({
+  if(-not $confirmed.Checked -or $pin.Text -cnotmatch '^[a-f0-9]{64}$' -or [string]::IsNullOrWhiteSpace($selected.Text)){[Windows.Forms.MessageBox]::Show('Dossier prive et empreinte independante requis.','Validation requise','OK','Warning')|Out-Null;return}
+  $apply.Enabled=$false
+  try{
+   $item=$items[$choose.SelectedIndex]
+   $r=Invoke-EnrollmentNative 'activation' ([string]$item.directory) $pin.Text $selected.Text
+   if($r.status -cne 'native-mailbox-configured-pending-live-verification' -or $r.mailAuthorized -ne $false -or $r.address -cne $item.address){throw 'Import non confirme.'}
+   $script:configuredEnrollment=[string]$item.directory
+   [Windows.Forms.MessageBox]::Show('Configuration locale importee. Les autorites et le transport seront verifies lors des operations de messagerie. Aucun compte distant confirme.','Configuration importee','OK','Information')|Out-Null
+   $dlg.DialogResult=[Windows.Forms.DialogResult]::OK
+  }catch{[Windows.Forms.MessageBox]::Show('Import refuse : dossier prive NTFS, empreinte, votes valides et jeton correspondant requis. Aucun fichier existant ne sera remplace.','Configuration non confirmee','OK','Warning')|Out-Null}
+  finally{$apply.Enabled=$true}
+ })
+ try{[void]$dlg.ShowDialog()}finally{$dlg.Dispose()}
+}
+
+function Show-EnrollmentPossession([bool]$Credential=$false) {
+ $parent=[Environment]::GetFolderPath('LocalApplicationData')
+ $data=Invoke-EnrollmentNative 'list' $parent
+ if($data.status -cne 'pending-enrollment-candidates-only' -or $data.candidates.Count -gt 32){throw 'Registre non valide.'}
+ $items=@($data.candidates)
+ if($items.Count -eq 0){[Windows.Forms.MessageBox]::Show('Preparez d abord une candidature dans Quantic ID.','Aucune candidature','OK','Information')|Out-Null;return}
+ foreach($item in $items){
+  if($item.directory -cnotmatch ('^'+[Regex]::Escape($parent)+'\\quantic-enroll-[0-9a-f]{16}$') -or $item.address -cnotmatch '^[a-z0-9][a-z0-9._-]{2,31}~[0-9a-f]{32}@quantic$'){throw 'Identite locale invalide.'}
+ }
+ $dlg=New-Object Windows.Forms.Form
+ $dlg.Text='Quantic ID | Prouver mon identite de test';$dlg.StartPosition='CenterParent'
+ $dlg.ClientSize=New-Object Drawing.Size(730,550);$dlg.BackColor=[Drawing.Color]::FromArgb(19,25,35);$dlg.ForeColor=[Drawing.Color]::WhiteSmoke
+ $help=New-Object Windows.Forms.Label;$help.Text='Choisissez votre candidature. Collez le defi fourni par un operateur independant et verifiez son empreinte par un autre canal. Aucune cle privee ni autorisation de messagerie ne sera transmise.'
+ $help.SetBounds(20,15,690,73);$dlg.Controls.Add($help)
+ $choose=New-Object Windows.Forms.ComboBox;$choose.DropDownStyle='DropDownList';$choose.SetBounds(20,92,690,32)
+ foreach($item in $items){[void]$choose.Items.Add([string]$item.address)};$choose.SelectedIndex=0;$dlg.Controls.Add($choose)
+ $label=New-Object Windows.Forms.Label;$label.Text='Empreinte SHA-256 de la cle de signature de l operateur (pas celle du quorum).';$label.SetBounds(20,143,690,30);$dlg.Controls.Add($label)
+ $pin=New-Object Windows.Forms.TextBox;$pin.SetBounds(20,177,690,30);$pin.MaxLength=64;$dlg.Controls.Add($pin)
+ $code=New-Object Windows.Forms.TextBox;$code.Multiline=$true;$code.ScrollBars='Vertical';$code.MaxLength=16000;$code.SetBounds(20,225,690,166);$dlg.Controls.Add($code)
+ $confirmed=New-Object Windows.Forms.CheckBox;$confirmed.Text='J ai compare l empreinte de cet operateur par un canal independant.';$confirmed.SetBounds(20,408,690,40);$dlg.Controls.Add($confirmed)
+ $send=New-Object Windows.Forms.Button;$send.Text='Produire ma preuve signee';$send.SetBounds(20,477,330,48);$send.ForeColor=[Drawing.Color]::Black;$dlg.Controls.Add($send)
+ $cancel=New-Object Windows.Forms.Button;$cancel.Text='Annuler';$cancel.DialogResult=[Windows.Forms.DialogResult]::Cancel;$cancel.SetBounds(550,477,160,48);$cancel.ForeColor=[Drawing.Color]::Black;$dlg.Controls.Add($cancel);$dlg.CancelButton=$cancel
+ if($Credential){
+  $dlg.Text='Quantic Mail | Preparer mon acces de test'
+  $help.Text='Collez le dossier QSAPPROVAL1 de trois votes et de quatre cles publiques. Comparez l empreinte de la liste par un canal independant. Le jeton reste chiffre sur ce PC.'
+  $label.Text='Empreinte SHA-256 de la liste des quatre autorites.'
+  $code.MaxLength=20000
+  $confirmed.Text='J ai compare l empreinte de cette liste par un canal independant.'
+  $send.Text='Proteger mon jeton local'
+ }
+ $send.Add_Click({
+  if(-not $confirmed.Checked -or $pin.Text -cnotmatch '^[a-f0-9]{64}$' -or $code.Text.Trim() -cnotmatch $(if($Credential){'^QSAPPROVAL1:[A-Za-z0-9_-]+$'}else{'^QSPROOF1:[A-Za-z0-9_-]+$'})){[Windows.Forms.MessageBox]::Show('Defi et empreinte independante requis.','Validation requise','OK','Warning')|Out-Null;return}
+  $send.Enabled=$false
+  try{
+   $mode=if($Credential){'credential'}else{'answer'}
+   $r=Invoke-EnrollmentNative $mode ([string]$items[$choose.SelectedIndex].directory) $pin.Text $code.Text.Trim()
+   $status=if($Credential){'mailbox-credential-sealed-not-activated'}else{'device-proof-only-not-enrolled'}
+   $pattern=if($Credential){'^QSCRED1:[A-Za-z0-9_-]+$'}else{'^QSPROOFREPLY1:[A-Za-z0-9_-]+$'}
+   if($r.status -cne $status -or $r.mailAuthorized -ne $false -or $r.code -cnotmatch $pattern){throw 'Preuve non confirmee.'}
+   $view=New-Object Windows.Forms.Form;$view.Text='Preuve signee - candidature en attente';$view.ClientSize=New-Object Drawing.Size(680,340);$view.StartPosition='CenterParent'
+   $notice=New-Object Windows.Forms.Label;$notice.Text='Renvoyez cette preuve a l operateur qui a emis le defi. Il reste a obtenir l approbation independante. Aucun compte active.'
+   if($Credential){if($r.transportCode -cnotmatch '^QSTLS1:[A-Za-z0-9_-]+$'){throw 'Demandes de certificats invalides.'};$notice.Text='Jeton et deux cles de transport crees localement. Transmettez les deux codes publics a l operateur. Aucune cle privee ne sort du PC.'}
+   $notice.SetBounds(20,15,640,65);$view.Controls.Add($notice)
+   $reply=New-Object Windows.Forms.TextBox;$reply.Multiline=$true;$reply.ReadOnly=$true;$reply.ScrollBars='Vertical';$reply.Text=if($Credential){$r.code+[Environment]::NewLine+$r.transportCode}else{$r.code};$reply.SetBounds(20,82,640,180);$view.Controls.Add($reply)
+   $copy=New-Object Windows.Forms.Button;$copy.Text='Copier ma preuve';$copy.SetBounds(20,280,300,42);$view.Controls.Add($copy);$copy.Add_Click({[Windows.Forms.Clipboard]::SetText($reply.Text)})
+   $close=New-Object Windows.Forms.Button;$close.Text='Fermer';$close.DialogResult=[Windows.Forms.DialogResult]::OK;$close.SetBounds(500,280,160,42);$view.Controls.Add($close)
+   try{[void]$view.ShowDialog()}finally{$view.Dispose()}
+   $dlg.DialogResult=[Windows.Forms.DialogResult]::OK
+  }catch{[Windows.Forms.MessageBox]::Show('Defi, signature, empreinte, expiration ou secret refuse. Aucun compte actif.','Preuve refusee','OK','Warning')|Out-Null}
+  finally{$send.Enabled=$true}
+ })
+ try{[void]$dlg.ShowDialog()}finally{$dlg.Dispose()}
+}
+
+$form=New-Object Windows.Forms.Form
+$form.Text="Quantic Sillage | Alpha privee"
+$form.StartPosition="CenterScreen"
+$form.ClientSize=New-Object Drawing.Size(760,870)
+$form.MinimumSize=New-Object Drawing.Size(776,910)
+$form.BackColor=[Drawing.Color]::FromArgb(19,25,35)
+$form.ForeColor=[Drawing.Color]::WhiteSmoke
+$form.Font=New-Object Drawing.Font("Segoe UI",10)
+function Label-At([string]$Text,[int]$X,[int]$Y,[int]$W,[int]$H) {
+ $c=New-Object Windows.Forms.Label; $c.Text=$Text
+ $c.SetBounds($X,$Y,$W,$H);$form.Controls.Add($c);return $c
+}
+function Text-At([int]$X,[int]$Y,[int]$W) {
+ $c=New-Object Windows.Forms.TextBox;$c.SetBounds($X,$Y,$W,28)
+ $form.Controls.Add($c);return $c
+}
+$heading=Label-At "QUANTIC SILLAGE" 22 18 712 36
+$heading.Font=New-Object Drawing.Font("Segoe UI",21,[Drawing.FontStyle]::Bold)
+$null=Label-At "Interface locale | Mail / Quantic ID / Vault / Scattering / Pay" 24 58 710 25
+$notice=Label-At "ALPHA - identites de test uniquement. Aucun compte reel ni migration." 24 90 710 38
+$notice.ForeColor=[Drawing.Color]::Khaki
+$null=Label-At "Module" 24 132 710 22
+$module=New-Object Windows.Forms.ComboBox
+$module.DropDownStyle="DropDownList";$module.SetBounds(24,157,712,30)
+foreach ($m in $modules) { $null=$module.Items.Add($m) }
+$form.Controls.Add($module)
+$null=Label-At "Operation native" 24 197 710 22
+$choice=New-Object Windows.Forms.ComboBox
+$choice.DropDownStyle="DropDownList";$choice.SetBounds(24,221,712,30)
+$form.Controls.Add($choice)
+$hint=Label-At "" 24 262 712 45
+$null=Label-At "Dossier prive du coffre (ou du transport pour le pont)" 24 316 712 23
+$directory=Text-At 24 341 712
+$il=Label-At "Fichier prive" 24 380 712 22
+$inputName=Text-At 24 404 712
+$ol=Label-At "Nouvelle enveloppe" 24 443 712 22
+$outputName=Text-At 24 467 712
+$run=New-Object Windows.Forms.Button;$run.Text="Rediger un brouillon"
+$run.ForeColor=[Drawing.Color]::Black;$run.BackColor=[Drawing.Color]::FromArgb(196,223,244)
+$run.SetBounds(24,533,513,42);$form.Controls.Add($run)
+$quit=New-Object Windows.Forms.Button;$quit.Text="Fermer";$quit.ForeColor=[Drawing.Color]::Black
+$quit.SetBounds(556,812,180,42);$form.Controls.Add($quit)
+$quit.DialogResult=[Windows.Forms.DialogResult]::Cancel;$form.CancelButton=$quit
+$form.AcceptButton=$run
+$createIdentity=New-Object Windows.Forms.Button
+$createIdentity.Text='Creer mon identite de test'
+$createIdentity.SetBounds(24,591,712,43)
+$createIdentity.ForeColor=[Drawing.Color]::Black
+$createIdentity.BackColor=[Drawing.Color]::FromArgb(192,212,200)
+$form.Controls.Add($createIdentity)
+$openIdentity=New-Object Windows.Forms.Button
+$openIdentity.Text='Ouvrir mon coffre de test'
+$openIdentity.SetBounds(24,645,712,43)
+$openIdentity.ForeColor=[Drawing.Color]::Black
+$form.Controls.Add($openIdentity)
+$contactGuide=New-Object Windows.Forms.Button
+$contactGuide.Text='Inviter un contact de test (en attente)'
+$contactGuide.SetBounds(24,698,712,43)
+$contactGuide.ForeColor=[Drawing.Color]::Black
+$form.Controls.Add($contactGuide)
+$contactGuide.Add_Click({
+ $contactGuide.Enabled=$false
+ try{Show-SyntheticContactGuide}catch{
+  [Windows.Forms.MessageBox]::Show('Carnet de laboratoire indisponible. Creer ou ouvrir d abord un coffre de test.','Contact non configure','OK','Warning')|Out-Null
+ }finally{$contactGuide.Enabled=$true}
+})
+$contactNotice=New-Object Windows.Forms.Label
+$contactNotice.Text='Les invitations ne sont pas des contacts approuves par les autorites.'
+$contactNotice.SetBounds(24,750,700,30)
+$form.Controls.Add($contactNotice)
+$script:latestSyntheticDirectory=$null
+$createIdentity.Add_Click({
+ $createIdentity.Enabled=$false
+ try{
+  $parent=[Environment]::GetFolderPath('LocalApplicationData')
+  $r=Invoke-LocalIdentity $true $parent
+  $script:latestSyntheticDirectory=$r.dir
+  [Windows.Forms.MessageBox]::Show(('Coffre prive cree : '+$r.address+[Environment]::NewLine+'Cliquez sur Ouvrir mon coffre pour tester les deux secrets.'+[Environment]::NewLine+'Aucune inscription distante ou contact cree.'),'Identite fictive creee','OK','Information')|Out-Null
+ }catch{
+  [Windows.Forms.MessageBox]::Show('Creation non confirmee. Un dossier partiel peut subsister : aucune suppression ou reutilisation automatique. Disque NTFS et chemin Windows compatible requis.','Creation refusee','OK','Warning')|Out-Null
+ }finally{$createIdentity.Enabled=$true}
+})
+$openIdentity.Add_Click({
+ $openIdentity.Enabled=$false
+ try{
+  $folder=Choose-SyntheticDirectory
+  if(-not $folder){return}
+  $r=Invoke-LocalIdentity $false $folder
+  [Windows.Forms.MessageBox]::Show(('Cles classiques et post-quantiques deverrouillees localement : '+$r.address+[Environment]::NewLine+'Aucune session distante : contacts, autorites et relais restent a configurer pour la messagerie.'),'Coffre de test verifie','OK','Information')|Out-Null
+ }catch{
+  [Windows.Forms.MessageBox]::Show('Deverrouillage refuse : secrets ou fichiers non verifies. Aucune session ni message envoye.','Coffre verrouille','OK','Warning')|Out-Null
+ }finally{$openIdentity.Enabled=$true}
+})
+$script:selectedArguments=$null;$script:selectedAction=$null
+$script:shownActions=@()
+$module.Add_SelectedIndexChanged({
+ $choice.Items.Clear()
+ $script:shownActions=@($actions | Where-Object { (Get-AlphaModule $_.Id) -ceq $module.SelectedItem })
+ if ($script:shownActions.Count -lt 1) { throw "Empty native module." }
+ foreach ($a in $script:shownActions) { $null=$choice.Items.Add($a.Title) }
+ $choice.SelectedIndex=0
+})
+$choice.Add_SelectedIndexChanged({
+ if ($choice.SelectedIndex -lt 0) { return }
+ $a=$script:shownActions[$choice.SelectedIndex]
+ $hint.Text=$a.Hint
+ $run.Text=if($a.Id -eq 'ComposeDraft'){"Rediger mon message"}elseif($a.Id -eq 'PrepareEnrollment'){"Preparer mon inscription de test"}elseif($a.Id -eq 'AnswerEnrollment'){"Prouver mon identite de test"}elseif($a.Id -eq 'PrepareMailboxCredential'){"Preparer ma messagerie de test"}elseif($a.Id -eq 'ImportMailboxActivation'){"Configurer ma messagerie de test"}else{"Ouvrir le laboratoire technique"}
+ $simple=$a.Id -in @('ComposeDraft','PrepareEnrollment','AnswerEnrollment','PrepareMailboxCredential','ImportMailboxActivation')
+ foreach($control in @($directory,$il,$inputName,$ol,$outputName)){$control.Visible=-not $simple}
+ $directory.Enabled=[bool]$a.Scope
+ $inputName.Enabled=[bool]$a.Input
+ $outputName.Enabled=[bool]$a.Output
+ $il.Text=if($a.Input){"Fichier prive ("+$a.Input+"-nom.json)"}else{"Aucun fichier requis"}
+ $ol.Text=if($a.Output){"Nouvelle enveloppe (wire-nom.json)"}else{"Aucune sortie a saisir"}
+})
+$run.Add_Click({
+ try{
+  $a=$script:shownActions[$choice.SelectedIndex]
+  if($a.Id -eq 'ImportMailboxActivation'){
+   Show-MailboxActivation
+   if($script:configuredEnrollment -and -not $script:managedCarrier){Start-ManagedCarrier}
+   return
+  }
+  if($a.Id -eq 'PrepareMailboxCredential'){
+   Show-EnrollmentPossession $true
+   return
+  }
+  if($a.Id -eq 'AnswerEnrollment'){
+   Show-EnrollmentPossession
+   return
+  }
+  if($a.Id -eq 'PrepareEnrollment'){
+   Show-PrepareEnrollment
+   return
+  }
+  if($a.Id -eq 'ComposeDraft'){
+   & (Join-Path $root 'Quantic-Sillage-Compose.ps1') -ExpectedManifestSha256 $ExpectedManifestSha256 -TrustedBinarySha256 $TrustedBinarySha256 -EnrollmentDirectory $script:configuredEnrollment
+   return
+  }
+  $warn=[Windows.Forms.MessageBox]::Show('Ceci est une operation de laboratoire reservee aux tests. Elle ouvrira volontairement un terminal technique. Continuer ?','Mode technique','YesNo','Warning')
+  if($warn -ne [Windows.Forms.DialogResult]::Yes){return}
+  $script:selectedArguments=New-OperationArguments $a $directory.Text $inputName.Text $outputName.Text
+  $script:selectedAction=$a.Id
+  $form.DialogResult=[Windows.Forms.DialogResult]::OK
+ }catch{
+  [Windows.Forms.MessageBox]::Show('Operation indisponible : verifiez les conditions du coffre de test. Aucune migration ni envoi implicite.','Operation non confirmee','OK','Warning')|Out-Null
+ }
+})
+$module.SelectedIndex=0
+if ($SelfTest) {
+ try {
+  if($actions.Count -ne 34 -or $script:shownActions[0].Id -ne 'ComposeDraft' -or $inputName.Visible -or $outputName.Visible -or $createIdentity.Text -notmatch 'identite de test' -or $openIdentity.Text -notmatch 'coffre de test' -or $contactGuide.Text -notmatch 'contact de test'){throw "Dashboard initialization failed"}
+  $choice.SelectedIndex=1
+  if(-not $inputName.Enabled -or -not $outputName.Enabled){throw "Advanced input fields missing"}
+  $a=New-OperationArguments $actions[1] "C:\Quantic Lab\vault" "draft-test.json" "wire-test.json"
+  if($a -notcontains "C:\Quantic Lab\vault\draft-test.json" -or $a -notcontains "C:\Quantic Lab\vault\wire-test.json"){throw "Wrong arguments"}
+  $rejected=$false
+  try{$null=New-OperationArguments $actions[4] "C:\Quantic Lab\vault" "..\wire-test.json" ""}catch{$rejected=$true}
+  if(-not $rejected){throw "Path traversal accepted"}
+  $module.SelectedItem="DIAGNOSTIC"
+  if ($script:shownActions.Count -ne 1 -or $script:shownActions[0].Id -ne "Providers") { throw "Diagnostic module wrong" }
+  if($directory.Enabled -or $inputName.Enabled -or $outputName.Enabled){throw "Diagnostic fields enabled"}
+  foreach ($m in $modules) {
+   $module.SelectedItem=$m
+   if ($script:shownActions.Count -lt 1) { throw "Missing module: $m" }
+  }
+  $module.SelectedItem="QUANTIC MAIL"
+  Write-Output "Dashboard controls and operation mapping verified"
+ }finally{$form.Dispose()}
+ exit 0
+}
+function Quote-AdvancedArg([string]$Value){
+ if($Value.Contains('"') -or $Value.Contains([char]10) -or $Value.Contains([char]13)){throw 'Argument advanced non autorise'}
+ return '"'+$Value+'"'
+}
+$form.Add_Shown({Start-ManagedCarrier})
+$transportTimer=New-Object Windows.Forms.Timer;$transportTimer.Interval=1000
+$transportTimer.Add_Tick({if($script:managedCarrier -and $script:managedCarrier.HasExited){Stop-ManagedCarrier;$notice.Text='Transport arrete | aucun renvoi automatique.'}})
+$transportTimer.Start()
+try{
+ while($true){
+  $script:selectedArguments=$null;$script:selectedAction=$null
+  if($form.ShowDialog() -ne [Windows.Forms.DialogResult]::OK){break}
+  if(-not $script:selectedAction){continue}
+  $advanced=Join-Path $root 'Quantic-Sillage-Advanced.ps1'
+  $argv=@('-NoLogo','-NoProfile','-STA','-ExecutionPolicy','Bypass',
+   '-File',(Quote-AdvancedArg $advanced),
+   '-ExpectedManifestSha256',$ExpectedManifestSha256,
+   '-TrustedBinarySha256',$TrustedBinarySha256,
+   '-Operation',$script:selectedAction,
+   '-Directory',(Quote-AdvancedArg $directory.Text),
+   '-InputName',(Quote-AdvancedArg $inputName.Text),
+   '-OutputName',(Quote-AdvancedArg $outputName.Text))
+  $psi=New-Object System.Diagnostics.ProcessStartInfo
+  $psi.FileName=$shell
+  $psi.Arguments=$argv -join ' '
+  $psi.UseShellExecute=$true
+  $psi.WindowStyle=[Diagnostics.ProcessWindowStyle]::Normal
+  $child=[Diagnostics.Process]::Start($psi)
+  if($null -eq $child){throw 'Le laboratoire technique ne peut pas demarrer'}
+  $child.Dispose()
+ }
+}finally{$transportTimer.Stop();$transportTimer.Dispose();Stop-ManagedCarrier;$form.Dispose()}
+)){
+   $script:configuredEnrollment=[string]$r.directory
+   $notice.Text='Profil hybride importe | ouverture de session commune requise. Aucun ancien transport lance.'
   }elseif($r.status -ceq 'not-configured'){$script:managedAttempted=$false}
   else{$notice.Text='Transport non disponible | aucune relance automatique.'}
  }catch{$notice.Text='Transport non disponible | aucune relance automatique.'}

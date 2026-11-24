@@ -25,13 +25,17 @@ try{
   const dir=win32.join(parent,n.name),boot={binary,binarySha256,dir},storage=await createWindowsNativeStorage(boot);
   let raw;try{raw=await storage.read(win32.join(dir,'desktop.json'));}catch{continue;}
   let cfg;try{cfg=bindWindowsDesktopConfig(JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(raw)),boot);}finally{raw.fill(0);}
-  if(cfg.managedScattering!==undefined)configured.push({dir,cfg});
+  if(cfg.managedScattering!==undefined||cfg.managedHybridScattering!==undefined)configured.push({dir,cfg});
  }
  if(configured.length===0){process.stdout.write(JSON.stringify({status:'not-configured'})+'\n');}
  else if(configured.length!==1){process.stdout.write(JSON.stringify({status:'multiple-identities-no-start'})+'\n');}
  else{
   check(!stopped);
   const {dir,cfg}=configured[0],scope=windowsScatteringScope(cfg),carrierDir=win32.join(dir,'carrier');
+  if(cfg.managedHybridScattering!==undefined){
+   check(cfg.managedScattering===undefined);
+   process.stdout.write(JSON.stringify({status:'hybrid-session-required',directory:dir})+'\n');
+  }else{
   check(scope.credentialMode==='vault-sealed-v1');
   const boot={binary,binarySha256,dir:carrierDir},storage=await createWindowsNativeStorage(boot);
   const raw=await storage.read(win32.join(carrierDir,'scattering.json'));
@@ -42,6 +46,7 @@ try{
   if(stopped){await session.close();throw Error('Parent closed');}
   process.stdout.write(JSON.stringify({status:'local-carrier-ready-not-remote-verified',directory:dir})+'\n');
   await session.closed;
+  }
  }
 }catch{process.stdout.write(JSON.stringify({status:'carrier-unavailable-no-retry'})+'\n');process.exitCode=1;}
 finally{await session?.close();process.stdin.pause();}

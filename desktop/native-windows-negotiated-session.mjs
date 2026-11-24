@@ -17,7 +17,7 @@ export function validateHybridMailProfile(config,contacts){
  check(config.labOnly===true&&scope.credentialMode==='vault-sealed-v1'&&config.managedScattering===undefined);
  check(exact(p,['version','channel','peerAddress','peerDeviceId','bootstrapListen','bootstrapTarget','listen','target','epochs'])&&p.version===1&&hex(p.channel,96)&&!/^0+$/.test(p.channel)&&Number.isInteger(p.epochs)&&p.epochs>=1&&p.epochs<=4);
  check(typeof p.peerAddress==='string'&&/^[a-z0-9][a-z0-9._-]{2,31}~[a-f0-9]{32}@quantic$/.test(p.peerAddress)&&typeof p.peerDeviceId==='string'&&/^d-[a-f0-9]{32}$/.test(p.peerDeviceId)&&p.peerAddress!==scope.address&&p.peerDeviceId!==scope.deviceId);
- check(Array.isArray(contacts)&&contacts.length<=32&&contacts.filter(c=>c.address===p.peerAddress&&c.deviceId===p.peerDeviceId&&Number.isSafeInteger(c.expires)&&c.expires>Date.now()).length===1);
+ check(Array.isArray(contacts)&&contacts.length>=1&&contacts.length<=32&&contacts.filter(c=>c.address===p.peerAddress&&c.deviceId===p.peerDeviceId&&Number.isSafeInteger(c.expires)&&c.expires>Date.now()).length===1);
  const endpoints=[p.bootstrapListen,p.bootstrapTarget,p.listen,p.target].map(ipv4Endpoint);
  check(new Set(endpoints).size===4);
  // Use distinct local ports, including the fixed loopback mailbox port.
