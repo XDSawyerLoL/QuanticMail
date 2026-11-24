@@ -65,7 +65,9 @@ func directLeaseDecode(raw []byte)(directLeaseEntry,error){
 }
 func(s *directLeaseStore)check()error{
  if s==nil||s.j==nil||s.j.failed||s.j.anchor==nil||len(s.j.seen)>directLeaseHistoryMax{return portableRefusal}
- return s.j.anchor.check(s.j.anchorID,len(s.j.seen),s.j.tail)
+ q,ok:=s.j.anchor.(*quorumAnchor);if !ok||q==nil{return portableRefusal}
+ id,e:=directLeaseJournalID(s.initial,s.recipient,s.device,q.pin);if e!=nil{return e}
+ return directRevocationCheck(s.j,id,q.pin)
 }
 // Historical proofs are verified at their recorded acceptance time, not at
 // today's time; only the final lease can authorize a current mail operation.
