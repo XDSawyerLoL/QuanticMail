@@ -6,6 +6,7 @@ package main
 // are generated independently. A signed claim is not an enrollment, contact
 // permission, attestation or transport credential.
 import (
+ "bytes"
  "crypto/ecdsa"
  "crypto/elliptic"
  "crypto/rand"
@@ -167,4 +168,46 @@ func sealEnrollmentRoots(owner *ecdsa.PrivateKey,rootPQ pqKey,claim enrollmentCl
  header:=[]byte("QV-OWNER-ROOTS-LAB-V1\x00"+claim.Address+"\x00"+claim.RootPin+claim.PQRootPin+"\x00")
  header=append(header,salt[:]...);header=append(header,nonce[:]...)
  return aead.Seal(header,nonce[:],raw,header),nil
+}
+
+func verifySealedEnrollmentRoots(raw []byte,claim enrollmentClaim,password []byte)error{
+ if !validPortablePassword(password)||!strongAddr.MatchString(claim.Address)||
+  !hashRE.MatchString(claim.RootPin)||!hashRE.MatchString(claim.PQRootPin){return portableRefusal}
+ prefix:=[]byte("QV-OWNER-ROOTS-LAB-V1\x00"+claim.Address+"\x00"+claim.RootPin+claim.PQRootPin+"\x00")
+ h:=len(prefix)
+ if len(raw)<h+44||len(raw)>50000||!bytes.Equal(raw[:h],prefix){return portableRefusal}
+ aead,e:=portableAEAD(password,raw[h:h+16]);if e!=nil{return e}
+ plaintext,e:=aead.Open(nil,raw[h+16:h+28],raw[h+28:],raw[:h+28])
+ if e!=nil{return portableRefusal};defer clear(plaintext)
+ var der [][]byte
+ if json.Unmarshal(plaintext,&der)!=nil||len(der)!=2{return portableRefusal}
+ defer clear(der[0]);defer clear(der[1])
+ key,e:=x509.ParsePKCS8PrivateKey(der[0]);if e!=nil{return portableRefusal}
+ root,ok:=key.(*ecdsa.PrivateKey)
+ if !ok||root.Curve!=elliptic.P256()||publicPin(&root.PublicKey)!=claim.RootPin{return portableRefusal}
+ pq,e:=pqImport(der[1],"ML-DSA-65");if e!=nil{return e};defer pq.close()
+ pub,e:=pq.der(false);if e!=nil||hexHash(pub)!=claim.PQRootPin{return portableRefusal}
+ return nil
+}
+type enrollmentRequest struct {
+ Format string `json:"format"`
+ QuorumPin string `json:"quorumPin"`
+ ControllerPublic string `json:"controllerPublic"`
+ Claim enrollmentClaim `json:"claim"`
+ OwnerP256Signature string `json:"ownerP256Signature"`
+ OwnerMLDSASignature string `json:"ownerMlDsaSignature"`
+}
+func signEnrollmentRequest(claim enrollmentClaim,quorum,controller string,owner *ecdsa.PrivateKey,rootPQ pqKey)(enrollmentRequest,error){
+ var empty enrollmentRequest
+ pub,e:=b64.DecodeString(controller)
+ if e!=nil||len(pub)!=32||b64.EncodeToString(pub)!=controller||
+  !hashRE.MatchString(quorum)||publicPin(&owner.PublicKey)!=claim.RootPin{return empty,portableRefusal}
+ root,e:=rootPQ.der(false);if e!=nil||hexHash(root)!=claim.PQRootPin{return empty,portableRefusal}
+ format:="quantic-native-enrollment-request-lab/v1"
+ transcript,e:=json.Marshal([]string{format,claim.Address,claim.DeviceID,claim.RootPin,claim.PQRootPin,
+  claim.ManifestDigest,claim.ProfileDigest,quorum,controller})
+ if e!=nil{return empty,e}
+ sig,e:=enrollmentSignature(owner,transcript);if e!=nil{return empty,e}
+ pq,e:=rootPQ.sign(transcript);if e!=nil||!pqVerifyRoot(root,transcript,pq){return empty,portableRefusal}
+ return enrollmentRequest{format,quorum,controller,claim,sig,b64.EncodeToString(pq)},nil
 }
