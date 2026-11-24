@@ -6,6 +6,7 @@ import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {spawn,execFileSync} from 'node:child_process';
 import {once} from 'node:events';
+import {createServer as createHttpsServer} from 'node:https';
 import {loadPinnedAuthorityLab} from '../standalone-relay/native-checkpoint-operator-lab.mjs';
 import {authorityRenewalTranscript,initialAuthorityChain} from '../standalone-relay/native-authority-renewal-lab.mjs';
 import {createAttestedPeerSource} from '../desktop/native-attested-peer.mjs';
@@ -216,6 +217,32 @@ test('four separately pinned OS processes enforce 3-of-4 mTLS quorum, crash cuto
   await assert.rejects(loadPinnedAuthorityLab({directory:stale.dir,configPin:sha(cb)}));
  }finally{
   await Promise.all(services.map(stop));
+  await rm(root,{recursive:true,force:true});
+ }
+});
+
+test('CA-valid but wrongly pinned witnesses never receive application metadata', {skip:process.platform!=='linux',timeout:30000},async()=>{
+ const root=await mkdtemp(join(tmpdir(),'quantic-pin-boundary-')),servers=[];
+ let hits=0;
+ try{
+  generateCerts(root);
+  const ca=await readFile(join(root,'ca.crt'));
+  const authorities=[];
+  for(let i=0;i<4;i++){
+   const cert=await readFile(join(root,'w'+i+'.crt'));
+   const key=await readFile(join(root,'w'+i+'.key'));
+   const server=createHttpsServer({cert,key,ca,requestCert:true,rejectUnauthorized:true,minVersion:'TLSv1.3'},(req,res)=>{
+    hits++;req.resume();res.writeHead(403,{'Content-Length':0});res.end();
+   });
+   servers.push(server);await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',resolve);});
+   const signer=generateKeyPairSync('ed25519');
+   authorities.push({url:'https://127.0.0.1:'+server.address().port+'/native-checkpoint',tlsPin:sha('wrong synthetic certificate '+i),pin:sha(spki(signer)),publicKey:spki(signer).toString('base64url')});
+  }
+  const source=await createAttestedPeerSource({authorities,caFile:join(root,'ca.crt'),clientCertFile:join(root,'client.crt'),clientKeyFile:join(root,'client.key')});
+  await assert.rejects(source('alice~'+'a'.repeat(32)+'@quantic','d-'+'1'.repeat(32)));
+  assert.equal(hits,0);
+ }finally{
+  for(const s of servers){s.closeAllConnections();await new Promise(r=>s.close(r));}
   await rm(root,{recursive:true,force:true});
  }
 });

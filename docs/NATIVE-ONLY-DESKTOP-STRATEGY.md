@@ -1,5 +1,9 @@
 # Quantic Sillage — stratégie de distribution exclusivement native
 
+## Priorité produit réaffirmée le 24 novembre 2026
+
+Applications installables et fonctionnelles d'abord. Toute compatibilité Web applicative est reportée jusqu'à validation de la suite native, avec une nouvelle décision explicite et un audit de sécurité distinct. Aucun client Web, relais HTTP historique, ni retour automatique vers un service hébergé n'est autorisé dans la distribution native. Les interfaces locales de laboratoire et protocoles réseau authentifiés sont distincts d'un client Web public ; ils ne constituent pas une preuve de maturité. Le paquet Windows exclut le module historique durable-web-relay-route.mjs et vérifie son inventaire avant création du manifeste. Le témoin HTTPS configurable reste un point d'audit ; il ne doit pas être confondu avec le transport Mail Scattering ni considéré comme validé pour la production.
+
 Décision produit du **23 novembre 2026** : Quantic ID, Identity Vault, Quantic Mail, Quantic Scattering et les futurs paiements se présentent comme **logiciels natifs installés**, non comme des comptes et applications exploités depuis un navigateur.
 
 ## Contrat de sécurité appliqué dans cette branche
@@ -9,7 +13,7 @@ Décision produit du **23 novembre 2026** : Quantic ID, Identity Vault, Quantic 
 - Le parcours Windows utilise déjà `desktop/native-windows-desktop.mjs` et le contrôleur de coffre. Il s'agit d'une **interface native de laboratoire**, sans accès direct aux clés privées par un renderer.
 - La distribution historique via `npm run desktop:dist` échoue volontairement. L'ancien workflow `desktop-release.yml` ne possède plus le droit `contents: write`, ne construit plus d'exécutable Electron distant et **ne publie aucune release**.
 - La voie retenue pour Windows est le paquet indépendant **Quantic Sillage Alpha** : scripts `package-windows-pq-lab.sh`, `Start-Windows-PQ-Lab.ps1`, `Quantic-Sillage-Alpha.ps1`, installateur `Quantic-Sillage-Alpha.nsi`. Il contient le coffre Go/OpenSSL, un runtime Node local, les modules nécessaires et Scattering ; il n'embarque pas de navigateur client Web. Son manifeste SHA-256 est contrôlé avant lancement. Un véritable déploiement public exige un installateur signé Authenticode, une épingle de certificat éditeur vérifiée indépendamment et une analyse des dépendances.
-- Le site public pourra rester une **vitrine informative et une page de téléchargement**. Les API/relais nécessaires aux échanges réseau authentifiés ne sont pas des interfaces Web applicatives et ne sont pas supprimés par ce changement.
+- Le site public pourra rester une **vitrine informative et une page de téléchargement**. Les interfaces locales et protocoles réseau authentifiés nécessaires aux échanges natifs ne sont pas des interfaces Web applicatives. Aucun relais Web historique ne fait partie de la cible.
 
 ## Ce qui est délibérément conservé
 

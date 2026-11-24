@@ -2,7 +2,7 @@
  * Requires independently provisioned compact-manifest-quorum laboratory vault.
  */
 import {spawn} from 'node:child_process';
-import {createHash,createPublicKey,createPrivateKey,sign,verify} from 'node:crypto';
+import {createHash,createPublicKey,createPrivateKey,sign,verify,createHmac,generateKeyPairSync,diffieHellman,timingSafeEqual} from 'node:crypto';
 import {readFile,stat} from 'node:fs/promises';
 import {isAbsolute,win32} from 'node:path';
 import {createWindowsNativeStorage} from './native-windows-storage.mjs';
@@ -22,6 +22,24 @@ function publicPoint(s){
   const jwk={kty:'EC',crv:'P-256',x:p.subarray(1,33).toString('base64url'),y:p.subarray(33).toString('base64url')};
   const key=createPublicKey({key:jwk,format:'jwk'});
   return {jwk,key,pin:hex(key.export({format:'der',type:'spki'}))};
+}
+export function newBrokerSessionChallenge(vaultPublicKey){
+  const ephemeral=generateKeyPairSync('ec',{namedCurve:'prime256v1'});
+  const point=k=>{const j=k.export({format:'jwk'});return Buffer.concat([Buffer.from([4]),b64(j.x,32,32),b64(j.y,32,32)]);};
+  const peer=point(ephemeral.publicKey),vault=point(vaultPublicKey);
+  const secret=diffieHellman({privateKey:ephemeral.privateKey,publicKey:vaultPublicKey});
+  let expected;
+  try{
+    const prk=createHmac('sha256',Buffer.from('quantic-vault-session-proof-extract/v1\0')).update(secret).digest();
+    try{expected=createHmac('sha256',prk).update('quantic-vault-session-proof/v1\0').update(peer).update(vault).digest();}
+    finally{prk.fill(0);}
+  }finally{secret.fill(0);}
+  let used=false;
+  return Object.freeze({peer:peer.toString('base64url'),verify(proof){
+    check(!used,'broker session proof already consumed');used=true;
+    try{check(timingSafeEqual(expected,b64(proof,32,32)),'native broker possession proof mismatch');}
+    finally{expected.fill(0);}
+  },close(){used=true;expected.fill(0);}});
 }
 export function controllerFrame(nonce,seq,body,key){
   check(Buffer.isBuffer(nonce)&&nonce.length===32&&Number.isInteger(seq)&&seq>=1&&seq<=256,'invalid session');
@@ -124,6 +142,11 @@ export async function connectNativeVault({binary,binarySha256,vault,journal,quor
     const hello=await receive();nonce=b64(hello.session,32,32);
     const p=await call({op:'public'});signing=publicPoint(p.signing);enc=publicPoint(p.encryption);
     check(signing.pin===signingPin&&enc.pin===encryptionPin,'native vault point mismatch');
+    const challenge=newBrokerSessionChallenge(enc.key);
+    try{
+      const response=await call({op:'session-proof-lab',sessionPeer:challenge.peer});
+      challenge.verify(response.sessionProof);
+    }finally{challenge.close();}
     if(pqMode){
       check(p.backend===(windows?'windows-software-pq-quorum-lab':'software-pq-quorum-lab'),'wrong native backend');
       const pq=await call({op:'pq-public-lab'});

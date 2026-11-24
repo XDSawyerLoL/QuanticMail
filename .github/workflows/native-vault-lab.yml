@@ -2,10 +2,10 @@ name: Native Vault laboratory
 on:
   pull_request:
     branches: [main, "feat/**", "fix/**"]
-    paths: ['labs/quantic-native/**', 'cmd/quantic-alpha-launcher/**', 'desktop/**', 'lib/quantic/**', 'scripts/native-vault-windows-local.mjs', 'scripts/package-windows-pq-lab.sh', 'scripts/scattering-physical-probe.mjs', 'scripts/Start-Windows-PQ-Lab.ps1', 'scripts/Test-Windows-PQ-Package.ps1', 'scripts/Quantic-Sillage-Alpha.ps1', 'scripts/Quantic-Sillage-Alpha.nsi', 'scripts/native-windows-compose-send.mjs', 'scripts/native-windows-gui-receive.mjs', 'desktop/native-windows-gui-approval.mjs', 'tests/native-windows-gui-approval.test.mjs', 'tests/native-gui-two-client-scattering-e2e.test.mjs', 'scripts/Quantic-Sillage-Compose.ps1', 'scripts/Test-Native-Installer-Signature.ps1', 'scripts/Sign-Native-Lab-Installer.ps1', 'tests/native-windows-desktop.test.mjs', 'tests/native-windows-mail-flow.test.mjs', 'tests/native-scattering-mailbox.test.mjs', 'standalone-relay/native-scattering-mailbox.mjs', 'scripts/serve-native-scattering-windows.mjs', 'scripts/native-vault-windows-mailbox.mjs', 'scripts/verify-migration-local.mjs', '.github/workflows/native-vault-lab.yml']
+    paths: ['labs/quantic-native/**', 'cmd/quantic-alpha-launcher/**', 'desktop/**', 'lib/quantic/**', 'scripts/native-vault-windows-local.mjs', 'scripts/package-windows-pq-lab.sh', 'scripts/verify-native-payload-boundary.mjs', 'tests/native-payload-boundary.test.mjs', 'tests/native-vault-controller.test.mjs', 'tests/native-authority-operator-processes.test.mjs', 'scripts/scattering-physical-probe.mjs', 'scripts/Start-Windows-PQ-Lab.ps1', 'scripts/Test-Windows-PQ-Package.ps1', 'scripts/Quantic-Sillage-Alpha.ps1', 'scripts/Quantic-Sillage-Alpha.nsi', 'scripts/native-windows-compose-send.mjs', 'scripts/native-windows-gui-receive.mjs', 'desktop/native-windows-gui-approval.mjs', 'tests/native-windows-gui-approval.test.mjs', 'tests/native-gui-two-client-scattering-e2e.test.mjs', 'scripts/Quantic-Sillage-Compose.ps1', 'scripts/Test-Native-Installer-Signature.ps1', 'scripts/Sign-Native-Lab-Installer.ps1', 'tests/native-windows-desktop.test.mjs', 'tests/native-windows-mail-flow.test.mjs', 'tests/native-scattering-mailbox.test.mjs', 'standalone-relay/native-scattering-mailbox.mjs', 'scripts/serve-native-scattering-windows.mjs', 'scripts/native-vault-windows-mailbox.mjs', 'scripts/verify-migration-local.mjs', '.github/workflows/native-vault-lab.yml']
   push:
     branches: [main, "feat/**", "fix/**"]
-    paths: ['labs/quantic-native/**', 'cmd/quantic-alpha-launcher/**', 'desktop/**', 'lib/quantic/**', 'scripts/native-vault-windows-local.mjs', 'scripts/package-windows-pq-lab.sh', 'scripts/scattering-physical-probe.mjs', 'scripts/Start-Windows-PQ-Lab.ps1', 'scripts/Test-Windows-PQ-Package.ps1', 'scripts/Quantic-Sillage-Alpha.ps1', 'scripts/Quantic-Sillage-Alpha.nsi', 'scripts/native-windows-compose-send.mjs', 'scripts/native-windows-gui-receive.mjs', 'desktop/native-windows-gui-approval.mjs', 'tests/native-windows-gui-approval.test.mjs', 'scripts/Quantic-Sillage-Compose.ps1', 'scripts/Test-Native-Installer-Signature.ps1', 'scripts/Sign-Native-Lab-Installer.ps1', 'tests/native-windows-desktop.test.mjs', 'tests/native-windows-mail-flow.test.mjs', 'tests/native-scattering-mailbox.test.mjs', 'standalone-relay/native-scattering-mailbox.mjs', 'scripts/serve-native-scattering-windows.mjs', 'scripts/native-vault-windows-mailbox.mjs', 'scripts/verify-migration-local.mjs', '.github/workflows/native-vault-lab.yml']
+    paths: ['labs/quantic-native/**', 'cmd/quantic-alpha-launcher/**', 'desktop/**', 'lib/quantic/**', 'scripts/native-vault-windows-local.mjs', 'scripts/package-windows-pq-lab.sh', 'scripts/verify-native-payload-boundary.mjs', 'tests/native-payload-boundary.test.mjs', 'tests/native-vault-controller.test.mjs', 'tests/native-authority-operator-processes.test.mjs', 'scripts/scattering-physical-probe.mjs', 'scripts/Start-Windows-PQ-Lab.ps1', 'scripts/Test-Windows-PQ-Package.ps1', 'scripts/Quantic-Sillage-Alpha.ps1', 'scripts/Quantic-Sillage-Alpha.nsi', 'scripts/native-windows-compose-send.mjs', 'scripts/native-windows-gui-receive.mjs', 'desktop/native-windows-gui-approval.mjs', 'tests/native-windows-gui-approval.test.mjs', 'scripts/Quantic-Sillage-Compose.ps1', 'scripts/Test-Native-Installer-Signature.ps1', 'scripts/Sign-Native-Lab-Installer.ps1', 'tests/native-windows-desktop.test.mjs', 'tests/native-windows-mail-flow.test.mjs', 'tests/native-scattering-mailbox.test.mjs', 'standalone-relay/native-scattering-mailbox.mjs', 'scripts/serve-native-scattering-windows.mjs', 'scripts/native-vault-windows-mailbox.mjs', 'scripts/verify-migration-local.mjs', '.github/workflows/native-vault-lab.yml']
 permissions:
   contents: read
 # Keep only the latest feature validation; retain independent main runs.
@@ -54,6 +54,12 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 24.8.0
+      - name: Native witness certificate pin and metadata boundary
+        run: node --experimental-transform-types --test tests/native-authority-operator-processes.test.mjs
+      - name: Native controller possession challenge regressions
+        run: node --experimental-transform-types --test tests/native-vault-controller.test.mjs
+      - name: Native installer boundary regression
+        run: node --test tests/native-payload-boundary.test.mjs
       - name: Two isolated GUI clients over real native Scattering UDP (synthetic vaults)
         run: |
           node --version
@@ -62,10 +68,14 @@ jobs:
         working-directory: labs/quantic-native/vault
         run: |
           go test -count=1 ./...
-          go test -count=1 -tags pqopenssl ./...
+          QUANTIC_ENROLLMENT_TEST_OUTPUT="$RUNNER_TEMP/quantic-native-enrollment-public.json" go test -count=1 -tags pqopenssl ./...
           go vet -tags pqopenssl ./...
           go build -trimpath -tags pqopenssl -o VaultIsolated-linux .
           CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -o /tmp/VaultIsolated-Windows-nonPQ.exe .
+      - name: Verify native Go enrollment claim in the existing Node manifest and profile verifier
+        run: |
+          test -s "$RUNNER_TEMP/quantic-native-enrollment-public.json"
+          QUANTIC_ENROLLMENT_TEST_OUTPUT="$RUNNER_TEMP/quantic-native-enrollment-public.json" node --experimental-transform-types --test tests/native-enrollment-interop.test.mjs
       - name: Authority and native enrolment regressions
         working-directory: labs/quantic-native
         run: |
@@ -110,7 +120,7 @@ jobs:
           openssl version
           openssl list -kem-algorithms | grep -qi ML-KEM-768
           openssl list -signature-algorithms | grep -qi ML-DSA-65
-          go test -count=1 -tags pqopenssl -run '^(TestPQProviderRoundTrip|TestWindowsPrivateStorage|TestWindowsPQStorageReopen|TestWindowsProvisionJournalRestart|TestWindowsConsoleParsing|TestWindowsCredentialDiagnosticRefusal|TestSyntheticFirstRunMetadataNeverBecomesEnrollment|TestSyntheticGUICommandsRejectUnexpectedArgumentsWithoutDialogs|TestSyntheticContactCardSignedButNeverAuthorized|TestNativeSyntheticRegistryAndContactCommandsFailClosed|TestWindowsRecoveryExactResult|TestWindowsQuorumConfigRefusal|TestWindowsScatteringEpochGuard|TestWindowsLabImport|TestWindowsAutoController|TestWindowsPayLab|TestWindowsAnchoredPayLab|TestNativeFinancialPermitVerification|TestWindowsPayQuorumImportBinding)$' -v .
+          go test -count=1 -tags pqopenssl -run '^(TestPQProviderRoundTrip|TestWindowsPrivateStorage|TestWindowsProtectedDraftAtRest|TestWindowsPQStorageReopen|TestWindowsProvisionJournalRestart|TestWindowsConsoleParsing|TestWindowsCredentialDiagnosticRefusal|TestSyntheticFirstRunMetadataNeverBecomesEnrollment|TestSyntheticGUICommandsRejectUnexpectedArgumentsWithoutDialogs|TestSyntheticContactCardSignedButNeverAuthorized|TestNativeSyntheticRegistryAndContactCommandsFailClosed|TestNativeEnrollmentClaimInterop|TestWindowsEnrollmentClaimPrivatePersistence|TestWindowsRecoveryExactResult|TestWindowsQuorumConfigRefusal|TestWindowsScatteringEpochGuard|TestWindowsLabImport|TestWindowsAutoController|TestWindowsPayLab|TestWindowsAnchoredPayLab|TestNativeFinancialPermitVerification|TestWindowsPayQuorumImportBinding)$' -v .
           go build -trimpath -tags pqopenssl -o "$RUNNER_TEMP/Vault-PQ-provider-lab.exe" .
           cd ../scattering/native
           CGO_ENABLED=0 go build -trimpath -o "$RUNNER_TEMP/Scattering-Pacer.exe" .

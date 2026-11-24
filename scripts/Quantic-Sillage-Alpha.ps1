@@ -25,6 +25,7 @@ $actions=@(
  @{Id="RecoverOpen";Title="Recuperer une ouverture";Hint="Reprendre le resultat exact d'une enveloppe.";Input="wire";Scope=$true},
  @{Id="RecoverReceive";Title="Recuperer une reception";Hint="Reprendre le resultat exact ; nouveau fichier de recu obligatoire.";Input="receipt";Scope=$true},
  @{Id="ConfirmReceipt";Title="Confirmer un recu existant";Hint="Verifier le recu conserve et confirmer au relais.";Input="receipt";Scope=$true},
+ @{Id="PrepareEnrollment";Title="Preparer mon inscription de test";Hint="Creer une nouvelle identite avec ses racines proprietaires distinctes. Empreinte du quorum approuvee requise ; aucune inscription distante.";Scope=$false},
  @{Id="Provision";Title="Creer un coffre de test";Hint="Parametres publics independants requis. Ne cree pas de compte distant.";Scope=$true},
  @{Id="ProvisionPair";Title="Creer deux coffres de test PQ";Hint="Deux identites fictives, deux repertoires neufs. Empreintes de quorum independantes exigees ; aucun compte distant.";Scope=$true},
  @{Id="StartBridge";Title="Demarrer le pont Scattering";Hint="Dossier de transport distinct deja configure ; pacer et sink separes requis.";Scope=$true},
@@ -49,7 +50,7 @@ $actions=@(
 function Get-AlphaModule([string]$Id) {
  switch -Regex ($Id) {
   '^(ComposeDraft|SealAndSend|RecoverSealAndSend|Seal|RecoverSeal|Send|Receive|Open|RecoverOpen|RecoverReceive|ConfirmReceipt|MailPreflight|MailAttest)$' { return "QUANTIC MAIL" }
-  '^(Provision|ProvisionPair)$' { return "QUANTIC ID" }
+  '^(PrepareEnrollment|Provision|ProvisionPair)$' { return "QUANTIC ID" }
   '^Migration' { return "IDENTITY VAULT" }
   '^(StartBridge|ProbeLoopback)$' { return "SCATTERING" }
   '^(Pay|StartPayBridge)' { return "QUANTIC PAY - LAB" }
@@ -290,6 +291,77 @@ function Show-SyntheticContactGuide {
  try{[void]$menu.ShowDialog()}finally{$menu.Dispose()}
 }
 
+# Only a public signed enrollment request leaves the native process.
+function Show-PrepareEnrollment {
+ $dlg=New-Object Windows.Forms.Form
+ $dlg.Text='Quantic ID | Preparer une inscription de test'
+ $dlg.StartPosition='CenterParent';$dlg.ClientSize=New-Object Drawing.Size(680,410)
+ $dlg.BackColor=[Drawing.Color]::FromArgb(19,25,35);$dlg.ForeColor=[Drawing.Color]::WhiteSmoke
+ $info=New-Object Windows.Forms.Label
+ $info.Text='Nouvelle identite de laboratoire. Utilisez une empreinte de quorum fournie et verifiee par un operateur independant. Trois secrets distincts seront demandes dans les fenetres natives. Aucun compte distant ne sera cree.'
+ $info.SetBounds(20,16,640,105);$dlg.Controls.Add($info)
+ $hLabel=New-Object Windows.Forms.Label;$hLabel.Text='Identifiant de test (lettres minuscules, chiffres, . _ -)'
+ $hLabel.SetBounds(20,128,640,25);$dlg.Controls.Add($hLabel)
+ $handle=New-Object Windows.Forms.TextBox;$handle.SetBounds(20,156,640,30);$handle.MaxLength=32;$dlg.Controls.Add($handle)
+ $pLabel=New-Object Windows.Forms.Label;$pLabel.Text='Empreinte SHA-256 du quorum approuve (64 caracteres)'
+ $pLabel.SetBounds(20,200,640,25);$dlg.Controls.Add($pLabel)
+ $pin=New-Object Windows.Forms.TextBox;$pin.SetBounds(20,228,640,30);$pin.MaxLength=64;$dlg.Controls.Add($pin)
+ $confirm=New-Object Windows.Forms.CheckBox
+ $confirm.Text='Je confirme avoir obtenu et compare cette empreinte par un canal independant.'
+ $confirm.SetBounds(20,271,640,44);$dlg.Controls.Add($confirm)
+ $start=New-Object Windows.Forms.Button;$start.Text='Creer et signer ma candidature'
+ $start.SetBounds(20,335,370,50);$start.ForeColor=[Drawing.Color]::Black;$dlg.Controls.Add($start)
+ $cancel=New-Object Windows.Forms.Button;$cancel.Text='Annuler';$cancel.DialogResult=[Windows.Forms.DialogResult]::Cancel
+ $cancel.SetBounds(495,335,165,50);$cancel.ForeColor=[Drawing.Color]::Black;$dlg.Controls.Add($cancel);$dlg.CancelButton=$cancel
+ $start.Add_Click({
+  if(-not $confirm.Checked -or $handle.Text -cnotmatch '^[a-z0-9][a-z0-9._-]{2,31}$' -or $pin.Text -cnotmatch '^[a-f0-9]{64}$'){
+   [Windows.Forms.MessageBox]::Show('Identifiant et empreinte independante valides requis.','Informations manquantes','OK','Warning')|Out-Null
+   return
+  }
+  $start.Enabled=$false
+  try{
+   $parent=[Environment]::GetFolderPath('LocalApplicationData')
+   if($parent -cnotmatch '^[A-Za-z]:\\[A-Za-z0-9_. -]+(?:\\[A-Za-z0-9_. -]+)*$'){throw 'Chemin local refuse.'}
+   $vault=Join-Path $root 'bin\Vault-PQ-lab.exe'
+   if((Get-FileHash -LiteralPath $vault -Algorithm SHA256).Hash -ine $TrustedBinarySha256){throw 'Moteur non approuve.'}
+   $psi=New-Object Diagnostics.ProcessStartInfo
+   $psi.FileName=$vault;$psi.Arguments=('--gui-prepare-enrollment-claim-lab "{0}" {1} {2}' -f $parent,$handle.Text,$pin.Text)
+   $psi.WorkingDirectory=(Join-Path $root 'bin');$psi.UseShellExecute=$false;$psi.CreateNoWindow=$true
+   $psi.RedirectStandardOutput=$true;$psi.EnvironmentVariables.Clear()
+   $psi.EnvironmentVariables['SystemRoot']=$env:SystemRoot;$psi.EnvironmentVariables['WINDIR']=$env:SystemRoot
+   $psi.EnvironmentVariables['PATH']=(Join-Path $root 'bin')+';'+(Join-Path $env:SystemRoot 'System32')
+   $proc=New-Object Diagnostics.Process;$proc.StartInfo=$psi;$started=$false
+   try{
+    $started=$proc.Start()
+    if(-not $started){throw 'Demarrage refuse.'}
+    $reading=$proc.StandardOutput.ReadToEndAsync()
+    if(-not $proc.WaitForExit(300000)){throw 'Operation expiree.'}
+    if($proc.ExitCode -ne 0){throw 'Creation refusee.'}
+    $raw=$reading.GetAwaiter().GetResult()
+    if($raw.Length -lt 30 -or $raw.Length -gt 60000){throw 'Reponse invalide.'}
+    $r=ConvertFrom-Json -InputObject $raw
+    if($r.status -cne 'signed-claim-not-enrolled' -or $r.labOnly -ne $true -or $r.remotelyEnrolled -ne $false -or $r.code -cnotmatch '^QSENROLL1:[A-Za-z0-9_-]+$'){throw 'Candidature non confirmee.'}
+    if($r.directory -cnotmatch ('^'+[Regex]::Escape($parent)+'\\quantic-enroll-[0-9a-f]{16}$')){throw 'Dossier non confirme.'}
+   }finally{if($started -and -not $proc.HasExited){$proc.Kill()};$proc.Dispose()}
+   $result=New-Object Windows.Forms.Form;$result.Text='Candidature publique signee - en attente'
+   $result.StartPosition='CenterParent';$result.ClientSize=New-Object Drawing.Size(680,380)
+   $notice=New-Object Windows.Forms.Label
+   $notice.Text=('Identite '+$r.address+[Environment]::NewLine+'Copier ce dossier PUBLIC pour l operateur de laboratoire. Aucun compte actif ni droit de messagerie.')
+   $notice.SetBounds(20,15,640,76);$result.Controls.Add($notice)
+   $claim=New-Object Windows.Forms.TextBox;$claim.Multiline=$true;$claim.ReadOnly=$true;$claim.ScrollBars='Vertical'
+   $claim.SetBounds(20,100,640,200);$claim.Text=$r.code;$result.Controls.Add($claim)
+   $copy=New-Object Windows.Forms.Button;$copy.Text='Copier ma candidature publique';$copy.SetBounds(20,320,360,45);$result.Controls.Add($copy)
+   $copy.Add_Click({[Windows.Forms.Clipboard]::SetText($claim.Text)})
+   $done=New-Object Windows.Forms.Button;$done.Text='Fermer';$done.SetBounds(500,320,160,45);$done.DialogResult=[Windows.Forms.DialogResult]::OK;$result.Controls.Add($done)
+   try{[void]$result.ShowDialog()}finally{$result.Dispose()}
+   $dlg.DialogResult=[Windows.Forms.DialogResult]::OK
+  }catch{
+   [Windows.Forms.MessageBox]::Show('Candidature non confirmee. Aucun compte active. Un nouveau dossier partiel peut subsister ; ne pas le reutiliser.','Creation refusee','OK','Warning')|Out-Null
+  }finally{$start.Enabled=$true}
+ })
+ try{[void]$dlg.ShowDialog()}finally{$dlg.Dispose()}
+}
+
 $form=New-Object Windows.Forms.Form
 $form.Text="Quantic Sillage | Alpha privee"
 $form.StartPosition="CenterScreen"
@@ -396,8 +468,8 @@ $choice.Add_SelectedIndexChanged({
  if ($choice.SelectedIndex -lt 0) { return }
  $a=$script:shownActions[$choice.SelectedIndex]
  $hint.Text=$a.Hint
- $run.Text=if($a.Id -eq 'ComposeDraft'){"Rediger mon message"}else{"Ouvrir le laboratoire technique"}
- $simple=$a.Id -eq 'ComposeDraft'
+ $run.Text=if($a.Id -eq 'ComposeDraft'){"Rediger mon message"}elseif($a.Id -eq 'PrepareEnrollment'){"Preparer mon inscription de test"}else{"Ouvrir le laboratoire technique"}
+ $simple=$a.Id -in @('ComposeDraft','PrepareEnrollment')
  foreach($control in @($directory,$il,$inputName,$ol,$outputName)){$control.Visible=-not $simple}
  $directory.Enabled=[bool]$a.Scope
  $inputName.Enabled=[bool]$a.Input
@@ -408,6 +480,10 @@ $choice.Add_SelectedIndexChanged({
 $run.Add_Click({
  try{
   $a=$script:shownActions[$choice.SelectedIndex]
+  if($a.Id -eq 'PrepareEnrollment'){
+   Show-PrepareEnrollment
+   return
+  }
   if($a.Id -eq 'ComposeDraft'){
    & (Join-Path $root 'Quantic-Sillage-Compose.ps1') -ExpectedManifestSha256 $ExpectedManifestSha256 -TrustedBinarySha256 $TrustedBinarySha256
    return
@@ -424,7 +500,7 @@ $run.Add_Click({
 $module.SelectedIndex=0
 if ($SelfTest) {
  try {
-  if($actions.Count -ne 30 -or $script:shownActions[0].Id -ne 'ComposeDraft' -or $inputName.Visible -or $outputName.Visible -or $createIdentity.Text -notmatch 'identite de test' -or $openIdentity.Text -notmatch 'coffre de test' -or $contactGuide.Text -notmatch 'contact de test'){throw "Dashboard initialization failed"}
+  if($actions.Count -ne 31 -or $script:shownActions[0].Id -ne 'ComposeDraft' -or $inputName.Visible -or $outputName.Visible -or $createIdentity.Text -notmatch 'identite de test' -or $openIdentity.Text -notmatch 'coffre de test' -or $contactGuide.Text -notmatch 'contact de test'){throw "Dashboard initialization failed"}
   $choice.SelectedIndex=1
   if(-not $inputName.Enabled -or -not $outputName.Enabled){throw "Advanced input fields missing"}
   $a=New-OperationArguments $actions[1] "C:\Quantic Lab\vault" "draft-test.json" "wire-test.json"

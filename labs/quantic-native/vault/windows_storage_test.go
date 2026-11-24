@@ -65,3 +65,25 @@ func TestWindowsPQStorageReopen(t *testing.T){
  if e=os.WriteFile(f,raw,0600);e!=nil{t.Fatal(e)}
  if _,e=winReadPQ(f,magic,pw,addr,device,kpin,dpin);e==nil{t.Fatal("tamper accepted")}
 }
+
+func TestWindowsProtectedDraftAtRest(t *testing.T){
+ dir:=filepath.Join(t.TempDir(),"draft-private")
+ if e:=winCreatePrivateDirectory(dir);e!=nil{t.Fatal(e)}
+ path:=filepath.Join(dir,"draft-synthetic.json")
+ plain:=[]byte("{\"body\":\"synthetic secret draft marker\"}")
+ if e:=winWriteProtectedDraft(path,plain);e!=nil{t.Fatal(e)}
+ raw,e:=winReadPrivate(path,32768);if e!=nil{t.Fatal(e)}
+ if !bytes.HasPrefix(raw,[]byte(draftMagic))||bytes.Contains(raw,plain)||bytes.Contains(raw,[]byte("synthetic secret draft marker")){t.Fatal("plaintext draft persisted")}
+ opened,e:=winReadProtectedDraft(path);if e!=nil||!bytes.Equal(opened,plain){t.Fatal("roundtrip",e)};clear(opened)
+ if e=winWriteProtectedDraft(path,plain);e==nil{t.Fatal("overwrite accepted")}
+ other:=filepath.Join(dir,"draft-other.json")
+ if e=winWritePrivate(other,raw);e!=nil{t.Fatal(e)}
+ if _,e=winReadProtectedDraft(other);e==nil{t.Fatal("copied ciphertext accepted under different name")}
+ raw[len(raw)-1]^=1
+ if e=os.WriteFile(path,raw,0600);e!=nil{t.Fatal(e)}
+ if _,e=winReadProtectedDraft(path);e==nil{t.Fatal("tampering accepted")}
+ legacy:=filepath.Join(dir,"draft-legacy.json")
+ if e=winWritePrivate(legacy,plain);e!=nil{t.Fatal(e)}
+ if _,e=winReadProtectedDraft(legacy);e==nil{t.Fatal("plaintext fallback accepted")}
+ retained,e:=winReadPrivate(legacy,8192);if e!=nil||!bytes.Equal(retained,plain){t.Fatal("historical file changed")}
+}

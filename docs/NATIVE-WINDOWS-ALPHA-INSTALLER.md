@@ -7,7 +7,7 @@
 Sur la branche UX de la PR #57, le lanceur ouvre le tableau de bord **sans console PowerShell en arrière-plan**.
 Le premier parcours Quantic Mail est **« Rédiger un message (sans terminal) »** : choix d'un coffre **de test déjà provisionné**, sélection d'un contact présent dans le carnet local, objet et texte. Aucun nom `draft-nom.json` n'est demandé ; le nom technique est choisi automatiquement, avec refus de tout écrasement et relecture du fichier.
 
-**Limite critique : le brouillon enregistré est en clair dans un dossier privé NTFS.** Ses ACL protègent contre des comptes non autorisés dans le modèle de test, mais pas contre un malware opérant sous le même compte. Le logiciel demande un accord explicite et interdit de considérer cette fonction comme adaptée à de vrais messages ou à un déploiement. Le chiffrement des brouillons au repos et la signature/envoi sans console nécessitent un futur dialogue natif de secrets et d'approbations, sans contournement du coffre. Aucune transmission ni création d'identité réelle n'est effectuée par le composeur.
+**Protection des nouveaux brouillons :** DPAPI Windows liée au compte utilisateur, avec entropie de domaine et de chemin, refus de l'écrasement et ACL NTFS privées. Les anciens brouillons en clair restent intacts et ne sont plus ouverts par le nouveau lecteur : une migration explicite reste nécessaire. DPAPI ne protège pas contre un malware sous le même compte. Aucune utilisation réelle ni déploiement autorisé.
 
 Les opérations historiques de laboratoire restent accessibles après un consentement explicite ouvrant **une console technique distincte**. Elles ne font pas partie du parcours standard. L'installateur demeure non signé.
 
@@ -89,7 +89,7 @@ Le composeur Windows propose désormais, en plus de l'enregistrement du brouillo
 
 - Le coffre de test et le destinataire sont sélectionnés graphiquement. Le sujet et le contenu passent seulement par un pipe local privé vers Node ; aucune phrase secrète n'est transmise à Node, PowerShell, une ligne de commande, un fichier de configuration ou une URL.
 - Le broker Go utilise le dialogue de credentials natif Windows avec persistance interdite, et exige une approbation explicite locale. Le mode console historique reste séparé.
-- Le brouillon en clair est conservé dans le dossier NTFS privé de laboratoire. L'enveloppe signée et chiffrée PQ est écrite une seule fois, synchronisée, relue et vérifiée **avant** d'autoriser un dépôt sur le relais Scattering déjà configuré.
+- Le nouveau brouillon est conservé sous forme DPAPI dans le dossier NTFS privé de laboratoire. L'enveloppe signée et chiffrée PQ est écrite une seule fois, synchronisée, relue et vérifiée **avant** d'autoriser un dépôt sur le relais Scattering déjà configuré.
 - Une deuxième confirmation graphique est exigée avant le dépôt, sans nouvel essai automatique si le résultat réseau est incertain. Un dépôt local confirmé **ne prouve pas** une réception, une lecture ni une livraison sur un deuxième ordinateur.
 - Cette nouvelle voie doit encore subir la compilation Windows, les tests de paquet, un test interactif sur deux vrais PC et une revue des dialogues et de la gestion des secrets. L'absence de console dans le test CI n'est pas une preuve de sécurité face à un PC compromis. Elle demeure interdite pour les comptes réels.
 - Les anciennes identités, messages et sauvegardes sont conservés. Aucune suppression, migration définitive ni paiement réel n'est autorisé.
