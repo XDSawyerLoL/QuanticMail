@@ -41,32 +41,44 @@ func directDecode(raw []byte,v any)error{
  if d.Decode(v)!=nil||d.Decode(&extra)!=io.EOF{return portableRefusal};return nil
 }
 func winProvisionDirect(dir,alias string,pw,pqw []byte)(directIdentity,error){
+ return winProvisionDirectMode(dir,alias,pw,pqw,"")
+}
+func winProvisionDirectMode(dir,alias string,pw,pqw []byte,roster string)(directIdentity,error){
  var out directIdentity
+ protected:=roster!=""
+ if protected&&!hashRE.MatchString(roster){return out,portableRefusal}
  if !directAlias.MatchString(alias){return out,portableRefusal}
  var random [48]byte
  if _,e:=rand.Read(random[:]);e!=nil{return out,e};defer clear(random[:])
  addr:=alias+"~"+hex.EncodeToString(random[:16])+"@quantic"
  local:=hex.EncodeToString(random[16:])
+ if protected{local=roster}
  // This domain uses only a public controller identifier; private operations
  // occur inside the one-shot native GUI process, not a controller broker.
  pub,priv,e:=ed25519.GenerateKey(rand.Reader);if e!=nil{return out,e};clear(priv)
  app:=b64.EncodeToString(pub)
- m,e:=winProvisionVaultMode(dir,app,local,addr,pw,pqw,nil,true)
+ m,e:=winProvisionVaultMode(dir,app,local,addr,pw,pqw,nil,true,protected)
  if e!=nil{return out,e}
  out=directIdentity{"quantic-local-direct-identity/v1",addr,m["deviceId"],m["signingPin"],m["encryptionPin"],m["kemPin"],m["dsaPin"],m["signing"],m["encryption"],m["kemPublic"],m["dsaPublic"],app,local}
+ if protected{out.Format="quantic-protected-direct-identity/v1"}
  raw,e:=json.Marshal(out);if e!=nil{return directIdentity{},e}
  if e=winWritePrivate(filepath.Join(dir,"direct-identity.json"),raw);e!=nil{return directIdentity{},e}
  return out,nil
 }
 func winReadDirectIdentity(dir string)(directIdentity,error){
+ return winReadDirectIdentityMode(dir,false)
+}
+func winReadDirectIdentityMode(dir string,protected bool)(directIdentity,error){
  var id directIdentity
+ format,markerName:="quantic-local-direct-identity/v1","direct-provisioned"
+ if protected{format,markerName="quantic-protected-direct-identity/v1","direct-protected-provisioned"}
  raw,e:=winReadPrivate(filepath.Join(dir,"direct-identity.json"),16384);if e!=nil{return id,e}
- if directDecode(raw,&id)!=nil||id.Format!="quantic-local-direct-identity/v1"||!strongAddr.MatchString(id.Address)||!strongDevice.MatchString(id.Device){return id,portableRefusal}
+ if directDecode(raw,&id)!=nil||id.Format!=format||!strongAddr.MatchString(id.Address)||!strongDevice.MatchString(id.Device){return id,portableRefusal}
  for _,pin:=range []string{id.SigningPin,id.EncryptionPin,id.KemPin,id.DsaPin,id.LocalPin}{if !hashRE.MatchString(pin){return id,portableRefusal}}
  pub,e:=appPublic(id.ControllerPublic);if e!=nil{return id,e}
- marker,e:=winReadPrivate(filepath.Join(dir,"direct-provisioned"),64);if e!=nil||string(marker)!=hexHash(pub){return id,portableRefusal}
+ marker,e:=winReadPrivate(filepath.Join(dir,markerName),64);if e!=nil||string(marker)!=hexHash(pub){return id,portableRefusal}
  // A legacy or quorum marker is not accepted even alongside a direct one.
- if _,e=os.Lstat(filepath.Join(dir,"lab-provisioned"));!os.IsNotExist(e){return id,portableRefusal}
+ for _,name:=range []string{"lab-provisioned","direct-provisioned","direct-protected-provisioned"}{if name!=markerName{if _,e=os.Lstat(filepath.Join(dir,name));!os.IsNotExist(e){return id,portableRefusal}}}
  return id,nil
 }
 func winDirectTrust(dir,pin string)(*senderTrust,error){
@@ -103,23 +115,48 @@ type directWire struct{
  Auth senderAuth `json:"senderAuth"`
 }
 func winDirectMail(dir string,op directOperation,prompt func(string,bool)([]byte,error),approve func(string)bool)(reply,error){
+ return winDirectMailMode(dir,op,prompt,approve,nil,nil,"")
+}
+// Protected mode accepts only a verified lease store and a separate independently
+// anchored operation journal. It never opens the legacy key domain.
+func winDirectMailMode(dir string,op directOperation,prompt func(string,bool)([]byte,error),approve func(string)bool,lease *directLeaseStore,members *[4]directWitnessMember,roster string)(reply,error){
  var fail reply
+ protected:=lease!=nil||members!=nil||roster!=""
+ if protected&&(lease==nil||members==nil||!hashRE.MatchString(roster)){return fail,portableRefusal}
  if op.Op!="seal"&&op.Op!="open"{return fail,portableRefusal}
  if op.Op=="seal"&&!clientDraftName.MatchString(op.File)||op.Op=="open"&&(!clientWireName.MatchString(op.File)||!strings.HasPrefix(op.File,"wire-in-")){return fail,portableRefusal}
  hs,e:=winLockDirectory(dir,true);if e!=nil{return fail,e};defer winClose(hs)
- id,e:=winReadDirectIdentity(dir);if e!=nil{return fail,e}
+ id,e:=winReadDirectIdentityMode(dir,protected);if e!=nil{return fail,e}
  pub,e:=appPublic(id.ControllerPublic);if e!=nil{return fail,e}
- t,e:=winDirectTrust(dir,op.ContactPin);if e!=nil{return fail,e}
- if !approve("Ouvrir le coffre DIRECT LOCAL "+id.Address+" ? Sans quorum distant ; protection locale seulement."){return fail,portableRefusal}
+ trust:=func()(*senderTrust,error){
+  if !protected{return winDirectTrust(dir,op.ContactPin)}
+  if id.LocalPin!=roster||lease.recipient!=id.Address||lease.device!=id.Device||!hashRE.MatchString(op.ContactPin){return nil,portableRefusal}
+  raw,e:=winReadPrivate(filepath.Join(dir,"contacts.json"),131072);if e!=nil{return nil,e};defer clear(raw)
+  var initial []senderContact
+  if hexHash(raw)!=op.ContactPin||directDecode(raw,&initial)!=nil||len(initial)!=1{return nil,portableRefusal}
+  a,e:=directContactCommit(initial[0]);if e!=nil{return nil,e}
+  b,e:=directContactCommit(lease.initial);if e!=nil||a!=b{return nil,portableRefusal}
+  if lease.j==nil{return nil,portableRefusal}
+  q,ok:=lease.j.anchor.(*quorumAnchor);if !ok||q==nil||q.pin!=roster{return nil,portableRefusal}
+  contact,e:=lease.active(time.Now().UnixMilli());if e!=nil{return nil,e}
+  return &senderTrust{contacts:map[string]senderContact{senderKey(contact.Address,contact.Device):contact}},nil
+ }
+ t,e:=trust();if e!=nil{return fail,e}
+ detail:="Ouvrir le coffre DIRECT LOCAL "+id.Address+" ? Sans quorum distant ; protection locale seulement."
+ if protected{detail="Ouvrir le coffre DIRECT PROTEGE "+id.Address+" ? Quorum independant obligatoire."}
+ if approve==nil||prompt==nil||!approve(detail){return fail,portableRefusal}
  pw,e:=prompt("Phrase secrete classique",true);if e!=nil{return fail,e};defer clear(pw)
  local:=hexHash([]byte("quantic-direct-local-vault/v1\x00"+id.LocalPin))
- k,e:=winReadClassical(filepath.Join(dir,"classical.vault"),anchoredMagic+"direct-local-only:"+local+"\x00",pw,id.SigningPin,id.EncryptionPin);clear(pw);if e!=nil{return fail,e}
+ magic:=anchoredMagic+"direct-local-only:"+local+"\x00"
+ if protected{local=hexHash([]byte("quantic-direct-protected-vault/v1\x00"+roster));magic=anchoredMagic+"direct-protected:"+local+"\x00"}
+ k,e:=winReadClassical(filepath.Join(dir,"classical.vault"),magic,pw,id.SigningPin,id.EncryptionPin);clear(pw);if e!=nil{return fail,e}
  binding,e:=pqBinding(id.SigningPin,id.EncryptionPin,hexHash(pub),local,id.Address,id.Device);if e!=nil{return fail,e}
  pqw,e:=prompt("Phrase secrete post-quantique",true);if e!=nil{return fail,e};defer clear(pqw)
  p,e:=winReadPQ(filepath.Join(dir,"pq.vault"),binding,pqw,id.Address,id.Device,id.KemPin,id.DsaPin);clear(pqw);if e!=nil{return fail,e};defer p.close()
  j,e:=winOpenReplay(filepath.Join(dir,"journal.log"),id.SigningPin,id.EncryptionPin,hexHash(pub));if e!=nil{return fail,e};defer j.close()
  if j.anchor!=nil{return fail,portableRefusal}
  j.anchorID=hexHash([]byte("quantic-direct-local-result/v1\x00"+local+"\x00"+id.Address+"\x00"+id.Device))
+ if protected{if e=attachDirectPeerQuorum(j,directProtectedMailID(id),*members,roster);e!=nil{return fail,e}}
  var q request
  var logical [32]byte
  var contact senderContact
@@ -153,7 +190,7 @@ func winDirectMail(dir string,op directOperation,prompt func(string,bool)([]byte
  req:=recoveryRequest(q)
  // No content in the dialog or stdout until explicit authorization.
  if !approve("Operation directe "+op.Op+" avec "+contact.Address+" / SHA256 "+hex.EncodeToString(req[:])){return fail,portableRefusal}
- if _,e=winDirectTrust(dir,op.ContactPin);e!=nil||contact.Expires<=time.Now().UnixMilli(){return fail,portableRefusal}
+ if _,e=trust();e!=nil||contact.Expires<=time.Now().UnixMilli(){return fail,portableRefusal}
  var result reply
  if op.Recover{
   if !j.seen[logical]||j.failed{return fail,portableRefusal}
@@ -165,7 +202,8 @@ func winDirectMail(dir string,op directOperation,prompt func(string,bool)([]byte
   if e==nil{result,e=p.readResult(j,logical,req)}
  }
  if e!=nil{return fail,e}
- if _,e=winDirectTrust(dir,op.ContactPin);e!=nil||contact.Expires<=time.Now().UnixMilli(){return fail,portableRefusal}
+ if _,e=trust();e!=nil||contact.Expires<=time.Now().UnixMilli(){return fail,portableRefusal}
+ if protected{if e=j.anchor.check(j.anchorID,len(j.seen),j.tail);e!=nil{return fail,e}}
  if op.Op=="seal"{
   if result.HybridEnvelope==nil||result.SenderAuth==nil||result.Message!=nil{return fail,portableRefusal}
  }else if result.Message==nil||result.HybridEnvelope!=nil||result.SenderAuth!=nil{return fail,portableRefusal}
@@ -198,3 +236,5 @@ func winDirectVaultCLI(args []string)(bool,error){
  }
  return false,nil
 }
+
+func directProtectedMailID(id directIdentity)string{return hexHash([]byte("quantic-direct-protected-mail/v1\x00"+id.Address+"\x00"+id.Device+"\x00"+id.SigningPin+"\x00"+id.EncryptionPin+"\x00"+id.LocalPin))}
