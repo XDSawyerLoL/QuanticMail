@@ -77,8 +77,8 @@ func activationPlan(dir,binary,binaryPin string,r enrollmentRequest,b windowsAct
  port,e:=strconv.Atoi(u.Port());if e!=nil||port<1||port>65535||u.Host!="127.0.0.1:"+strconv.Itoa(port){return nil,portableRefusal}
  if len(b.Anchors)!=4||len(b.Checkpoints)!=4||!activationTLSValid(b.AnchorTLS)||!activationTLSValid(b.CheckpointTLS){return nil,portableRefusal}
  files:=[]activationFile{
-  {"peer-anchor-ca.pem",b.AnchorTLS.CA},{"peer-anchor-cert.pem",b.AnchorTLS.Cert},{"peer-anchor-key.pem",b.AnchorTLS.Key},
-  {"peer-checkpoint-ca.pem",b.CheckpointTLS.CA},{"peer-checkpoint-cert.pem",b.CheckpointTLS.Cert},{"peer-checkpoint-key.pem",b.CheckpointTLS.Key},
+  {"peer-anchor-ca.pem",append([]byte(nil),b.AnchorTLS.CA...)},{"peer-anchor-cert.pem",append([]byte(nil),b.AnchorTLS.Cert...)},{"peer-anchor-key.pem",append([]byte(nil),b.AnchorTLS.Key...)},
+  {"peer-checkpoint-ca.pem",append([]byte(nil),b.CheckpointTLS.CA...)},{"peer-checkpoint-cert.pem",append([]byte(nil),b.CheckpointTLS.Cert...)},{"peer-checkpoint-key.pem",append([]byte(nil),b.CheckpointTLS.Key...)},
  }
  path:=func(n string)string{return filepath.Join(dir,n)}
  configs:=make([]anchorConfig,0,4);pins:=[]string{};origins:=map[string]bool{}
@@ -154,6 +154,7 @@ func importWindowsActivation(dir,binary,binaryPin string,b windowsActivationBund
  proof,e:=nativeMailboxCredentialProof(token,b.RequestDigest,key)
  if e!=nil||proof!=b.Credential{return portableRefusal}
  if _,e=checkEnrollmentApprovals(r,b.Approvals,b.RosterPin,time.Now());e!=nil{return e}
+ hs,e:=winLockDirectory(dir,true);if e!=nil{return e};defer winClose(hs)
  return applyActivationFiles(dir,files)
 }
 func windowsActivationCLI(args []string)error{
@@ -169,7 +170,7 @@ func windowsActivationCLI(args []string)error{
  f,e:=os.Open(binary);if e!=nil{return e}
  h:=sha256.New();n,e:=io.Copy(h,io.LimitReader(f,256*1024*1024+1));f.Close()
  if e!=nil||n<1||n>256*1024*1024||hex.EncodeToString(h.Sum(nil))!=binaryPin{return portableRefusal}
- if _,e=activationPlan(dir,binary,binaryPin,r,b,time.Now());e!=nil{return e}
+ planned,e:=activationPlan(dir,binary,binaryPin,r,b,time.Now());if e!=nil{return e};for _,f:=range planned{clear(f.raw)}
  if !winGUIApprove("Configuration de messagerie de laboratoire pour "+r.Claim.Address+". L'empreinte du dossier a ete verifiee. Aucun compte actif ni connexion distante prouvee. Importer ?"){return portableRefusal}
  pw,e:=winGUIPassphrase("Secret classique de l'appareil",true);if e!=nil{return e};defer clear(pw)
  pqw,e:=winGUIPassphrase("Secret post-quantique de l'appareil",true);if e!=nil{return e};defer clear(pqw)
