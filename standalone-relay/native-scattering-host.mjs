@@ -116,6 +116,7 @@ export async function startPrivateCarrierHost(plan,{
   check(!closing&&kids.every(({child})=>child.exitCode===null&&child.signalCode===null));
   return Object.freeze({role:plan.carrier.role,httpPort:endpoint.httpPort,recvPort:endpoint.recvPort,
    listenIP:plan.listenIP,listenPort:plan.listenPort,remoteTransportVerified:false,
+   authenticatedPeerSeen:()=>!closing&&endpoint.authenticatedPeerSeen(),
    closed,close:()=>stop()});
  }catch(e){await stop('startup-failed');throw e;}
 }
