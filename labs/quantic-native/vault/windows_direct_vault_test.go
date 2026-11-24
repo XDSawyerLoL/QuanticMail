@@ -8,7 +8,7 @@ import(
  "testing"
  "time"
  "bytes"
- "context"
+ stdcontext "context"
  "crypto/ed25519"
  "crypto/rand"
 )
@@ -76,7 +76,7 @@ func TestWindowsDirectLocalVault(t *testing.T){
  for i:=range members{
   pub,key,err:=ed25519.GenerateKey(rand.Reader);if err!=nil{t.Fatal(err)}
   witnessKeys[i]=key
-  members[i]=directWitnessMember{pub,func(context.Context,directWitnessRequest)([]byte,error){return nil,portableRefusal}}
+  members[i]=directWitnessMember{pub,func(stdcontext.Context,directWitnessRequest)([]byte,error){return nil,portableRefusal}}
  }
  roster,e:=directWitnessRosterPin(members);if e!=nil{t.Fatal(e)}
  journalID,e:=directLeaseJournalID(old,self.Address,self.Device,roster);if e!=nil{t.Fatal(e)}
@@ -87,7 +87,7 @@ func TestWindowsDirectLocalVault(t *testing.T){
   if e=initReplay(path,self.SigningPin,self.EncryptionPin,journalID);e!=nil{t.Fatal(e)}
   store:=directTestStore{path,self.SigningPin,self.EncryptionPin,journalID,journalID}
   key:=witnessKeys[i]
-  members[i].Exchange=func(_ context.Context,q directWitnessRequest)([]byte,error){return signDirectWitness(q,journalID,store,key)}
+  members[i].Exchange=func(_ stdcontext.Context,q directWitnessRequest)([]byte,error){return signDirectWitness(q,journalID,store,key)}
  }
  lease,e:=winOpenDirectLeaseStore(leaseDir,self,old,members,roster);if e!=nil{t.Fatal(e)}
  if _,e=lease.active(now);e==nil{lease.close();t.Fatal("expired original lease accepted")}
