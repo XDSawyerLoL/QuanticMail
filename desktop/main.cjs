@@ -13,6 +13,10 @@ function isMailUrl(raw) {
   }
 }
 
+function isPortalUrl(raw) {
+  try { return new URL(raw).origin === PORTAL_ORIGIN; } catch { return false; }
+}
+
 function isSafeExternal(raw) {
   try {
     const url = new URL(raw);
@@ -20,6 +24,25 @@ function isSafeExternal(raw) {
   } catch {
     return false;
   }
+}
+
+function protectNavigation(win) {
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (isMailUrl(url)) return { action: "allow", overrideBrowserWindowOptions: { webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true } } };
+    if (isSafeExternal(url)) void shell.openExternal(url).catch(() => {});
+    return { action: "deny" };
+  });
+  win.webContents.on("did-create-window", (child) => protectNavigation(child));
+  win.webContents.on("will-navigate", (event, url) => {
+    if (isMailUrl(url)) return;
+    event.preventDefault();
+    if (isSafeExternal(url)) void shell.openExternal(url).catch(() => {});
+  });
+  win.webContents.on("will-redirect", (event, url) => {
+    if (isMailUrl(url)) return;
+    event.preventDefault();
+    if (isPortalUrl(url)) void shell.openExternal(url).catch(() => {});
+  });
 }
 
 function createWindow() {
@@ -39,25 +62,7 @@ function createWindow() {
     }
   });
 
-  win.webContents.setWindowOpenHandler(({ url }) => {
-    if (isMailUrl(url)) return { action: "allow" };
-    if (isSafeExternal(url)) shell.openExternal(url);
-    return { action: "deny" };
-  });
-
-  win.webContents.on("will-navigate", (event, url) => {
-    if (isMailUrl(url)) return;
-    event.preventDefault();
-    if (isSafeExternal(url)) shell.openExternal(url);
-  });
-
-  win.webContents.on("will-redirect", (event, url) => {
-    if (isMailUrl(url)) return;
-    if (url.startsWith(PORTAL_ORIGIN)) {
-      event.preventDefault();
-      shell.openExternal(url);
-    }
-  });
+  protectNavigation(win);
 
   win.loadURL(MAIL_ORIGIN);
 }
