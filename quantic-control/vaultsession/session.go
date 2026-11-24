@@ -79,7 +79,7 @@ func(s *Session) message()[]byte{
 // the pinned Vault key; no privileged operation or policy is authorized.
 func(s *Session) Verify(raw []byte,now time.Time)error{
  s.mu.Lock();defer s.mu.Unlock()
- if s.consumed||now.Before(s.born)||now.Sub(s.born)>=maxLifetime{return errors.New("Vault challenge expired or consumed")}
+ if s.revoked||s.consumed||now.Before(s.born)||now.Sub(s.born)>=maxLifetime{return errors.New("Vault challenge expired or consumed")}
  if len(raw)==0||len(raw)>8192{return errors.New("invalid Vault reply size")}
  var r Reply
  if err:=json.Unmarshal(raw,&r);err!=nil||!r.OK{return errors.New("Vault refused or invalid reply")}
