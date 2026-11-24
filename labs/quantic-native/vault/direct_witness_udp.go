@@ -109,3 +109,27 @@ func serveDirectUDPWitness(ctx stdcontext.Context,c *net.UDPConn,secret []byte,i
  }
  return ctx.Err()
 }
+
+// A roster must have distinct pinned public keys, sockets and pairwise
+// credentials. Distinct sockets are not proof of physical independence.
+type directUDPConfig struct{
+ Address *net.UDPAddr
+ Secret []byte
+ Public ed25519.PublicKey
+}
+func directUDPQuorumMembers(config [4]directUDPConfig,id,rosterPin string)([4]directWitnessMember,error){
+ var result [4]directWitnessMember
+ endpoints:=map[string]bool{}
+ secrets:=map[[32]byte]bool{}
+ for i,c:=range config{
+  if !directUDPAddress(c.Address){return [4]directWitnessMember{},portableRefusal}
+  endpoint:=c.Address.String()
+  secretPin:=sha256.Sum256(c.Secret)
+  if endpoints[endpoint]||secrets[secretPin]{return [4]directWitnessMember{},portableRefusal}
+  endpoints[endpoint]=true;secrets[secretPin]=true
+  ex,e:=newDirectUDPExchange(c.Address,c.Secret,id,c.Public);if e!=nil{return [4]directWitnessMember{},e}
+  result[i]=directWitnessMember{Public:append(ed25519.PublicKey(nil),c.Public...),Exchange:ex}
+ }
+ pin,e:=directWitnessRosterPin(result);if e!=nil||pin!=rosterPin{return [4]directWitnessMember{},portableRefusal}
+ return result,nil
+}
