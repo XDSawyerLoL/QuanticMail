@@ -50,6 +50,7 @@ type installManifest struct{
  Version int `json:"version"`
  ExeHash string `json:"exe_sha256"`
  Root string `json:"monitored_root"`
+ Backups []sentinel.BackupIdentity `json:"backups,omitempty"`
 }
 func userInstallFolder()(string,error){
  cache,err:=os.UserCacheDir()
@@ -96,11 +97,12 @@ func readManifest()(installManifest,error){
  if err!=nil{return installManifest{},err}
  info,err:=os.Lstat(path)
  if err!=nil{return installManifest{},err}
- if !info.Mode().IsRegular()||info.Size()>4096{return installManifest{},errors.New("invalid installation manifest")}
+ if !info.Mode().IsRegular()||info.Size()>65536{return installManifest{},errors.New("invalid installation manifest")}
  raw,err:=os.ReadFile(path);if err!=nil{return installManifest{},err}
  var m installManifest
  if err:=json.Unmarshal(raw,&m);err!=nil{return installManifest{},err}
- if m.Version!=residentVersion||len(m.ExeHash)!=64||!filepath.IsAbs(m.Root){return installManifest{},errors.New("invalid installed metadata")}
+ if m.Version!=residentVersion||len(m.ExeHash)!=64||!filepath.IsAbs(m.Root)||len(m.Backups)>sentinel.MaxBackupLocks{return installManifest{},errors.New("invalid installed metadata")}
+ for _,b:=range m.Backups{if !filepath.IsAbs(b.Path)||len(b.Path)>2048{return installManifest{},errors.New("invalid backup selection")}}
  return m,nil
 }
 func writeExclusive(path string,data []byte)error{
@@ -149,17 +151,21 @@ func regDeleteStartup()error{
  if status!=0{return syscall.Errno(status)}
  return nil
 }
-func installResident(root string)error{
+func installResident(root string,backups ...sentinel.BackupIdentity)error{
  source,err:=os.Executable();if err!=nil{return err}
- return installResidentFrom(source,root,true)
+ return installResidentFrom(source,root,true,backups...)
 }
 
 // installResidentFrom separates the verified install operation from launch,
 // so Windows integration tests can exercise real HKCU state and reversible
 // cleanup without accidentally launching a Go test binary as an agent.
-func installResidentFrom(source,root string,launch bool)error{
+func installResidentFrom(source,root string,launch bool,backups ...sentinel.BackupIdentity)error{
  if err:=validateSelectedRoot(root);err!=nil{return err}
- source,err:=filepath.Abs(source);if err!=nil{return err}
+ if len(backups)>sentinel.MaxBackupLocks{return errors.New("too many selected backups")}
+ for _,b:=range backups{if len(b.Path)>2048{return errors.New("backup path too long")}}
+ verified,err:=sentinel.LockBackupSet(backups);if err!=nil{return err}
+ defer func(){for _,l:=range verified{_ = l.Close()}}()
+ source,err=filepath.Abs(source);if err!=nil{return err}
  dir,err:=userInstallFolder();if err!=nil{return err}
  dest,err:=installExePath();if err!=nil{return err}
  manifest,err:=installManifestPath();if err!=nil{return err}
@@ -195,7 +201,7 @@ func installResidentFrom(source,root string,launch bool)error{
  if err!=nil{return err}
  newHash,err:=fileHash(dest)
  if err!=nil||newHash!=srcHash{return errors.New("installed executable verification failed")}
- data,err:=json.Marshal(installManifest{Version:residentVersion,ExeHash:srcHash,Root:root})
+ data,err:=json.Marshal(installManifest{Version:residentVersion,ExeHash:srcHash,Root:root,Backups:backups})
  if err!=nil{return err}
  if err:=writeExclusive(manifest,data);err!=nil{return err}
  manifestWritten=true
@@ -271,7 +277,9 @@ func residentAgent()error{
   }
  }()
  log,err:=auditPath();if err!=nil{return err}
- err=sentinel.RunResident(ctx,m.Root,log)
+ locks,backupErr:=sentinel.LockBackupSet(m.Backups)
+ defer func(){for _,l:=range locks{_ = l.Close()}}()
+ err=sentinel.RunResidentWithBackupReport(ctx,m.Root,log,len(m.Backups),len(locks),backupErr)
  cancel()
  <-done
  return err
