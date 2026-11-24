@@ -1,6 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {generateKeyPairSync,createHash,sign,createPublicKey,diffieHellman,decapsulate,hkdfSync,createDecipheriv} from 'node:crypto';
+import {mkdtemp,mkdir,writeFile,readFile,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {createSignedAuthorityRenewalLab} from '../standalone-relay/native-authority-renewal-lab.mjs';
+import {approveNativeAuthorityRenewalLab} from '../standalone-relay/native-authority-approval-lab.mjs';
 import {canonicalManifestText} from '../lib/quantic/manifest-core.mjs';
 import {canonicalCryptoProfileText} from '../lib/quantic/crypto-profile-core.mjs';
 import {prepareNativePossessionChallenge} from '../desktop/native-enrollment-possession.mjs';
@@ -78,4 +83,54 @@ test('3 of 4 actual independently keyed device challenges authorize only a stage
  const attestations=f.authority.slice(0,3).map(a=>issueCheckpoint({state,policy:prepared.policy,request:q,privateKey:a.privateKey,now}).attestation);
  assert.throws(()=>verifyCheckpointQuorum(attestations.slice(0,2),opts.trusted,q,now));
  assert.equal(verifyCheckpointQuorum(attestations,opts.trusted,q,now).address,q.address);
+});
+
+test('approved enrollment survives the real signed renewal and durable head of three separate authority directories',{skip:process.platform!=='linux',timeout:30000},async()=>{
+ const f=fixture(),other=fixture(),root=await mkdtemp(join(tmpdir(),'qs-enrollment-renewal-'));
+ try{
+  const initialPolicy=[{...verifyNativeEnrollmentQuorum(other.request,other.votes,other.opts).policyCandidate,active:true}];
+  const initialState=other.state;
+  const state={...f.state,manifests:[...initialState.manifests,...f.state.manifests],cryptoProfiles:[...initialState.cryptoProfiles,...f.state.cryptoProfiles]};
+  const before=verifyNativeEnrollmentQuorum(f.request,f.votes,f.opts);
+  const prepared=prepareQuorumEnrollmentPolicy(f.request,f.votes.slice(0,3),{...f.opts,state,previousPolicy:initialPolicy,approved:true});
+  assert.deepEqual(prepared.policy[0],initialPolicy[0]);
+  const q={address:before.policyCandidate.address,deviceId:before.policyCandidate.deviceId,nonce:'a'.repeat(64),expires:f.now+14000};
+  const attestations=[];
+  for(let i=0;i<3;i++){
+   const dir=join(root,'authority-'+i),keyFile=join(root,'renewal-'+i+'.pem');
+   const renewal=generateKeyPairSync('ed25519');
+   await mkdir(dir,{mode:0o700});await mkdir(join(dir,'renewals'),{mode:0o700});
+   await writeFile(keyFile,renewal.privateKey.export({type:'pkcs8',format:'pem'}),{mode:0o600,flag:'wx'});
+   const cfg={format:'quantic-native-authority-operator-lab/v2',labOnly:true,authorityId:'authority-'+i,port:0,
+    pins:{statePin:hash(buf(initialState)),policyPin:hash(buf(initialPolicy)),signerPin:f.opts.trusted[i].pin},clientPins:[],
+    renewalPublicKey:der(renewal).toString('base64url')};
+   const configBytes=buf(cfg),configPin=hash(configBytes);
+   await writeFile(join(dir,'operator.json'),configBytes,{mode:0o600,flag:'wx'});
+   const args={directory:dir,authorityId:cfg.authorityId,configPin,initialStatePin:cfg.pins.statePin,initialPolicyPin:cfg.pins.policyPin,
+    publicKey:cfg.renewalPublicKey,initialSnapshot:{state:initialState,policy:initialPolicy},now:()=>f.now};
+   // The initial fixture predates or equals the candidate clock.
+   args.now=()=>Math.max(f.now,other.now);
+   let service=await createSignedAuthorityRenewalLab(args);
+   assert.throws(()=>issueCheckpoint({state:initialState,policy:initialPolicy,request:q,privateKey:f.authority[i].privateKey,now:args.now()}));
+   const folder=join(dir,'renewals','000001');
+   await mkdir(folder,{mode:0o700});
+   await writeFile(join(folder,'state.json'),buf(state),{mode:0o600,flag:'wx'});
+   await writeFile(join(folder,'policy.json'),buf(prepared.policy),{mode:0o600,flag:'wx'});
+   // Files alone do not activate an identity.
+   assert.deepEqual((await service.load()).policy,initialPolicy);
+   const previousHash=service.status().chainHash;
+   await approveNativeAuthorityRenewalLab({directory:dir,configPin,operatorKeyFile:keyFile,sequence:1,previousHash,now:args.now()});
+   const after=await service.load();
+   assert.equal(after.policy.length,2);
+   assert.equal(service.status().sequence,1);
+   assert.equal(JSON.parse(await readFile(join(dir,'accepted-head.json'),'utf8')).sequence,1);
+   // Reconstruct from disk instead of using the previous process state.
+   service=await createSignedAuthorityRenewalLab(args);
+   const restored=await service.load();
+   assert.deepEqual(restored.policy,prepared.policy);
+   attestations.push(issueCheckpoint({state:restored.state,policy:restored.policy,request:q,privateKey:f.authority[i].privateKey,now:args.now()}).attestation);
+  }
+  assert.throws(()=>verifyCheckpointQuorum(attestations.slice(0,2),f.opts.trusted,q,Math.max(f.now,other.now)));
+  assert.equal(verifyCheckpointQuorum(attestations,f.opts.trusted,q,Math.max(f.now,other.now)).address,q.address);
+ }finally{await rm(root,{recursive:true,force:true});}
 });
