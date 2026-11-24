@@ -34,3 +34,32 @@ test('fail closed on invalid frame, biased random generator or failed spool',()=
  assert.equal(commitFailure.stats().emitted,0);
  assert.equal(commitFailure.stats().pending,2);
 });
+
+test('sparse batch flush pads to fixed size without losing or duplicating real cells',()=>{
+ const out=[];
+ const mixer=createScatteringBatchMixer({batchSize:8,draw:()=>0,
+  onBatch:batch=>out.push(batch)});
+ for(let n=1;n<=4;n++)mixer.add(item(n));
+ assert.equal(mixer.flushPadded(),4);
+ assert.equal(out.length,1);
+ assert.equal(out[0].length,8);
+ assert.deepEqual(out[0].filter(x=>x.source!==null).map(x=>x.packet[0]).sort((a,b)=>a-b),[1,2,3,4]);
+ assert.equal(out[0].filter(x=>x.source===null).length,4);
+ assert.ok(out[0].every(x=>x.packet.length===168));
+ assert.equal(mixer.flushPadded(),0);
+ assert.deepEqual(mixer.stats(),{batchSize:8,pending:0,emitted:4,batches:1});
+});
+test('padded release preserves queued input when commit fails',()=>{
+ let fail=true;
+ const out=[];
+ const mixer=createScatteringBatchMixer({batchSize:8,draw:()=>0,onBatch:batch=>{
+  if(fail)throw Error('disk full');out.push(batch);
+ }});
+ mixer.add(item(1));
+ assert.throws(()=>mixer.flushPadded(),/disk full/);
+ assert.equal(mixer.stats().pending,1);
+ assert.equal(mixer.stats().emitted,0);
+ fail=false;
+ assert.equal(mixer.flushPadded(),1);
+ assert.equal(out[0].length,8);
+});
