@@ -49,11 +49,11 @@ jobs:
         run: |
           go test -count=1 ./...
           go build -trimpath -o ../QuanticNativePacer_v7_1_linux_amd64 .
-      - name: Native Scattering mailbox traffic over UDP
-        run: QUANTIC_SCATTERING_NATIVE_TEST="$GITHUB_WORKSPACE/labs/quantic-native/scattering/QuanticNativePacer_v7_1_linux_amd64" node --test tests/native-scattering-mailbox.test.mjs
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 24.8.0
+      - name: Native Scattering mailbox traffic over UDP
+        run: QUANTIC_SCATTERING_NATIVE_TEST="$GITHUB_WORKSPACE/labs/quantic-native/scattering/QuanticNativePacer_v7_1_linux_amd64" node --test tests/native-scattering-mailbox.test.mjs
       - name: Two isolated GUI clients over real native Scattering UDP (synthetic vaults)
         run: |
           node --version
@@ -307,7 +307,7 @@ jobs:
             $provider | Write-Output
           } finally { $env:PATH = $originalPath }
           $env:QV_PACKAGE = $dir
-          & "$dir\runtime\node.exe" --experimental-transform-types --input-type=module -e "import {pathToFileURL} from 'node:url'; import {join} from 'node:path'; import {generateKeyPairSync} from 'node:crypto'; generateKeyPairSync('ml-kem-768'); generateKeyPairSync('ml-dsa-65'); await import(pathToFileURL(join(process.env.QV_PACKAGE,'desktop','native-windows-desktop.mjs')).href); await import(pathToFileURL(join(process.env.QV_PACKAGE,'lib','quantic','native-identity-bridge.mjs')).href); await import(pathToFileURL(join(process.env.QV_PACKAGE,'lib','quantic','migration-proof-node.mjs')).href); await import(pathToFileURL(join(process.env.QV_PACKAGE,'desktop','native-windows-mail-flow.mjs')).href);"
+          & "$dir\runtime\node.exe" --experimental-transform-types --input-type=module -e "import {pathToFileURL} from 'node:url'; import {join} from 'node:path'; import {generateKeyPairSync} from 'node:crypto'; generateKeyPairSync('ml-kem-768'); generateKeyPairSync('ml-dsa-65'); await import(pathToFileURL(join(process.env.QV_PACKAGE,'desktop','native-windows-desktop.mjs')).href); await import(pathToFileURL(join(process.env.QV_PACKAGE,'lib','quantic','native-identity-bridge.mjs')).href); await import(pathToFileURL(join(process.env.QV_PACKAGE,'lib','quantic','migration-proof-node.mjs')).href); await import(pathToFileURL(join(process.env.QV_PACKAGE,'desktop','native-windows-mail-flow.mjs')).href); await import(pathToFileURL(join(process.env.QV_PACKAGE,'desktop','native-managed-scattering.mjs')).href);"
           if ($LASTEXITCODE -ne 0) { throw "Packaged Node bridge failed" }
           & "$dir\runtime\node.exe" --check "$dir\scripts\verify-migration-local.mjs"
           if ($LASTEXITCODE -ne 0) { throw "Migration verification entry point syntax failed" }
