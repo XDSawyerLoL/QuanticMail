@@ -47,6 +47,19 @@ Le paquet installe `Uninstall-Quantic-Sillage-Alpha.exe` dans son dossier de bui
 - Les coffres privés hors paquet, les identités existantes et les autres builds Alpha ne sont **pas** visés. Aucune purge de données utilisateur n'est proposée.
 - La CI Windows doit vérifier installation, refus d'écrasement, désinstallation silencieuse et survie d'un fichier étranger dans le dossier installé ainsi que d'un coffre synthétique privé. Tant que ce test n'est pas vert, la fonctionnalité reste **non validée**.
 
+## Première utilisation : identité de test sans terminal
+
+Dans **Quantic Sillage Alpha**, les deux boutons principaux permettent désormais les opérations locales suivantes :
+
+1. **Créer mon identité de test** : utilise un nouveau sous-dossier privé de `%LOCALAPPDATA%` sur un volume Windows **NTFS** ; ouvre un consentement natif et deux saisies avec confirmation. Les secrets ASCII doivent comporter au moins 20 caractères et **être différents**. Aucune phrase secrète n'est communiquée à PowerShell, à Node, à un fichier JSON ou aux arguments d'un processus.
+2. **Ouvrir mon coffre de test** : vérifie par le fournisseur Go natif les deux déchiffrements P-256 et PQ et la correspondance des clés avec les métadonnées publiques du laboratoire. Après redémarrage, l'utilisateur choisit le dossier du coffre existant (aucun fichier JSON à rechercher).
+
+La création est **localement réelle** : clés P-256 et ML-KEM-768 / ML-DSA-65 générées, coffres et contrôleur chiffrés/protégés par ACL NTFS ; fichier d'identification **synthétique**, et jamais d'inscription sur un serveur. Le `quorumPin` local est un *marqueur aléatoire fictif*, **pas** une autorité indépendante. Aucun carnet de contacts attesté ni relais n'est fabriqué. Une ouverture réussie est une **vérification de secrets et de clés locales**, pas une session Quantic ID distante, pas une première connexion à SWAPP, pas une preuve de livraison et pas une messagerie utilisable avec un autre compte.
+
+L'ouverture d'un coffre existant refuse une identité altérée, un mauvais secret ou un chemin non canonique. Une création interrompue conserve son dossier partiel ; **aucun écrasement, effacement ou reprise implicite**. Le chemin de profil Windows doit actuellement se limiter aux caractères ASCII prévus par le garde-fou de stockage natif : les profils contenant des caractères non pris en charge sont refusés plutôt que déplacés sans autorisation.
+
+Tests automatisés : `TestSyntheticFirstRunMetadataNeverBecomesEnrollment`, `TestSyntheticGUICommandsRejectUnexpectedArgumentsWithoutDialogs`, et auto-test de l'interface WinForms. Le **parcours interactif complet** (dialogues Win32, saisie réelle, annulation, redémarrage) exige encore une validation sur PC Windows physique avant distribution, ainsi qu'un installateur dont le nouveau moteur est attesté par la CI.
+
 ## Vérifier les véritables fenêtres de sécurité Windows
 
 Dans l'Alpha Windows, ouvrir **Quantic Mail → Rédiger un message** puis choisir **Tester les fenêtres de sécurité Windows**. Ce diagnostic ne demande ni coffre, ni contact, ni fichier technique, ni accès réseau.
