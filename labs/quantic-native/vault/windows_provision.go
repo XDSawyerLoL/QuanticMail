@@ -75,10 +75,21 @@ func windowsVaultCLI(args []string)(bool,error){
    detail="Creer un NOUVEAU coffre fictif pour "+args[4]+" ? Aucun compte distant ni migration. Deux phrases secretes distinctes, 20 caracteres ASCII minimum."
   }
   if !approve(detail){return true,portableRefusal}
-  pw,e:=confirm("Nouvelle phrase secrete classique (20 caracteres ASCII minimum)");if e!=nil{return true,e};defer clear(pw)
-  pq,e:=confirm("Autre phrase secrete post-quantique (20 caracteres ASCII minimum)");if e!=nil{return true,e};defer clear(pq)
+  classicalPrompt,pqPrompt:="New classical laboratory passphrase: ","Different post-quantum laboratory passphrase: "
+  if args[1]=="--provision-windows-controller-gui-lab"{
+   classicalPrompt="Nouvelle phrase secrete classique (20 caracteres ASCII minimum)"
+   pqPrompt="Autre phrase secrete post-quantique (20 caracteres ASCII minimum)"
+  }
+  pw,e:=confirm(classicalPrompt);if e!=nil{return true,e};defer clear(pw)
+  pq,e:=confirm(pqPrompt);if e!=nil{return true,e};defer clear(pq)
   result,e:=winProvisionAutoController(args[2],args[3],args[4],pw,pq)
   if e!=nil{return true,e}
+  if args[1]=="--provision-windows-controller-gui-lab"{
+   // Only public enrollment material, not the private controller, vault or password.
+   result["quorumPin"]=args[3]
+   raw,e:=json.Marshal(result);if e!=nil{return true,e}
+   if e=winWritePrivate(filepath.Join(args[2],"identity-public.json"),raw);e!=nil{return true,e}
+  }
   return true,json.NewEncoder(os.Stdout).Encode(result)
  }
  if len(args)<2||args[1]!="--provision-windows-pq-storage-lab"{return false,nil}
