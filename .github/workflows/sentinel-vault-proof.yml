@@ -77,7 +77,16 @@ jobs:
           control="$PWD/quantic-control"
           cd "$control"
           go test -count=1 -tags pqopenssl -v ./vaultsession
-          go build -tags pqopenssl -ldflags="-H windowsgui" -o sentinel-pq-gui-ci.exe ./cmd/quantic-control-sentinel
+          go build -tags 'pqopenssl pqstatic' -ldflags="-H windowsgui -linkmode external -extldflags=-static" -o sentinel-pq-gui-ci.exe ./cmd/quantic-control-sentinel
+          # A resident install currently copies only the executable. Refuse
+          # any external non-system dependency in Sentinel itself.
+          objdump -p sentinel-pq-gui-ci.exe | awk '/DLL Name:/ {print $3}' | tr -d '\r' > sentinel-imports.txt
+          while IFS= read -r dll; do
+            lower="$(printf '%s' "$dll" | tr A-Z a-z)"
+            case "$lower" in api-ms-win-*|ext-ms-win-*) continue ;; esac
+            test -f "/c/Windows/System32/$dll" || { echo "Non-system Sentinel import: $dll"; exit 1; }
+          done < sentinel-imports.txt
+          go test -c -o sentinel-install-ci.test.exe ./cmd/quantic-control-sentinel
           cd ../native-vault-source/labs/quantic-native/vault
           cp "$control/vaultsession/testdata/native_vault_interop_test.go.txt" sentinel_interop_test.go
           go mod edit -require=github.com/XDSawyerLoL/QuanticMail/quantic-control@v0.0.0
@@ -107,6 +116,11 @@ jobs:
           $p = Start-Process -FilePath "$package\QuanticSentinel.exe" -ArgumentList '--selftest-pq-provider' -WorkingDirectory $package -PassThru -Wait
           if ($p.ExitCode -ne 0) { throw "Packaged ML-DSA provider not available: $($p.ExitCode)" }
           Write-Host 'Packaged ML-DSA-65 provider available without MSYS2 PATH'
+          $env:QUANTIC_SENTINEL_TEST_BINARY = "$package\QuanticSentinel.exe"
+          $test = (Resolve-Path 'quantic-control/sentinel-install-ci.test.exe').Path
+          & $test '-test.v' '-test.count=1' '-test.timeout=90s' '-test.run=^TestActualResidentBinaryInstallationE2E$'
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged Sentinel resident install failed' }
+
       - name: Upload unsigned native PQ Alpha package
         uses: actions/upload-artifact@v4
         with:
