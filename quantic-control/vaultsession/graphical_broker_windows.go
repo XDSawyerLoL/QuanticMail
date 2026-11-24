@@ -39,6 +39,10 @@ func localAbsolute(p string)bool{
 }
 func safeBrokerPath(p string)error{
  if !localAbsolute(p){return errors.New("absolute local broker path required")}
+ drive,err:=syscall.UTF16PtrFromString(filepath.VolumeName(p)+"\\")
+ if err!=nil{return err}
+ kind,_,_:=syscall.NewLazyDLL("kernel32.dll").NewProc("GetDriveTypeW").Call(uintptr(unsafe.Pointer(drive)))
+ if kind!=3{return errors.New("fixed local drive required")}
  for cur:=p;;cur=filepath.Dir(cur){
   ptr,err:=syscall.UTF16PtrFromString(cur);if err!=nil{return err}
   attr,err:=syscall.GetFileAttributes(ptr);if err!=nil{return err}
@@ -103,6 +107,7 @@ func OpenGraphicalBroker(ctx context.Context,c GraphicalBrokerConfig,signer cryp
  if !ok||!bytes.Equal(pub,c.Controller){return nil,errors.New("controller differs from enrollment")}
  if !providerAvailable(){return nil,errors.New("ML-DSA verifier unavailable")}
  if err:=safeBrokerPath(c.VaultDirectory);err!=nil{return nil,err}
+ info,err:=os.Stat(c.VaultDirectory);if err!=nil||!info.IsDir(){return nil,errors.New("Vault directory unavailable") }
  file,err:=pinGraphicalBroker(c.Binary,c.BinarySHA256);if err!=nil{return nil,err}
  defer file.Close()
  ctx,cancel:=context.WithTimeout(ctx,3*time.Minute);defer cancel()
@@ -127,6 +132,11 @@ func OpenGraphicalBroker(ctx context.Context,c GraphicalBrokerConfig,signer cryp
  reader:=bufio.NewReaderSize(out,maxBrokerLine)
  hello,err:=brokerLine(reader);if err!=nil{return nil,errors.New("graphical Vault unlock cancelled, refused or timed out")}
  s,err:=New(c.Identity,c.MachineID,time.Now());if err!=nil{return nil,err}
+ // The overall unlock deadline is separate from the proof lifetime.
+ // Closing the pipes and killing the child on expiry interrupts blocked IO.
+ proofTimer:=time.AfterFunc(maxLifetime,func(){_ =cmd.Process.Kill()})
+ defer proofTimer.Stop()
  if err:=ExchangeBrokerProof(io.MultiReader(bytes.NewReader(hello),reader),in,s,signer,c.Controller);err!=nil{return nil,err}
+ if ctx.Err()!=nil{return nil,ctx.Err()}
  return s,nil
 }
