@@ -5,7 +5,6 @@ import (
  "testing"
  "strings"
  "path/filepath"
- "encoding/json"
 )
 func TestWindowsGUISecretBounds(t *testing.T){
  var good [257]uint16
@@ -29,9 +28,7 @@ func TestWindowsGUIProvisionReadback(t *testing.T){
  record,e:=winGUIProvisionAndVerify(dir,quorum,addr,pw,pq)
  if e!=nil{t.Fatal(e)}
  if record["localReadback"]!="verified"||record["address"]!=addr{t.Fatal("unverified result")}
- raw,e:=winReadPrivate(filepath.Join(dir,"identity-public.json"),16384);if e!=nil{t.Fatal(e)}
- var persisted map[string]string
- if e=json.Unmarshal(raw,&persisted);e!=nil{t.Fatal(e)}
+ persisted,e:=winGUIReadIdentity(dir);if e!=nil{t.Fatal(e)}
  if persisted["deviceId"]!=record["deviceId"]{t.Fatal("public identity mismatch")}
  if e=winGUIVerifyStored(dir,quorum,persisted,pw,pq);e!=nil{t.Fatal(e)}
  if e=winGUIVerifyStored(dir,quorum,persisted,[]byte("synthetic invalid password"),pq);e==nil{t.Fatal("wrong password accepted")}
