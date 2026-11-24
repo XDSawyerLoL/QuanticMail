@@ -11,6 +11,10 @@ static int qv_gui_approve(void) {
  return MessageBoxW(NULL,L"Creer un nouveau coffre de TEST local ? Aucun compte reel ne sera modifie.",
   L"Quantic Sillage - Identity Vault",MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2|MB_SETFOREGROUND)==IDYES;
 }
+static int qv_gui_approve_verify(void) {
+ return MessageBoxW(NULL,L"Verifier ce coffre de test ? Les cles seront fermees a la fin de la verification.",
+  L"Quantic Sillage - Identity Vault",MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2|MB_SETFOREGROUND)==IDYES;
+}
 static int qv_gui_secret(const WCHAR *prompt,WCHAR *password,DWORD capacity) {
  WCHAR user[CREDUI_MAX_USERNAME_LENGTH+1]=L"Quantic Sillage";
  CREDUI_INFOW ui={0};
@@ -104,4 +108,30 @@ func winGUIVerifyStored(dir,quorum string,r map[string]string,pw,pq []byte)error
  if e!=nil{return e}
  p.close()
  return nil
+}
+
+func winGUIReadIdentity(dir string)(map[string]string,error){
+ raw,e:=winReadPrivate(filepath.Join(dir,"identity-public.json"),16384)
+ if e!=nil{return nil,e}
+ var r map[string]string
+ if e=json.Unmarshal(raw,&r);e!=nil{return nil,e}
+ if r["status"]!="local-provision-only-not-enrolled"||r["localReadback"]!="verified"||
+  !strongAddr.MatchString(r["address"])||!strongDevice.MatchString(r["deviceId"]){return nil,portableRefusal}
+ for _,name:=range []string{"quorumPin","signingPin","encryptionPin","kemPin","dsaPin"}{
+  if !hashRE.MatchString(r[name]){return nil,portableRefusal}
+ }
+ if _,e=appPublic(r["controllerPublic"]);e!=nil{return nil,e}
+ return r,nil
+}
+func winGUIVerifyExisting(dir string)(map[string]string,error){
+ r,e:=winGUIReadIdentity(dir);if e!=nil{return nil,e}
+ if C.qv_gui_approve_verify()==0{return nil,portableRefusal}
+ pw,e:=winGUISecret("Saisir la phrase secrete classique du coffre de test.")
+ if e!=nil{return nil,e};defer clear(pw)
+ pq,e:=winGUISecret("Saisir la phrase secrete post-quantique du coffre de test.")
+ if e!=nil{return nil,e};defer clear(pq)
+ if e=winGUIVerifyStored(dir,r["quorumPin"],r,pw,pq);e!=nil{return nil,e}
+ // No ongoing session, relay login or key export. The child exits after
+ // returning public confirmation; this is a local integrity check only.
+ return map[string]string{"status":"local-vault-verified-closed","address":r["address"],"deviceId":r["deviceId"]},nil
 }
