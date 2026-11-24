@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {generateKeyPairSync,randomBytes} from 'node:crypto';
 import {win32} from 'node:path';
 import {composeAndSendWindowsLab} from '../desktop/native-windows-integrated-mail.mjs';
-import {runWindowsScatteringMail} from '../desktop/native-windows-mail-flow.mjs';
+import {runWindowsScatteringMail,listWindowsSignedMail} from '../desktop/native-windows-mail-flow.mjs';
 import {nativeRecordDigest} from '../lib/quantic/native-mailbox.mjs';
 
 const dir='C:\\Quantic\\private';
@@ -156,4 +156,19 @@ test('malformed or missing recovery receipt stays unconfirmed, never auto-retrie
   }})});
  assert.equal(answer.status,'deposit-unconfirmed');assert.equal(answer.retryRequiresConfirmation,true);
  assert.equal(attempts,1);assert.deepEqual(JSON.parse(x.files.get(output)),x.signed);
+});
+
+test('graphical recovery catalog exposes only signed-message selection metadata',async()=>{
+ const x=setup({failSend:true});await composeAndSendWindowsLab(cfg,x.storage,x.deps);
+ const entry=(name,file=true,link=false)=>({name,isFile:()=>file,isSymbolicLink:()=>link});
+ const candidates=[entry('wire-confirmed.json'),entry('draft-proposal.json'),entry('wire-link.json',false,true),entry('wire-../evil.json')];
+ const rows=await listWindowsSignedMail(cfg,x.storage,{listNames:async p=>{assert.equal(p,dir);return candidates;}});
+ assert.deepEqual(rows,[{name:'wire-confirmed.json',digest:nativeRecordDigest(x.signed),recipient:ctx.to,reference:ctx.clientMessageId}]);
+ assert.equal(x.stats().sends,1);
+ assert.equal(x.stats().seal,1);
+ assert.equal(x.stats().write,1);
+ assert.equal(JSON.stringify(rows).includes(x.signed.envelope.ciphertext),false);
+ await assert.rejects(listWindowsSignedMail(cfg,x.storage,{listNames:async()=>Array.from({length:65},(_,i)=>entry('wire-'+i+'.json'))}));
+ x.files.set(output,Buffer.from('{}'));
+ await assert.rejects(listWindowsSignedMail(cfg,x.storage,{listNames:async()=>[entry('wire-confirmed.json')]}));
 });
