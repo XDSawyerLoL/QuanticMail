@@ -149,6 +149,20 @@ if(e2e){
  if(process.env.SCATTERING_MULTIHOP_IMPAIRMENT!=='1'&&x.ingressMatchedRate<.90)
    throw Error('healthy opaque relay forwarded fewer than 90% of inputs');
 }
+let timeOnlyObserver=null;
+if(e2e){
+ const {evaluateTimeOnlyLab}=await import(pathToFileURL(resolve(root,'lib/quantic/scattering-temporal-correlation-lab.mjs')).href);
+ const hopKey=get('out.key'),contentKey=get('e2e.key');
+ try{
+  timeOnlyObserver=evaluateTimeOnlyLab({
+   captureA:get('a.pcap'),captureB:get('b.pcap'),captureEgress:get('out.pcap'),
+   outputHopKey:hopKey,endToEndKey:contentKey,maxLagMs:250
+  });
+  if(timeOnlyObserver.data.total!==200||timeOnlyObserver.truth.A!==100||
+     timeOnlyObserver.truth.B!==100||timeOnlyObserver.observedPackets!==native.sent)
+    throw Error('temporal scorer observed incomplete authenticated truth');
+ }finally{hopKey.fill(0);contentKey.fill(0);}
+}
 console.log(JSON.stringify({lab:e2e?'nested-e2e-inner-under-trusted-hop':reseal?'trusted-hop-reseal-control':'negative-control-2-senders-1-opaque-relay',
  CPUContentionRequested:process.env.SCATTERING_MULTIHOP_CPU_LOAD==='1',
  impairmentRequested:process.env.SCATTERING_MULTIHOP_IMPAIRMENT==='1',
@@ -156,5 +170,5 @@ console.log(JSON.stringify({lab:e2e?'nested-e2e-inner-under-trusted-hop':reseal?
   authenticatedHop:receiver.authenticatedHop??0,authenticatedE2E:receiver.authenticatedE2E??0,
   perSender:receiver.perSender??null,replays:receiver.replays??0,unauthenticated:receiver.unauthenticated??0},
  e2eKeyProvisionedToRelay:false,sharedHostFileSystemAccess:true,
- x,releaseReady:false},null,2));
+ timeOnlyObserver,x,releaseReady:false},null,2));
 NODE
