@@ -27,6 +27,7 @@ func winClientIO(args []string)(bool,error){
   n,e:=os.Stdout.Write(data);if e==nil&&n!=len(data){e=io.ErrShortWrite};return true,e
  }
  if args[1]=="--windows-client-write-draft-lab"{
+  if enrollmentDirectory.MatchString(filepath.Base(dir)){return true,portableRefusal}
   if !clientDraftName.MatchString(name){return true,portableRefusal}
  }else if !clientWireName.MatchString(name){return true,portableRefusal}
  b,e:=io.ReadAll(io.LimitReader(os.Stdin,32769));if e!=nil{return true,e};defer clear(b)

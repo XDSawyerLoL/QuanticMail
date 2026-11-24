@@ -42,16 +42,18 @@ export async function composeAndSendWindowsLab(config,storage,{
   &&/^draft-[a-z0-9-]{1,48}\.json$/.test(windowsLabPath(config.windowsLab.dir,input))
   &&/^wire-[a-z0-9-]{1,48}\.json$/.test(windowsLabPath(config.windowsLab.dir,output))
   &&input!==output&&(recover===true||recover===false));
- const draft=validateDraft(await readPrivateJSON(storage,input),scope);
- // An operator sees the exact recipient and plaintext before a broker request.
- if(!await approve('Chiffrer dans le coffre natif le brouillon pour '+draft.context.to+
-  '\n'+safeMailDisplay(draft.payload)))return {status:'cancelled-before-seal'};
  const sealed=scope.credentialMode==="vault-sealed-v1";
  let vault;
  try{
+ const raw=await readPrivateJSON(storage,input);
+ if(sealed){check(raw?.format==='quantic-local-draft'&&raw.version===1&&raw.file===win32.basename(input));vault=await connect({...config,guiWindowsApproval:true});check(typeof vault.openDraft==='function');}
+ const draft=validateDraft(sealed?await vault.openDraft(win32.basename(input),raw):raw,scope);
+ // An operator sees the exact recipient and plaintext before a broker request.
+ if(!await approve('Chiffrer dans le coffre natif le brouillon pour '+draft.context.to+
+  '\n'+safeMailDisplay(draft.payload)))return {status:'cancelled-before-seal'};
  let signed;
  try{
-  vault=await connect(sealed?{...config,guiWindowsApproval:true}:config);
+  vault??=await connect(config);
   signed=await vault.sealHybrid(draft.context,draft.payload,{recover});
   // Validate exact hybrid envelope and sender binding before storage.
   signed=normalizeNativeRecord(signed);

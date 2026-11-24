@@ -17,7 +17,7 @@ import (
 
 // Separate domains, independent random salt/nonce, no raw network bearer.
 func localCustodyDigest(r enrollmentRequest,role string)(string,error){
- if role!="controller"&&role!="receipt"{return "",portableRefusal}
+ if role!="controller"&&role!="receipt"&&role!="draft"{return "",portableRefusal}
  digest,e:=nativeEnrollmentDigest(r);if e!=nil{return "",e}
  return hexHash([]byte("quantic-local-custody-lab/v1\x00"+role+"\x00"+digest)),nil
 }
@@ -28,8 +28,8 @@ func writeLocalCustody(dir,role string,r enrollmentRequest,value,pw,pqw []byte)e
 }
 func readLocalCustody(dir,role string,r enrollmentRequest,pw,pqw []byte)([]byte,error){
  digest,e:=localCustodyDigest(r,role);if e!=nil{return nil,e}
- old:="controller.pem";if role=="receipt"{old="receipt.key"}
- if _,e=os.Lstat(filepath.Join(dir,old));!os.IsNotExist(e){return nil,portableRefusal}
+ old:="";if role=="controller"{old="controller.pem"}else if role=="receipt"{old="receipt.key"}
+ if old!=""{if _,e=os.Lstat(filepath.Join(dir,old));!os.IsNotExist(e){return nil,portableRefusal}}
  raw,e:=winReadPrivate(filepath.Join(dir,role+".vault"),1024);if e!=nil{return nil,e};defer clear(raw)
  return openNativeMailboxCredential(raw,digest,pw,pqw)
 }

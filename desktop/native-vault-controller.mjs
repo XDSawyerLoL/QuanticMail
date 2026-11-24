@@ -175,7 +175,7 @@ export async function connectNativeVault({binary,binarySha256,vault,journal,quor
         return r.mailboxResult;
       });
       return Object.freeze({
-        ...(mailbox?{mailbox,sealReceipt:(item,payload)=>receiptCall('receipt-seal',{id:item.id,digest:item.digest,payload}),openReceipt:record=>receiptCall('receipt-open',record)}:{}),
+        ...(mailbox?{mailbox,sealReceipt:(item,payload)=>receiptCall('receipt-seal',{id:item.id,digest:item.digest,payload}),openReceipt:record=>receiptCall('receipt-open',record),openDraft:(file,record)=>receiptCall('draft-open',{file,record})}:{}),
         publicKeys:Object.freeze({signing:Object.freeze(signing.jwk),encryption:Object.freeze(enc.jwk)}),
         // Enrollment is a separate, one-time locally approved native broker
         // operation; it does NOT install a live account or revoke old keys.

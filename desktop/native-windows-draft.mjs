@@ -33,11 +33,18 @@ export async function saveWindowsDraft(config,contacts,storage,fields,{makeId=ra
  const draft={context:{clientMessageId,from:scope.address,fromDeviceId:scope.deviceId,to:fields.to,toDeviceId:peers[0].deviceId},payload};
  const bytes=Buffer.from(JSON.stringify(draft)+'\n','utf8');
  try{
-  check(bytes.length<=8192&&typeof storage.writeDraft==='function');
-  await storage.writeDraft(path,bytes); // CREATE_NEW + private NTFS ACL + fsync
+  check(bytes.length<=8192);
+  if(scope.credentialMode==='vault-sealed-v1'){
+   check(typeof storage.writeEncryptedDraft==='function');await storage.writeEncryptedDraft(path,bytes);
+  }else{check(typeof storage.writeDraft==='function');await storage.writeDraft(path,bytes);}
  }finally{bytes.fill(0);}
  const stored=await privateJSON(storage,path);
- check(JSON.stringify(stored)===JSON.stringify(draft));
+ if(scope.credentialMode==='vault-sealed-v1'){
+  // The native helper has already opened and compared every plaintext field
+  // after the durable write. Node only checks that the ciphertext was saved.
+  exact(stored,['format','version','file','iv','ciphertext']);
+  check(stored.format==='quantic-local-draft'&&stored.version===1&&stored.file===name&&typeof stored.iv==='string'&&typeof stored.ciphertext==='string');
+ }else check(JSON.stringify(stored)===JSON.stringify(draft));
  return Object.freeze({status:'draft-saved-not-sent',file:name,liveAccountEnrollmentAuthorized:false,
    remoteDeliveryVerified:false,legacyDeletionAuthorized:false});
 }

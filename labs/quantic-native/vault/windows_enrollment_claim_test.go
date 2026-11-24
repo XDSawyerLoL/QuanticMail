@@ -49,6 +49,25 @@ func TestWindowsEnrollmentClaimPrivatePersistence(t *testing.T){
  var altered nativeReceipt;if e=json.Unmarshal(sealedReceipt,&altered);e!=nil{t.Fatal(e)};altered.Digest=strings.Repeat("b",64);tampered,_:=json.Marshal(altered)
  if _,e=op("receipt-open",tampered);e==nil{t.Fatal("altered receipt accepted")}
  closeOp();if _,e=op("receipt-open",sealedReceipt);e==nil{t.Fatal("closed session reused")}
+ draftKey,e:=readLocalCustody(dir,"draft",r,pw,pq);if e!=nil{t.Fatal(e)};defer clear(draftKey)
+ if bytes.Equal(draftKey,key){t.Fatal("draft and receipt keys reused")}
+ if _,e=readLocalCustody(dir,"draft",r,pq,pw);e==nil{t.Fatal("wrong secrets")}
+ name:="draft-a1478dbe30034bb58fda0123456789ab.json"
+ draft:=nativeDraft{Context:pqContext{ClientMessageID:"qs-a1478dbe-3003-4bb5-8fda-0123456789ab",From:c.Address,FromDeviceID:c.DeviceID,To:"testpeer~"+strings.Repeat("a",32)+"@quantic",ToDeviceID:"d-"+strings.Repeat("b",32)},Payload:nativeReceiptPayload{Subject:"Synthetic",Body:"private draft example"}}
+ enc,e:=sealNativeDraft(draftKey,name,c.Address,c.DeviceID,draft);if e!=nil{t.Fatal(e)}
+ rawDraft,e:=json.Marshal(enc);if e!=nil||bytes.Contains(rawDraft,[]byte(draft.Payload.Body))||bytes.Contains(rawDraft,[]byte(draft.Context.To)){t.Fatal("plaintext draft")}
+ actual,e:=openNativeDraft(draftKey,name,c.Address,c.DeviceID,enc);if e!=nil||actual!=draft{t.Fatal("reopen draft",e)}
+ if _,e=openNativeDraft(key,name,c.Address,c.DeviceID,enc);e==nil{t.Fatal("receipt key opens draft")}
+ if _,e=openNativeDraft(draftKey,"draft-"+strings.Repeat("b",32)+".json",c.Address,c.DeviceID,enc);e==nil{t.Fatal("renamed draft opens")}
+ if _,e=openNativeDraft(draftKey,name,draft.Context.To,c.DeviceID,enc);e==nil{t.Fatal("foreign account opens")}
+ corrupt:=enc;ct,e:=decode(enc.Ciphertext,17,8208);if e!=nil{t.Fatal(e)};ct[0]^=1;corrupt.Ciphertext=b64.EncodeToString(ct)
+ if _,e=openNativeDraft(draftKey,name,c.Address,c.DeviceID,corrupt);e==nil{t.Fatal("altered draft opens")}
+ dOp,dClose,e:=nativeDraftTransport(c.Address,c.DeviceID,draftKey);if e!=nil{t.Fatal(e)}
+ req,_:=json.Marshal(map[string]any{"file":name,"record":enc})
+ decoded,e:=dOp("draft-open",req);if e!=nil||!bytes.Contains(decoded,[]byte(draft.Payload.Body)){t.Fatal("broker draft open",e)}
+ dClose();if _,e=dOp("draft-open",req);e==nil{t.Fatal("closed draft session reused")}
+ legacy,_:=json.Marshal(draft)
+ if e=winImportLabFile(dir,name,hexHash(legacy),legacy);e==nil{t.Fatal("legacy import bypass")}
  now:=time.Now()
  approvals,roster:=credentialTestApprovals(t,r,now)
  bad:=approvals;bad.Votes=bad.Votes[:2]

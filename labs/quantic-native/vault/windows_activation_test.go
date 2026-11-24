@@ -91,6 +91,21 @@ func TestWindowsActivationPrivateImport(t *testing.T){
  if e=importWindowsActivation(dir,binary,pin,bad,pw,pqw,now);e==nil{t.Fatal("wrong credential accepted")}
  if _,e=os.Stat(filepath.Join(dir,"desktop.json"));!os.IsNotExist(e){t.Fatal("failed import configured desktop")}
  if e=importWindowsActivation(dir,binary,pin,b,pw,pqw,now);e!=nil{t.Fatal(e)}
+ draftKey,e:=readLocalCustody(dir,"draft",r,pw,pqw);if e!=nil{t.Fatal(e)};defer clear(draftKey)
+ draftName:="draft-a1478dbe30034bb58fda0123456789ab.json"
+ draft:=nativeDraft{Context:pqContext{ClientMessageID:"qs-a1478dbe-3003-4bb5-8fda-0123456789ab",From:r.Claim.Address,FromDeviceID:r.Claim.DeviceID,To:contacts[0].Address,ToDeviceID:contacts[0].Device},Payload:nativeReceiptPayload{Subject:"Sujet prive",Body:"Contenu prive de laboratoire"}}
+ if e=saveNativeDraft(dir,draftName,r,draftKey,draft);e!=nil{t.Fatal("offline save",e)}
+ savedDraft,e:=winReadPrivate(filepath.Join(dir,draftName),24000);if e!=nil{t.Fatal(e)}
+ if bytes.Contains(savedDraft,[]byte(draft.Payload.Body))||bytes.Contains(savedDraft,[]byte(draft.Context.To)){t.Fatal("plaintext persisted")}
+ if e=saveNativeDraft(dir,draftName,r,draftKey,draft);e==nil{t.Fatal("draft overwritten")}
+ rereadDraft,e:=winReadPrivate(filepath.Join(dir,draftName),24000);if e!=nil||!bytes.Equal(savedDraft,rereadDraft){t.Fatal("draft modified",e)}
+ var sealedDraft sealedNativeDraft;if e=json.Unmarshal(rereadDraft,&sealedDraft);e!=nil{t.Fatal(e)}
+ opened,e:=openNativeDraft(draftKey,draftName,r.Claim.Address,r.Claim.DeviceID,sealedDraft);if e!=nil||opened!=draft{t.Fatal("draft not recovered",e)}
+ rejected:=draft;rejected.Context.To="unknown~"+strings.Repeat("b",32)+"@quantic";rejected.Context.ClientMessageID="qs-b1478dbe-3003-4bb5-8fda-0123456789ab"
+ otherName:="draft-b1478dbe30034bb58fda0123456789ab.json"
+ if e=saveNativeDraft(dir,otherName,r,draftKey,rejected);e==nil{t.Fatal("unknown contact accepted")}
+ if _,e=os.Stat(filepath.Join(dir,otherName));!os.IsNotExist(e){t.Fatal("rejected draft written")}
+
  if _,e=winLoadSealedQuorum(dir,digest,storageSecret);e!=nil{t.Fatal("sealed anchor TLS load",e)}
  if _,e=winLoadQuorum(dir);e==nil{t.Fatal("plaintext fallback accepted")}
  rawContacts,e:=winReadPrivate(filepath.Join(dir,"contacts.json"),131072);if e!=nil{t.Fatal(e)}
