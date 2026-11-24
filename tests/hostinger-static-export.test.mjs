@@ -17,3 +17,15 @@ test("legacy publication and normal runtime scripts cannot restart the Web produ
     assert.doesNotMatch(workflow, /push:|gh release|git push|npm run|actions\/checkout/);
   }
 });
+
+test("direct legacy entry points refuse execution even when bypassing npm", () => {
+  for (const path of ["desktop/main.cjs", "scripts/build-hostinger-static.mjs", "scripts/smoke-hostinger-relay.mjs", "standalone-relay/main.ts", "standalone-relay/hostinger-main.ts"]) {
+    const result = spawnSync(process.execPath, ["--experimental-transform-types", path], { encoding: "utf8", timeout: 5000 });
+    assert.equal(result.status, 1, path + ": " + result.stderr);
+    assert.match(result.stderr, /legacy runtime retired/, path);
+  }
+  const result = spawnSync("bash", ["scripts/bootstrap-mail-vps.sh"], { encoding: "utf8", timeout: 5000 });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /legacy runtime retired/);
+  assert.match(readFileSync("next.config.ts", "utf8"), /throw new Error/);
+});

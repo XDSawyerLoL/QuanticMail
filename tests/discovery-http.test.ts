@@ -65,10 +65,10 @@ function signedBundle(handle = "bobmesh") {
       publicKey: encryption.publicKey,
       deviceSigningPublicKey: owner.publicKey,
       kind: "root" as const,
-      issuedAt: "2026-09-17T00:00:00.000Z",
+      issuedAt: new Date(Date.now() - 60_000).toISOString(),
     }],
     revocations: [],
-    issuedAt: "2026-09-17T00:00:00.000Z",
+    issuedAt: new Date(Date.now() - 60_000).toISOString(),
   };
   const identityManifest = {
     format: "quantic-identity-manifest" as const,
@@ -93,10 +93,10 @@ function signedBundle(handle = "bobmesh") {
       priority: 10,
       protocols: ["quantic-federation/1"],
       classicalSigningPublicKey: relay.publicKey,
-      expiresAt: "2026-10-17T00:00:00.000Z",
+      expiresAt: new Date(Date.now() + 24 * 60 * 60_000).toISOString(),
     }],
-    issuedAt: "2026-09-17T00:00:00.000Z",
-    expiresAt: "2026-10-17T00:00:00.000Z",
+    issuedAt: new Date(Date.now() - 60_000).toISOString(),
+    expiresAt: new Date(Date.now() + 24 * 60 * 60_000).toISOString(),
   };
   const routeManifest = {
     format: "quantic-route-manifest" as const,
@@ -232,7 +232,7 @@ test("Discovery find falls back to at most 20 nearest durable peers and keeps re
   const dataDir = await tempDir();
   const relay = await startRelayServer({ host: "127.0.0.1", port: 0, dataDir });
   try {
-    const now = "2026-09-17T11:00:00.000Z";
+    const now = new Date().toISOString();
     const entries = Array.from({ length: 30 }, (_, index) => {
       const relayId = (index + 1).toString(16).padStart(64, "0");
       return [relayId, {
