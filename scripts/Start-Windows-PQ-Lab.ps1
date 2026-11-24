@@ -1,7 +1,7 @@
 # Explicit laboratory launcher. No installation or production login.
 [CmdletBinding()]
 param(
- [Parameter(Mandatory=$true)][ValidateSet("Providers","Open","RecoverOpen","Seal","RecoverSeal","ProbeLoopback","Send","SealAndSend","RecoverSealAndSend","Receive","RecoverReceive","ConfirmReceipt","StartBridge","Provision","ProvisionGui","VerifyGui","ImportMailKitGui","ImportSessionKitGui","SendGui","ReceiveGui","ComposeGui","RecoverComposeGui","ProvisionPair","MailPreflight","MailAttest","Dashboard","DashboardCheck","MigrationCheck","MigrationHistory","MigrationSmoke","MigrationFullSmoke","PayLab","PayLabCheck","PayProvision","PayNative","PayQuorumDemo","PayQuorumCheck","PayNativeQuorum","PayHistoryCheck","PayOperator","PayOperatorConfigure","StartPayBridge","PayCirculation","PayCirculationCheck")][string]$Operation,
+ [Parameter(Mandatory=$true)][ValidateSet("Providers","Open","RecoverOpen","Seal","RecoverSeal","ProbeLoopback","ProbeLanSend","ProbeLanReceive","Send","SealAndSend","RecoverSealAndSend","Receive","RecoverReceive","ConfirmReceipt","StartBridge","Provision","ProvisionGui","VerifyGui","ImportMailKitGui","ImportSessionKitGui","SendGui","ReceiveGui","ComposeGui","RecoverComposeGui","ProvisionPair","MailPreflight","MailAttest","Dashboard","DashboardCheck","MigrationCheck","MigrationHistory","MigrationSmoke","MigrationFullSmoke","PayLab","PayLabCheck","PayProvision","PayNative","PayQuorumDemo","PayQuorumCheck","PayNativeQuorum","PayHistoryCheck","PayOperator","PayOperatorConfigure","StartPayBridge","PayCirculation","PayCirculationCheck")][string]$Operation,
  [Parameter(Mandatory=$true)][ValidatePattern('^[a-fA-F0-9]{64}$')][string]$ExpectedManifestSha256,
  [string]$TrustedBinarySha256,
  [string]$PrivateDirectory,
@@ -13,6 +13,7 @@ param(
  [string]$SecondCanonicalAddress,
  [string]$SecondQuorumPin,
  [string]$CarrierDirectory,
+ [string]$ProbeAddress,
  [string]$TrustFile,
  [string]$ExpectedTrustSha256,
  [string]$TrustedRootPin,
@@ -39,6 +40,19 @@ $version = (& $node --version)
 if ($LASTEXITCODE -ne 0 -or $version -notmatch '^v24\.') { throw "Bundled Node.js 24 runtime required." }
 if ($Operation -eq "ProbeLoopback") {
  & $node (Join-Path $root "scripts\scattering-physical-probe.mjs") loopback $pacer 5
+ exit $LASTEXITCODE
+}
+if ($Operation -in @("ProbeLanSend","ProbeLanReceive")) {
+ # Explicitly confined to an authorized private LAN. No firewall changes.
+ if($ProbeAddress -cnotmatch '^(?:10|172|192)\.(?:0|[1-9][0-9]{0,2})\.(?:0|[1-9][0-9]{0,2})\.(?:0|[1-9][0-9]{0,2})$'){throw "Adresse IPv4 privee requise."}
+ $octets=@($ProbeAddress.Split('.')|ForEach-Object {[int]$_})
+ if(($octets|Where-Object {$_ -gt 255}).Count -gt 0 -or -not ($octets[0] -eq 10 -or ($octets[0] -eq 172 -and $octets[1] -ge 16 -and $octets[1] -le 31) -or ($octets[0] -eq 192 -and $octets[1] -eq 168)) -or $octets[3] -in @(0,255)){throw "Adresse privee unicast requise."}
+ if($Operation -eq "ProbeLanReceive"){
+  if(-not @(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction Stop|Where-Object {$_.IPAddress -ceq $ProbeAddress}).Count){throw "Cette adresse ne correspond pas a un adaptateur local."}
+  & $node (Join-Path $root "scripts\scattering-physical-probe.mjs") receive $pacer $ProbeAddress 49001 60
+ }else{
+  & $node (Join-Path $root "scripts\scattering-physical-probe.mjs") send $pacer $ProbeAddress 49001 30
+ }
  exit $LASTEXITCODE
 }
 if ($TrustedBinarySha256 -notmatch '^[0-9a-fA-F]{64}$') { throw "Independently supplied executable SHA256 required." }
