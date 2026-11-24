@@ -7,27 +7,41 @@ import (
  "os"
  "path/filepath"
  "regexp"
+ "unicode/utf8"
 )
 
 // Explicit local helper for the trusted Node desktop process, not a web API.
 // It accepts only designated client files inside the private vault directory.
 // Same-Windows-user processes are in the trusted OS boundary.
-var clientFileName=regexp.MustCompile("^(scattering[.]json|desktop[.]json|controller[.]pem|contacts[.]json|peer-[a-z0-9-]{1,48}[.]pem|draft-[a-z0-9-]{1,48}[.]json|wire-[a-z0-9-]{1,48}[.]json|receipt[.]key|receipt-[a-z0-9-]{1,48}[.]json)$")
+var clientFileName=regexp.MustCompile("^(direct-identity[.]json|scattering[.]json|desktop[.]json|controller[.]pem|contacts[.]json|peer-[a-z0-9-]{1,48}[.]pem|draft-[a-z0-9-]{1,48}[.]json|wire-[a-z0-9-]{1,48}[.]json|receipt[.]key|receipt-[a-z0-9-]{1,48}[.]json)$")
 var clientDraftName=regexp.MustCompile("^draft-[a-z0-9-]{1,48}[.]json$")
 var clientWireName=regexp.MustCompile("^(wire|receipt)-[a-z0-9-]{1,48}[.]json$")
 func winClientIO(args []string)(bool,error){
+ if len(args)==2&&args[1]=="--windows-gui-approve-lab"{
+  data,e:=io.ReadAll(io.LimitReader(os.Stdin,1025));if e!=nil{return true,e};defer clear(data)
+  if len(data)<1||len(data)>1024||!utf8.Valid(data)||!winGUIApprove(string(data)){return true,portableRefusal}
+  _,e=os.Stdout.Write([]byte("APPROVED\n"))
+  return true,e
+ }
  if len(args)<2||(args[1]!="--windows-client-read-lab"&&args[1]!="--windows-client-write-wire-lab"&&args[1]!="--windows-client-write-draft-lab"){return false,nil}
  if len(args)!=4||!clientFileName.MatchString(args[3]){return true,portableRefusal}
  dir,name:=args[2],args[3]
  if _,_,e:=winPathParts(dir);e!=nil{return true,e}
  path:=filepath.Join(dir,name)
  if args[1]=="--windows-client-read-lab"{
-  data,e:=winReadPrivate(path,131072);if e!=nil{return true,e};defer clear(data)
+  var data []byte;var e error
+  if clientDraftName.MatchString(name){data,e=winReadEncryptedDraft(path)
+  }else{data,e=winReadPrivate(path,131072)}
+  if e!=nil{return true,e};defer clear(data)
   n,e:=os.Stdout.Write(data);if e==nil&&n!=len(data){e=io.ErrShortWrite};return true,e
  }
  if args[1]=="--windows-client-write-draft-lab"{
   if !clientDraftName.MatchString(name){return true,portableRefusal}
- }else if !clientWireName.MatchString(name){return true,portableRefusal}
+  b,e:=io.ReadAll(io.LimitReader(os.Stdin,8193));if e!=nil{return true,e};defer clear(b)
+  if len(b)<2||len(b)>8192{return true,portableRefusal}
+  return true,winWriteEncryptedDraft(path,b)
+ }
+ if !clientWireName.MatchString(name){return true,portableRefusal}
  b,e:=io.ReadAll(io.LimitReader(os.Stdin,32769));if e!=nil{return true,e};defer clear(b)
  if len(b)<1||len(b)>32768{return true,portableRefusal}
  return true,winWritePrivate(path,b)

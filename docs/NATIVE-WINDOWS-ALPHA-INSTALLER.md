@@ -7,9 +7,37 @@
 Sur la branche UX de la PR #57, le lanceur ouvre le tableau de bord **sans console PowerShell en arrière-plan**.
 Le premier parcours Quantic Mail est **« Rédiger un message (sans terminal) »** : choix d'un coffre **de test déjà provisionné**, sélection d'un contact présent dans le carnet local, objet et texte. Aucun nom `draft-nom.json` n'est demandé ; le nom technique est choisi automatiquement, avec refus de tout écrasement et relecture du fichier.
 
-**Limite critique : le brouillon enregistré est en clair dans un dossier privé NTFS.** Ses ACL protègent contre des comptes non autorisés dans le modèle de test, mais pas contre un malware opérant sous le même compte. Le logiciel demande un accord explicite et interdit de considérer cette fonction comme adaptée à de vrais messages ou à un déploiement. Le chiffrement des brouillons au repos et la signature/envoi sans console nécessitent un futur dialogue natif de secrets et d'approbations, sans contournement du coffre. Aucune transmission ni création d'identité réelle n'est effectuée par le composeur.
+**Protection de stockage de la PR #58 : le brouillon est maintenant chiffré avant toute écriture sur disque.** Le processus natif Go utilise Windows DPAPI en mode utilisateur courant, sans sauvegarde en clair, avec une entropie supplémentaire liée au chemin et une enveloppe versionnée `QSD2`. Le stockage NTFS conserve la création exclusive et les ACL. Le lecteur natif refuse les brouillons JSON historiques en clair, les modifications de ciphertext, les déplacements vers un autre nom et les accès avec un autre profil non autorisé. Le déchiffrement est effectué uniquement par le processus Go vérifié et transmis via un pipe local au contrôleur de laboratoire. **Ce n'est pas un chiffrement post-quantique ni une solution portable entre OS ou utilisateurs**, et un malware agissant avec les droits du même utilisateur ou un poste compromis restent des menaces. Cette protection **ne remplace pas** le futur coffre Quantic natif indépendant du système. Aucun compte réel ni envoi n'est autorisé. L'interface de signature et d'envoi sans terminal demeure un chantier distinct.
 
 Les opérations historiques de laboratoire restent accessibles après un consentement explicite ouvrant **une console technique distincte**. Elles ne font pas partie du parcours standard. L'installateur demeure non signé.
+
+## Autotest interactif des boites de dialogue Windows — 24 novembre 2026
+
+Depuis le tableau de bord natif, ouvrir **DIAGNOSTIC → Tester les fenêtres de sécurité Windows**. L'essai ne nécessite **aucun coffre** ni mot de passe réel : il déclenche la vraie boite de confirmation native (répondre OUI), un dialogue Windows CredUI masqué pour recopier un code temporaire affiché dans la fenêtre, puis une autorisation OUI et un refus NON. Le résultat est validé dans le processus Go natif déjà épinglé par SHA-256.
+
+La commande `Vault-PQ-lab.exe --windows-gui-operator-check-lab` est **délibérément interactive** ; elle refuse les environnements Windows sans station graphique visible et les arguments supplémentaires. Aucune clé, aucun compte, aucune donnée utilisateur, aucune connexion réseau ou modification de configuration n'est impliqué. Les tests CI couvrent le contrat et la compilation mais **ne prouvent pas** qu'un humain a ouvert et manipulé les dialogues. L'acceptation finale doit être constatée sur un poste Windows réel, avec les clics OUI/OUI/NON et la saisie du code d'essai. Ne jamais entrer une vraie phrase secrète dans le test.
+
+Le test ne remplace ni un audit du poste, ni une preuve de réception du courrier sur un deuxième ordinateur, ni une signature d'éditeur. Tant qu'un certificat de signature de code valide et vérifié n'est pas disponible, l'exécutable d'installation reste une Alpha **non signée** ; ne pas contourner SmartScreen sur un poste sensible.
+
+## Test direct de liaison entre deux ordinateurs — 24 novembre 2026
+
+Depuis le tableau de bord **SCATTERING → Tester la liaison entre deux PC**, sélectionner **Oui** sur le poste récepteur et **Non** sur le poste émetteur. Le récepteur ouvre temporairement le port **UDP 49123** et affiche un code de test éphémère de 24 caractères hexadécimaux (96 bits). Sur l'émetteur, saisir l'adresse IPv4 autorisée du récepteur et le code affiché. Le code passe de l'interface Windows à Node par **stdin privé**, jamais dans un argument de ligne de commande.
+
+L'échange réalise un aller-retour UDP avec deux nonces imprévisibles, un HMAC-SHA-256 tronqué à 128 bits et une confirmation mutuelle. Les paquets non authentifiés sont ignorés ; un code incorrect ne produit aucun succès. Aucun service Internet, compte réel, clé Quantic, courrier ou transaction n'est employé. Le test doit être réalisé réellement **sur les deux machines physiques choisies**, sur un réseau autorisé, avant de pouvoir constater la connectivité de ces machines. Le test unitaire CI exécute seulement deux processus locaux en boucle UDP ; il ne démontre pas un passage entre deux postes physiques.
+
+Le résultat **« liaison UDP synthétique authentifiée »** ne prouve ni l'identité matérielle des ordinateurs, ni la livraison d'un mail, ni l'indistinguabilité Scattering. Le logiciel ne modifie pas les règles pare-feu : en cas de port fermé, NAT incompatible ou refus utilisateur, la liaison reste non vérifiée et il n'y a pas de renvoi automatique de courrier.
+
+## Historique des essais locaux — PR #61
+
+Le bouton **« Mes essais locaux »** lit uniquement l'inventaire privé du coffre à travers son binaire Go natif déjà vérifié : les brouillons DPAPI sont authentifiés lors de la lecture, les enveloppes sont simplement recensées sans déduire leur validité cryptographique. Il montre des états **« Brouillon protégé — non envoyé »** ou **« Enveloppe locale présente — livraison inconnue »**. Il ne supprime, ne renvoie et ne déchiffre aucun courrier à l'écran. Les fichiers JSON ne sont jamais demandés à l'utilisateur. Aucune présence de fichier n'est interprétée comme une confirmation de livraison.
+
+## Nouveau mode GUI du coffre — PR #61 (laboratoire uniquement)
+
+Deux boutons sont présents dans l'éditeur de test : **« Enregistrer mon brouillon »** et **« Chiffrer et déposer (test) »**. Le second passe par des confirmations Win32 natives et le fournisseur post-quantique déjà présent. Le coffre ne lit plus les phrases secrètes dans un terminal lorsqu'il est lancé explicitement avec le mode `--broker-windows-pq-quorum-gui-lab` ; le mode terminal reste disponible séparément pour l'ingénierie. Les phrases secrètes sont saisies directement dans une fenêtre Windows CredUI avec persistance interdite. Les autorisations par opération exigent un consentement explicite dont le choix par défaut est le refus.
+
+Le dépôt sur **relais local** ne signifie pas livraison sur un autre poste, ni lecture. Toute erreur incertaine conserve le brouillon ou l'enveloppe qui peut déjà exister ; il n'y a aucun renvoi automatique. La validation ne peut fonctionner qu'avec un coffre, un contact et les attestations de confiance fictifs déjà configurés ; aucune identité réelle ni clé historique n'est reprise. Le mode graphique d'essai refuse les grands messages tant que sa fenêtre de confirmation ne peut pas présenter le texte intégral. La signature de l'installateur, la migration native, les essais indépendants sur deux ordinateurs et les essais GUI réellement interactifs restent bloquants.
+
+**Dépendance transitoire :** les brouillons utilisent Windows DPAPI CurrentUser, pas une clé Quantic post-quantique indépendante de l'OS. Le mécanisme est propre à ce laboratoire Windows ; il ne satisfait pas encore l'objectif final de portabilité Quantic Sillage.
 
 ## Fichier installable
 

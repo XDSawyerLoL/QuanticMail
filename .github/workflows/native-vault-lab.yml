@@ -2,10 +2,10 @@ name: Native Vault laboratory
 on:
   pull_request:
     branches: [main, "feat/**", "fix/**"]
-    paths: ['labs/quantic-native/**', 'cmd/quantic-alpha-launcher/**', 'desktop/**', 'lib/quantic/**', 'scripts/native-vault-windows-local.mjs', 'scripts/package-windows-pq-lab.sh', 'scripts/scattering-physical-probe.mjs', 'scripts/Start-Windows-PQ-Lab.ps1', 'scripts/Test-Windows-PQ-Package.ps1', 'scripts/Quantic-Sillage-Alpha.ps1', 'scripts/Quantic-Sillage-Alpha.nsi', 'scripts/Test-Native-Installer-Signature.ps1', 'scripts/Sign-Native-Lab-Installer.ps1', 'tests/native-windows-desktop.test.mjs', 'tests/native-windows-mail-flow.test.mjs', 'tests/native-scattering-mailbox.test.mjs', 'standalone-relay/native-scattering-mailbox.mjs', 'scripts/serve-native-scattering-windows.mjs', 'scripts/native-vault-windows-mailbox.mjs', 'scripts/verify-migration-local.mjs', '.github/workflows/native-vault-lab.yml']
+    paths: ['labs/quantic-native/**', 'cmd/quantic-alpha-launcher/**', 'desktop/**', 'lib/quantic/**', 'scripts/native-vault-windows-local.mjs', 'scripts/package-windows-pq-lab.sh', 'scripts/scattering-physical-probe.mjs', 'scripts/Start-Windows-PQ-Lab.ps1', 'scripts/Test-Windows-PQ-Package.ps1', 'scripts/Quantic-Sillage-Alpha.ps1', 'scripts/Quantic-Sillage-GUI-Check.ps1', 'scripts/Quantic-Sillage-Network-Check.ps1', 'scripts/native-two-host-network-lab.mjs', 'tests/native-two-host-network-lab.test.mjs', 'tests/native-two-host-cli-e2e.test.mjs', 'scripts/Quantic-Sillage-Alpha.nsi', 'scripts/Test-Native-Installer-Signature.ps1', 'scripts/Sign-Native-Lab-Installer.ps1', 'tests/native-windows-desktop.test.mjs', 'tests/native-windows-mail-flow.test.mjs', 'tests/native-windows-integrated-mail.test.mjs', 'tests/native-windows-mail-roundtrip-e2e.test.mjs', 'tests/windows-two-party-provision-lab.test.mjs', 'tests/native-windows-mail-readiness.test.mjs', 'scripts/native-windows-compose-draft.mjs', 'scripts/Quantic-Sillage-Compose.ps1', 'tests/native-scattering-mailbox.test.mjs', 'standalone-relay/native-scattering-mailbox.mjs', 'standalone-relay/native-scattering-host.mjs', 'scripts/run-native-scattering-host.mjs', 'tests/native-scattering-host.test.mjs', 'standalone-relay/native-scattering-schedule.mjs', 'scripts/run-native-scattering-schedule.mjs', 'tests/native-scattering-schedule.test.mjs', 'standalone-relay/native-scattering-overlap.mjs', 'tests/native-scattering-overlap.test.mjs', 'tests/native-windows-overlap-schedule.test.mjs', 'scripts/run-windows-scattering-overlap.mjs', 'scripts/Quantic-Sillage-Scattering.ps1', 'scripts/Quantic-Sillage-DirectMail.ps1', 'scripts/Quantic-Sillage-LocalDirect.ps1', 'scripts/native-windows-local-direct.mjs', 'scripts/run-windows-direct-mail.mjs', 'standalone-relay/native-relay-operator.mjs', 'scripts/run-pinned-native-relay.mjs', 'tests/native-relay-operator.test.mjs', 'scripts/serve-native-scattering-windows.mjs', 'scripts/native-vault-windows-mailbox.mjs', 'scripts/verify-migration-local.mjs', '.github/workflows/native-vault-lab.yml']
   push:
     branches: [main, "feat/**", "fix/**"]
-    paths: ['labs/quantic-native/**', 'cmd/quantic-alpha-launcher/**', 'desktop/**', 'lib/quantic/**', 'scripts/native-vault-windows-local.mjs', 'scripts/package-windows-pq-lab.sh', 'scripts/scattering-physical-probe.mjs', 'scripts/Start-Windows-PQ-Lab.ps1', 'scripts/Test-Windows-PQ-Package.ps1', 'scripts/Quantic-Sillage-Alpha.ps1', 'scripts/Quantic-Sillage-Alpha.nsi', 'scripts/Test-Native-Installer-Signature.ps1', 'scripts/Sign-Native-Lab-Installer.ps1', 'tests/native-windows-desktop.test.mjs', 'tests/native-windows-mail-flow.test.mjs', 'tests/native-scattering-mailbox.test.mjs', 'standalone-relay/native-scattering-mailbox.mjs', 'scripts/serve-native-scattering-windows.mjs', 'scripts/native-vault-windows-mailbox.mjs', 'scripts/verify-migration-local.mjs', '.github/workflows/native-vault-lab.yml']
+    paths: ['labs/quantic-native/**', 'cmd/quantic-alpha-launcher/**', 'desktop/**', 'lib/quantic/**', 'scripts/native-vault-windows-local.mjs', 'scripts/package-windows-pq-lab.sh', 'scripts/scattering-physical-probe.mjs', 'scripts/Start-Windows-PQ-Lab.ps1', 'scripts/Test-Windows-PQ-Package.ps1', 'scripts/Quantic-Sillage-Alpha.ps1', 'scripts/Quantic-Sillage-GUI-Check.ps1', 'scripts/Quantic-Sillage-Network-Check.ps1', 'scripts/native-two-host-network-lab.mjs', 'tests/native-two-host-network-lab.test.mjs', 'tests/native-two-host-cli-e2e.test.mjs', 'scripts/Quantic-Sillage-Alpha.nsi', 'scripts/Test-Native-Installer-Signature.ps1', 'scripts/Sign-Native-Lab-Installer.ps1', 'tests/native-windows-desktop.test.mjs', 'tests/native-windows-mail-flow.test.mjs', 'tests/native-windows-integrated-mail.test.mjs', 'tests/native-windows-mail-roundtrip-e2e.test.mjs', 'tests/windows-two-party-provision-lab.test.mjs', 'tests/native-windows-mail-readiness.test.mjs', 'scripts/native-windows-compose-draft.mjs', 'scripts/Quantic-Sillage-Compose.ps1', 'tests/native-scattering-mailbox.test.mjs', 'standalone-relay/native-scattering-mailbox.mjs', 'standalone-relay/native-scattering-host.mjs', 'scripts/run-native-scattering-host.mjs', 'tests/native-scattering-host.test.mjs', 'standalone-relay/native-scattering-schedule.mjs', 'scripts/run-native-scattering-schedule.mjs', 'tests/native-scattering-schedule.test.mjs', 'standalone-relay/native-scattering-overlap.mjs', 'tests/native-scattering-overlap.test.mjs', 'tests/native-windows-overlap-schedule.test.mjs', 'scripts/run-windows-scattering-overlap.mjs', 'scripts/Quantic-Sillage-Scattering.ps1', 'scripts/Quantic-Sillage-DirectMail.ps1', 'scripts/Quantic-Sillage-LocalDirect.ps1', 'scripts/native-windows-local-direct.mjs', 'scripts/run-windows-direct-mail.mjs', 'standalone-relay/native-relay-operator.mjs', 'scripts/run-pinned-native-relay.mjs', 'tests/native-relay-operator.test.mjs', 'scripts/serve-native-scattering-windows.mjs', 'scripts/native-vault-windows-mailbox.mjs', 'scripts/verify-migration-local.mjs', '.github/workflows/native-vault-lab.yml']
 permissions:
   contents: read
 # Keep only the latest feature validation; retain independent main runs.
@@ -51,6 +51,8 @@ jobs:
           go build -trimpath -o ../QuanticNativePacer_v7_1_linux_amd64 .
       - name: Native Scattering mailbox traffic over UDP
         run: QUANTIC_SCATTERING_NATIVE_TEST="$GITHUB_WORKSPACE/labs/quantic-native/scattering/QuanticNativePacer_v7_1_linux_amd64" node --test tests/native-scattering-mailbox.test.mjs
+      - name: Supervised private-network native Scattering hosts and epoch protection
+        run: QUANTIC_SCATTERING_NATIVE_TEST="$GITHUB_WORKSPACE/labs/quantic-native/scattering/QuanticNativePacer_v7_1_linux_amd64" node --test tests/native-scattering-host.test.mjs tests/native-relay-operator.test.mjs tests/native-scattering-schedule.test.mjs tests/native-scattering-overlap.test.mjs
       - name: Vault default and PQ build and tests
         working-directory: labs/quantic-native/vault
         run: |
@@ -103,8 +105,9 @@ jobs:
           openssl version
           openssl list -kem-algorithms | grep -qi ML-KEM-768
           openssl list -signature-algorithms | grep -qi ML-DSA-65
-          go test -count=1 -tags pqopenssl -run '^(TestPQProviderRoundTrip|TestWindowsPrivateStorage|TestWindowsPQStorageReopen|TestWindowsProvisionJournalRestart|TestWindowsConsoleParsing|TestWindowsRecoveryExactResult|TestWindowsQuorumConfigRefusal|TestWindowsScatteringEpochGuard|TestWindowsLabImport|TestWindowsAutoController|TestWindowsPayLab|TestWindowsAnchoredPayLab|TestNativeFinancialPermitVerification|TestWindowsPayQuorumImportBinding)$' -v .
+          go test -count=1 -tags pqopenssl -run '^(TestPQProviderRoundTrip|TestWindowsPrivateStorage|TestWindowsEncryptedDraftDPAPI|TestWindowsMailLabInventory|TestWindowsGUIOperatorCheckContract|TestWindowsGUIProvisionRefusesInvalidTargetsBeforeDialog|TestWindowsPQStorageReopen|TestWindowsProvisionJournalRestart|TestWindowsConsoleParsing|TestWindowsRecoveryExactResult|TestWindowsQuorumConfigRefusal|TestWindowsScatteringEpochGuard|TestWindowsScatteringOverlapGuard|TestWindowsDirectLocalVault|TestWindowsLabImport|TestWindowsAutoController|TestWindowsPayLab|TestWindowsAnchoredPayLab|TestNativeFinancialPermitVerification|TestWindowsPayQuorumImportBinding)$' -v .
           go build -trimpath -tags pqopenssl -o "$RUNNER_TEMP/Vault-PQ-provider-lab.exe" .
+          go test -c -trimpath -tags pqopenssl -o "$RUNNER_TEMP/Windows-Mail-E2E-Fixture.test.exe" .
           cd ../scattering/native
           CGO_ENABLED=0 go build -trimpath -o "$RUNNER_TEMP/Scattering-Pacer.exe" .
 
@@ -112,7 +115,7 @@ jobs:
         with:
           node-version: 24.8.0
       - name: Windows trusted client workflow regressions
-        run: node --test tests/native-windows-desktop.test.mjs tests/native-vault-controller.test.mjs tests/native-windows-mail-flow.test.mjs
+        run: node --test tests/native-windows-desktop.test.mjs tests/native-vault-controller.test.mjs tests/native-windows-mail-flow.test.mjs tests/native-windows-draft.test.mjs tests/native-windows-gui-send.test.mjs tests/native-windows-mail-status.test.mjs tests/native-two-host-network-lab.test.mjs tests/native-two-host-cli-e2e.test.mjs
       - name: Windows multi-host mail readiness with four pinned mTLS authorities and Scattering
         shell: pwsh
         run: |
@@ -193,7 +196,7 @@ jobs:
         shell: pwsh
         run: |
           $dir = Join-Path $env:RUNNER_TEMP "QuanticMail-Windows-PQ-Lab"
-          foreach ($path in @("$dir\Start-Windows-PQ-Lab.ps1","$dir\Test-Windows-PQ-Package.ps1","$dir\Quantic-Sillage-Alpha.ps1")) {
+          foreach ($path in @("$dir\Start-Windows-PQ-Lab.ps1","$dir\Test-Windows-PQ-Package.ps1","$dir\Quantic-Sillage-Alpha.ps1","$dir\Quantic-Sillage-GUI-Check.ps1","$dir\Quantic-Sillage-Network-Check.ps1")) {
             $tokens=$null
             $errors=$null
             $null=[System.Management.Automation.Language.Parser]::ParseFile($path,[ref]$tokens,[ref]$errors)
@@ -278,6 +281,12 @@ jobs:
           $env:PATH = "$dir\bin;$env:SystemRoot\System32"
           & $node --test tests/native-scattering-mailbox.test.mjs
           if ($LASTEXITCODE -ne 0) { throw "Packaged Scattering mailbox failed" }
+          & $node --test tests/native-windows-overlap-schedule.test.mjs
+          if ($LASTEXITCODE -ne 0) { throw "Packaged Windows overlapping epoch schedule failed" }
+          $env:QUANTIC_WINDOWS_MAIL_E2E = "1"
+          $env:QUANTIC_WINDOWS_MAIL_FIXTURE = "$env:RUNNER_TEMP\Windows-Mail-E2E-Fixture.test.exe"
+          & $node --test tests/native-windows-mail-roundtrip-e2e.test.mjs
+          if ($LASTEXITCODE -ne 0) { throw "Native Windows PQ mail roundtrip and ACK recovery failed" }
       - name: Verify packaged entry points and cryptography runtime
         shell: pwsh
         run: |
@@ -333,6 +342,13 @@ jobs:
           if ($p.ExitCode -ne 0) { throw "Native installation failed" }
           $installed = Join-Path $env:LOCALAPPDATA "QuanticSillage\Alpha-$build\app"
           & ./scripts/Test-Windows-PQ-Package.ps1 -PackageDirectory $installed -ExpectedManifestSha256 $manifestPin
+          # Full process-level proof using only the actual installed Node runtime
+          # and shipped CLI adapter; no test-only path may replace installed code.
+          $env:QS_ALPHA_PACKAGE = $installed
+          try {
+            & (Join-Path $installed 'runtime\node.exe') --test tests/native-two-host-cli-e2e.test.mjs
+            if($LASTEXITCODE -ne 0){throw "Installed Windows GUI network CLI integration failed"}
+          } finally { Remove-Item Env:\QS_ALPHA_PACKAGE -ErrorAction SilentlyContinue }
           $vaultPin = (Get-FileHash -LiteralPath (Join-Path $installed "bin\Vault-PQ-lab.exe") -Algorithm SHA256).Hash.ToLowerInvariant()
           $menu = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Quantic Sillage\Alpha-$build.lnk"
           $desktop = Join-Path ([Environment]::GetFolderPath('DesktopDirectory')) "Quantic Sillage Alpha-$build.lnk"

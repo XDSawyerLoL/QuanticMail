@@ -1,9 +1,46 @@
 // One-shot headless GUI helper. Plaintext is read only over a local private pipe.
 import {saveWindowsDraftFromInput} from '../desktop/native-windows-draft.mjs';
+import {composeSendWindowsGUI,receiveWindowsGUI,listWindowsGUIReceipts,readWindowsGUIReceipt} from '../desktop/native-windows-gui-send.mjs';
+import {listWindowsMailAttempts} from '../desktop/native-windows-mail-status.mjs';
+import {provisionSingleWindowsGUI} from '../desktop/windows-two-party-provision-lab.mjs';
+import {runWindowsTwoHostReadiness} from '../desktop/native-windows-mail-readiness.mjs';
 try{
  const args=process.argv.slice(2);
- if(process.platform!=='win32'||process.versions.node.split('.')[0]!=='24'||!([3,4].includes(args.length))||args.length===4&&args[3]!=='--list'||process.stdin.isTTY)throw Error('Not the Windows GUI lab');
- if(args.length===4){
+ if(process.platform!=='win32'||process.versions.node.split('.')[0]!=='24'||!([3,4].includes(args.length))||args.length===4&&!['--list','--send','--status','--receive','--recover-receive','--confirm-receipt','--receipt-list','--receipt-read','--provision','--readiness'].includes(args[3])||process.stdin.isTTY)throw Error('Not the Windows GUI lab');
+ if(['--provision','--readiness'].includes(args[3])){
+  const chunks=[];let length=0;
+  for await(const c of process.stdin){length+=c.length;if(length>8192)throw Error('Setup input too large');chunks.push(c);}
+  const raw=Buffer.concat(chunks);for(const c of chunks)c.fill(0);
+  let fields;try{fields=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(raw));}finally{raw.fill(0);}
+  const boot={binary:args[0],binarySha256:args[1],dir:args[2]};
+  const exact=keys=>fields&&Object.getPrototypeOf(fields)===Object.prototype&&Object.keys(fields).length===keys.length&&keys.every(k=>Object.hasOwn(fields,k));
+  let result;
+  if(args[3]==='--provision'){
+   if(!exact(['address','quorumPin']))throw Error('Invalid provisioning fields');
+   result=await provisionSingleWindowsGUI({...boot,...fields});
+  }else{
+   if(!exact(['carrierDir','trustFile','trustSha256','live'])||typeof fields.live!=='boolean')throw Error('Invalid readiness fields');
+   result=await runWindowsTwoHostReadiness({...boot,...fields});
+  }
+  process.stdout.write(JSON.stringify(result)+'\n');
+ }else if(args[3]==='--status'){
+  process.stdout.write(JSON.stringify(await listWindowsMailAttempts({binary:args[0],binarySha256:args[1],dir:args[2]}))+'\n');
+ }else if(args[3]==='--receipt-list'){
+  process.stdout.write(JSON.stringify(await listWindowsGUIReceipts({binary:args[0],binarySha256:args[1],dir:args[2]}))+'\n');
+ }else if(args[3]==='--receipt-read'){
+  const chunks=[];let n=0;
+  for await(const c of process.stdin){n+=c.length;if(n>128)throw Error('Receipt input too large');chunks.push(c);}
+  const bytes=Buffer.concat(chunks);for(const c of chunks)c.fill(0);
+  let name;try{name=new TextDecoder('utf-8',{fatal:true}).decode(bytes);}finally{bytes.fill(0);}
+  process.stdout.write(JSON.stringify(await readWindowsGUIReceipt({binary:args[0],binarySha256:args[1],dir:args[2]},name))+'\n');
+ }else if(['--receive','--recover-receive','--confirm-receipt'].includes(args[3])){
+ const chunks=[];let length=0;
+ for await(const chunk of process.stdin){length+=chunk.length;if(length>128)throw Error('Input too large');chunks.push(chunk);}
+ const b=Buffer.concat(chunks);for(const c of chunks)c.fill(0);
+ let name;try{if(args[3]==='--confirm-receipt'){name=new TextDecoder('utf-8',{fatal:true}).decode(b);}else if(b.length!==0){throw Error('Unexpected receipt input');}}finally{b.fill(0);}
+ const result=await receiveWindowsGUI({binary:args[0],binarySha256:args[1],dir:args[2]},args[3].slice(2),name);
+ process.stdout.write(JSON.stringify(result)+'\n');
+ }else if(args[3]==='--list'){
   const {listWindowsDraftRecipients}=await import('../desktop/native-windows-draft.mjs');
   process.stdout.write(JSON.stringify(await listWindowsDraftRecipients({binary:args[0],binarySha256:args[1],dir:args[2]}))+'\n');
  } else {
@@ -14,11 +51,12 @@ try{
  }
  const b=Buffer.concat(chunks);for(const chunk of chunks)chunk.fill(0);
  let fields;try{fields=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(b));}finally{b.fill(0);}
- const result=await saveWindowsDraftFromInput({binary:args[0],binarySha256:args[1],dir:args[2]},fields);
+ const boot={binary:args[0],binarySha256:args[1],dir:args[2]};
+ const result=args[3]==='--send'?await composeSendWindowsGUI(boot,fields):await saveWindowsDraftFromInput(boot,fields);
  process.stdout.write(JSON.stringify(result)+'\n');
  }
 }catch{
  // Never echo draft content or cryptographic configuration into diagnostics.
- process.stderr.write('Le coffre de test ou le contact verifie est indisponible. Aucun brouillon transmis.\n');
+ process.stderr.write('Operation de messagerie non confirmee. Conservez les fichiers prives; aucun renvoi automatique.\n');
  process.exitCode=1;
 }

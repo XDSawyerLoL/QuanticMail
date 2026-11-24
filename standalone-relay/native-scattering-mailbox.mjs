@@ -8,7 +8,7 @@ import {createServer,request} from 'node:http';
 import {cellKey} from '../labs/quantic-native/scattering/scattering-cell.mjs';
 import {reliableCellStream} from '../labs/quantic-native/scattering/scattering-reliable-lab.mjs';
 const MAX=32768,FRAME=65536,OPS=16;
-const profiles=Object.freeze({mailbox:Object.freeze({base:'/api/quantic/native/v1/',ops:Object.freeze(['send','pull','ack','recover'])}), 'pay-lab':Object.freeze({base:'/api/quantic/pay-lab/v1/',ops:Object.freeze(['checkpoint','submit'])}), 'pay-round-lab':Object.freeze({base:'/api/quantic/pay-round-lab/v1/',ops:Object.freeze(['status','prepare','change-view','commit','learn','upload-begin','upload-chunk','upload-finish'])}), 'pay-replica-lab':Object.freeze({base:'/api/quantic/pay-replica-lab/v1/',ops:Object.freeze(['status','admission-report','vote-admission','admit','prepare','change-view','commit','learn','upload-begin','upload-chunk','upload-finish','record-begin','record-chunk'])}), 'pay-committee-recovery-lab':Object.freeze({base:'/api/quantic/pay-committee-recovery-lab/v1/',ops:Object.freeze(['status','learn','upload-begin','upload-chunk','upload-finish','record-begin','record-chunk']),maxOps:48}), 'pay-committee-vote-lab':Object.freeze({base:'/api/quantic/pay-committee-vote-lab/v1/',ops:Object.freeze(['status','admission-prepare','admission-change','admission-commit','admit','prepare','change-view','commit','upload-begin','upload-chunk','upload-finish','result-chunk']),maxOps:48})});
+const profiles=Object.freeze({'direct-mail':Object.freeze({base:'/api/quantic/direct/v1/',ops:Object.freeze(['send'])}),mailbox:Object.freeze({base:'/api/quantic/native/v1/',ops:Object.freeze(['send','pull','ack','recover'])}), 'pay-lab':Object.freeze({base:'/api/quantic/pay-lab/v1/',ops:Object.freeze(['checkpoint','submit'])}), 'pay-round-lab':Object.freeze({base:'/api/quantic/pay-round-lab/v1/',ops:Object.freeze(['status','prepare','change-view','commit','learn','upload-begin','upload-chunk','upload-finish'])}), 'pay-replica-lab':Object.freeze({base:'/api/quantic/pay-replica-lab/v1/',ops:Object.freeze(['status','admission-report','vote-admission','admit','prepare','change-view','commit','learn','upload-begin','upload-chunk','upload-finish','record-begin','record-chunk'])}), 'pay-committee-recovery-lab':Object.freeze({base:'/api/quantic/pay-committee-recovery-lab/v1/',ops:Object.freeze(['status','learn','upload-begin','upload-chunk','upload-finish','record-begin','record-chunk']),maxOps:48}), 'pay-committee-vote-lab':Object.freeze({base:'/api/quantic/pay-committee-vote-lab/v1/',ops:Object.freeze(['status','admission-prepare','admission-change','admission-commit','admit','prepare','change-view','commit','upload-begin','upload-chunk','upload-finish','result-chunk']),maxOps:48})});
 const check=x=>{if(!x)throw Error('Scattering mailbox lab refused');};
 const port=(v,zero=false)=>Number.isInteger(v)&&v>=(zero?0:1)&&v<=65535;
 const tokenOK=v=>typeof v==='string'&&/^[A-Za-z0-9._~-]{40,256}$/.test(v);
@@ -38,8 +38,13 @@ function response(res,status,body){
  res.writeHead(status,{'Content-Type':'application/json','Content-Length':body.length,'Cache-Control':'no-store',Connection:'close'});res.end(body);
 }
 const errorBody=Buffer.from('{"error":"native mailbox operation not confirmed"}');
-export async function startScatteringMailboxEndpoint(c,{windowsBootstrap,profile='mailbox'}={}){
+export async function startScatteringMailboxEndpoint(c,{windowsBootstrap,profile='mailbox',acceptUntil,directReceive}={}){
  check(Object.hasOwn(profiles,profile));
+ check(profile==='direct-mail'?(c?.role==='relay'?typeof directReceive==='function':directReceive===undefined):directReceive===undefined);
+ // A scheduled epoch may stop accepting new work well before it closes.
+ // The fixed carrier cadence itself is not changed by this admission gate.
+ check(acceptUntil===undefined||Number.isSafeInteger(acceptUntil)&&acceptUntil>Date.now());
+ const admissionOpen=()=>acceptUntil===undefined||Date.now()<acceptUntil;
  const BASE=profiles[profile].base,allowed=new Set(profiles[profile].ops),operationLimit=profiles[profile].maxOps??OPS;
  check(c?.labOnly===true&&['client','relay'].includes(c.role)&&/^[a-f0-9]{64}$/.test(c.secretHex)&&/^[a-f0-9]{64}$/.test(c.epochHex)&&!/^0+$/.test(c.secretHex)&&!/^0+$/.test(c.epochHex)&&c.secretHex!==c.epochHex&&port(c.recvPort,true)&&port(c.httpPort,c.role==='client'));
  let guard;
@@ -59,7 +64,10 @@ export async function startScatteringMailboxEndpoint(c,{windowsBootstrap,profile
   if(pending){clearTimeout(pending.timer);pending.reject(Error('Scattering epoch terminated'));pending=null;}
   upstream?.destroy();cells?.stream.destroy();input.fill(0);
   server?.closeAllConnections();server?.close();try{udp.close();}catch{}
-  guard?.close();resolveClosed();
+  guard?.close();
+  // On Windows the private directory guard owns native handles until its
+  // process has actually exited. Never report a closed lane earlier.
+  if(guard)void guard.closed.then(resolveClosed);else resolveClosed();
  }
  if(guard)void guard.closed.then(stop);
  async function sendFrame(frame){
@@ -92,7 +100,13 @@ export async function startScatteringMailboxEndpoint(c,{windowsBootstrap,profile
    }
    const data=decode(frame.body,1);busy=true;next++;
    try{
-    let result;try{result=await forward(frame,data);}catch{result={status:502,body:errorBody};}
+    let result;
+    try{
+     // Direct mode has NO upstream HTTP or mailbox relay. The remote
+     // recipient writes its own local ciphertext before returning success.
+     result=!admissionOpen()?{status:503,body:errorBody}:profile==='direct-mail'?await directReceive(data,frame.token):await forward(frame,data);
+     check(result&&Number.isInteger(result.status)&&result.status>=200&&result.status<=599&&Buffer.isBuffer(result.body)&&result.body.length<=MAX);
+    }catch{result={status:502,body:errorBody};}
     // The upstream response, not a volatile carrier ACK, is returned to the client.
     relayResponse=sendFrame({kind:'response',seq:frame.seq,status:result.status,body:result.body.toString('base64url')});
     await relayResponse;
@@ -117,10 +131,11 @@ export async function startScatteringMailboxEndpoint(c,{windowsBootstrap,profile
   const auth=req.headers.authorization;
   const len=Number(req.headers['content-length']);
   if(req.method!=='POST'||!allowed.has(op)||typeof auth!=='string'||!auth.startsWith('Bearer ')||!tokenOK(auth.slice(7))||req.headers.origin!==undefined||req.headers['transfer-encoding']!==undefined||req.headers['content-type']!=='application/json'||!Number.isInteger(len)||len<1||len>MAX){response(res,400,errorBody);req.resume();return;}
-  if(stopped||busy||next>operationLimit){response(res,503,errorBody);req.resume();return;}
+  if(stopped||busy||next>operationLimit||!admissionOpen()){response(res,503,errorBody);req.resume();return;}
   busy=true;let transmitted=false,data;
   try{
    data=await readBounded(req);check(data.length===len);
+   if(!admissionOpen()){response(res,503,errorBody);return;}
    const seq=next++;
    transmitted=true;
    const reply=new Promise((resolve,reject)=>{pending={seq,resolve,reject,timer:setTimeout(stop,18000)};});
@@ -142,6 +157,6 @@ export async function startScatteringMailboxEndpoint(c,{windowsBootstrap,profile
    server.on('error',stop);
   }
   check(!stopped);
-  return Object.freeze({recvPort:udp.address().port,httpPort:server?.address().port,closed,close:stop});
+  return Object.freeze({recvPort:udp.address().port,httpPort:server?.address().port,authenticatedPeerSeen:()=>!stopped&&cells.stats.auth>0,closed,close:stop});
  }catch(e){stop();throw e;}finally{ab.fill(0);ba.fill(0);}
 }

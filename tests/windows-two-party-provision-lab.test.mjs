@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash,generateKeyPairSync,randomBytes} from 'node:crypto';
 import {
- twoPartyWindowsPlan,checkTwoPartyWindowsPlan,provisionTwoWindowsLab
+ twoPartyWindowsPlan,checkTwoPartyWindowsPlan,provisionTwoWindowsLab,provisionSingleWindowsGUI
 } from '../desktop/windows-two-party-provision-lab.mjs';
 import {deviceIdForPublicKeyNode} from '../lib/quantic/manifest-node.mjs';
 
@@ -112,4 +112,25 @@ test('failed second native generation never reports pair completed or retries ov
   }
  }),/synthetic second vault refused/);
  assert.equal(invoked,2);
+});
+
+test('single graphical vault verifies executable, unused directory and public identity, without enrollment',async()=>{
+ const target=dir+'\\new-vault',args={binary,binarySha256:hash(binaryBytes),dir:target,...first};
+ let invocations=0;
+ const deps={
+  read:async()=>Buffer.from(binaryBytes),
+  inspect:async p=>p===dir?{isDirectory:()=>true}:{isFile:()=>true,size:binaryBytes.length},
+  missing:async p=>assert.equal(p,target),
+  invoke:async(bin,p,pin,addr)=>{invocations++;assert.deepEqual([bin,p,pin,addr],[binary,target,first.quorumPin,first.address]);return {...publicResult(addr),quorumPin:pin};}
+ };
+ const out=await provisionSingleWindowsGUI(args,deps);
+ assert.equal(out.status,'local-vault-created-not-enrolled');assert.equal(out.identity.address,first.address);
+ assert.equal(out.remoteAuthoritiesConfigured,false);assert.equal(out.nativeMailRelayConfigured,false);
+ assert.equal(out.liveAccountEnrollmentAuthorized,false);
+ assert.equal(invocations,1);
+ await assert.rejects(provisionSingleWindowsGUI({...args,binarySha256:'f'.repeat(64)},deps));
+ await assert.rejects(provisionSingleWindowsGUI({...args,quorumPin:'0'.repeat(64)},deps));
+ await assert.rejects(provisionSingleWindowsGUI(args,{...deps,missing:async()=>{throw Error('already exists');}}));
+ assert.equal(invocations,1,'invalid setup never reaches native dialog');
+ await assert.rejects(provisionSingleWindowsGUI(args,{...deps,invoke:async()=>({...publicResult(first.address),quorumPin:second.quorumPin})}));
 });
