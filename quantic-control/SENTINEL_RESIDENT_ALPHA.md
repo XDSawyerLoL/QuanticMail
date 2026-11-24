@@ -13,6 +13,10 @@ L'application Win32 reste une **seule application native** `quantic-sentinel-alp
 
 Le journal est limité à 4 Mio. Chaque événement significatif, cycle de vie et battement périodique est synchronisé sur disque. Un journal saturé/interdit provoque l'arrêt de la surveillance, sans suppression automatique silencieuse.
 
+## Lien vers la protection réellement bloquante de Windows
+
+Le bouton **Protection antirançongiciel Windows** ouvre uniquement l'application Sécurité Windows sur les paramètres d'accès contrôlé aux dossiers. Si ce mécanisme Microsoft Defender est disponible et activé par l'utilisateur, **c'est Windows Defender qui bloque** les modifications de fichiers par des applications non fiables, pas Quantic Sentinel. L'application ne peut ni garantir qu'il est activé, ni changer les réglages sans action de l'utilisateur, ni désactiver une protection existante. Les entreprises peuvent imposer leurs propres politiques.
+
 ## Ce que ce n'est PAS
 
 - **Pas de service Windows SCM**, ni agent au démarrage avant connexion. L'agent fonctionne seulement dans la session du compte utilisateur et s'arrête à la déconnexion, sans privilèges système.
