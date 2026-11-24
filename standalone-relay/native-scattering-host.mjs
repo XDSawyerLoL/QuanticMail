@@ -106,7 +106,8 @@ export async function startPrivateCarrierHost(plan,{
    }
    return exit;
   });
-  await Promise.all(exits);resolveClosed({reason,failed});
+  await Promise.all(exits);if(endpoint)await endpoint.closed;
+  resolveClosed({reason,failed});
   return closed;
  }
  function start(args){
