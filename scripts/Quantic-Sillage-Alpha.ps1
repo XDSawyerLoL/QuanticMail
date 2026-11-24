@@ -47,6 +47,8 @@ $actions=@(
  @{Id="PayOperatorConfigure";Title="Quantic Pay - importer configuration";Hint="Nouveau coffre fictif, configuration privee et empreinte independante.";Scope=$true},
  @{Id="PayCirculation";Title="Quantic Pay - circulation multi-portefeuilles";Hint="Transferts signes et tests du quorum en memoire. Cles fictives ephemeres."},
  @{Id="MailPreflight";Title="Quantic Mail - verifier les deux PC (hors ligne)";Hint="Verifie 4 autorites publiques, contact signe attendu et carrier prive. Aucune connexion ni transmission.";Scope=$true},
+ @{Id="SendGui";Title="Quantic Mail - Envoyer une enveloppe";Hint="Choisir une enveloppe deja chiffree et signee. Confirmation graphique avant depot sur le relais local.";Scope=$true},
+ @{Id="ReceiveGui";Title="Quantic Mail - Recevoir un message";Hint="Lire un message authentifie, conserver automatiquement un recu chiffre avant confirmation.";Scope=$true},
  @{Id="MailAttest";Title="Quantic Mail - verifier les quatre autorites en direct";Hint="Exige trois attestations mTLS fraiches sur quatre avant confirmation. N'envoie aucun mail.";Scope=$true}
 )
 function New-OperationArguments($Action,[string]$Directory,[string]$InputName,[string]$OutputName) {
@@ -101,11 +103,11 @@ $browse.ForeColor=[Drawing.Color]::Black;$browse.SetBounds(566,270,130,28)
 $form.Controls.Add($browse)
 $browse.Add_Click({
  $picker=New-Object Windows.Forms.FolderBrowserDialog
- $picker.Description=if($actions[$choice.SelectedIndex].Id -eq "VerifyGui"){"Choisir le dossier du coffre existant"}else{"Choisir le dossier parent du nouveau coffre de test"}
+ $picker.Description=if($actions[$choice.SelectedIndex].Id -in @("VerifyGui","SendGui","ReceiveGui")){"Choisir le dossier du coffre existant"}else{"Choisir le dossier parent du nouveau coffre de test"}
  $picker.ShowNewFolderButton=$false
  try{
   if($picker.ShowDialog() -eq [Windows.Forms.DialogResult]::OK){
-   $directory.Text=if($actions[$choice.SelectedIndex].Id -eq "VerifyGui"){$picker.SelectedPath}else{[IO.Path]::Combine($picker.SelectedPath,("Quantic-Test-"+[Guid]::NewGuid().ToString("N").Substring(0,12)))}
+   $directory.Text=if($actions[$choice.SelectedIndex].Id -in @("VerifyGui","SendGui","ReceiveGui")){$picker.SelectedPath}else{[IO.Path]::Combine($picker.SelectedPath,("Quantic-Test-"+[Guid]::NewGuid().ToString("N").Substring(0,12)))}
   }
  }finally{$picker.Dispose()}
 })
@@ -124,9 +126,9 @@ $script:selectedArguments=$null;$script:selectedAction=$null
 $choice.Add_SelectedIndexChanged({
  $a=$actions[$choice.SelectedIndex]
  $hint.Text=$a.Hint
- $run.Text=if($a.Id -eq "ProvisionGui"){"Creer mon identite"}elseif($a.Id -eq "VerifyGui"){"Verifier et refermer le coffre"}else{"Ouvrir les outils avances (terminal)"}
+ $run.Text=if($a.Id -eq "ProvisionGui"){"Creer mon identite"}elseif($a.Id -eq "VerifyGui"){"Verifier et refermer le coffre"}elseif($a.Id -eq "SendGui"){"Choisir et envoyer"}elseif($a.Id -eq "ReceiveGui"){"Recevoir"}else{"Ouvrir les outils avances (terminal)"}
  $directory.Enabled=[bool]$a.Scope
- $browse.Visible=($a.Id -in @("ProvisionGui","VerifyGui"))
+ $browse.Visible=($a.Id -in @("ProvisionGui","VerifyGui","SendGui","ReceiveGui"))
  $directory.Width=if($browse.Visible){530}else{672}
  $inputName.Enabled=[bool]$a.Input
  $outputName.Enabled=[bool]$a.Output
@@ -145,7 +147,7 @@ $choice.SelectedIndex=0
 if (-not $SelfTest -and -not $AdvancedAction) {$choice.SelectedIndex=10}
 if ($SelfTest) {
  try {
-  if($choice.Items.Count -ne 30 -or -not $inputName.Enabled -or -not $outputName.Enabled){throw "Dashboard initialization failed"}
+  if($choice.Items.Count -ne 32 -or -not $inputName.Enabled -or -not $outputName.Enabled){throw "Dashboard initialization failed"}
   $a=New-OperationArguments $actions[0] "C:\Quantic Lab\vault" "draft-test.json" "wire-test.json"
   if($a -notcontains "C:\Quantic Lab\vault\draft-test.json" -or $a -notcontains "C:\Quantic Lab\vault\wire-test.json"){throw "Wrong arguments"}
   $rejected=$false
@@ -161,7 +163,13 @@ if ($SelfTest) {
   if($actions[11].Id -cne "VerifyGui" -or $inputName.Enabled -or $outputName.Enabled -or -not $directory.Enabled){throw "Graphical verification action unavailable"}
   $verifyArgs=New-OperationArguments $actions[11] "C:\Quantic Lab\new-test-vault" "" ""
   if($verifyArgs -notcontains "VerifyGui" -or $verifyArgs -contains "-InputFile"){throw "Graphical verification mapping refused"}
-  Write-Output "Dashboard controls, graphical identity route and operation mapping verified"
+  foreach($id in @("SendGui","ReceiveGui")){
+   $mailAction=@($actions|Where-Object {$_.Id -ceq $id})
+   if($mailAction.Count -ne 1){throw "Missing graphical mail operation"}
+   $mailArgs=New-OperationArguments $mailAction[0] "C:\Quantic Lab\vault" "" ""
+   if($mailArgs -notcontains $id -or $mailArgs -contains "-InputFile"){throw "Graphical mail mapping refused"}
+  }
+  Write-Output "Dashboard controls, graphical identity and mail route verified"
  }finally{$form.Dispose()}
  exit 0
 }
@@ -224,7 +232,7 @@ function Invoke-AdvancedOperation([string]$ActionId,$operationArgs) {
 if ($AdvancedAction) {
  try {
   $a=@($actions | Where-Object {$_.Id -ceq $AdvancedAction})
-  if($a.Count -ne 1 -or $AdvancedAction -in @("ProvisionGui","VerifyGui")){throw "Operation avancee refusee"}
+  if($a.Count -ne 1 -or $AdvancedAction -in @("ProvisionGui","VerifyGui","SendGui","ReceiveGui")){throw "Operation avancee refusee"}
   $op=New-OperationArguments $a[0] $AdvancedDirectory $AdvancedInputName $AdvancedOutputName
   Invoke-AdvancedOperation $AdvancedAction $op
  }finally{$form.Dispose()}
@@ -268,6 +276,33 @@ function Invoke-GraphicalVerify($operationArgs) {
  if($record.status -cne "local-vault-verified-closed"){throw "Verification non confirmee."}
  [Windows.Forms.MessageBox]::Show("Les deux coffres ont ete ouverts et verifies, puis refermes. Aucun compte distant connecte.","Identity Vault","OK","Information")|Out-Null
 }
+function Invoke-GraphicalMail([string]$action,$operationArgs,[string]$vaultDir) {
+ if($action -eq "SendGui"){
+  $picker=New-Object Windows.Forms.OpenFileDialog
+  $picker.Title="Choisir une enveloppe chiffree"
+  $picker.Filter="Enveloppe Quantic (*.json)|wire-*.json"
+  $picker.InitialDirectory=$vaultDir;$picker.Multiselect=$false
+  try{
+   if($picker.ShowDialog() -ne [Windows.Forms.DialogResult]::OK){return}
+   $file=$picker.FileName
+  }finally{$picker.Dispose()}
+  if([IO.Path]::GetDirectoryName($file) -cne $vaultDir -or [IO.Path]::GetFileName($file) -cnotmatch '^wire-[a-z0-9-]{1,48}\.json$'){throw "Choisir une enveloppe du coffre selectionne."}
+ }elseif($action -eq "ReceiveGui"){
+  $file=[IO.Path]::Combine($vaultDir,("receipt-"+[Guid]::NewGuid().ToString("N")+".json"))
+ }else{throw "Action mail refusee"}
+ $operationArgs+=@("-InputFile",$file)
+ $publicResult=& $shell -NoProfile -File $launcher @operationArgs
+ if($LASTEXITCODE -ne 0){throw "Operation non confirmee. Conserver les donnees existantes; aucun nouvel envoi automatique."}
+ $record=($publicResult | Select-Object -Last 1 | ConvertFrom-Json)
+ $message=switch -CaseSensitive ($record.status){
+  "deposited" {"Depot confirme par le relais local. Ce depot ne prouve pas la lecture.";break}
+  "acknowledged" {"Message authentifie et recu chiffre conserve. Confirmation transmise au relais. "+[Environment]::NewLine+[Environment]::NewLine+$record.display;break}
+  "empty" {"Aucun message en attente.";break}
+  "cancelled" {"Operation annulee.";break}
+  default {throw "Resultat de messagerie inconnu."}
+ }
+ [Windows.Forms.MessageBox]::Show($message,"Quantic Mail","OK","Information")|Out-Null
+}
 try {
  while ($true) {
   $script:selectedArguments=$null;$script:selectedAction=$null
@@ -277,6 +312,8 @@ try {
     Invoke-GraphicalProvision $script:selectedArguments
    }elseif($script:selectedAction -eq "VerifyGui"){
     Invoke-GraphicalVerify $script:selectedArguments
+   }elseif($script:selectedAction -in @("SendGui","ReceiveGui")){
+    Invoke-GraphicalMail $script:selectedAction $script:selectedArguments $directory.Text
    }else{
     # All values have already been validated by New-OperationArguments.
     # Quote only the strictly validated public path and technical names.
