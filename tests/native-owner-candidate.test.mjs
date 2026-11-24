@@ -140,3 +140,49 @@ test('independent durable enrollment: three proofs, restart readback, address co
   await assert.rejects(reopened.begin(candidate,f.expected,{operatorApproved:true}));
  }finally{await rm(dir,{recursive:true,force:true});}
 });
+
+import {execFileSync} from 'node:child_process';
+import {X509Certificate} from 'node:crypto';
+import {startNativeEnrollmentAuthorityLab,verifyNativeAuthenticationQuorum} from '../standalone-relay/native-enrollment-authority-lab.mjs';
+import {nativeAuthorityRequest,runNativeEnrollmentAuthorityClient} from '../desktop/native-enrollment-authority-client.mjs';
+test('mTLS enrollment and fresh authentication over four distinct HTTPS authorities, with outage and restart',{skip:process.platform!=='linux',timeout:60000},async()=>{
+ const f=fixture(),candidate=prepareNativeIdentityCandidate(f),dir=await mkdtemp(join(tmpdir(),'native-enroll-net-'));
+ const services=new Map();
+ try{
+  const ssl=(...args)=>execFileSync('openssl',args,{cwd:dir,stdio:'ignore'});
+  ssl('req','-x509','-newkey','ec','-pkeyopt','ec_paramgen_curve:prime256v1','-nodes','-keyout','ca.key','-out','ca.crt','-subj','/CN=Enrollment test CA','-days','1','-addext','basicConstraints=critical,CA:TRUE');
+  for(const name of ['client','other','w0','w1','w2','w3']){
+   ssl('req','-new','-newkey','ec','-pkeyopt','ec_paramgen_curve:prime256v1','-nodes','-keyout',name+'.key','-out',name+'.csr','-subj','/CN='+name,'-addext','subjectAltName=IP:127.0.0.1');
+   ssl('x509','-req','-in',name+'.csr','-CA','ca.crt','-CAkey','ca.key','-CAcreateserial','-out',name+'.crt','-days','1','-copy_extensions','copy');
+  }
+  const ca=await readFile(join(dir,'ca.crt')),tlsFor=async name=>({ca,cert:await readFile(join(dir,name+'.crt')),key:await readFile(join(dir,name+'.key'))});
+  const tls=await tlsFor('client'),clientPin=sha(new X509Certificate(tls.cert).raw);
+  const keys=Array.from({length:4},()=>generateKeyPairSync('ed25519'));
+  const trusted=keys.map(k=>({pin:sha(spki(k.publicKey)),publicKey:spki(k.publicKey).toString('base64url')}));
+  const configs=await Promise.all(keys.map(async(k,i)=>{
+   const directory=join(dir,'authority-'+i);await mkdir(directory,{mode:0o700});
+   return {directory,authorityKey:k.privateKey,authorityPin:trusted[i].pin,tls:await tlsFor('w'+i),clientPin,candidate,expected:f.expected,trusted,labOnly:true,operatorApproved:true};
+  }));
+  const start=async(i,port=0)=>{const service=await startNativeEnrollmentAuthorityLab({...configs[i],port});services.set(i,service);return service;};
+  const authorities=await Promise.all(configs.map(async(c,i)=>{const service=await start(i);return {...trusted[i],url:'https://127.0.0.1:'+service.port+'/',tlsPin:sha(new X509Certificate(c.tls.cert).raw)};}));
+  const base={authorities,tls,candidate,expected:f.expected,clientPin,prove:async ch=>deviceResponse(f,ch)};
+  await assert.rejects(nativeAuthorityRequest({...authorities[0],tlsPin:'0'.repeat(64)},tls,'/native-enrollment/begin',{}));
+  await assert.rejects(nativeAuthorityRequest(authorities[0],await tlsFor('other'),'/native-enrollment/begin',{}));
+  await assert.rejects(nativeAuthorityRequest(authorities[0],tls,'/native-authentication/begin',{nonce:'1'.repeat(64),enrollmentReceipts:[]}));
+  const enrolled=await runNativeEnrollmentAuthorityClient({...base,mode:'enroll'});
+  assert.equal(enrolled.receipts.length,4);
+  assert.equal(enrolled.result.registrationAuthorized,false);
+  let called=0;
+  const reread=await runNativeEnrollmentAuthorityClient({...base,mode:'enroll',prove:async()=>{called++;throw Error('unexpected new proof');}});
+  assert.equal(called,0);assert.deepEqual(reread.receipts,enrolled.receipts);
+  const port=services.get(0).port;await services.get(0).close();services.delete(0);await start(0,port);
+  const login=()=>runNativeEnrollmentAuthorityClient({...base,mode:'authenticate',enrollmentReceipts:enrolled.receipts});
+  const authenticated=await login();
+  assert.equal(authenticated.result.authorityCount,4);assert.equal(authenticated.result.sessionAuthorized,false);
+  assert.throws(()=>verifyNativeAuthenticationQuorum({receipts:authenticated.receipts,trusted:authorities,candidate,expected:f.expected,clientPin,nonce:'0'.repeat(64)}));
+  await services.get(3).close();services.delete(3);
+  assert.equal((await login()).result.authorityCount,3);
+  await services.get(2).close();services.delete(2);
+  await assert.rejects(login());
+ }finally{await Promise.all([...services.values()].map(s=>s.close()));await rm(dir,{recursive:true,force:true});}
+});
