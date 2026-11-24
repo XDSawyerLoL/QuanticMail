@@ -191,9 +191,20 @@ test('native-only relay durably publishes two quorum-enrolled identities, refuse
   for(const f of [a,b]){
    policy=prepareQuorumEnrollmentPolicy(f.request,f.votes,{...f.opts,now:Date.now(),state:snapshot,previousPolicy:policy,approved:true}).policy;
   }
+  const transportRelay={signer:ec(),dsa:generateKeyPairSync('ml-dsa-65')};
+  const sessionIdentity=f=>({local:{classical:f.signer.publicKey,pq:f.dsa.publicKey},privateKeys:{classical:f.signer.privateKey,pq:f.dsa.privateKey}});
+  const sessionPeers=f=>{
+   // Bind the client handshake keys to the enrolled signed profile.
+   assert.equal(hash(der(f.signer)),f.request.claim.signingPin);
+   assert.equal(hash(der(f.dsa)),f.request.claim.dsaPin);
+   return [sessionIdentity(f),sessionIdentity(transportRelay)];
+  };
   if(carrierBinary){
    relayPort=service.port;
-   for(const [i,credential] of [ca,cb].entries())links.set(credential.token,await startNativeScatteringLink({dir:join(root,'carrier-'+i),binary:carrierBinary,relayPort}));
+   for(const [i,credential] of [ca,cb].entries()){
+    const link=await startNativeScatteringLink({dir:join(root,'carrier-'+i),binary:carrierBinary,relayPort,sessionPeers:sessionPeers([a,b][i])});
+    assert.equal(link.negotiated,true);links.set(credential.token,link);
+   }
    assert.notEqual(links.get(ca.token).epochId,links.get(cb.token).epochId);
    requireCarrier=true;
   }
@@ -228,14 +239,14 @@ test('native-only relay durably publishes two quorum-enrolled identities, refuse
   assert.equal(recovered.status,200);assert.equal(recovered.body.item.id,item.id);assert.deepEqual(recovered.body.item.record,record);
   if(carrierBinary){
    const old=links.get(ca.token);await old.close();
-   const fresh=await startNativeScatteringLink({dir:join(root,'carrier-replacement'),binary:carrierBinary,relayPort});
-   links.set(ca.token,fresh);assert.notEqual(fresh.epochId,old.epochId);
+   const fresh=await startNativeScatteringLink({dir:join(root,'carrier-replacement'),binary:carrierBinary,relayPort,sessionPeers:sessionPeers(a)});
+   assert.equal(fresh.negotiated,true);links.set(ca.token,fresh);assert.notEqual(fresh.epochId,old.epochId);
    const retry=await call('native/v1/send',record,ca.token);
    assert.equal(retry.status,202);assert.equal(retry.body.id,item.id);assert.equal(retry.body.duplicate,true);assert.equal(retry.body.status,'acknowledged');
    assert.equal((await call('native/v1/pull',scope(b),cb.token)).body.item,null);
    await fresh.close();
    await assert.rejects(call('native/v1/send',record,ca.token));
-   console.log('ENROLLED_NATIVE_UDP_EVIDENCE '+JSON.stringify({twoEnrolledIdentities:true,independentCarrierEpochs:true,hybridDecryption:true,relayRestart:true,exactRetry:true,noDuplicate:true,noDirectFallback:true,physicalHosts:1,releaseAuthorized:false}));
+   console.log('ENROLLED_NATIVE_UDP_EVIDENCE '+JSON.stringify({twoEnrolledIdentities:true,authenticatedHybridHandshake:true,deviceSigningPinsBound:true,bootstrapPreconfigured:true,independentCarrierEpochs:true,hybridDecryption:true,relayRestart:true,exactRetry:true,noDuplicate:true,noDirectFallback:true,physicalHosts:1,releaseAuthorized:false}));
   }
   assert.deepEqual(await readFile(join(root,'relay-state.json')),legacy);
  }finally{await Promise.all([...links.values()].map(x=>x.close()));await stop();await rm(root,{recursive:true,force:true});}
