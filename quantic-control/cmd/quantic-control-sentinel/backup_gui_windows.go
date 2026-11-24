@@ -38,9 +38,12 @@ var backupHandles []*sentinel.BackupLock
 var backupButton,backupLabel uintptr
 
 func chooseBackup(owner uintptr)(string,bool){
- filter:=utf16.Encode([]rune("Copies de sauvegarde (*.bak;*.backup;*.zip;*.7z;*.qvb)\x00*.bak;*.backup;*.zip;*.7z;*.qvb\x00\x00"))
+ return chooseLocalFile(owner,"Copies de sauvegarde (*.bak;*.backup;*.zip;*.7z;*.qvb)\x00*.bak;*.backup;*.zip;*.7z;*.qvb\x00\x00","Sélectionner une copie de sauvegarde inactive")
+}
+func chooseLocalFile(owner uintptr,filterText,titleText string)(string,bool){
+ filter:=utf16.Encode([]rune(filterText))
  buf:=make([]uint16,32768)
- title:=u16("Sélectionner une copie de sauvegarde inactive")
+ title:=u16(titleText)
  dialog:=backupOpenFileName{size:uint32(unsafe.Sizeof(backupOpenFileName{})),
   owner:owner,filter:&filter[0],filterIndex:1,file:&buf[0],maxFile:uint32(len(buf)),title:title,
   flags:0x00080000|0x00001000|0x00000800|0x00000008|0x00100000}
