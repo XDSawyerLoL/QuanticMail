@@ -1,16 +1,5 @@
 import type { NextConfig } from "next";
 
-const staticExport = process.env.QUANTIC_STATIC_EXPORT === "1";
-
-const nextConfig: NextConfig = {
-  reactStrictMode: true,
-  ...(staticExport
-    ? {
-        output: "export",
-        basePath: "/mail",
-        trailingSlash: true,
-      }
-    : {}),
-};
-
-export default nextConfig;
+export default function retiredWebConfiguration(): NextConfig {
+  throw new Error("Quantic Sillage: legacy runtime retired; use the native installer. No data was modified.");
+}

@@ -54,10 +54,10 @@ function signedIdentity() {
       publicKey: encryption.publicKey,
       deviceSigningPublicKey: owner.publicKey,
       kind: "root",
-      issuedAt: "2026-09-17T00:00:00.000Z",
+      issuedAt: new Date(Date.now() - 60_000).toISOString(),
     }],
     revocations: [],
-    issuedAt: "2026-09-17T00:00:00.000Z",
+    issuedAt: new Date(Date.now() - 60_000).toISOString(),
   };
   const signature = sign("sha256", Buffer.from(canonicalManifestText(payload)), {
     key: owner.privateKey,
@@ -86,10 +86,10 @@ function signedRoute(identity, sequence = 1, endpoint = "https://relay.example")
       priority: 10,
       protocols: ["quantic-federation/1"],
       classicalSigningPublicKey: relayPublic,
-      expiresAt: "2026-10-17T00:00:00.000Z",
+      expiresAt: new Date(Date.now() + 24 * 60 * 60_000).toISOString(),
     }],
-    issuedAt: "2026-09-17T00:00:00.000Z",
-    expiresAt: "2026-10-17T00:00:00.000Z",
+    issuedAt: new Date(Date.now() - 60_000).toISOString(),
+    expiresAt: new Date(Date.now() + 24 * 60 * 60_000).toISOString(),
   };
   const signature = sign("sha256", Buffer.from(canonicalRouteManifestText(payload)), {
     key: identity.owner.privateKey,

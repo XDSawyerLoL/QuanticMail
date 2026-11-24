@@ -1,69 +1,12 @@
-name: Publish Hostinger Static Dist
+name: Publish Hostinger Static Dist (retired)
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'app/**'
-      - 'components/**'
-      - 'lib/**'
-      - 'public/**'
-      - 'next.config.ts'
-      - 'package.json'
-      - 'scripts/build-hostinger-static.mjs'
-      - '.github/workflows/publish-hostinger-dist.yml'
   workflow_dispatch:
 
-permissions:
-  contents: write
-
-concurrency:
-  group: hostinger-static-dist
-  cancel-in-progress: true
+permissions: {}
 
 jobs:
-  publish:
+  retired:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - run: npm install --ignore-scripts --no-audit --no-fund
-      - name: Build Hostinger bundle with relay bootstrap sentinel
-        env:
-          NEXT_PUBLIC_QUANTIC_BOOTSTRAPS: https://quantic-hostinger-relay.invalid,https://quantic-network-relay-backup-production.up.railway.app
-        run: npm run build:hostinger
-
-      - name: Verify relay bootstrap sentinel is embedded
-        shell: bash
-        run: |
-          set -euo pipefail
-          grep -R -q --binary-files=without-match 'https://quantic-hostinger-relay.invalid' out/_next out/*.html
-
-      - name: Publish prebuilt /mail bundle
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -f out/index.html
-          test -f out/network/index.html
-          test -f out/vault/index.html
-
-          rm -rf /tmp/quanticmail-hostinger-dist
-          mkdir -p /tmp/quanticmail-hostinger-dist
-          cp -a out/. /tmp/quanticmail-hostinger-dist/
-          printf '%s\n' "$GITHUB_SHA" > /tmp/quanticmail-hostinger-dist/QUANTICMAIL_COMMIT
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git checkout --orphan hostinger-dist
-          git rm -rf . >/dev/null 2>&1 || true
-          git clean -fdx >/dev/null 2>&1 || true
-          cp -a /tmp/quanticmail-hostinger-dist/. .
-          touch .nojekyll
-          git add -A
-          git commit -m "Hostinger static export $GITHUB_SHA"
-          git push --force origin hostinger-dist
+      - run: echo "Retired legacy publication. Native releases only."
