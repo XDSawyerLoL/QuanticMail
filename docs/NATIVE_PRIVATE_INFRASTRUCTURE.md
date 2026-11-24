@@ -148,3 +148,37 @@ opérations dans un deuxième epoch, exactement vingt traitements côté
 relais. Les résultats restent limités à un runner Linux, un serveur HTTP
 de test et un calendrier préparé ; aucune validation physique, ni portage
 Windows, ni accord de clé post-compromission ne sont revendiqués.
+
+
+## Bascule avec préchauffage (Linux Alpha, format optionnel)
+
+Même commande de démarrage, nouveau format de calendrier :
+quantic-private-scattering-overlap/v1. Ajouter le champ gatewayPort :
+port HTTP loopback stable côté client, null côté relais. Les autres champs
+sont ceux du calendrier v1. Chaque créneau dure au moins 85 secondes et
+commence exactement 40 secondes avant la fin du précédent. Chaque créneau
+utilise ses propres ports UDP, de réception locale et (côté client) HTTP,
+ainsi qu'un nouveau dossier de transit ; les ports d'une même machine
+ne peuvent être réutilisés dans ce calendrier. Le dossier d'état reste
+commun. Le relais de messagerie en amont conserve le même port.
+
+Le superviseur ouvre la nouvelle liaison cinq secondes avant la bascule.
+Il exige au moins une cellule authentifiée par les nouvelles clés avant
+de l'activer. Le point d'entrée HTTP local reste ouvert. Une requête est
+affectée à exactement une liaison, jamais réessayée sur la suivante.
+L'ancienne liaison conserve ses processus pendant 35 secondes après la
+bascule afin de laisser les opérations engagées se terminer ; les nouvelles
+requêtes utilisent uniquement la nouvelle liaison. Le relais garde sa
+fenêtre de traitement de drainage jusqu'à cinq secondes avant fermeture.
+Un échec de préchauffage ou une panne ferme tout le calendrier : aucune
+bascule vers une clé inconnue et aucun repli vers le Web.
+
+La limite de 16 opérations par liaison, la sérialisation des requêtes
+et les refus en cas d'occupation restent en vigueur. Les deux liaisons
+consomment temporairement deux fois le trafic nominal ; la cadence agrégée
+n'est pas constante et peut révéler le calendrier. La disponibilité
+continue ne vaut pas sous panne, saturation ou épuisement du budget
+avant bascule. L'observation d'une cellule authentifiée n'est pas une
+preuve de livraison de message ni un audit d'anonymat. Le portage
+Windows nécessite des gardes natives distinctes pour les deux liaisons,
+avec une protection globale durable contre la réutilisation.
