@@ -13,7 +13,7 @@ WORK="$(mktemp -d "${RUNNER_TEMP:-/tmp}/qs-netns-XXXXXX")"
 NSA="qsna-$$"
 NSB="qsnb-$$"
 VETHA="qsa$$"
-VETHB="qsb$"
+VETHB="qsb$$"
 # One ephemeral synthetic AES-GCM test key, never a user or application secret.
 "$NODE" -e "require('node:fs').writeFileSync(process.argv[1],require('node:crypto').randomBytes(32),{mode:0o600})" "$WORK/test-key"
 CAP_PID=""
