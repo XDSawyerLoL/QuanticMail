@@ -1,0 +1,9 @@
+# Native protected direct witness lab (Windows)
+
+This is a laboratory feature, not a production release. No HTTP or hosted relay is used by the witness protocol. Witness traffic uses private IPv4 UDP and does not hide IP addresses or packet timing.
+
+Open the verified Alpha package, then **Mon coffre autonome et mes messages > Mode temoin independant** on each of four independently controlled Windows machines. Create a witness, select its private IPv4 and two distinct UDP ports, export the public card and verify its SHA-256 fingerprint independently. Do not share private directories or clone them. The witness pairing and signing keys are DPAPI CurrentUser protected; compromise of the Windows account or OS remains outside this protection.
+
+On the vault computer, create a protected identity using the four verified cards, import the peer card, and select **Associer les temoins**. Transfer each encrypted capsule to its corresponding machine with its independently confirmed SHA-256 fingerprint. Use **Associer le paquet chiffre** on that machine, then **Demarrer le temoin**. Keep the witness window open. The process is not an installed Windows service; a running process alone does not attest availability. The vault checks a 3-of-4 quorum when activating the contact. If activation fails, preserve the original files; do not reset journals or regenerate credentials. No automatic repair or fallback is allowed.
+
+The witness setup currently serves one vault relationship with two journals per machine. Automatic contact renewal through the GUI and full two-party Scattering integration are not yet validated. Physical independence, initial trust, network reachability and clock integrity remain operator responsibilities. Revocation cannot be rolled back if the required independent witness state survives; simultaneous compromise or rollback of the independent domains is not covered.
