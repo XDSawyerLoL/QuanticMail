@@ -51,8 +51,13 @@ jobs:
           go build -trimpath -o ../QuanticNativePacer_v7_1_linux_amd64 .
       - name: Native Scattering mailbox traffic over UDP
         run: QUANTIC_SCATTERING_NATIVE_TEST="$GITHUB_WORKSPACE/labs/quantic-native/scattering/QuanticNativePacer_v7_1_linux_amd64" node --test tests/native-scattering-mailbox.test.mjs
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24.8.0
       - name: Two isolated GUI clients over real native Scattering UDP (synthetic vaults)
-        run: QUANTIC_SCATTERING_NATIVE_TEST="$GITHUB_WORKSPACE/labs/quantic-native/scattering/QuanticNativePacer_v7_1_linux_amd64" node --test tests/native-gui-two-client-scattering-e2e.test.mjs
+        run: |
+          node --version
+          QUANTIC_SCATTERING_NATIVE_TEST="$GITHUB_WORKSPACE/labs/quantic-native/scattering/QuanticNativePacer_v7_1_linux_amd64" node --experimental-transform-types --test tests/native-gui-two-client-scattering-e2e.test.mjs
       - name: Vault default and PQ build and tests
         working-directory: labs/quantic-native/vault
         run: |
