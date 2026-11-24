@@ -9,10 +9,12 @@ const check=x=>{if(!x)throw Error('Native session refused');};
 const sha=b=>createHash('sha256').update(b).digest('hex');
 const hex=/^[a-f0-9]{64}$/;
 const exact=(o,keys)=>check(o&&typeof o==='object'&&!Array.isArray(o)&&Object.keys(o).length===keys.length&&keys.every(k=>Object.hasOwn(o,k)));
-export function createNativeSessionStateLab({candidate,expected,trusted,clientPin,enrollmentReceipts,clock=Date.now,labOnly}){
+export function createNativeSessionStateLab({candidate,expected,trusted,clientPin,enrollmentReceipts,allowInitialEnrollment=false,clock=Date.now,labOnly}){
  check(labOnly===true&&typeof clientPin==='string'&&hex.test(clientPin));
  const c=structuredClone(candidate),pins=structuredClone(expected),trust=structuredClone(trusted);
- verifyNativeEnrollmentReceipts(structuredClone(enrollmentReceipts),trust,c,pins);
+ check(Array.isArray(enrollmentReceipts));
+ const initial=allowInitialEnrollment===true&&enrollmentReceipts.length===0;
+ if(!initial)verifyNativeEnrollmentReceipts(structuredClone(enrollmentReceipts),trust,c,pins);
  let pending=null,session=null,last=0,closed=false;
  function time(){
   check(!closed);
@@ -24,9 +26,10 @@ export function createNativeSessionStateLab({candidate,expected,trusted,clientPi
   return now;
  }
  function guard(peer){check(peer===clientPin);return time();}
- function begin(peer){
+ function begin(peer,submittedReceipts){
   const now=guard(peer);
   check(!session&&!pending);
+  if(initial||submittedReceipts!==undefined)verifyNativeEnrollmentReceipts(submittedReceipts,trust,c,pins);
   pending={nonce:randomBytes(32).toString('hex'),expires:now+180000};
   return {...pending};
  }
@@ -76,7 +79,10 @@ export async function startNativeSessionServiceLab({tls,port=0,...config}){
    const body=JSON.parse(Buffer.concat(chunks).toString('utf8')),peer=sha(cert.raw);
    let result;
    switch(req.url){
-    case '/native-session/begin':exact(body,[]);result=state.begin(peer);break;
+    case '/native-session/begin':
+     if(Object.hasOwn(body,'enrollmentReceipts')){exact(body,['enrollmentReceipts']);result=state.begin(peer,body.enrollmentReceipts);}
+     else{exact(body,[]);result=state.begin(peer);}
+     break;
     case '/native-session/open':exact(body,['nonce','receipts']);result=state.open(peer,body);break;
     case '/native-session/whoami':exact(body,['sessionId']);result=state.whoami(peer,body.sessionId);break;
     case '/native-session/lock':exact(body,['sessionId']);result=state.lock(peer,body.sessionId);break;
