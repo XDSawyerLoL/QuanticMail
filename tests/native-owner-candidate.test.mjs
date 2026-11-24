@@ -172,6 +172,33 @@ test('mTLS enrollment and fresh authentication over four distinct HTTPS authorit
   await assert.rejects(nativeAuthorityRequest({...authorities[0],tlsPin:'0'.repeat(64)},tls,'/native-enrollment/begin',{}));
   await assert.rejects(nativeAuthorityRequest(authorities[0],await tlsFor('other'),'/native-enrollment/begin',{}));
   await assert.rejects(nativeAuthorityRequest(authorities[0],tls,'/native-authentication/begin',{nonce:'1'.repeat(64),enrollmentReceipts:[]}));
+  const firstTLS=await tlsFor('session');
+  const firstConfig={candidate,expected:f.expected,trusted:authorities,clientPin,enrollmentReceipts:[],allowInitialEnrollment:true,labOnly:true,tls:firstTLS};
+  assert.throws(()=>createNativeSessionStateLab({...firstConfig,allowInitialEnrollment:false}));
+  sessionService=await startNativeSessionServiceLab(firstConfig);
+  const firstService={url:'https://127.0.0.1:'+sessionService.port+'/',tlsPin:sha(new X509Certificate(firstTLS.cert).raw)};
+  await assert.rejects(nativeAuthorityRequest(firstService,tls,'/native-session/begin',{}));
+  await assert.rejects(nativeAuthorityRequest(firstService,tls,'/native-session/begin',{enrollmentReceipts:[]}));
+  const initialConfig={format:'quantic-native-session-config-lab/v1',labOnly:true,service:firstService,authorities,candidate,expected:f.expected,enrollmentReceipts:[],clientPin,tlsFiles:{ca:'peer-id-ca.pem',cert:'peer-id-cert.pem',key:'peer-id-key.pem'}};
+  const initialKit=createNativeSessionKit({configuration:initialConfig,tls,labOnly:true});
+  assert.deepEqual(validateNativeSessionConfiguration(initialConfig,tls),initialConfig);
+  initialKit.bytes.fill(0);
+  let firstClient;
+  firstClient=createNativeSessionClientLab({...base,service:firstService,enrollmentReceipts:[],labOnly:true,onEnrollment:()=>{void firstClient.lock();}});
+  await assert.rejects(firstClient.login());assert.equal(firstClient.isUnlocked(),false);
+  const progress=[];let proofs=0;
+  const freshClient=()=>createNativeSessionClientLab({...base,service:firstService,enrollmentReceipts:[],labOnly:true,onEnrollment:s=>progress.push(s),prove:async ch=>{proofs++;return deviceResponse(f,ch);}});
+  firstClient=freshClient();
+  assert.equal((await firstClient.login()).status,'native-session-open-lab');
+  assert.equal((await firstClient.whoami()).address,f.expected.address);
+  assert.deepEqual(progress,['enrolling','enrolled']);assert.equal(proofs,8);
+  assert.equal((await firstClient.lock()).remoteLockConfirmed,true);
+  // A new client instance recovers signed durable enrollment receipts
+  // instead of performing the initial four possession proofs again.
+  firstClient=freshClient();proofs=0;
+  assert.equal((await firstClient.login()).status,'native-session-open-lab');
+  assert.equal(proofs,4);await firstClient.lock();
+  await sessionService.close();sessionService=undefined;
   const enrolled=await runNativeEnrollmentAuthorityClient({...base,mode:'enroll'});
   assert.equal(enrolled.receipts.length,4);
   assert.equal(enrolled.result.registrationAuthorized,false);
