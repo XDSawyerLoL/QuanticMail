@@ -1,0 +1,37 @@
+// This fixture is copied by CI into the independently checked-out native
+// Identity Vault source tree at its pinned revision. It is compiled in the
+// actual Vault package; pqKeys.proof is NOT reimplemented in this test.
+package main
+
+import(
+ "encoding/base64"
+ "encoding/json"
+ "strings"
+ "testing"
+ "time"
+ "github.com/XDSawyerLoL/QuanticMail/quantic-control/vaultsession"
+)
+func TestSentinelVerifiesActualNativeVaultProof(t *testing.T){
+ kem,err:=pqGenerate("ML-KEM-768")
+ if err!=nil{t.Fatal(err)}
+ defer kem.close()
+ dsa,err:=pqGenerate("ML-DSA-65")
+ if err!=nil{t.Fatal(err)}
+ defer dsa.close()
+ p,err:=pqMake(kem,dsa,"sentinel~"+strings.Repeat("a",32)+"@quantic","d-"+strings.Repeat("b",32))
+ if err!=nil{t.Fatal(err)}
+ id:=vaultsession.Identity{Address:p.address,Device:p.device,KEMPin:p.kemPin,DSAPin:p.dsaPin,DSAPublicDER:p.dsaPub}
+ now:=time.Now()
+ s,err:=vaultsession.New(id,"native-vault-integration-test",now)
+ if err!=nil{t.Fatal(err)}
+ // This is the exact method called by the native broker's pq-proof-lab op.
+ sig,err:=p.proof(s.Request().PQChallenge)
+ if err!=nil{t.Fatal(err)}
+ raw,err:=json.Marshal(vaultsession.Reply{OK:true,PQProof:base64.RawURLEncoding.EncodeToString(sig)})
+ if err!=nil{t.Fatal(err)}
+ if err:=s.Verify(raw,time.Now());err!=nil{t.Fatal(err)}
+ if s.Verify(raw,time.Now())==nil{t.Fatal("replay accepted")}
+ another,err:=vaultsession.New(id,"different-machine",time.Now())
+ if err!=nil{t.Fatal(err)}
+ if another.Verify(raw,time.Now())==nil{t.Fatal("proof for different challenge accepted")}
+}
