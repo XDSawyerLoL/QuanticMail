@@ -9,6 +9,10 @@ on:
       - "scripts/scattering-opaque-relay-lab.mjs"
       - "lib/quantic/scattering-multihop-observer.mjs"
       - "tests/scattering-multihop-observer.test.mjs"
+      - "tests/scattering-hop-reseal.test.mjs"
+      - "lib/quantic/scattering-hop-reseal-lab.mjs"
+      - "scripts/scattering-hop-reseal-relay-lab.mjs"
+      - "scripts/scattering-physical-probe.mjs"
       - ".github/workflows/scattering-multihop-lab.yml"
   workflow_dispatch:
 
@@ -30,12 +34,19 @@ jobs:
           - name: baseline
             cpu: "0"
             impairment: "0"
+            reseal: "0"
           - name: loss-and-jitter
             cpu: "0"
             impairment: "1"
+            reseal: "0"
           - name: cpu-contention
             cpu: "1"
             impairment: "0"
+            reseal: "0"
+          - name: trusted-hop-reseal
+            cpu: "0"
+            impairment: "0"
+            reseal: "1"
     name: "Network observer / ${{ matrix.name }}"
     steps:
       - uses: actions/checkout@v4
@@ -54,6 +65,8 @@ jobs:
       - name: Validate passive PCAP parser and shell syntax
         run: |
           node --test tests/scattering-multihop-observer.test.mjs
+          node --test tests/scattering-hop-reseal.test.mjs
+          node --check scripts/scattering-hop-reseal-relay-lab.mjs
           node --check scripts/scattering-opaque-relay-lab.mjs
           bash -n scripts/scattering-multihop-netns-lab.sh
       - name: Build native keyless Go pacer
@@ -63,4 +76,5 @@ jobs:
         env:
           SCATTERING_MULTIHOP_CPU_LOAD: ${{ matrix.cpu }}
           SCATTERING_MULTIHOP_IMPAIRMENT: ${{ matrix.impairment }}
+          SCATTERING_MULTIHOP_RESEAL: ${{ matrix.reseal }}
         run: bash scripts/scattering-multihop-netns-lab.sh "$RUNNER_TEMP/Quantic-Pacer"
