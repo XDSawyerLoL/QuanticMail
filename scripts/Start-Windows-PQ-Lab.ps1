@@ -155,12 +155,18 @@ if ($Operation -eq "StartBridge") {
 }
 if ($Operation -in @("MailRecoveryList","MailRecoveryRetry")) {
  $mailArgs=@($vault,$TrustedBinarySha256.ToLowerInvariant(),$PrivateDirectory)
+ if (-not [Console]::IsInputRedirected -or -not [Console]::IsOutputRedirected) {throw "Graphical recovery pipe required."}
+ $consent=""
  if ($Operation -eq "MailRecoveryList") {$mailArgs+="gui-list"}
  else {
   if (-not $InputFile -or $OutputFile -cnotmatch '^[a-f0-9]{64}$') {throw "Missing selected signed message identity."}
+  $consent=[Console]::ReadLine()
+  if ($consent -cne ("APPROVE "+$OutputFile)) {throw "Recovery confirmation missing."}
   $mailArgs+=@("gui-retry",$InputFile,$OutputFile)
  }
- & $node --experimental-transform-types (Join-Path $root "scripts\native-vault-windows-mailbox.mjs") @mailArgs
+ # Explicitly forward the bounded ASCII consent via a pipe, never rely on
+ # inherited console handles or place a confirmation in command-line arguments.
+ $consent | & $node --experimental-transform-types (Join-Path $root "scripts\native-vault-windows-mailbox.mjs") @mailArgs
  exit $LASTEXITCODE
 }
 if ($Operation -in @("Send","SealAndSend","RecoverSealAndSend","Receive","RecoverReceive","ConfirmReceipt")) {
