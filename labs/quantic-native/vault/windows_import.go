@@ -15,7 +15,7 @@ import(
 )
 // New synthetic lab vault only. No root/device key, journal, token import
 // command, receipt-key replacement, legacy migration, or overwrite.
-var winImportName=regexp.MustCompile("^(desktop[.]json|quorum[.]json|contacts[.]json|controller[.]pem|peer-[a-z0-9-]{1,48}[.]pem|draft-[a-z0-9-]{1,48}[.]json|wire-[a-z0-9-]{1,48}[.]json)$")
+var winImportName=regexp.MustCompile("^(session[.]json|desktop[.]json|quorum[.]json|contacts[.]json|controller[.]pem|peer-[a-z0-9-]{1,48}[.]pem|draft-[a-z0-9-]{1,48}[.]json|wire-[a-z0-9-]{1,48}[.]json)$")
 func winImportLabFile(dir,name,pin string,b []byte)error{
  if !winImportName.MatchString(name)||!hashRE.MatchString(pin)||len(b)<1||len(b)>131072||hexHash(b)!=pin{return portableRefusal}
  marker,e:=winReadPrivate(filepath.Join(dir,"lab-provisioned"),64);if e!=nil{return e};defer clear(marker)

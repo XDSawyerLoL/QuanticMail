@@ -5,7 +5,7 @@ import {createHash} from 'node:crypto';
 import {readFile} from 'node:fs/promises';
 import {win32} from 'node:path';
 const pin=/^[a-f0-9]{64}$/;
-const name=/^(scattering\.json|desktop\.json|controller\.pem|contacts\.json|peer-[a-z0-9-]{1,48}\.pem|draft-[a-z0-9-]{1,48}\.json|wire-[a-z0-9-]{1,48}\.json|receipt\.key|receipt-[a-z0-9-]{1,48}\.json)$/;
+const name=/^(session\.json|scattering\.json|desktop\.json|controller\.pem|contacts\.json|peer-[a-z0-9-]{1,48}\.pem|draft-[a-z0-9-]{1,48}\.json|wire-[a-z0-9-]{1,48}\.json|receipt\.key|receipt-[a-z0-9-]{1,48}\.json)$/;
 const check=x=>{if(!x)throw Error('Windows native laboratory refused');};
 export function windowsLabPath(dir,path){
  check(typeof dir==='string'&&typeof path==='string'&&win32.isAbsolute(dir)&&/^[A-Za-z]:\\/.test(dir)&&win32.normalize(dir)===dir&&win32.dirname(path)===dir&&name.test(win32.basename(path)));
