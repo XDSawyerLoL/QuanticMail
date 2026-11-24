@@ -1,4 +1,4 @@
-# Local operator dashboard. Secrets, cryptographic operations and approvals
+﻿# Local operator dashboard. Secrets, cryptographic operations and approvals
 # remain with the pre-existing native terminal tools. Not production enrollment.
 [CmdletBinding()]
 param(
@@ -765,7 +765,7 @@ function Show-DesktopPage([string]$name){
  switch($name){
   'Accueil' {
    $null=Desktop-Label $body 'Votre espace numérique, réuni en un seul endroit.' 0 0 820 38 13
-   $null=Desktop-Card $body 'Identité' 'Créer ou vérifier votre identité locale. Aucune session réelle n’est présumée active.' 'Mon identité' 'Identité' 0 56
+   $null=Desktop-Card $body 'Identité' 'Créer ou vérifier votre identité locale. Aucune session réelle n''est présumée active.' 'Mon identité' 'Identité' 0 56
    $null=Desktop-Card $body 'Messagerie' 'Rédiger un message chiffré et configurer vos accès de test.' 'Mes messages' 'Messagerie' $right 56
    $null=Desktop-Card $body 'Paiements' 'Simulation uniquement. Aucun solde réel disponible.' 'Mes paiements' 'Paiements' 0 246
    $null=Desktop-Card $body 'Coffre-fort' 'Vérifier les clés du coffre local, sans export.' 'Mon coffre' 'Coffre-fort' $right 246
@@ -776,7 +776,7 @@ function Show-DesktopPage([string]$name){
    $null=Desktop-Label $body 'Votre identité numérique' 0 0 810 38 19 $true
    $null=Desktop-Card $body 'Créer une identité' 'Créer un coffre de test local sans inscription distante.' 'Créer mon identité de test' 'create' 0 58
    $null=Desktop-Card $body 'Vérifier mon identité' 'Choisir un coffre existant et saisir ses secrets dans le moteur natif.' 'Vérifier mon coffre' 'open' $right 58
-   $null=Desktop-Card $body 'Inscription' 'Préparer une candidature de test auprès d’un opérateur indépendant.' 'Préparer mon inscription' 'enroll' 0 248
+   $null=Desktop-Card $body 'Inscription' 'Préparer une candidature de test auprès d''un opérateur indépendant.' 'Préparer mon inscription' 'enroll' 0 248
    $null=Desktop-Card $body 'Preuve de possession' 'Répondre au défi signé fourni par votre opérateur.' 'Prouver mon identité' 'proof' $right 248
   }
   'Messagerie' {
@@ -784,16 +784,16 @@ function Show-DesktopPage([string]$name){
    $null=Desktop-Card $body 'Nouveau message' 'Ouvrir le rédacteur natif existant. Aucun envoi implicite.' 'Rédiger un message' 'compose' 0 58
    $null=Desktop-Card $body 'Contacts' 'Gérer les invitations locales de test, sans contact approuvé fictif.' 'Inviter un contact' 'contacts' $right 58
    $null=Desktop-Card $body 'Configurer ma messagerie' 'Importer votre activation authentifiée et démarrer le transport prévu.' 'Configurer' 'activation' 0 248
-   $null=Desktop-Card $body 'Préparer mes accès' 'Protéger les informations d’accès locales après approbation.' 'Préparer mes accès' 'credential' $right 248
+   $null=Desktop-Card $body 'Préparer mes accès' 'Protéger les informations d''accès locales après approbation.' 'Préparer mes accès' 'credential' $right 248
   }
   'Paiements' {
    $null=Desktop-Label $body 'Votre portefeuille' 0 0 810 38 19 $true
-   $null=Desktop-Card $body 'Solde non disponible' 'Les paiements réels ne sont pas activés. Aucun montant fictif n’est affiché.' '' '' 0 58 812 172
+   $null=Desktop-Card $body 'Solde non disponible' 'Les paiements réels ne sont pas activés. Aucun montant fictif n''est affiché.' '' '' 0 58 812 172
    $null=Desktop-Card $body 'Laboratoire Quantic Pay' 'Les simulations existantes sont réservées aux diagnostics, sans valeur monétaire.' 'Outils de laboratoire' 'advanced' 0 248 812 172
   }
   'Coffre-fort' {
    $null=Desktop-Label $body 'Vos données et vos clés' 0 0 810 38 19 $true
-   $null=Desktop-Card $body 'Coffre d’identité' 'Vérification locale des deux protections cryptographiques. Les clés sont refermées après contrôle.' 'Vérifier mon coffre' 'open' 0 58 812 172
+   $null=Desktop-Card $body 'Coffre d''identité' 'Vérification locale des deux protections cryptographiques. Les clés sont refermées après contrôle.' 'Vérifier mon coffre' 'open' 0 58 812 172
    $null=Desktop-Card $body 'Documents personnels' 'Le stockage de documents et les sauvegardes de production ne sont pas raccordés à cette page.' '' '' 0 248 812 172
   }
   'Protection' {
@@ -835,7 +835,7 @@ function Initialize-Desktop {
  $logoView=New-Object Windows.Forms.PictureBox
  $logoView.Image=$logoBitmap;$logoView.SizeMode='Zoom';$logoView.SetBounds(18,24,38,38)
  $sidebar.Controls.Add($logoView)
- $form.Add_Disposed({$logoView.Image.Dispose()}.GetNewClosure())
+ $form.Add_Disposed(({$logoView.Image.Dispose()}).GetNewClosure())
  $brand=Desktop-Label $sidebar "Quantic`nSillage" 66 19 150 46 15 $true
  $brand.ForeColor=[Drawing.Color]::White
  $tagline=Desktop-Label $sidebar 'Votre espace numérique' 20 77 196 24 9
