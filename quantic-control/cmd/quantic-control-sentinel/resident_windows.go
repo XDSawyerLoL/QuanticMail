@@ -283,8 +283,11 @@ func residentAgent()error{
  if healthErr!=nil{cancel();<-done;return healthErr}
  defer closeWinHandle.Call(healthEvent)
  healthDone:=make(chan struct{})
- setBackupHealth(healthEvent,checkHeldBackups(locks,len(m.Backups)))
- go monitorBackupHealth(ctx,healthEvent,locks,len(m.Backups),healthDone)
+ healthName,err:=backupHealthEventName(m)
+ if err!=nil{cancel();<-done;return err}
+ publisher:=&healthPublisher{event:healthEvent,name:healthName}
+ publisher.publish(checkHeldBackups(locks,len(m.Backups)))
+ go monitorBackupHealth(ctx,publisher,locks,len(m.Backups),healthDone)
  err=sentinel.RunResidentWithBackupReport(ctx,m.Root,log,len(m.Backups),len(locks),backupErr)
  cancel()
  <-healthDone
