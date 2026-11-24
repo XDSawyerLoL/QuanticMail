@@ -11,6 +11,10 @@ Le premier parcours Quantic Mail est **« Rédiger un message (sans terminal) »
 
 Les opérations historiques de laboratoire restent accessibles après un consentement explicite ouvrant **une console technique distincte**. Elles ne font pas partie du parcours standard. L'installateur demeure non signé.
 
+## Historique des essais locaux — PR #61
+
+Le bouton **« Mes essais locaux »** lit uniquement l'inventaire privé du coffre à travers son binaire Go natif déjà vérifié : les brouillons DPAPI sont authentifiés lors de la lecture, les enveloppes sont simplement recensées sans déduire leur validité cryptographique. Il montre des états **« Brouillon protégé — non envoyé »** ou **« Enveloppe locale présente — livraison inconnue »**. Il ne supprime, ne renvoie et ne déchiffre aucun courrier à l'écran. Les fichiers JSON ne sont jamais demandés à l'utilisateur. Aucune présence de fichier n'est interprétée comme une confirmation de livraison.
+
 ## Nouveau mode GUI du coffre — PR #61 (laboratoire uniquement)
 
 Deux boutons sont présents dans l'éditeur de test : **« Enregistrer mon brouillon »** et **« Chiffrer et déposer (test) »**. Le second passe par des confirmations Win32 natives et le fournisseur post-quantique déjà présent. Le coffre ne lit plus les phrases secrètes dans un terminal lorsqu'il est lancé explicitement avec le mode `--broker-windows-pq-quorum-gui-lab` ; le mode terminal reste disponible séparément pour l'ingénierie. Les phrases secrètes sont saisies directement dans une fenêtre Windows CredUI avec persistance interdite. Les autorisations par opération exigent un consentement explicite dont le choix par défaut est le refus.
