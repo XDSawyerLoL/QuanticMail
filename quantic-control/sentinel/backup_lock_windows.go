@@ -21,8 +21,39 @@ type BackupLock struct {
  mu sync.Mutex
  handle syscall.Handle
  path string
+ identity BackupIdentity
+}
+type BackupIdentity struct{
+ Path string
+ Volume uint32
+ IndexHigh uint32
+ IndexLow uint32
 }
 func (b *BackupLock) Path()string{return b.path}
+func (b *BackupLock) Identity()BackupIdentity{return b.identity}
+const MaxBackupLocks=16
+
+// LockBackupSet acquires only previously selected exact file identities.
+// On any failure all newly acquired handles are closed.
+func LockBackupSet(items []BackupIdentity)([]*BackupLock,error){
+ if len(items)>MaxBackupLocks{return nil,errors.New("maximum 16 copies")}
+ locks:=make([]*BackupLock,0,len(items))
+ seen:=map[BackupIdentity]bool{}
+ for _,id:=range items{
+  l,err:=LockBackup(id.Path)
+  if err==nil&&(l.Identity()!=id||seen[id]){
+   _=l.Close()
+   err=errors.New("identité de sauvegarde différente ou doublon")
+  }
+  if err!=nil{
+   for _,held:=range locks{_ =held.Close()}
+   return nil,err
+  }
+  seen[id]=true
+  locks=append(locks,l)
+ }
+ return locks,nil
+}
 func (b *BackupLock) Close()error{
  b.mu.Lock();defer b.mu.Unlock()
  if b.handle==0{return nil}
@@ -92,7 +123,7 @@ func LockBackup(path string)(*BackupLock,error){
  actual:=strings.TrimPrefix(syscall.UTF16ToString(resolved[:n]),"\\\\?\\")
  if !strings.EqualFold(actual,path){return nil,fmt.Errorf("chemin résolu différent : verrou refusé (%q != %q)",actual,path)}
  accepted=true
- return &BackupLock{handle:h,path:path},nil
+ return &BackupLock{handle:h,path:path,identity:BackupIdentity{Path:path,Volume:info.VolumeSerialNumber,IndexHigh:info.FileIndexHigh,IndexLow:info.FileIndexLow}},nil
 }
 
 
