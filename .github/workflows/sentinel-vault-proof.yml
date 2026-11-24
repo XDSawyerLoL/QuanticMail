@@ -55,6 +55,11 @@ jobs:
           ref: 337a8311f0a980a5dd61520555465ea06d18552c
           path: native-vault-source
           persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: c6d2266e83a573f7b3c1e582a521fc03303f37cf
+          path: native-vault-gui-source
+          persist-credentials: false
       - uses: msys2/setup-msys2@3c51bf698df1e37b2261f53cb67797b97761185c
         with:
           msystem: UCRT64
@@ -78,3 +83,34 @@ jobs:
           go mod edit -require=github.com/XDSawyerLoL/QuanticMail/quantic-control@v0.0.0
           go mod edit -replace=github.com/XDSawyerLoL/QuanticMail/quantic-control="$(cygpath -w "$control")"
           go test -count=1 -tags pqopenssl -v -timeout 90s -run TestSentinel .
+      - name: Build native graphical Vault and assemble Sentinel PQ package
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          export CC=gcc PKG_CONFIG=pkg-config
+          root="$PWD"
+          cd native-vault-gui-source/labs/quantic-native/vault
+          grep -q -- '--broker-windows-pq-quorum-gui-lab' windows_broker.go
+          go build -tags pqopenssl -o vault-pq-gui-ci.exe .
+          cd "$root"
+          bash quantic-control/scripts/package-sentinel-pq-windows.sh \
+            "$root/quantic-control/sentinel-pq-gui-ci.exe" \
+            "$root/native-vault-gui-source/labs/quantic-native/vault/vault-pq-gui-ci.exe" \
+            "$root/sentinel-pq-package" "$GITHUB_SHA" c6d2266e83a573f7b3c1e582a521fc03303f37cf
+      - name: Verify packaged PQ provider with no MSYS2 search path
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $package = (Resolve-Path 'sentinel-pq-package').Path
+          $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"
+          Remove-Item Env:OPENSSL_CONF,Env:OPENSSL_MODULES,Env:OPENSSL_CONF_INCLUDE -ErrorAction SilentlyContinue
+          $p = Start-Process -FilePath "$package\QuanticSentinel.exe" -ArgumentList '--selftest-pq-provider' -WorkingDirectory $package -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw "Packaged ML-DSA provider not available: $($p.ExitCode)" }
+          Write-Host 'Packaged ML-DSA-65 provider available without MSYS2 PATH'
+      - name: Upload unsigned native PQ Alpha package
+        uses: actions/upload-artifact@v4
+        with:
+          name: quantic-sentinel-vault-native-pq-windows-unsigned
+          path: sentinel-pq-package/
+          if-no-files-found: error
+          retention-days: 7
