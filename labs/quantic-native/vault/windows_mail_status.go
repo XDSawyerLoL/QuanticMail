@@ -3,7 +3,6 @@
 package main
 
 import (
- "bytes"
  "encoding/json"
  "os"
  "path/filepath"
@@ -41,11 +40,9 @@ func winMailLabInventory(dir string)(mailLabInventory,error){
   path:=filepath.Join(dir,entry.Name())
   limit:=32768
   if matches[1]=="draft"{limit=16384}
-  raw,e:=winReadPrivate(path,limit)
+  var raw []byte
+  if matches[1]=="draft"{raw,e=winReadEncryptedDraft(path)}else{raw,e=winReadPrivate(path,limit)}
   if e!=nil{return out,e}
-  if matches[1]=="draft"&&!bytes.HasPrefix(raw,draftMagic){
-   clear(raw);return out,draftUnavailable
-  }
   if matches[1]=="wire"{
    var record struct{
     Format string `json:"format"`
