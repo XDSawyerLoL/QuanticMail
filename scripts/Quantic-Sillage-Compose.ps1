@@ -1,4 +1,4 @@
-# Native GUI-only lab composer. No email is sent by this screen.
+# Native GUI-only lab composer. Local relay deposit is NOT remote delivery.
 [CmdletBinding()]
 param(
  [Parameter(Mandatory=$true)][ValidatePattern('^[a-fA-F0-9]{64}$')][string]$ExpectedManifestSha256,
@@ -122,7 +122,42 @@ $save.BackColor=[Drawing.Color]::FromArgb(196,223,244);$save.ForeColor=[Drawing.
 $send=New-Object Windows.Forms.Button;$send.Text='Chiffrer et deposer (test uniquement)';$send.SetBounds(24,599,437,45)
 $send.BackColor=[Drawing.Color]::FromArgb(192,212,200);$send.ForeColor=[Drawing.Color]::Black;$form.Controls.Add($send)
 $cancel=New-Object Windows.Forms.Button;$cancel.Text='Fermer';$cancel.SetBounds(481,599,199,45);$form.Controls.Add($cancel)
+$diagnostic=New-Object Windows.Forms.Button;$diagnostic.Text='Tester les fenetres de securite Windows';$diagnostic.SetBounds(24,659,656,35)
+$diagnostic.ForeColor=[Drawing.Color]::Black;$form.Controls.Add($diagnostic)
 $cancel.Add_Click({$form.Close()})
+$diagnostic.Add_Click({
+ $diagnostic.Enabled=$false
+ try{
+  # Out-of-band pin is passed through the independently checked native launcher.
+  if((Get-FileHash -LiteralPath $vault -Algorithm SHA256).Hash -ine $TrustedBinarySha256){throw 'Executable non approuve.'}
+  $psi=New-Object Diagnostics.ProcessStartInfo
+  $psi.FileName=$vault
+  $psi.Arguments='--gui-credential-preflight-lab'
+  $psi.WorkingDirectory=(Join-Path $root 'bin')
+  $psi.UseShellExecute=$false;$psi.CreateNoWindow=$true
+  $psi.WindowStyle=[Diagnostics.ProcessWindowStyle]::Hidden
+  $psi.RedirectStandardOutput=$true;$psi.RedirectStandardError=$true
+  $psi.EnvironmentVariables.Clear()
+  $psi.EnvironmentVariables['SystemRoot']=$env:SystemRoot
+  $psi.EnvironmentVariables['WINDIR']=$env:SystemRoot
+  $psi.EnvironmentVariables['PATH']=(Join-Path $root 'bin')+';'+(Join-Path $env:SystemRoot 'System32')
+  $p=New-Object Diagnostics.Process;$p.StartInfo=$psi
+  try{
+   if(-not $p.Start()){throw 'Test impossible.'}
+   if(-not $p.WaitForExit(120000)){$p.Kill();throw 'Test interrompu.'}
+   if($p.ExitCode -ne 0){throw 'Fenetre annulee ou code de test incorrect.'}
+   $raw=$p.StandardOutput.ReadToEnd()
+   if($raw.Length -gt 512){throw 'Reponse de diagnostic invalide.'}
+   $result=ConvertFrom-Json -InputObject $raw
+   if($result.status -cne 'windows-native-credential-dialogs-verified' -or
+      $result.labOnly -ne $true -or $result.vaultOpened -ne $false -or
+      $result.networkUsed -ne $false){throw 'Diagnostic invalide.'}
+   [Windows.Forms.MessageBox]::Show('Les deux fenetres Windows ont ete validees. Aucun coffre ouvert, aucune donnee envoyee.','Test GUI reussi','OK','Information')|Out-Null
+  }finally{if($null -ne $p){if(-not $p.HasExited){$p.Kill()};$p.Dispose()}}
+ }catch{
+  [Windows.Forms.MessageBox]::Show('Test non valide. Autorisation refusee, fenetre indisponible ou phrase fictive incorrecte. Aucun coffre ouvert.','Test GUI refuse','OK','Warning')|Out-Null
+ }finally{$diagnostic.Enabled=$true}
+})
 $choose.Add_Click({
  $picker=New-Object Windows.Forms.FolderBrowserDialog
  $picker.Description='Selectionnez votre coffre de test existant.'
@@ -181,7 +216,7 @@ $send.Add_Click({
  }
 })
 if($SelfTest){
- if($recipient.DropDownStyle -ne 'DropDownList' -or -not $body.Multiline -or -not $chosen.ReadOnly -or $save.Text -notmatch 'brouillon' -or $send.Text -notmatch 'Chiffrer' -or $send.Top -le $save.Top){throw 'Composer self-test failed'}
+ if($recipient.DropDownStyle -ne 'DropDownList' -or -not $body.Multiline -or -not $chosen.ReadOnly -or $save.Text -notmatch 'brouillon' -or $send.Text -notmatch 'Chiffrer' -or $send.Top -le $save.Top -or $diagnostic.Text -notmatch 'securite Windows'){throw 'Composer self-test failed'}
  $form.Dispose();Write-Output 'Private GUI composer passed';return
 }
 try{[void]$form.ShowDialog()}finally{$form.Dispose()}
