@@ -12,7 +12,7 @@ UninstPage instfiles
  System::Call 'kernel32::GetFileAttributesW(w "${PATH}") i .r0'
  IntCmp $0 -1 ${FAILURE} 0 0
  IntOp $1 $0 & 0x410
- IntCmp $1 0x10 +2 ${FAILURE} ${FAILURE}
+ IntCmp $1 0x10 +1 ${FAILURE} ${FAILURE}
 !macroend
 
 Section "Installation native"
