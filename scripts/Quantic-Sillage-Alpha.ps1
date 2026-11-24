@@ -824,9 +824,21 @@ function Initialize-Desktop {
  $workspace.Dock='Fill';$workspace.BackColor=$script:desktopColors.Canvas
  $form.Controls.Add($workspace);$form.Controls.Add($sidebar)
  $workspace.BringToFront();$sidebar.BringToFront()
- $brand=Desktop-Label $sidebar 'Quantic Sillage' 21 27 190 30 17 $true
+ # Brand mark cropped from the supplied original Quantic Sillage banner.
+ # It is embedded in the existing inventory-pinned script, not downloaded.
+ $logoBytes=[Convert]::FromBase64String('/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCAAwADADASIAAhEBAxEB/8QAHAAAAgIDAQEAAAAAAAAAAAAABwgFBgECBAAD/8QAMhAAAgEDAgMGBQIHAAAAAAAAAQIDBAURAAYHEjETIUFRYYEUFaGxwUJyFiIjMlJxkf/EABgBAAMBAQAAAAAAAAAAAAAAAAQFBgMH/8QAKhEAAAUCBAUEAwAAAAAAAAAAAAECAwUEERITMUEhIiNRYRQysfBSweH/2gAMAwEAAhEDEQA/AGVij6arm5N4UloLQUyCqql7iAcKh9T+Nb73vJtduWCnblqajIBHVV8T+NCWZuYnx9dPY+gJ/qOaCXl5dVMrIZ9259hM1+/L7MxMdSlOvgsUY7vc5OuOHiFuCkfmNWs4H6ZYwQfzqQtGwrrdYRO5jpIWGVMueZh54GuXcHDO90VM89I0NcqjJWLIf2B66bJVHErKPD98hWhEmos3mt92Fy2lxLobrMlJdY1oqpjhXz/TY+WfD30QMaUCaYo7KwIYHBB6g6OXBTd73iils9fIXq6RQ8Tse94umD6g/caXykSlhGexpuQdxckt1WS/rsYi+IdW0u5qhCf5YVWNR5d2fudc/D+gjue5oUnAaKJTMVPjjp9SNY4oxNSbolc5CVEayKfPuwftqI2RuCOyblp6mobFO2YpT5KfH2ONMEINVD0tcInlkRSRm9pi/YYPGNe1iJ1ljSSNg6MMqynII1nUcOgF4C6cfrXDa9009ZTKEWviLuo6c6nBPuCNV/hJcHpOIVnKHAlkMLeoZSNfXjhuiDcW8OyoX56S3oadXHRnzlyPTOB7a14IWyS5cQaBwpMVGGqZD5YGB9SNWjalJjrO/if8EytBHWXb7g68RNuNuGy5pAPj6bLw5/WPFff76XqrkkgleKZWjlQ8rIwwQfI6auJwdVvd+xbPujMtSjU9bjAqYe5j+4dG0pjZP0vTdLl+ATIxZVJ5rfBXyARZt8X2xR9lbbg6QDpE4DqP9A9PbRV4RXnce6Kqqut4r2Nvp8wxwoiorucEk4HgMf8AdVO5cFrwsh+X3Kimj8O15o2+gOiTsnbFfYdgTWaaWEV7rMRJESVDPnlOcD00TJVFG41dm2Iz1txsM4+nqW12cvhIRl/g4cX+5vQV3wHzB25e1hHZtz/vHdnPnqe2Fsi3bMgq0oHkmlqX5mllxzco/tXu8B36Xj+E9wNdRbltVWKrm5e9CFHrzdMeumooIpKegpoZpO0ljiVHf/IgAE6CkmipkJbadNRHqVwZQuqfUpbiMJkP/9k=')
+ $stream=New-Object IO.MemoryStream(,$logoBytes)
+ try{
+  $image=[Drawing.Image]::FromStream($stream)
+  try{$logoBitmap=New-Object Drawing.Bitmap($image)}finally{$image.Dispose()}
+ }finally{$stream.Dispose()}
+ $logoView=New-Object Windows.Forms.PictureBox
+ $logoView.Image=$logoBitmap;$logoView.SizeMode='Zoom';$logoView.SetBounds(18,24,38,38)
+ $sidebar.Controls.Add($logoView)
+ $form.Add_Disposed({$logoView.Image.Dispose()}.GetNewClosure())
+ $brand=Desktop-Label $sidebar "Quantic`nSillage" 66 19 150 46 15 $true
  $brand.ForeColor=[Drawing.Color]::White
- $tagline=Desktop-Label $sidebar 'Votre espace numérique' 23 62 190 24 9
+ $tagline=Desktop-Label $sidebar 'Votre espace numérique' 20 77 196 24 9
  $tagline.ForeColor=[Drawing.Color]::FromArgb(170,192,214)
  $script:desktopPages=@('Accueil','Identité','Messagerie','Paiements','Coffre-fort','Protection','Paramètres')
  $script:desktopNav=@()
