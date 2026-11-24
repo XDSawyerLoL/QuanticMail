@@ -16,3 +16,11 @@ func winOpenDirectLeaseStore(dir string,self directIdentity,initial senderContac
  if e!=nil{j.close();return nil,e};return s,nil
 }
 func(s *directLeaseStore)close(){if s!=nil&&s.j!=nil{s.j.close();s.j=nil}}
+
+// Native private-network adapter. An independently provisioned roster and
+// contact pin are mandatory; no web or unanchored fallback.
+func winOpenDirectUDPLeaseStore(dir string,self directIdentity,initial senderContact,config [4]directUDPConfig,rosterPin string)(*directLeaseStore,error){
+ id,e:=directLeaseJournalID(initial,self.Address,self.Device,rosterPin);if e!=nil{return nil,e}
+ members,e:=directUDPQuorumMembers(config,id,rosterPin);if e!=nil{return nil,e}
+ return winOpenDirectLeaseStore(dir,self,initial,members,rosterPin)
+}
