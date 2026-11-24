@@ -80,3 +80,5 @@ jobs:
           if($ui -notmatch "Chiffrer et deposer" -or $ui -notmatch "Read-GUIReply" -or $ui -match '(?i)WebBrowser|WebView2|onrender.com') { throw "Native GUI send control missing or remote renderer found" }
           $source = Get-Content -LiteralPath $path -Raw
           if ($source -match "(?i)WebBrowser|WebView2|loadURL|onrender\.com") { throw "Remote renderer reintroduced" }
+          if($source -notmatch 'Choose-SyntheticDirectory' -or $source -notmatch 'gui-list-synthetic-identities-lab' -or $source -notmatch 'gui-share-synthetic-contact-card-lab' -or $source -notmatch 'gui-add-synthetic-contact-candidate-lab') { throw "Synthetic GUI contact and persistent identity controls missing" }
+          if($source -notmatch 'contact-candidate-not-trusted' -or $source -notmatch 'mailAuthorized' -or $source -notmatch 'invitation' -and $source -notmatch 'code de test') { throw "Synthetic contact trust boundary missing" }

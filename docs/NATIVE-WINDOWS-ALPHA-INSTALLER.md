@@ -60,6 +60,19 @@ L'ouverture d'un coffre existant refuse une identité altérée, un mauvais secr
 
 Tests automatisés : `TestSyntheticFirstRunMetadataNeverBecomesEnrollment`, `TestSyntheticGUICommandsRejectUnexpectedArgumentsWithoutDialogs`, et auto-test de l'interface WinForms. Le **parcours interactif complet** (dialogues Win32, saisie réelle, annulation, redémarrage) exige encore une validation sur PC Windows physique avant distribution, ainsi qu'un installateur dont le nouveau moteur est attesté par la CI.
 
+## Identités retrouvées et codes de contact (laboratoire, 24/11/2026)
+
+L'interface **Ouvrir mon coffre de test** retrouve désormais les identités fictives déjà créées sous `%LOCALAPPDATA%`, sans demander de dossier ni de fichier JSON. Lorsqu'il n'y a qu'une identité, elle est proposée directement. S'il y en a plusieurs, une liste graphique permet de choisir. Le registre ne présente que des coffres dont le répertoire et le fichier public passent les contrôles de type, ACL NTFS et absence de reparse point. Une génération interrompue n'est pas affichée comme un coffre prêt. Le registre est **en lecture seule** : aucune restauration ou réparation silencieuse.
+
+Le nouveau bouton **Inviter un contact de test (en attente)** permet deux opérations :
+
+1. **Partager mon code de test** : les deux secrets du coffre sont revérifiés dans les fenêtres natives Windows, puis une carte publique à durée limitée (24 heures) est signée par le contrôleur local Ed25519. Le texte public peut être copié pour le transmettre sur un autre poste, sans fichier JSON ni terminal. L'empreinte courte de la clé du contrôleur doit être comparée par un second canal convenu avec le correspondant.
+2. **Entrer le code reçu d'un autre PC** : la signature, le domaine cryptographique, les empreintes et identifiants, la date d'expiration et le refus de son propre compte sont vérifiés par le processus natif. Après comparaison de l'empreinte et autorisation graphique, le code est sauvegardé en **candidat en attente**, dans un nouveau fichier privé à création exclusive ; aucun écrasement.
+
+**Frontière de confiance impérative :** cette carte n'est qu'une **auto-attestation** de clé locale, pas une attestation indépendante des autorités Quantic, une preuve de l'identité humaine, ni une garantie contre la substitution initiale. Le contrôleur Ed25519 de ce laboratoire est toujours stocké dans un fichier privé NTFS, mais n'est pas un module matériel anti-extraction. Les contacts ainsi importés **ne sont jamais insérés dans `contacts.json`** et **ne donnent aucun droit d'envoi/déchiffrement**. Le passage en contact autorisé devra exiger des attestations mTLS/quorum réellement indépendantes, puis une activation explicite séparée.
+
+Tests : `TestSyntheticContactCardSignedButNeverAuthorized`, `TestNativeSyntheticRegistryAndContactCommandsFailClosed` et auto-test de l'interface Windows. Une exécution humaine entre deux PC reste indispensable pour vérifier l'expérience Win32 et la comparaison hors bande des empreintes. La messagerie distante ne fonctionne pas automatiquement à ce stade.
+
 ## Vérifier les véritables fenêtres de sécurité Windows
 
 Dans l'Alpha Windows, ouvrir **Quantic Mail → Rédiger un message** puis choisir **Tester les fenêtres de sécurité Windows**. Ce diagnostic ne demande ni coffre, ni contact, ni fichier technique, ni accès réseau.

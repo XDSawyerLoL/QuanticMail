@@ -117,11 +117,184 @@ function Invoke-LocalIdentity([bool]$Create,[string]$Location) {
   $p.Dispose()
  }
 }
+
+# Trusted synthetic registry and public contact-card operations only.
+# Does not create authenticated Quantic contacts, relay configuration or sessions.
+function Invoke-SyntheticHelper([string]$Mode,[string]$Location,[string]$InputText=''){
+ if($Mode -cnotmatch '^(list|share|stage)$'){throw 'Action refusee.'}
+ if($Location -cnotmatch '^[A-Za-z]:\\[A-Za-z0-9_. -]+(?:\\[A-Za-z0-9_. -]+)*$'){throw 'Dossier local non autorise.'}
+ foreach($part in $Location.Substring(3).Split('\')){
+  if($part -in @('.','..') -or $part.EndsWith('.') -or $part.EndsWith(' ')){throw 'Chemin ambigu.'}
+ }
+ $vault=Join-Path $root 'bin\Vault-PQ-lab.exe'
+ if((Get-FileHash -LiteralPath $vault -Algorithm SHA256).Hash -ine $TrustedBinarySha256){throw 'Moteur natif non authentifie.'}
+ $cmd=switch($Mode){
+  'list' {'--gui-list-synthetic-identities-lab'}
+  'share' {'--gui-share-synthetic-contact-card-lab'}
+  'stage' {'--gui-add-synthetic-contact-candidate-lab'}
+ }
+ $psi=New-Object Diagnostics.ProcessStartInfo
+ $psi.FileName=$vault;$psi.Arguments=('{0} "{1}"' -f $cmd,$Location)
+ $psi.WorkingDirectory=(Join-Path $root 'bin')
+ $psi.UseShellExecute=$false;$psi.CreateNoWindow=$true
+ $psi.WindowStyle=[Diagnostics.ProcessWindowStyle]::Hidden
+ $psi.RedirectStandardOutput=$true
+ $psi.RedirectStandardInput=$Mode -ceq 'stage'
+ $psi.EnvironmentVariables.Clear()
+ $psi.EnvironmentVariables['SystemRoot']=$env:SystemRoot
+ $psi.EnvironmentVariables['WINDIR']=$env:SystemRoot
+ $psi.EnvironmentVariables['PATH']=(Join-Path $root 'bin')+';'+(Join-Path $env:SystemRoot 'System32')
+ $p=New-Object Diagnostics.Process;$p.StartInfo=$psi
+ try{
+  if(-not $p.Start()){throw 'Moteur local indisponible.'}
+  if($Mode -ceq 'stage'){
+   if($InputText -cnotmatch '^QSALPHA1:[A-Za-z0-9_-]{150,4096}$' -or $InputText.Length -gt 4096){throw 'Code de test invalide.'}
+   $p.StandardInput.Write($InputText)
+   $p.StandardInput.Close()
+  }
+  if(-not $p.WaitForExit(240000)){$p.Kill();throw 'Operation annulee ou bloquee.'}
+  if($p.ExitCode -ne 0){throw 'Code ou autorisation refuse.'}
+  $raw=$p.StandardOutput.ReadToEnd()
+  if($raw.Length -lt 30 -or $raw.Length -gt 6000){throw 'Retour local non conforme.'}
+  $result=ConvertFrom-Json -InputObject $raw
+  if($result.labOnly -ne $true){throw 'Resultat non fictif.'}
+  switch($Mode){
+   'list' {
+    if($result.status -cne 'local-synthetic-identities-only' -or $result.identities.Count -gt 32){throw 'Registre invalide.'}
+    foreach($item in $result.identities){
+     if($item.labOnly -ne $true -or $item.remotelyEnrolled -ne $false -or
+        $item.directory -cnotmatch ('^'+[Regex]::Escape($Location)+'\\quantic-test-[0-9a-f]{16}$') -or
+        $item.address -cnotmatch '^alpha~[0-9a-f]{32}@quantic$'){throw 'Registre refuse.'}
+    }
+   }
+   'share' {
+    if($result.status -cne 'synthetic-card-self-signed-not-authorized' -or
+       $result.mailAuthorized -ne $false -or
+       $result.fingerprint -cnotmatch '^[0-9a-f]{24}$' -or
+       $result.code -cnotmatch '^QSALPHA1:[A-Za-z0-9_-]{150,4096}$'){throw 'Invitation non confirmee.'}
+   }
+   'stage' {
+    if($result.status -cne 'contact-candidate-not-trusted' -or
+       $result.independentlyVerified -ne $false -or
+       $result.mailAuthorized -ne $false -or
+       $result.fingerprint -cnotmatch '^[0-9a-f]{24}$'){throw 'Contact non confirme.'}
+   }
+  }
+  return $result
+ }finally{if(-not $p.HasExited){$p.Kill()};$p.Dispose()}
+}
+function Choose-SyntheticDirectory {
+ if($script:latestSyntheticDirectory){return [string]$script:latestSyntheticDirectory}
+ $base=[Environment]::GetFolderPath('LocalApplicationData')
+ $data=Invoke-SyntheticHelper 'list' $base
+ $items=@($data.identities)
+ if($items.Count -eq 0){throw 'Aucun coffre de test retrouve. Creer une identite d abord.'}
+ if($items.Count -eq 1){return [string]$items[0].directory}
+ $selector=New-Object Windows.Forms.Form
+ $selector.Text='Choisir mon identite locale'
+ $selector.StartPosition='CenterParent'
+ $selector.ClientSize=New-Object Drawing.Size(580,175)
+ $selector.BackColor=[Drawing.Color]::FromArgb(19,25,35)
+ $selector.ForeColor=[Drawing.Color]::WhiteSmoke
+ $label=New-Object Windows.Forms.Label
+ $label.Text='Choisissez un coffre fictif deja cree sur cet ordinateur.'
+ $label.SetBounds(15,14,550,32);$selector.Controls.Add($label)
+ $list=New-Object Windows.Forms.ComboBox
+ $list.DropDownStyle='DropDownList';$list.SetBounds(15,53,550,29)
+ foreach($item in $items){[void]$list.Items.Add([string]$item.address)}
+ $list.SelectedIndex=0;$selector.Controls.Add($list)
+ $ok=New-Object Windows.Forms.Button;$ok.Text='Continuer'
+ $ok.SetBounds(320,108,115,40);$ok.DialogResult=[Windows.Forms.DialogResult]::OK
+ $ok.ForeColor=[Drawing.Color]::Black;$selector.Controls.Add($ok)
+ $cancel=New-Object Windows.Forms.Button;$cancel.Text='Annuler'
+ $cancel.SetBounds(450,108,115,40);$cancel.DialogResult=[Windows.Forms.DialogResult]::Cancel
+ $cancel.ForeColor=[Drawing.Color]::Black;$selector.Controls.Add($cancel)
+ $selector.AcceptButton=$ok;$selector.CancelButton=$cancel
+ try{
+  if($selector.ShowDialog() -ne [Windows.Forms.DialogResult]::OK){return $null}
+  return [string]$items[$list.SelectedIndex].directory
+ }finally{$selector.Dispose()}
+}
+function Show-SyntheticContactGuide {
+ $dir=Choose-SyntheticDirectory
+ if(-not $dir){return}
+ $menu=New-Object Windows.Forms.Form
+ $menu.Text='Quantic ID | Inviter un contact fictif'
+ $menu.StartPosition='CenterParent'
+ $menu.ClientSize=New-Object Drawing.Size(655,272)
+ $menu.BackColor=[Drawing.Color]::FromArgb(19,25,35)
+ $menu.ForeColor=[Drawing.Color]::WhiteSmoke
+ $label=New-Object Windows.Forms.Label
+ $label.Text='Une carte auto-signee ne remplace pas une attestation d autorite. Elle sera conservee EN ATTENTE et ne permettra aucun envoi.'
+ $label.SetBounds(19,17,615,74);$menu.Controls.Add($label)
+ $export=New-Object Windows.Forms.Button;$export.Text='Partager mon code de test'
+ $export.SetBounds(19,107,615,44);$export.ForeColor=[Drawing.Color]::Black;$menu.Controls.Add($export)
+ $import=New-Object Windows.Forms.Button;$import.Text='Entrer le code recu d un autre PC'
+ $import.SetBounds(19,160,615,44);$import.ForeColor=[Drawing.Color]::Black;$menu.Controls.Add($import)
+ $close=New-Object Windows.Forms.Button;$close.Text='Fermer'
+ $close.SetBounds(475,219,159,38);$close.DialogResult=[Windows.Forms.DialogResult]::Cancel
+ $close.ForeColor=[Drawing.Color]::Black;$menu.Controls.Add($close);$menu.CancelButton=$close
+ $export.Add_Click({
+  $export.Enabled=$false
+  try{
+   $r=Invoke-SyntheticHelper 'share' $dir
+   $view=New-Object Windows.Forms.Form;$view.Text='Mon code de contact (test)'
+   $view.StartPosition='CenterParent';$view.ClientSize=New-Object Drawing.Size(670,358)
+   $view.BackColor=[Drawing.Color]::FromArgb(19,25,35)
+   $view.ForeColor=[Drawing.Color]::WhiteSmoke
+   $info=New-Object Windows.Forms.Label
+   $info.Text=('Empreinte a comparer avec le destinataire : '+$r.fingerprint)
+   $info.SetBounds(18,18,630,40);$view.Controls.Add($info)
+   $code=New-Object Windows.Forms.TextBox
+   $code.Multiline=$true;$code.ReadOnly=$true;$code.ScrollBars='Vertical'
+   $code.SetBounds(18,69,633,195);$code.Text=$r.code;$view.Controls.Add($code)
+   $copy=New-Object Windows.Forms.Button;$copy.Text='Copier mon code public'
+   $copy.SetBounds(18,282,292,45);$copy.ForeColor=[Drawing.Color]::Black;$view.Controls.Add($copy)
+   $copy.Add_Click({[Windows.Forms.Clipboard]::SetText($code.Text)})
+   $done=New-Object Windows.Forms.Button;$done.Text='Fermer'
+   $done.SetBounds(493,282,158,45);$done.DialogResult=[Windows.Forms.DialogResult]::OK
+   $done.ForeColor=[Drawing.Color]::Black;$view.Controls.Add($done)
+   try{[void]$view.ShowDialog()}finally{$view.Dispose()}
+  }catch{
+   [Windows.Forms.MessageBox]::Show('Creation de code refusee : les deux secrets et les fichiers du coffre doivent etre verifies.','Code indisponible','OK','Warning')|Out-Null
+  }finally{$export.Enabled=$true}
+ })
+ $import.Add_Click({
+  $entry=New-Object Windows.Forms.Form;$entry.Text='Ajouter un contact de laboratoire'
+  $entry.StartPosition='CenterParent';$entry.ClientSize=New-Object Drawing.Size(670,348)
+  $entry.BackColor=[Drawing.Color]::FromArgb(19,25,35)
+  $entry.ForeColor=[Drawing.Color]::WhiteSmoke
+  $help=New-Object Windows.Forms.Label
+  $help.Text='Collez le code recu. Une fenetre native exigera une comparaison de l empreinte par un autre canal. Aucune autorisation de messagerie ne sera ajoutee.'
+  $help.SetBounds(18,18,633,70);$entry.Controls.Add($help)
+  $code=New-Object Windows.Forms.TextBox
+  $code.Multiline=$true;$code.ScrollBars='Vertical';$code.MaxLength=4096
+  $code.SetBounds(18,92,633,167);$entry.Controls.Add($code)
+  $add=New-Object Windows.Forms.Button;$add.Text='Verifier et conserver en attente'
+  $add.SetBounds(18,278,350,44);$add.ForeColor=[Drawing.Color]::Black;$entry.Controls.Add($add)
+  $cancel=New-Object Windows.Forms.Button;$cancel.Text='Annuler'
+  $cancel.SetBounds(492,278,159,44);$cancel.DialogResult=[Windows.Forms.DialogResult]::Cancel
+  $cancel.ForeColor=[Drawing.Color]::Black;$entry.Controls.Add($cancel)
+  $add.Add_Click({
+   $add.Enabled=$false
+   try{
+    $r=Invoke-SyntheticHelper 'stage' $dir $code.Text.Trim()
+    [Windows.Forms.MessageBox]::Show(('Contact fictif conserve EN ATTENTE : '+$r.address+[Environment]::NewLine+'Empreinte : '+$r.fingerprint+[Environment]::NewLine+'Aucune inscription distante, aucun droit d envoi.'),'Code verifie localement','OK','Information')|Out-Null
+    $entry.DialogResult=[Windows.Forms.DialogResult]::OK
+   }catch{
+    [Windows.Forms.MessageBox]::Show('Code, signature, date, empreinte ou consentement refuse. Aucun contact autorise.','Invitation refusee','OK','Warning')|Out-Null
+   }finally{$add.Enabled=$true}
+  })
+  try{[void]$entry.ShowDialog()}finally{$entry.Dispose()}
+ })
+ try{[void]$menu.ShowDialog()}finally{$menu.Dispose()}
+}
+
 $form=New-Object Windows.Forms.Form
 $form.Text="Quantic Sillage | Alpha privee"
 $form.StartPosition="CenterScreen"
-$form.ClientSize=New-Object Drawing.Size(760,755)
-$form.MinimumSize=New-Object Drawing.Size(776,794)
+$form.ClientSize=New-Object Drawing.Size(760,870)
+$form.MinimumSize=New-Object Drawing.Size(776,910)
 $form.BackColor=[Drawing.Color]::FromArgb(19,25,35)
 $form.ForeColor=[Drawing.Color]::WhiteSmoke
 $form.Font=New-Object Drawing.Font("Segoe UI",10)
@@ -158,7 +331,7 @@ $run=New-Object Windows.Forms.Button;$run.Text="Rediger un brouillon"
 $run.ForeColor=[Drawing.Color]::Black;$run.BackColor=[Drawing.Color]::FromArgb(196,223,244)
 $run.SetBounds(24,533,513,42);$form.Controls.Add($run)
 $quit=New-Object Windows.Forms.Button;$quit.Text="Fermer";$quit.ForeColor=[Drawing.Color]::Black
-$quit.SetBounds(556,695,180,42);$form.Controls.Add($quit)
+$quit.SetBounds(556,812,180,42);$form.Controls.Add($quit)
 $quit.DialogResult=[Windows.Forms.DialogResult]::Cancel;$form.CancelButton=$quit
 $form.AcceptButton=$run
 $createIdentity=New-Object Windows.Forms.Button
@@ -172,6 +345,21 @@ $openIdentity.Text='Ouvrir mon coffre de test'
 $openIdentity.SetBounds(24,645,712,43)
 $openIdentity.ForeColor=[Drawing.Color]::Black
 $form.Controls.Add($openIdentity)
+$contactGuide=New-Object Windows.Forms.Button
+$contactGuide.Text='Inviter un contact de test (en attente)'
+$contactGuide.SetBounds(24,698,712,43)
+$contactGuide.ForeColor=[Drawing.Color]::Black
+$form.Controls.Add($contactGuide)
+$contactGuide.Add_Click({
+ $contactGuide.Enabled=$false
+ try{Show-SyntheticContactGuide}catch{
+  [Windows.Forms.MessageBox]::Show('Carnet de laboratoire indisponible. Creer ou ouvrir d abord un coffre de test.','Contact non configure','OK','Warning')|Out-Null
+ }finally{$contactGuide.Enabled=$true}
+})
+$contactNotice=New-Object Windows.Forms.Label
+$contactNotice.Text='Les invitations ne sont pas des contacts approuves par les autorites.'
+$contactNotice.SetBounds(24,750,700,30)
+$form.Controls.Add($contactNotice)
 $script:latestSyntheticDirectory=$null
 $createIdentity.Add_Click({
  $createIdentity.Enabled=$false
@@ -187,15 +375,8 @@ $createIdentity.Add_Click({
 $openIdentity.Add_Click({
  $openIdentity.Enabled=$false
  try{
-  $folder=$script:latestSyntheticDirectory
-  if(-not $folder){
-   $picker=New-Object Windows.Forms.FolderBrowserDialog
-   $picker.Description='Selectionner votre coffre de test existant.'
-   try{
-    if($picker.ShowDialog() -ne [Windows.Forms.DialogResult]::OK){return}
-    $folder=$picker.SelectedPath
-   }finally{$picker.Dispose()}
-  }
+  $folder=Choose-SyntheticDirectory
+  if(-not $folder){return}
   $r=Invoke-LocalIdentity $false $folder
   [Windows.Forms.MessageBox]::Show(('Cles classiques et post-quantiques deverrouillees localement : '+$r.address+[Environment]::NewLine+'Aucune session distante : contacts, autorites et relais restent a configurer pour la messagerie.'),'Coffre de test verifie','OK','Information')|Out-Null
  }catch{
@@ -243,7 +424,7 @@ $run.Add_Click({
 $module.SelectedIndex=0
 if ($SelfTest) {
  try {
-  if($actions.Count -ne 30 -or $script:shownActions[0].Id -ne 'ComposeDraft' -or $inputName.Visible -or $outputName.Visible -or $createIdentity.Text -notmatch 'identite de test' -or $openIdentity.Text -notmatch 'coffre de test'){throw "Dashboard initialization failed"}
+  if($actions.Count -ne 30 -or $script:shownActions[0].Id -ne 'ComposeDraft' -or $inputName.Visible -or $outputName.Visible -or $createIdentity.Text -notmatch 'identite de test' -or $openIdentity.Text -notmatch 'coffre de test' -or $contactGuide.Text -notmatch 'contact de test'){throw "Dashboard initialization failed"}
   $choice.SelectedIndex=1
   if(-not $inputName.Enabled -or -not $outputName.Enabled){throw "Advanced input fields missing"}
   $a=New-OperationArguments $actions[1] "C:\Quantic Lab\vault" "draft-test.json" "wire-test.json"
