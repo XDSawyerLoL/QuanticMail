@@ -28,7 +28,7 @@ function fixture(){
    composed++;assert.equal(cfg.labOnly,true);assert.equal(s,storage);
    assert.equal(args.input,win32.join(dir,file));
    assert.equal(args.output,win32.join(dir,file.replace('draft-','wire-')));
-   assert.equal(args.recover,false);
+   assert.equal(args.recover,false);assert.deepEqual(args.reviewedFields,fields);
    assert.equal(await args.approve('Confirmation'),true);
    return{status:'deposited',digest:'b'.repeat(64)};
   },
