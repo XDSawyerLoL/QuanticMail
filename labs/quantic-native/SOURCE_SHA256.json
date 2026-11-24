@@ -131,5 +131,5 @@
   "vault/windows_storage_test.go": "1bf350508e4de09ef1bf72e039927e4b3bd2d588c14f277ae668a74897bed2da",
   "vault/windows_draft_protection.go": "6693b88b15e337e679166843eae7d2e92ccd8aa007b371f678a29073bb92c56a",
   "vault/windows_process_guard.go": "4029853d32f4733f2ffa39148dc0e070d3a2600eba4ba394c85e013dc51d41d9",
-  "vault/windows_process_guard_test.go": "1c2404b23c224472ac528edd2d9733144a81a44285e7173b33d96597bf4ac61b"
+  "vault/windows_process_guard_test.go": "8517bb2468605061d9f90217c3eddbef9e50f4fe94ba895dd148c97499b51c33"
 }

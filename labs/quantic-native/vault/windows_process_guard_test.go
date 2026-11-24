@@ -4,7 +4,7 @@ package main
 
 import(
  "bufio"
- "context"
+ stdcontext "context"
  "fmt"
  "io"
  "os"
@@ -23,7 +23,7 @@ func TestWindowsCryptoProcessAccess(t *testing.T){
   _,_=io.Copy(io.Discard,os.Stdin)
   return
  }
- ctx,cancel:=context.WithTimeout(context.Background(),20*time.Second);defer cancel()
+ ctx,cancel:=stdcontext.WithTimeout(stdcontext.Background(),20*time.Second);defer cancel()
  exe,e:=os.Executable();if e!=nil{t.Fatal(e)}
  cmd:=exec.CommandContext(ctx,exe,"-test.run=^TestWindowsCryptoProcessAccess$")
  cmd.Env=append(os.Environ(),"QV_SYNTHETIC_PROCESS_ACCESS_CHILD=1")
