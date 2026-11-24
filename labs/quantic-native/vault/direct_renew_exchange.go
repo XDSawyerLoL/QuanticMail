@@ -69,7 +69,8 @@ func issueDirectRenew(r directSignedRenewRequest,self,peer senderContact,now int
  previous,e:=directContactCommit(self);if e!=nil||previous!=r.Request.Previous{return fail,portableRefusal}
  expires:=now+directRenewDuration
  if expires<=r.PreviousExpiry||expires-r.Request.Issued>directLeaseMax{return fail,portableRefusal}
- if e=j.anchor.check(id,len(j.seen),j.tail);e!=nil{return fail,e}
+ if len(j.seen)>=replayCap-1{return fail,portableRefusal} // reserve final slot for revocation
+ if e=directRevocationCheck(j,id,rosterPin);e!=nil{return fail,e}
  // Nonce is scoped to the pinned issuer/recipient journal; changed expiry or
  // authentication bytes cannot cause a second private signing operation.
  k:=replayID("direct-renew-issuer-nonce/v1",[]byte(r.Request.Nonce))
@@ -79,6 +80,7 @@ func issueDirectRenew(r directSignedRenewRequest,self,peer senderContact,now int
   return json.Marshal(proof)
  })
  if e!=nil||!allowed(peer){return fail,portableRefusal}
+ if e=directRevocationCheck(j,id,rosterPin);e!=nil{return fail,e}
  if e=json.Unmarshal(raw,&fail);e!=nil{return directRenewProof{},e}
  return fail,nil
 }
