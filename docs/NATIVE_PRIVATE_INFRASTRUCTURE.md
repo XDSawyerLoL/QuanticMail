@@ -93,9 +93,10 @@ gestionnaire de services de la machine. Pour ces composants de laboratoire,
 désactiver les redémarrages automatiques (Restart=no dans systemd) : la
 récupération après interruption exige vérification de la persistance et
 nouvelle session coordonnée. Garder les secrets hors des fichiers unit et
-journaux. Une limite de 16 opérations par epoch existe encore dans le
-protocole de messagerie ; la rotation coordonnée automatique est un verrou
-de production, non contourné ici.
+journaux. Une limite de 16 opérations par epoch existe toujours dans le protocole de
+messagerie. La rotation programmée ci-dessous fournit des sessions successives
+sans augmenter cette limite. Ce n'est pas une négociation automatique de clés
+à la demande et elle ne garantit pas la disponibilité continue.
 
 ## Validation
 
@@ -105,3 +106,45 @@ native-relay-operator.test.mjs vérifie les pins et le verrou de démarrage.
 Ils ne remplacent pas un test sur deux hôtes physiques, des autorités
 administrativement indépendantes, l'audit de sécurité et un déploiement
 autorisé. Aucune instance publique n'est créée par ces scripts.
+
+
+## Renouvellement automatique préautorisé (Linux Alpha)
+
+Les deux opérateurs préparent **le même calendrier UTC** et des plans locaux
+distincts pour chaque session. Chaque paire secret/epoch est indépendante,
+transmise par un canal protégé ; ne dériver ni réutiliser les anciennes clés.
+Les ports, adresses, rôle, binaire, cadence et dossier d'état restent stables
+sur chaque hôte ; chaque session a un nouveau dossier de transit vide. Les
+marqueurs d'epoch consommé s'accumulent dans le même dossier d'état.
+
+Le fichier de calendrier (0600, dossier 0700) a exactement ces champs :
+
+- format: quantic-private-scattering-schedule/v1
+- labOnly: true
+- slots: liste de 2 à 24 objets contenant chacun startMs, endMs (temps UTC
+  en millisecondes Unix), file (plan local dans le même dossier) et pin
+  (empreinte SHA256 de ce plan approuvée indépendamment).
+- Chaque créneau dure de 45 secondes à 1 heure. Les créneaux sont séparés
+  de 2 secondes. Le premier doit commencer dans le futur ; horizon de 24 h.
+  Les horloges doivent être synchronisées ; un saut de plus d'une seconde
+  par rapport à l'horloge monotone interrompt le service.
+
+    node scripts/run-native-scattering-schedule.mjs /CHEMIN/schedule.json EMPREINTE_APPROUVEE
+
+Le superviseur démarre chaque liaison à l'heure prévue et la ferme à la
+fin du créneau. L'admission des nouvelles opérations est suspendue 35
+secondes avant la fermeture pour permettre la fin des opérations en cours.
+Le relais vérifie lui aussi cette échéance. Le client reçoit un refus
+explicite après 16 opérations ou durant la fenêtre de drainage ; il ne
+renvoie pas automatiquement une opération. Une panne, un saut d'horloge,
+un démarrage en retard ou un epoch déjà consommé arrêtent tout le calendrier.
+Aucun rattrapage des créneaux manqués et aucune reprise automatique après
+redémarrage. Les transitions arrêtent puis relancent les pacers : la
+continuité de couverture et l'indécelabilité ne sont pas démontrées.
+
+La CI ajoute un essai avec deux superviseurs sur UDP, seize opérations
+acceptées dans le premier epoch, la dix-septième refusée, puis quatre
+opérations dans un deuxième epoch, exactement vingt traitements côté
+relais. Les résultats restent limités à un runner Linux, un serveur HTTP
+de test et un calendrier préparé ; aucune validation physique, ni portage
+Windows, ni accord de clé post-compromission ne sont revendiqués.
