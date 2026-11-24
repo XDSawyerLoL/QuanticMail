@@ -11,6 +11,7 @@ import(
  stdcontext "context"
  "crypto/ed25519"
  "crypto/rand"
+ "net"
 )
 func TestWindowsDirectLocalVault(t *testing.T){
  root:=t.TempDir()
@@ -82,14 +83,22 @@ func TestWindowsDirectLocalVault(t *testing.T){
  journalID,e:=directLeaseJournalID(old,self.Address,self.Device,roster);if e!=nil{t.Fatal(e)}
  journal:=filepath.Join(leaseDir,"lease-journal.log")
  if e=winInitReplay(journal,self.SigningPin,self.EncryptionPin,journalID);e!=nil{t.Fatal(e)}
+ ctx,cancel:=stdcontext.WithCancel(stdcontext.Background());defer cancel()
+ var config [4]directUDPConfig
  for i:=range members{
   path:=filepath.Join(root,"witness-"+string(rune('0'+i)))
   if e=initReplay(path,self.SigningPin,self.EncryptionPin,journalID);e!=nil{t.Fatal(e)}
   store:=directTestStore{path,self.SigningPin,self.EncryptionPin,journalID,journalID}
   key:=witnessKeys[i]
-  members[i].Exchange=func(_ stdcontext.Context,q directWitnessRequest)([]byte,error){return signDirectWitness(q,journalID,store,key)}
+  secret:=make([]byte,32);if _,e=rand.Read(secret);e!=nil{t.Fatal(e)}
+  sock,e:=net.ListenUDP("udp4",&net.UDPAddr{IP:net.IPv4(127,0,0,1)});if e!=nil{t.Fatal(e)}
+  defer sock.Close()
+  done:=make(chan error,1)
+  go func(){done<-serveDirectUDPWitness(ctx,sock,secret,journalID,store,key)}()
+  defer func(){cancel();<-done}()
+  config[i]=directUDPConfig{sock.LocalAddr().(*net.UDPAddr),secret,members[i].Public}
  }
- lease,e:=winOpenDirectLeaseStore(leaseDir,self,old,members,roster);if e!=nil{t.Fatal(e)}
+ lease,e:=winOpenDirectUDPLeaseStore(leaseDir,self,old,config,roster);if e!=nil{t.Fatal(e)}
  if _,e=lease.active(now);e==nil{lease.close();t.Fatal("expired original lease accepted")}
  pending,e:=lease.begin(now);if e!=nil{lease.close();t.Fatal(e)}
  pub,e:=appPublic(peer.ControllerPublic);if e!=nil{lease.close();t.Fatal(e)}
@@ -101,7 +110,7 @@ func TestWindowsDirectLocalVault(t *testing.T){
  proof,e:=signDirectRenew(pending.req,now+23*3600000,now,softwareSigner{keys.signing},pq);if e!=nil{lease.close();t.Fatal(e)}
  if _,e=lease.commit(pending,proof,now);e!=nil{lease.close();t.Fatal(e)}
  lease.close()
- lease,e=winOpenDirectLeaseStore(leaseDir,self,old,members,roster);if e!=nil{t.Fatal(e)}
+ lease,e=winOpenDirectUDPLeaseStore(leaseDir,self,old,config,roster);if e!=nil{t.Fatal(e)}
  defer lease.close()
  if c,e:=lease.active(now+directRenewWindow+1);e!=nil||c.Expires!=proof.Expires{t.Fatal("native renewal restart",e)}
 }
