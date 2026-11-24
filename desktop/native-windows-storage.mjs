@@ -35,7 +35,9 @@ export async function createWindowsNativeStorage({binary,binarySha256,dir}){
   });
  }
  return Object.freeze({binary,binarySha256,dir,env,verifyBinary,
-  async read(path){return run('--windows-client-read-lab',path);},
+  async read(path){check(windowsLabPath(dir,path)!=='controller.pem');return run('--windows-client-read-lab',path);},
+  async controllerPublic(){const b=await run('--windows-controller-public-lab',win32.join(dir,'controller.pem'));check(b.length===32);return b;},
+  async signControllerFrame(input){check(Buffer.isBuffer(input)&&input.length>=37&&input.length<=36+32767);const b=await run('--windows-controller-sign-frame-lab',win32.join(dir,'controller.pem'),input);check(b.length===64);return b;},
   async writeDraft(path,buffer){check(/^draft-[a-z0-9-]{1,48}\.json$/.test(windowsLabPath(dir,path))&&Buffer.isBuffer(buffer)&&buffer.length>0&&buffer.length<=8192);const r=await run('--windows-client-write-draft-lab',path,buffer);check(r.length===0);},
   async writeWire(path,buffer){check(/^wire-[a-z0-9-]{1,48}\.json$/.test(windowsLabPath(dir,path))&&Buffer.isBuffer(buffer)&&buffer.length>0&&buffer.length<=32768);const r=await run('--windows-client-write-wire-lab',path,buffer);check(r.length===0);},
   async writeReceipt(path,buffer){check(/^receipt-[a-z0-9-]{1,48}\.json$/.test(windowsLabPath(dir,path))&&Buffer.isBuffer(buffer)&&buffer.length>0&&buffer.length<=32768);const r=await run('--windows-client-write-wire-lab',path,buffer);check(r.length===0);}

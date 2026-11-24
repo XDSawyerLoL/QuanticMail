@@ -50,14 +50,14 @@ jobs:
           if($env:PATH -match 'quantic-untrusted' -or $env:PSModulePath -match 'quantic-untrusted'){exit 48}
           if ($ExpectedManifestSha256 -cnotmatch '^[a-f0-9]{64}$' -or $TrustedBinarySha256 -cnotmatch '^[a-f0-9]{64}$') { exit 43 }
           $nested = Join-Path $PSScriptRoot "Quantic-Sillage-Alpha.ps1"
-          & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -STA -ExecutionPolicy Bypass -File $nested -SelfTest
+          & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -STA -NonInteractive -ExecutionPolicy Bypass -File $nested -ExpectedManifestSha256 $ExpectedManifestSha256 -TrustedBinarySha256 $TrustedBinarySha256 -SelfTest
           exit $LASTEXITCODE
           '@
           foreach($name in @("Start-Windows-PQ-Lab.ps1","Test-Windows-PQ-Package.ps1","Quantic-Sillage-Alpha.ps1","Quantic-Sillage-Compose.ps1","Quantic-Sillage-Advanced.ps1")) {
             if ($name -eq "Start-Windows-PQ-Lab.ps1") {
               [IO.File]::WriteAllText((Join-Path $root $name),$script)
             } elseif ($name -eq "Quantic-Sillage-Alpha.ps1") {
-              [IO.File]::WriteAllText((Join-Path $root $name),"param([switch]`$SelfTest)`nif(-not `$SelfTest) { exit 44 }`nexit 0`n")
+              Copy-Item -LiteralPath (Join-Path $PWD "scripts/$name") -Destination (Join-Path $root $name)
             } else {
               [IO.File]::WriteAllText((Join-Path $root $name),"# synthetic local trusted test script")
             }
@@ -89,7 +89,11 @@ jobs:
           }finally{
             foreach($name in $saved.Keys){[Environment]::SetEnvironmentVariable($name,$saved[$name],'Process')}
           }
-          if ($p.ExitCode -ne 0) { throw "Native GUI did not launch local PowerShell dashboard: $($p.ExitCode)" }
+          if ($p.ExitCode -ne 0) {
+            $log=Join-Path ([IO.Path]::GetTempPath()) "quantic-alpha-ui-ci.log"
+            if(Test-Path -LiteralPath $log -PathType Leaf){Get-Content -LiteralPath $log -Tail 60 | Write-Host;Remove-Item -LiteralPath $log -Force}
+            throw "Native GUI did not launch local PowerShell dashboard: $($p.ExitCode)"
+          }
           $p = Start-Process -FilePath $exe -ArgumentList "$manifestPin $('0'*64) --self-test" -Wait -PassThru
           if ($p.ExitCode -eq 0) { throw "Tampered key fingerprint was accepted" }
           $p = Start-Process -FilePath $exe -ArgumentList "$('0'*64) $vaultPin --self-test" -Wait -PassThru

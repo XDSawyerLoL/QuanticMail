@@ -125,3 +125,7 @@ Le contrôleur Ed25519 et la clé des reçus des nouveaux coffres synthétiques 
 ## Durée de vie des secrets en mémoire (laboratoire)
 
 La clé TLS du client est chargée pour chaque interrogation du quorum, puis son tampon est effacé dans un bloc finally. Les tampons IPC sont effacés après lecture ou écriture et lors des erreurs ; une session défaillante est fermée sans reprise implicite. Les références aux objets de clés du contrôleur sont abandonnées à la fermeture. Les chaînes JavaScript immuables, copies internes de Node/OpenSSL, mémoire paginée et processus du même utilisateur ne sont pas couverts par une garantie d'effacement. Cette mesure ne remplace ni l'isolation OS, ni la garde non exportable des clés, ni un audit indépendant.
+
+## Restriction des nouveaux accès au processus Windows
+
+Le courtier cryptographique et l'assistant de signature du contrôleur appliquent une DACL de processus avant de déchiffrer des clés. Les nouveaux handles ordinaires du même utilisateur sont limités à la consultation minimale, l'attente et l'arrêt. Une entrée OWNER RIGHTS retire le droit implicite de modifier la DACL. Le test lance un second processus synthétique et exige le refus des accès mémoire, duplication de handles, création de thread et modification des droits. Le processus créateur possède déjà un handle ; les threads, privilèges administrateur/debug, injection préalable, DPAPI et compromission du compte ou du noyau ne sont pas isolés. Aucun TPM obligatoire, aucun changement global de Windows.

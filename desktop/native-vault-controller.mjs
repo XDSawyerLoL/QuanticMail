@@ -52,6 +52,20 @@ export function controllerFrame(nonce,seq,body,key){
     finally{digest.fill(0);}
   }finally{raw.fill(0);}
 }
+// Only the native provider sees the Windows private controller key.
+export async function nativeControllerFrame(nonce,seq,body,publicKey,signFrame){
+ check(Buffer.isBuffer(nonce)&&nonce.length===32&&Number.isInteger(seq)&&seq>=1&&seq<=256,'invalid session');
+ const raw=Buffer.from(JSON.stringify(body));
+ let input,sig,digest;
+ try{
+  check(raw.length>0&&raw.length<=32767,'request too large');
+  input=Buffer.alloc(36+raw.length);nonce.copy(input);input.writeUInt32BE(seq,32);raw.copy(input,36);
+  digest=createHash('sha256').update('quantic-vault-controller-lab/v1\0').update(input).digest();
+  sig=await signFrame(input);
+  check(Buffer.isBuffer(sig)&&sig.length===64&&verify(null,digest,publicKey,sig),'native controller signature refused');
+  return JSON.stringify({seq,body:raw.toString('base64url'),sig:sig.toString('base64url')})+'\n';
+ }finally{raw.fill(0);input?.fill(0);sig?.fill(0);digest?.fill(0);}
+}
 // Takes ownership of the reply bytes. This cannot erase immutable JS strings.
 export function parseNativeReply(bytes){
   try{
@@ -88,11 +102,18 @@ export async function connectNativeVault({binary,binarySha256,vault,journal,quor
     const ks=await stat(controllerKeyFile);
     check(ks.isFile()&&(ks.mode&0o077)===0&&ks.uid===process.getuid(),'controller key must be private');
   }
-  const secret=await (storage?storage.read(controllerKeyFile):readFile(controllerKeyFile));
-  let key;try{key=createPrivateKey(secret);}finally{secret.fill(0);}
-  check(key.asymmetricKeyType==='ed25519','invalid controller key');
+  let key,controllerPublic,app;
+  if(storage){
+    const raw=await storage.controllerPublic();
+    try{app=raw.toString('base64url');controllerPublic=createPublicKey({format:'jwk',key:{kty:'OKP',crv:'Ed25519',x:app}});}
+    finally{raw.fill(0);}
+  }else{
+    const secret=await readFile(controllerKeyFile);
+    try{key=createPrivateKey(secret);}finally{secret.fill(0);}
+    check(key.asymmetricKeyType==='ed25519','invalid controller key');
+    controllerPublic=createPublicKey(key);app=controllerPublic.export({format:'jwk'}).x;
+  }
   check(hex(await readFile(binary))===binarySha256,'broker executable mismatch');
-  const app=createPublicKey(key).export({format:'jwk'}).x;
   let peerSource,bridge,contacts;
   if(pqMode!==undefined){
     check(pqMode?.enabled===true&&Number(process.versions.node.split('.')[0])>=24,'Node 24 PQ laboratory required');
@@ -138,7 +159,9 @@ export async function connectNativeVault({binary,binarySha256,vault,journal,quor
   async function call(body){
     check(!closed&&!busy,'native vault unavailable or busy');busy=true;
     try{
-      const frame=Buffer.from(controllerFrame(nonce,++seq,body,key));
+      const n=++seq;
+      const frame=Buffer.from(storage?await nativeControllerFrame(nonce,n,body,controllerPublic,storage.signControllerFrame):controllerFrame(nonce,n,body,key));
+      if(closed){frame.fill(0);throw Error('native session unavailable');}
       const reply=receive();
       // Keep bytes intact until the pipe has consumed them, then clear.
       try{child.stdin.write(frame,()=>frame.fill(0));}catch(e){frame.fill(0);fail();await reply.catch(()=>{});throw e;}

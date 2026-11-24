@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {generateKeyPairSync,createHash,verify,createHmac,diffieHellman,createPublicKey} from 'node:crypto';
-import {controllerFrame,normalizeClassicalEnvelope,connectNativeVault,newBrokerSessionChallenge,parseNativeReply} from '../desktop/native-vault-controller.mjs';
+import {generateKeyPairSync,createHash,verify,createHmac,diffieHellman,createPublicKey,sign} from 'node:crypto';
+import {controllerFrame,normalizeClassicalEnvelope,connectNativeVault,newBrokerSessionChallenge,parseNativeReply,nativeControllerFrame} from '../desktop/native-vault-controller.mjs';
 test('native IPC frame binds exact bytes, nonce and sequence',()=>{
  const k=generateKeyPairSync('ed25519'),nonce=Buffer.alloc(32,5),body={op:'public'};
  const f=JSON.parse(controllerFrame(nonce,1,body,k.privateKey));
@@ -48,4 +48,13 @@ test('native reply parser clears owned bytes on success, malformed UTF-8 and inv
   else assert.throws(()=>parseNativeReply(bytes));
   assert.ok(bytes.every(b=>b===0),'reply bytes retained');
  }
+});
+
+test('native signer interoperates with existing protocol and clears input',async()=>{
+ const pair=generateKeyPairSync('ed25519'),nonce=Buffer.alloc(32,7),body={op:'public'};
+ let input;
+ const signFrame=async b=>{input=b;return sign(null,createHash('sha256').update('quantic-vault-controller-lab/v1\0').update(b).digest(),pair.privateKey);};
+ assert.equal(await nativeControllerFrame(nonce,1,body,pair.publicKey,signFrame),controllerFrame(nonce,1,body,pair.privateKey));
+ assert.ok(input.every(b=>b===0));
+ await assert.rejects(nativeControllerFrame(nonce,1,body,pair.publicKey,async()=>Buffer.alloc(64)),/signature refused/);
 });

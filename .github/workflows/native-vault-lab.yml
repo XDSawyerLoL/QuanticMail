@@ -120,7 +120,7 @@ jobs:
           openssl version
           openssl list -kem-algorithms | grep -qi ML-KEM-768
           openssl list -signature-algorithms | grep -qi ML-DSA-65
-          go test -count=1 -tags pqopenssl -run '^(TestPQProviderRoundTrip|TestWindowsPrivateStorage|TestWindowsProtectedDraftAtRest|TestWindowsLocalSecretProtection|TestWindowsPQStorageReopen|TestWindowsProvisionJournalRestart|TestWindowsConsoleParsing|TestWindowsCredentialDiagnosticRefusal|TestSyntheticFirstRunMetadataNeverBecomesEnrollment|TestSyntheticGUICommandsRejectUnexpectedArgumentsWithoutDialogs|TestSyntheticContactCardSignedButNeverAuthorized|TestNativeSyntheticRegistryAndContactCommandsFailClosed|TestNativeEnrollmentClaimInterop|TestWindowsEnrollmentClaimPrivatePersistence|TestWindowsRecoveryExactResult|TestWindowsQuorumConfigRefusal|TestWindowsScatteringEpochGuard|TestWindowsLabImport|TestWindowsAutoController|TestWindowsPayLab|TestWindowsAnchoredPayLab|TestNativeFinancialPermitVerification|TestWindowsPayQuorumImportBinding)$' -v .
+          go test -count=1 -tags pqopenssl -run '^(TestPQProviderRoundTrip|TestWindowsPrivateStorage|TestWindowsProtectedDraftAtRest|TestWindowsLocalSecretProtection|TestWindowsControllerCustody|TestWindowsCryptoProcessAccess|TestWindowsPQStorageReopen|TestWindowsProvisionJournalRestart|TestWindowsConsoleParsing|TestWindowsCredentialDiagnosticRefusal|TestSyntheticFirstRunMetadataNeverBecomesEnrollment|TestSyntheticGUICommandsRejectUnexpectedArgumentsWithoutDialogs|TestSyntheticContactCardSignedButNeverAuthorized|TestNativeSyntheticRegistryAndContactCommandsFailClosed|TestNativeEnrollmentClaimInterop|TestWindowsEnrollmentClaimPrivatePersistence|TestWindowsRecoveryExactResult|TestWindowsQuorumConfigRefusal|TestWindowsScatteringEpochGuard|TestWindowsLabImport|TestWindowsAutoController|TestWindowsPayLab|TestWindowsAnchoredPayLab|TestNativeFinancialPermitVerification|TestWindowsPayQuorumImportBinding)$' -v .
           go build -trimpath -tags pqopenssl -o "$RUNNER_TEMP/Vault-PQ-provider-lab.exe" .
           cd ../scattering/native
           CGO_ENABLED=0 go build -trimpath -o "$RUNNER_TEMP/Scattering-Pacer.exe" .
@@ -374,7 +374,15 @@ jobs:
           $p = Start-Process -FilePath $expectedLauncher -ArgumentList "$manifestLower $('0'*64) --self-test" -Wait -PassThru
           if ($p.ExitCode -eq 0) { throw "Native launcher accepted incorrect vault pin" }
           $p = Start-Process -FilePath $expectedLauncher -ArgumentList "$manifestLower $vaultLower --smoke-ui" -Wait -PassThru
-          if ($p.ExitCode -ne 0) { throw "Native launcher failed to open full local GUI initialization chain (code $($p.ExitCode))" }
+          if ($p.ExitCode -ne 0) {
+            # Synthetic smoke only; bounded diagnostic, never enable logging in normal GUI.
+            $log = Join-Path ([IO.Path]::GetTempPath()) "quantic-alpha-ui-ci.log"
+            if (Test-Path -LiteralPath $log -PathType Leaf) {
+              Get-Content -LiteralPath $log -Tail 60 | ForEach-Object { Write-Host $_ }
+              Remove-Item -LiteralPath $log -Force
+            }
+            throw "Native launcher failed to open full local GUI initialization chain (code $($p.ExitCode))"
+          }
           $shell = (Get-Process -Id $PID).Path
           & $shell -NoProfile -NonInteractive -File (Join-Path $installed "Start-Windows-PQ-Lab.ps1") -Operation Providers -ExpectedManifestSha256 $manifestPin -TrustedBinarySha256 $vaultPin
           if ($LASTEXITCODE -ne 0) { throw "Installed native executable could not be started" }
