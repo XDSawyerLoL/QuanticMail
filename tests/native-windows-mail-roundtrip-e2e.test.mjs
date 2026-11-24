@@ -112,7 +112,7 @@ test('Windows actual PQ vaults, durable draft, native UDP relay, decrypt, receip
   }
   return 'http://127.0.0.1:'+pair[0].httpPort+'/';
  }
- const payload={subject:'Synthetic Windows PQ roundtrip',body:'QS-E2E '+randomBytes(32).toString('hex')};
+ const payload={subject:'Synthetic Windows PQ roundtrip',body:'QS-E2E '+randomBytes(32).toString('hex')+' — texte de test '.repeat(150)};
  try{
   restoreNativeMailbox([]);
   peers=invoke('init');assert.equal(peers.length,2);assert.notEqual(peers[0].deviceId,peers[1].deviceId);
@@ -130,7 +130,7 @@ test('Windows actual PQ vaults, durable draft, native UDP relay, decrypt, receip
   const input=join(boots[0].dir,draft.file),output=join(boots[0].dir,draft.file.replace(/^draft-/,'wire-'));
   const rawDraft=await readFile(input);assert.ok(rawDraft.subarray(0,5).equals(Buffer.from([81,83,68,50,0])));assert.ok(!rawDraft.includes(Buffer.from(payload.body)));
   let signed;
-  const sent=await composeAndSendWindowsLab(config[0],a,{input,output,approve:async()=>true,
+  const sent=await composeAndSendWindowsLab(config[0],a,{input,output,reviewedFields:{to:peers[1].address,...payload},approve:async prompt=>{assert.ok(Buffer.byteLength(prompt.replace(/\r\n?|\n/gu,' | '),'utf8')<=1024);return true;},
    connect:async()=>({sealHybrid:async(context,p)=>{assert.deepEqual(p,payload);signed=invoke('seal','',draft.file);assert.deepEqual(signed.context,context);return signed;},close(){}})});
   assert.equal(sent.status,'deposited');assert.equal(sent.relayStatus,'queued');
   assert.equal(sent.digest,nativeRecordDigest(signed));assert.ok(!JSON.stringify(signed).includes(payload.body));
@@ -155,12 +155,12 @@ test('Windows actual PQ vaults, durable draft, native UDP relay, decrypt, receip
   assert.equal(nativeMailboxEntries()[0].acknowledgedAt,null);
   await startRelay(relayPort);
   const reopened=await createWindowsNativeStorage(boots[1]);
-  const result=await runWindowsScatteringMail(config[1],reopened,{operation:'confirm-receipt',path:receiptPath,approve:async()=>true,connect:async()=>{throw Error('must not reopen or resign mail to ACK');}});
+  const result=await runWindowsScatteringMail(config[1],reopened,{operation:'confirm-receipt',path:receiptPath,approve:async prompt=>{assert.ok(Buffer.byteLength(prompt.replace(/\r\n?|\n/gu,' | '),'utf8')<=1024);return true;},connect:async()=>{throw Error('must not reopen or resign mail to ACK');}});
   assert.equal(result.status,'acknowledged');assert.equal(result.digest,sent.digest);assert.equal(acks,1);
   assert.equal((await runWindowsScatteringMail(config[1],reopened,{operation:'receive',path:join(boots[1].dir,'receipt-empty.json'),approve:async()=>true,connect:async()=>{throw Error('acknowledged mail must not be redelivered');}})).status,'empty');
   assert.ok(nativeMailboxEntries()[0].acknowledgedAt!==null);
   assert.ok(processes>=3);assert.ok(relayRequests>=6);
-  console.log('QS_MAIL_E2E_PASS: actual Windows PQ vault reopen, DPAPI draft, separate UDP carriers, receiver decryption, encrypted receipt, relay snapshot restart, recovered ACK. Synthetic trust only; no physical host or production authorization.');
+  console.log('QS_MAIL_E2E_PASS: actual Windows PQ vault reopen, DPAPI long draft ('+Buffer.byteLength(payload.body,'utf8')+' bytes), bounded approvals, separate UDP carriers, receiver decryption, encrypted receipt, relay snapshot restart, recovered ACK. Synthetic trust only; no physical host or production authorization.');
  }finally{
   for(const ep of endpoints)ep.close();
   const exits=kids.map(p=>p.exitCode!==null||p.signalCode!==null?Promise.resolve():new Promise(r=>{p.once('close',r);p.once('error',r);}));
