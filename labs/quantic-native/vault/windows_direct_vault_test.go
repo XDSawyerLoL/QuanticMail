@@ -8,6 +8,9 @@ import(
  "testing"
  "time"
  "bytes"
+ "context"
+ "crypto/ed25519"
+ "crypto/rand"
 )
 func TestWindowsDirectLocalVault(t *testing.T){
  root:=t.TempDir()
@@ -60,4 +63,46 @@ func TestWindowsDirectLocalVault(t *testing.T){
  open.ContactPin=hex.EncodeToString(make([]byte,32))
  if _,e=winDirectMail(dirs[1],open,prompt,approve);e==nil{t.Fatal("wrong trust pin")}
  if _,e=winReadDirectIdentity(filepath.Join(root,"missing"));e==nil{t.Fatal("invalid identity")}
+ // Exercise real private NTFS persistence with the actual peer vault keys.
+ now:=time.Now().UnixMilli()
+ peer:=ids[1]
+ old:=fixtureContact(t,map[string]string{"address":peer.Address,"deviceId":peer.Device,"signing":peer.Signing,"encryption":peer.Encryption,"kemPublic":peer.KemPublic,"dsaPublic":peer.DsaPublic})
+ old.Expires=now-1000
+ self:=ids[0]
+ leaseDir:=filepath.Join(dirs[0],"renewal")
+ if e=winCreatePrivateDirectory(leaseDir);e!=nil{t.Fatal(e)}
+ var members [4]directWitnessMember
+ var witnessKeys [4]ed25519.PrivateKey
+ for i:=range members{
+  pub,key,err:=ed25519.GenerateKey(rand.Reader);if err!=nil{t.Fatal(err)}
+  witnessKeys[i]=key
+  members[i]=directWitnessMember{pub,func(context.Context,directWitnessRequest)([]byte,error){return nil,portableRefusal}}
+ }
+ roster,e:=directWitnessRosterPin(members);if e!=nil{t.Fatal(e)}
+ journalID,e:=directLeaseJournalID(old,self.Address,self.Device,roster);if e!=nil{t.Fatal(e)}
+ journal:=filepath.Join(leaseDir,"lease-journal.log")
+ if e=winInitReplay(journal,self.SigningPin,self.EncryptionPin,journalID);e!=nil{t.Fatal(e)}
+ for i:=range members{
+  path:=filepath.Join(root,"witness-"+string(rune('0'+i)))
+  if e=initReplay(path,self.SigningPin,self.EncryptionPin,journalID);e!=nil{t.Fatal(e)}
+  store:=directTestStore{path,self.SigningPin,self.EncryptionPin,journalID,journalID}
+  key:=witnessKeys[i]
+  members[i].Exchange=func(_ context.Context,q directWitnessRequest)([]byte,error){return signDirectWitness(q,journalID,store,key)}
+ }
+ lease,e:=winOpenDirectLeaseStore(leaseDir,self,old,members,roster);if e!=nil{t.Fatal(e)}
+ if _,e=lease.active(now);e==nil{lease.close();t.Fatal("expired original lease accepted")}
+ pending,e:=lease.begin(now);if e!=nil{lease.close();t.Fatal(e)}
+ pub,e:=appPublic(peer.ControllerPublic);if e!=nil{lease.close();t.Fatal(e)}
+ local:=hexHash([]byte("quantic-direct-local-vault/v1\x00"+peer.LocalPin))
+ keys,e:=winReadClassical(filepath.Join(dirs[1],"classical.vault"),anchoredMagic+"direct-local-only:"+local+"\x00",pass,peer.SigningPin,peer.EncryptionPin);if e!=nil{lease.close();t.Fatal(e)}
+ binding,e:=pqBinding(peer.SigningPin,peer.EncryptionPin,hexHash(pub),local,peer.Address,peer.Device);if e!=nil{lease.close();t.Fatal(e)}
+ pq,e:=winReadPQ(filepath.Join(dirs[1],"pq.vault"),binding,pqpass,peer.Address,peer.Device,peer.KemPin,peer.DsaPin);if e!=nil{lease.close();t.Fatal(e)}
+ defer pq.close()
+ proof,e:=signDirectRenew(pending.req,now+23*3600000,now,softwareSigner{keys.signing},pq);if e!=nil{lease.close();t.Fatal(e)}
+ if _,e=lease.commit(pending,proof,now);e!=nil{lease.close();t.Fatal(e)}
+ lease.close()
+ lease,e=winOpenDirectLeaseStore(leaseDir,self,old,members,roster);if e!=nil{t.Fatal(e)}
+ defer lease.close()
+ if c,e:=lease.active(now+directRenewWindow+1);e!=nil||c.Expires!=proof.Expires{t.Fatal("native renewal restart",e)}
 }
+
