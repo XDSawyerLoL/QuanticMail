@@ -22,6 +22,7 @@
   "vault/anchor_server.py": "75ccccc3d27d4eb38876cc81f2eec5f05219daf16e53a79467daadb366c96319",
   "vault/anchor_test.go": "8416e3ea24b0df704388d14fd87e143d6dc43129941040a4c6b125babe056448",
   "vault/app_channel.go": "74d018db1f970e936d2ef4f12ad900ed34898920fca9522c309cddb8c1a2d19b",
+  "vault/app_delegation_test.go": "275c57808a8296e15213374676620bfea515534c0c0c153fa802866b447674a9",
   "vault/backend_other.go": "d4b22b9c5ef5f3883c10f757f1837bcb1a579a9af7ca102e234296c8073e8af0",
   "vault/backend_windows.go": "5e01010219326563b604bd03b7f3f1c6408eea5bbfadf85d034d68f0c4064ceb",
   "vault/broker.go": "25b4ca4c9244c899668c3a4a8433ec715be51c7153af63de930025e9185f2985",
