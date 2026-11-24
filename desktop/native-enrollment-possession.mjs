@@ -3,6 +3,7 @@
 // policy approval, authority grant or credentials are produced automatically.
 import {createHash,createPublicKey,generateKeyPairSync,diffieHellman,encapsulate,hkdfSync,randomBytes,createCipheriv,sign,verify,timingSafeEqual} from 'node:crypto';
 import {verifyNativeEnrollmentRequest} from './native-enrollment-claim.mjs';
+import {enrollmentRosterPin,enrollmentRequestDigest,enrollmentVoteTranscript,ENROLLMENT_VOTE_TTL} from './native-enrollment-quorum.mjs';
 const check=x=>{if(!x)throw Error('Enrollment possession refused');};
 const hash=x=>createHash('sha256').update(x).digest('hex');
 const pin=/^[a-f0-9]{64}$/;
@@ -18,11 +19,15 @@ const transcript=c=>canonical([domain,c.authorityPin,c.quorumPin,c.address,c.dev
  c.envelope.classicalEphemeralPublicKey.x,c.envelope.classicalEphemeralPublicKey.y,c.envelope.pqKemCiphertext,c.envelope.iv,c.envelope.ciphertext]);
 function exact(o,keys){check(o&&typeof o==='object'&&!Array.isArray(o)&&Object.keys(o).length===keys.length&&keys.every(k=>Object.hasOwn(o,k)));}
 function decode(s,n,enc='base64url'){check(typeof s==='string'&&s.length<=Math.ceil(n/3)*4);const b=Buffer.from(s,enc);check(b.length===n&&b.toString(enc)===s);return b;}
-export function prepareNativePossessionChallenge(request,{quorumPin,authorityKey,expectedAuthorityPin,clock=Date.now}={}){
+export function prepareNativePossessionChallenge(request,{quorumPin,authorityKey,expectedAuthorityPin,trusted,rosterPin,clock=Date.now}={}){
  const issued=clock();
  const claim=verifyNativeEnrollmentRequest(request,{quorumPin,now:issued});
  check(authorityKey?.type==='private'&&authorityKey.asymmetricKeyType==='ed25519'&&pin.test(expectedAuthorityPin??''));
  const operator=keyDER(createPublicKey(authorityKey));check(hash(operator)===expectedAuthorityPin);
+ // Opt-in approval mode. Never accept a roster supplied by the applicant.
+ const voting=trusted!==undefined||rosterPin!==undefined;
+ if(voting){check(typeof rosterPin==='string'&&enrollmentRosterPin(trusted)===rosterPin&&trusted.some(t=>t.pin===expectedAuthorityPin));}
+ const requestDigest=enrollmentRequestDigest(request,claim);
  const md=request.claim.manifest.payload.devices[0],pd=request.claim.profile.payload.devices[0];
  const signKey=ec(md.deviceSigningPublicKey),dsaKey=pq(pd.mlDsaPublicKeySpki);
  const eph=generateKeyPairSync('ec',{namedCurve:'prime256v1'}),j=eph.publicKey.export({format:'jwk'});
@@ -47,7 +52,7 @@ export function prepareNativePossessionChallenge(request,{quorumPin,authorityKey
  let used=false;
  return Object.freeze({
   challenge:structuredClone(c),
-  verify(response,{approved=false}={}){
+  verify(response,{approved=false,approveEnrollment=false}={}){
    check(!used);used=true;
    try{
     const now=clock();check(Number.isSafeInteger(now)&&now>=issued&&now<c.expires&&approved===true);
@@ -59,7 +64,14 @@ export function prepareNativePossessionChallenge(request,{quorumPin,authorityKey
     check(verify(null,proof,dsaKey,decode(response.mlDsaSignature,3309)));
     // Only a proposal for THIS operator's independent policy review. Existing
     // signed renewal, durable snapshot and quorum checks remain mandatory.
-    return Object.freeze({status:'device-possession-verified-pending-authority-renewal',labOnly:true,authorityPin:expectedAuthorityPin,
+    let vote;
+    if(approveEnrollment===true){
+     check(voting);
+     const payload={format:'quantic-native-enrollment-vote-lab/v1',authorityPin:expectedAuthorityPin,rosterPin,requestDigest,
+      proofDigest:hash(canonical([challengeHash,response.secretHash,response.p256Signature,response.mlDsaSignature])),issuedAt:now,expires:now+ENROLLMENT_VOTE_TTL,decision:'approve'};
+     vote=Object.freeze({payload:Object.freeze(payload),signature:sign(null,enrollmentVoteTranscript(payload),authorityKey).toString('base64url')});
+    }
+    return Object.freeze({...(vote?{vote}:{}),status:'device-possession-verified-pending-authority-renewal',labOnly:true,authorityPin:expectedAuthorityPin,
       policyCandidate:Object.freeze({address:claim.address,deviceId:claim.deviceId,rootPin:claim.rootPin,pqRootPin:claim.pqRootPin,
       manifestSequence:1,profileSequence:1,manifestDigest:claim.manifestDigest,profileDigest:claim.profileDigest,active:false}),
       remotelyEnrolled:false,mailAuthorized:false});

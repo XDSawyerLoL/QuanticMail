@@ -15,8 +15,8 @@ function readCode(s,prefix,max){
 }
 let rl;
 try{
- const [keyPath,operatorPin,quorumPin,mode]=process.argv.slice(2);
- check(process.platform==='linux'&&process.stdin.isTTY&&process.stdout.isTTY&&process.argv.length===6&&mode==='--synthetic-only'
+ const [keyPath,operatorPin,quorumPin,mode,rosterPath,rosterPin]=process.argv.slice(2);
+ check(process.platform==='linux'&&process.stdin.isTTY&&process.stdout.isTTY&&[6,8].includes(process.argv.length)&&mode==='--synthetic-only'
  &&resolve(keyPath)===keyPath&&/^[a-f0-9]{64}$/.test(operatorPin)&&/^[a-f0-9]{64}$/.test(quorumPin));
  const f=await open(keyPath,constants.O_RDONLY|constants.O_NOFOLLOW);
  let secret;
@@ -26,15 +26,27 @@ try{
  }finally{await f.close();}
  let authorityKey;
  try{authorityKey=createPrivateKey(secret);}finally{secret.fill(0);}
+ let voting={};
+ if(rosterPath!==undefined){
+  check(resolve(rosterPath)===rosterPath&&/^[a-f0-9]{64}$/.test(rosterPin));
+  const file=await open(rosterPath,constants.O_RDONLY|constants.O_NOFOLLOW);
+  try{
+   const st=await file.stat();check(st.isFile()&&st.nlink===1&&st.size>0&&st.size<=8192);
+   const bytes=await file.readFile();check(bytes.length===st.size);
+   voting={trusted:JSON.parse(bytes.toString('utf8')),rosterPin};
+  }finally{await file.close();}
+ }
  rl=createInterface({input:process.stdin,output:process.stdout});
  const request=readCode((await rl.question('Candidature publique QSENROLL1 : ')).trim(),'QSENROLL1:',60000);
- const proof=prepareNativePossessionChallenge(request,{authorityKey,expectedAuthorityPin:operatorPin,quorumPin});
+ const proof=prepareNativePossessionChallenge(request,{authorityKey,expectedAuthorityPin:operatorPin,quorumPin,...voting});
  process.stdout.write('Identite candidate : '+proof.challenge.address+'\nAppareil : '+proof.challenge.deviceId+'\n');
  check(await rl.question('Approuver la verification de cet appareil de laboratoire ? Saisir VERIFIER : ')==='VERIFIER');
  // No secret, bearer credential or private key in the invitation.
  process.stdout.write('QSPROOF1:'+Buffer.from(JSON.stringify(proof.challenge)).toString('base64url')+'\n');
  const reply=readCode((await rl.question('Preuve QSPROOFREPLY1 (avant expiration) : ')).trim(),'QSPROOFREPLY1:',16000);
- const result=proof.verify(reply,{approved:true});
+ const approveEnrollment=rosterPath!==undefined&&(await rl.question('Confirmer le vote d inscription (liste de quatre autorites verifiee hors bande) ? Saisir APPROUVER : '))==='APPROUVER';
+ const result=proof.verify(reply,{approved:true,approveEnrollment});
+ if(result.vote)process.stdout.write('QSVOTE1:'+Buffer.from(JSON.stringify(result.vote)).toString('base64url')+'\n');
  process.stdout.write(JSON.stringify(result)+'\n');
  process.stdout.write('Preuve valide ; politique INACTIVE. Renouvellement signe independamment et approbation par quorum encore requis.\n');
 }catch{

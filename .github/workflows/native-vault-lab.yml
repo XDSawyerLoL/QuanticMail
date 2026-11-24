@@ -70,6 +70,8 @@ jobs:
         run: |
           test -s "$RUNNER_TEMP/quantic-native-enrollment-public.json"
           QUANTIC_ENROLLMENT_TEST_OUTPUT="$RUNNER_TEMP/quantic-native-enrollment-public.json" node --experimental-transform-types --test tests/native-enrollment-interop.test.mjs
+      - name: Four independent enrollment votes and existing checkpoint policy gate
+        run: node --experimental-transform-types --test tests/native-enrollment-quorum.test.mjs
       - name: Authority and native enrolment regressions
         working-directory: labs/quantic-native
         run: |
