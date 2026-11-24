@@ -96,7 +96,7 @@ export async function startScatteringMailboxEndpoint(c,{windowsBootstrap,profile
    }
    const data=decode(frame.body,1);busy=true;next++;
    try{
-    let result;try{result=await forward(frame,data);}catch{result={status:502,body:errorBody};}
+    let result;try{result=admissionOpen()?await forward(frame,data):{status:503,body:errorBody};}catch{result={status:502,body:errorBody};}
     // The upstream response, not a volatile carrier ACK, is returned to the client.
     relayResponse=sendFrame({kind:'response',seq:frame.seq,status:result.status,body:result.body.toString('base64url')});
     await relayResponse;
