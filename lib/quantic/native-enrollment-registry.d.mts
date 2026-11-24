@@ -7,3 +7,5 @@ export function authenticateNativeEnrollment(address:string,device:string,token:
 export function prepareNativeEnrollmentPublication(state:unknown,request:unknown,votes:unknown,credential:unknown,options:unknown):{state:unknown;report:unknown};
 export function publicNativeEnrollmentSnapshot(state:unknown):unknown;
 export function makeNativeEnrollmentCredential(request:unknown,votes:unknown,options:unknown,controllerKey:unknown):{token:string;credential:{tokenHash:string;signature:string}};
+export function assertNativeEnrollmentCheckpoint(address:string,device:string,checkpoint:unknown):void;
+export function verifyStoredNativeEnrollmentBindings(input:unknown,manifests:unknown,profiles:unknown,now?:number):NativeEnrollmentRow[];

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {generateKeyPairSync,createHash,sign,createPublicKey,diffieHellman,decapsulate,hkdfSync,createDecipheriv} from 'node:crypto';
+import {generateKeyPairSync,createHash,sign,createPublicKey,diffieHellman,decapsulate,encapsulate,hkdfSync,createDecipheriv,createCipheriv,randomBytes} from 'node:crypto';
 import {mkdtemp,mkdir,writeFile,readFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -10,6 +10,10 @@ import {canonicalManifestText} from '../lib/quantic/manifest-core.mjs';
 import {canonicalCryptoProfileText} from '../lib/quantic/crypto-profile-core.mjs';
 import {prepareNativePossessionChallenge} from '../desktop/native-enrollment-possession.mjs';
 import {enrollmentRosterPin,verifyNativeEnrollmentQuorum,prepareQuorumEnrollmentPolicy,enrollmentVoteTranscript} from '../desktop/native-enrollment-quorum.mjs';
+import {createEmptyRelayState} from '../lib/quantic/relay-state.ts';
+import {makeNativeEnrollmentCredential,prepareNativeEnrollmentPublication} from '../lib/quantic/native-enrollment-registry.mjs';
+import {startNativeMailboxOnly} from '../standalone-relay/native-mailbox-only.mjs';
+import {nativeSenderTranscript} from '../lib/quantic/native-identity-bridge.mjs';
 import {issueCheckpoint,verifyCheckpointQuorum} from '../lib/quantic/native-checkpoint-authority.mjs';
 const hash=x=>createHash('sha256').update(x).digest('hex');
 const ec=()=>generateKeyPairSync('ec',{namedCurve:'prime256v1'});
@@ -18,8 +22,8 @@ const der=k=>k.publicKey.export({format:'der',type:'spki'});
 const fp=j=>hash('P-256:'+j.x+':'+j.y).slice(0,32);
 const sig=(k,b)=>sign('sha256',b,{key:k.privateKey,dsaEncoding:'ieee-p1363'}).toString('base64');
 const buf=x=>Buffer.from(JSON.stringify(x));
-function fixture(){
- const now=Date.now(),stamp=new Date(now).toISOString(),owner=ec(),enc=ec(),signer=ec(),
+function fixture({sharedAuthority,clock=Date.now}={}){
+ const now=clock(),stamp=new Date(now).toISOString(),owner=ec(),enc=ec(),signer=ec(),
  root=generateKeyPairSync('ml-dsa-65'),kem=generateKeyPairSync('ml-kem-768'),dsa=generateKeyPairSync('ml-dsa-65');
  const address='testquorum~'+fp(jwk(owner))+'@quantic',deviceId='d-'+fp(jwk(enc)),quorumPin='c'.repeat(64);
  const mp={version:1,sequence:1,canonicalAddress:address,handle:'testquorum',fingerprint:fp(jwk(owner)),
@@ -32,10 +36,10 @@ function fixture(){
  rootPin:hash(der(owner)),pqRootPin:hash(der(root)),signingPin:hash(der(signer)),encryptionPin:hash(der(enc)),kemPin:hash(der(kem)),dsaPin:hash(der(dsa)),manifestDigest:hash(m),profileDigest:hash(p),
  manifest:{format:'quantic-identity-manifest',version:1,payload:mp,signature:sig(owner,m)},
  profile:{format:'quantic-crypto-profile',version:2,payload:pp,signatures:{p256:sig(owner,p),mlDsa65Self:sign(null,p,root.privateKey).toString('base64url')}}};
- const controllerPublic=Buffer.alloc(32,7).toString('base64url'),format='quantic-native-enrollment-request-lab/v1';
+ const controller=generateKeyPairSync('ed25519'),controllerPublic=der(controller).subarray(12).toString('base64url'),format='quantic-native-enrollment-request-lab/v1';
  const tr=buf([format,address,deviceId,claim.rootPin,claim.pqRootPin,claim.manifestDigest,claim.profileDigest,quorumPin,controllerPublic]);
  const request={format,quorumPin,controllerPublic,claim,ownerP256Signature:sig(owner,tr),ownerMlDsaSignature:sign(null,tr,root.privateKey).toString('base64url')};
- const authority=Array.from({length:4},()=>generateKeyPairSync('ed25519'));
+ const authority=sharedAuthority??Array.from({length:4},()=>generateKeyPairSync('ed25519'));
  const trusted=authority.map(k=>({pin:hash(der(k)),publicKey:der(k).toString('base64url')}));
  const rosterPin=enrollmentRosterPin(trusted),opts={quorumPin,trusted,rosterPin,now};
  function prepare(i){return prepareNativePossessionChallenge(request,{quorumPin,trusted,rosterPin,authorityKey:authority[i].privateKey,expectedAuthorityPin:trusted[i].pin,clock:()=>now});}
@@ -55,7 +59,7 @@ function fixture(){
  }
  const votes=[0,1,2,3].map(i=>{const session=prepare(i);const result=session.verify(respond(session.challenge),{approved:true,approveEnrollment:true});return result.vote;});
  const state={format:'quantic-relay-state',version:3,savedAt:stamp,manifests:[[address,claim.manifest]],cryptoProfiles:[[address,claim.profile]]};
- return {now,request,opts,votes,authority,prepare,respond,state};
+ return {now,request,opts,votes,authority,prepare,respond,state,controller,enc,signer,kem,dsa};
 }
 test('3 of 4 actual independently keyed device challenges authorize only a staged policy; current checkpoints require separately activated policy',()=>{
  const f=fixture(),{request,opts,votes,state,now}=f;
@@ -133,4 +137,78 @@ test('approved enrollment survives the real signed renewal and durable head of t
   assert.throws(()=>verifyCheckpointQuorum(attestations.slice(0,2),f.opts.trusted,q,Math.max(f.now,other.now)));
   assert.equal(verifyCheckpointQuorum(attestations,f.opts.trusted,q,Math.max(f.now,other.now)).address,q.address);
  }finally{await rm(root,{recursive:true,force:true});}
+});
+
+test('native-only relay durably publishes two quorum-enrolled identities, refuses web and legacy auth, exchanges encrypted mail after live checkpoint approval',{skip:process.platform!=='linux',timeout:30000},async()=>{
+ const a=fixture(),b=fixture({sharedAuthority:a.authority}),root=await mkdtemp(join(tmpdir(),'qs-native-enrolled-'));
+ const options=f=>({...f.opts,approved:true});
+ const ca=makeNativeEnrollmentCredential(a.request,a.votes,options(a),a.controller.privateKey);
+ const cb=makeNativeEnrollmentCredential(b.request,b.votes,options(b),b.controller.privateKey);
+ const enrollment=(f,c)=>({request:f.request,votes:f.votes,credential:c.credential,options:options(f)});
+ assert.throws(()=>prepareNativeEnrollmentPublication(createEmptyRelayState(),a.request,a.votes.slice(0,2),ca.credential,options(a)));
+ assert.throws(()=>prepareNativeEnrollmentPublication(createEmptyRelayState(),a.request,a.votes,{...ca.credential,tokenHash:'f'.repeat(64)},options(a)));
+ assert.throws(()=>makeNativeEnrollmentCredential(a.request,a.votes,options(a),b.controller.privateKey));
+ let service,policy=[],snapshot;
+ const source=async(address,deviceId)=>{
+  const now=Date.now(),request={address,deviceId,nonce:randomBytes(32).toString('hex'),expires:now+14000};
+  const results=a.authority.slice(0,3).map(k=>issueCheckpoint({state:snapshot,policy,request,privateKey:k.privateKey,now}));
+  return {bundle:results[0].bundle,checkpoint:verifyCheckpointQuorum(results.map(r=>r.attestation),a.opts.trusted,request,now)};
+ };
+ async function start(e){service=await startNativeMailboxOnly({dataDir:root,peerSource:source,enrollment:e});}
+ async function stop(){if(service){await service.close();service=undefined;}}
+ async function call(op,body,token,headers={}){
+  const r=await fetch('http://127.0.0.1:'+service.port+'/api/quantic/'+op,{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token,...headers},body:JSON.stringify(body)});
+  return {status:r.status,body:await r.json()};
+ }
+ function scope(f){return {address:f.request.claim.address,deviceId:f.request.claim.deviceId};}
+ try{
+  await start(enrollment(a,ca));
+  assert.equal(service.publication.status,'native-enrollment-persisted-pending-checkpoints');
+  snapshot=await service.exportAuthoritySnapshot();
+  assert.equal(snapshot.manifests.length,1);assert.equal(Object.hasOwn(snapshot,'nativeEnrollments'),false);
+  assert.equal((await call('native/v1/pull',scope(a),ca.token)).status,403);
+  assert.equal((await call('register',{},ca.token)).status,404);
+  assert.equal((await call('native/v1/pull',scope(a),ca.token,{Origin:'https://invalid.example'})).status,403);
+  await stop();
+  await assert.rejects(startNativeMailboxOnly({dataDir:root,peerSource:source,enrollment:enrollment(a,ca)}));
+  await start(enrollment(b,cb));
+  snapshot=await service.exportAuthoritySnapshot();
+  assert.equal(snapshot.manifests.length,2);
+  assert.ok(!JSON.stringify(snapshot).includes(ca.credential.tokenHash));
+  const persisted=JSON.parse(await readFile(join(root,'relay-state.json'),'utf8'));
+  assert.equal(persisted.nativeEnrollments.length,2);assert.equal(persisted.identities.length,0);assert.equal(persisted.devices.length,0);
+  assert.ok(!JSON.stringify(persisted).includes(ca.token));
+  assert.ok(!JSON.stringify(persisted).includes(cb.token));
+  for(const f of [a,b]){
+   policy=prepareQuorumEnrollmentPolicy(f.request,f.votes,{...f.opts,now:Date.now(),state:snapshot,previousPolicy:policy,approved:true}).policy;
+  }
+  assert.equal((await call('native/v1/pull',scope(a),cb.token)).status,403);
+  assert.equal((await call('native/v1/pull',scope(a),ca.token)).status,200);
+  // Real hybrid ciphertext and both sender signatures; no fabricated wire.
+  const context={clientMessageId:'qs-native-enrollment-test-1',from:scope(a).address,fromDeviceId:scope(a).deviceId,to:scope(b).address,toDeviceId:scope(b).deviceId};
+  const cryptoSuite='QNT-HYB-P256-MLKEM768-HKDFSHA256-AES256GCM-1';
+  const ctx=['quantic-hybrid-envelope-context-v1',cryptoSuite,context.clientMessageId,context.from,context.fromDeviceId,context.to,context.toDeviceId].join('\n');
+  const eph=ec(),z=diffieHellman({privateKey:eph.privateKey,publicKey:b.enc.publicKey}),kem=encapsulate(b.kem.publicKey);
+  const shared=Buffer.concat([z,kem.sharedKey]),key=Buffer.from(hkdfSync('sha256',shared,Buffer.from(hash('quantic-hybrid-kdf-salt-v1\n'+ctx),'hex'),Buffer.from(ctx),32));
+  const iv=randomBytes(12),g=createCipheriv('aes-256-gcm',key,iv);g.setAAD(Buffer.from(ctx+'\nquantic-aes-gcm-aad-v1'));
+  const plain=Buffer.from('synthetic native enrollment mail');
+  const ciphertext=Buffer.concat([g.update(plain),g.final(),g.getAuthTag()]);
+  const envelope={cryptoSuite,keyMode:'hybrid-static-fallback',classicalEphemeralPublicKey:jwk(eph),pqKemCiphertext:Buffer.from(kem.ciphertext).toString('base64url'),iv:iv.toString('base64url'),ciphertext:ciphertext.toString('base64url')};
+  const tr=nativeSenderTranscript(context,envelope);
+  const record={format:'quantic-native-mail',version:1,context,envelope,senderAuth:{classicalSignature:sign('sha256',tr,{key:a.signer.privateKey,dsaEncoding:'ieee-p1363'}).toString('base64url'),pqSignature:sign(null,tr,a.dsa.privateKey).toString('base64url')}};
+  const sent=await call('native/v1/send',record,ca.token);assert.equal(sent.status,202);
+  await stop();await start();snapshot=await service.exportAuthoritySnapshot();
+  const pulled=await call('native/v1/pull',scope(b),cb.token);assert.equal(pulled.status,200);
+  const item=pulled.body.item;assert.equal(item.id,sent.body.id);assert.deepEqual(item.record,record);
+  const e=item.record.envelope,zz=diffieHellman({privateKey:b.enc.privateKey,publicKey:createPublicKey({key:e.classicalEphemeralPublicKey,format:'jwk'})});
+  const ss=Buffer.concat([zz,decapsulate(b.kem.privateKey,Buffer.from(e.pqKemCiphertext,'base64url'))]);
+  const kk=Buffer.from(hkdfSync('sha256',ss,Buffer.from(hash('quantic-hybrid-kdf-salt-v1\n'+ctx),'hex'),Buffer.from(ctx),32)),ct=Buffer.from(e.ciphertext,'base64url');
+  const dec=createDecipheriv('aes-256-gcm',kk,Buffer.from(e.iv,'base64url'));dec.setAAD(Buffer.from(ctx+'\nquantic-aes-gcm-aad-v1'));dec.setAuthTag(ct.subarray(-16));
+  assert.deepEqual(Buffer.concat([dec.update(ct.subarray(0,-16)),dec.final()]),plain);
+  for(const secret of [z,kem.sharedKey,shared,key,zz,ss,kk])secret.fill(0);
+  assert.equal((await call('native/v1/ack',{...scope(b),id:item.id,digest:item.digest},cb.token)).status,200);
+  assert.equal((await call('native/v1/pull',scope(b),cb.token)).body.item,null);
+  await stop();await start();snapshot=await service.exportAuthoritySnapshot();
+  assert.equal((await call('native/v1/recover',{...scope(b),id:item.id,digest:item.digest},cb.token)).body.item.id,item.id);
+ }finally{await stop();await rm(root,{recursive:true,force:true});}
 });

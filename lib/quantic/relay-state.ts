@@ -1,4 +1,4 @@
-import {nativeEnrollmentEntries,validateNativeEnrollmentRows,restoreNativeEnrollments,type NativeEnrollmentRow} from './native-enrollment-registry.mjs';
+import {nativeEnrollmentEntries,verifyStoredNativeEnrollmentBindings,restoreNativeEnrollments,type NativeEnrollmentRow} from './native-enrollment-registry.mjs';
 import {nativeMailboxEntries,validateNativeMailbox,restoreNativeMailbox,type NativeMailboxRow} from "./native-mailbox.mjs";
 import type { QuanticCryptoProfileV2 } from "./crypto-profile-core.mjs";
 import {
@@ -286,7 +286,7 @@ export function restoreRelayState(input: unknown, nowMs = Date.now()) {
       )
     : [];
 
-  const enrollments=validateNativeEnrollmentRows(record.nativeEnrollments??[]);
+  const enrollments=verifyStoredNativeEnrollmentBindings(record.nativeEnrollments??[],protocolState.manifests,cryptoProfiles,nowMs);
   const nativeMailbox=validateNativeMailbox(record.nativeMailbox===undefined?[]:record.nativeMailbox);
   const next: RelayState = {
     identities: new Map(identities),

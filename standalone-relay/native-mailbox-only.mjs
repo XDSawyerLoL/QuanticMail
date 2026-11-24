@@ -7,11 +7,13 @@ import {RelayRuntime} from './runtime.ts';
 import {createFileRelayStateStore} from './storage.ts';
 import {nativeMailboxOperation} from '../lib/quantic/native-mailbox-http.mjs';
 import {publishNativeEnrollment,exportNativeAuthoritySnapshot} from './native-enrollment-publication.mjs';
+let active=false;
 const check=x=>{if(!x)throw Error('Native mailbox-only laboratory refused');};
 export async function startNativeMailboxOnly({dataDir,port=0,peerSource,enrollment}){
- check(process.platform==='linux'&&typeof dataDir==='string'&&isAbsolute(dataDir)&&await realpath(dataDir)===dataDir&&typeof peerSource==='function'&&Number.isInteger(port)&&port>=0&&port<=65535);
+ check(!active&&process.platform==='linux'&&typeof dataDir==='string'&&isAbsolute(dataDir)&&await realpath(dataDir)===dataDir&&typeof peerSource==='function'&&Number.isInteger(port)&&port>=0&&port<=65535);
  const st=await lstat(dataDir);check(st.isDirectory()&&st.uid===process.getuid()&&!(st.mode&0o077));
- const lock=join(dataDir,'.native-mailbox-only.lock'),fd=await open(lock,'wx',0o600);
+ active=true;
+ const lock=join(dataDir,'.native-mailbox-only.lock'),fd=await open(lock,'wx',0o600).catch(e=>{active=false;throw e;});
  try{await fd.writeFile(String(process.pid));await fd.sync();}finally{await fd.close();}
  const dir=await open(dataDir,'r');try{await dir.sync();}finally{await dir.close();}
  let server,runtime,closed=false;
@@ -36,6 +38,6 @@ export async function startNativeMailboxOnly({dataDir,port=0,peerSource,enrollme
   server.requestTimeout=10000;server.headersTimeout=5000;server.maxConnections=16;
   await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(port,'127.0.0.1',resolve);});
   return {port:server.address().port,publication,exportAuthoritySnapshot:()=>exportNativeAuthoritySnapshot(runtime),
-   async close(){if(closed)return;closed=true;await new Promise((resolve,reject)=>{server.close(e=>e?reject(e):resolve());server.closeAllConnections();});await runtime.flush();await release();}};
- }catch(e){if(server?.listening)await new Promise(r=>server.close(r));await release();throw e;}
+   async close(){if(closed)return;closed=true;await new Promise((resolve,reject)=>{server.close(e=>e?reject(e):resolve());server.closeAllConnections();});await runtime.flush();await release();active=false;}};
+ }catch(e){if(server?.listening)await new Promise(r=>server.close(r));await release();active=false;throw e;}
 }
