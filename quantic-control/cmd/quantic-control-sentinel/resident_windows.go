@@ -210,11 +210,14 @@ func uninstallResident()error{
  path,err:=installExePath();if err!=nil{return err}
  command,err:=quotedRunCommand(path);if err!=nil{return err}
  actual,err:=regReadStartup()
- if err!=nil{return err}
- if actual!=command{return errors.New("startup command modified: refusing unsafe uninstall")}
+ startupPresent:=err==nil
+ if startupPresent&&actual!=command{return errors.New("startup command modified: refusing unsafe uninstall")}
+ if err!=nil&&!errors.Is(err,syscall.ERROR_FILE_NOT_FOUND)&&!errors.Is(err,syscall.ERROR_PATH_NOT_FOUND){return err}
  digest,err:=fileHash(path)
  if err!=nil||digest!=m.ExeHash{return errors.New("program modified: refusing to remove unverified executable")}
- if err:=regDeleteStartup();err!=nil{return err}
+ // Removing an existing, verified entry is the first step. A second attempt
+ // is allowed after partial uninstall, when the entry is already absent.
+ if startupPresent {if err:=regDeleteStartup();err!=nil{return err}}
  requestAgentStop()
  // Keep only files belonging to this lab installation in the deletion list.
  // Do not delete the directory, alerts, or unrecognized user files.
