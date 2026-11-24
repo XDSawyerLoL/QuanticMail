@@ -61,8 +61,8 @@ func TestDirectRenewalHybrid(t *testing.T){
 func testDirectLeasePersistence(t *testing.T,old senderContact,recipient,receiver string,now int64,signer signer,p *pqKeys){
  t.Helper()
  path,sp,ep,app:=testJournal(t)
+ initial,e:=os.ReadFile(path);if e!=nil{t.Fatal(e)}
  j,e:=openReplay(path,sp,ep,app);if e!=nil{t.Fatal(e)}
- initial,e:=os.ReadFile(path);if e!=nil{j.close();t.Fatal(e)}
  pin:=strings.Repeat("a",64)
  id,e:=directLeaseJournalID(old,recipient,receiver,pin);if e!=nil{j.close();t.Fatal(e)}
  q:=&quorumAnchor{pin:pin}
