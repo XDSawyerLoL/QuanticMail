@@ -4,7 +4,6 @@
 import {createHash} from 'node:crypto';
 import {open,lstat,realpath,unlink,constants} from 'node:fs/promises';
 import {join,dirname,resolve,isAbsolute} from 'node:path';
-import {createAttestedPeerSource} from '../desktop/native-attested-peer.mjs';
 const fail=()=>{throw Error('Pinned private native relay refused');};
 const check=x=>{if(!x)fail();};
 const hex=/^[a-f0-9]{64}$/;
@@ -49,7 +48,7 @@ export async function loadPinnedNativeRelay({file,pin}){
  return {config:c,readTLS};
 }
 export async function startPinnedNativeRelay(args,{
- makePeerSource=createAttestedPeerSource,
+ makePeerSource=async(...params)=>(await import('../desktop/native-attested-peer.mjs')).createAttestedPeerSource(...params),
  startRelay=async opts=>(await import('./server.ts')).startRelayServer(opts)
 }={}){
  const {config:c,readTLS}=await loadPinnedNativeRelay(args);
