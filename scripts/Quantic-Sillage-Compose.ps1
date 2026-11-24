@@ -119,7 +119,7 @@ function Invoke-Receive([string]$Mode,[string]$Receipt){
  try{
   if(-not $script:privateDirectory){throw 'Choisissez un coffre de test.'}
   if($Mode -eq 'recover-receive'){
-   $decision=[Windows.Forms.MessageBox]::Show('Reprendre une ouverture interrompue sans effacer les fichiers existants ? Si un recu existe deja, utilisez plutot Confirmer un recu.','Reprise explicite','YesNo','Warning')
+   $decision=[Windows.Forms.MessageBox]::Show('Reprendre une ouverture interrompue sans effacer les fichiers existants ? Si un recu existe deja, ouvrez plutot Messages recus puis confirmez la reception.','Reprise explicite','YesNo','Warning')
    if($decision -ne [Windows.Forms.DialogResult]::Yes){return}
   }
   $result=Invoke-Composer $script:privateDirectory $Receipt $false $false $false $Mode
@@ -133,12 +133,12 @@ function Invoke-Receive([string]$Mode,[string]$Receipt){
    }
    'receipt-saved-ack-unknown'{
     if($result.receiptFile -cnotmatch '^receipt-[a-z0-9-]{1,48}\.json$' -or $result.display -isnot [string]){throw 'Recu invalide.'}
-    Show-ReceivedText 'Recu chiffre authentifie conserve. Confirmation inconnue. Utilisez Confirmer un recu; ne relancez pas automatiquement la reception.' $result
+    Show-ReceivedText 'Recu chiffre authentifie conserve. Confirmation inconnue. Ouvrez Messages recus puis confirmez la reception ; ne relancez pas automatiquement la reception.' $result
    }
    default{throw 'Etat inconnu.'}
   }
  }catch{
-  [Windows.Forms.MessageBox]::Show('Reception ou confirmation non validee. Conservez les fichiers du coffre. Si un recu existe, utilisez Confirmer un recu; sinon choisissez explicitement Reprendre reception.','Resultat incertain','OK','Warning')|Out-Null
+  [Windows.Forms.MessageBox]::Show('Reception ou confirmation non validee. Conservez les fichiers du coffre. Si un recu existe, utilisez Messages recus; sinon choisissez explicitement Reprendre reception.','Resultat incertain','OK','Warning')|Out-Null
  }
 }
 function Show-ReceivedText([string]$Info,$Result){
@@ -369,7 +369,7 @@ $send.Add_Click({
 })
 if($SelfTest){
  if($newVault.Text -notmatch 'Creer' -or $connectionButton.Text -notmatch 'connexion'){throw 'Setup buttons missing'}
- if($recipient.DropDownStyle -ne 'DropDownList' -or -not $body.Multiline -or -not $chosen.ReadOnly -or $save.Text -notmatch 'brouillon' -or $send.Text -notmatch 'deposer' -or $statusButton.Text -notmatch 'essais' -or $receiveButton.Text -notmatch 'Recevoir' -or $confirmButton.Text -notmatch 'Confirmer'){throw 'Composer self-test failed'}
+ if($recipient.DropDownStyle -ne 'DropDownList' -or -not $body.Multiline -or -not $chosen.ReadOnly -or $save.Text -notmatch 'brouillon' -or $send.Text -notmatch 'deposer' -or $statusButton.Text -notmatch 'essais' -or $receiveButton.Text -notmatch 'Recevoir' -or $confirmButton.Text -cne 'Messages recus'){throw 'Composer self-test failed'}
  $form.Dispose();Write-Output 'Private GUI composer passed';return
 }
 try{[void]$form.ShowDialog()}finally{$form.Dispose()}
