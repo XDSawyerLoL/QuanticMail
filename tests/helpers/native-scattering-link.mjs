@@ -7,14 +7,12 @@ import {mkdir,realpath} from 'node:fs/promises';
 import {join,isAbsolute} from 'node:path';
 import {startScatteringMailboxEndpoint} from '../../standalone-relay/native-scattering-mailbox.mjs';
 import {openHybridSessionLab} from '../../lib/quantic/scattering-session-lab.mjs';
-import {packSession,unpackSession} from '../../lib/quantic/scattering-session-wire-lab.mjs';
-import {reliableCellStream} from '../../labs/quantic-native/scattering/scattering-reliable-lab.mjs';
-// Explicit lab bootstrap: out-of-band pinned identities and separate
-// bootstrap keys. The mailbox data keys are derived, not preprovisioned.
-// No claim of automatic discovery or distributed cutover.
+import {fragmentSession,openSessionAssembly} from '../../lib/quantic/scattering-session-udp-bootstrap-lab.mjs';
+// Public context and peer pins are preconfigured, no shared bootstrap key.
+// Only this fixture orchestrates cutover. Bootstrap traffic is recognizable.
 async function negotiateCarrier(peers){
- const sockets=[],streams=[],sessions=[],material=[],errors=[];
- const bootstrap=[randomBytes(32),randomBytes(32)];
+ const sockets=[],sessions=[],material=[],errors=[];
+ let dropped=0;
  try{
   const context={channel:randomBytes(48).toString('hex'),generation:0,previous:'0'.repeat(96)};
   for(let i=0;i<2;i++){
@@ -22,35 +20,40 @@ async function negotiateCarrier(peers){
    await new Promise((resolve,reject)=>{sock.once('error',reject);sock.bind(0,'127.0.0.1',resolve);});
    sessions.push(openHybridSessionLab({role:i?'responder':'initiator',...peers[i],peer:peers[1-i].local,context}));
   }
+  const ports=sockets.map(s=>s.address().port);
   for(let i=0;i<2;i++){
-   const stream=reliableCellStream({sendKey:bootstrap[i],recvKey:bootstrap[1-i],compactPacing:true,dualProofPacing:true,publish:batch=>{
-    for(const cell of batch)sockets[i].send(cell,sockets[1-i].address().port,'127.0.0.1',e=>{if(e)errors.push(e);});
-    return true;
-   }});
-   stream.stream.on('error',e=>errors.push(e));streams.push(stream);sockets[i].on('message',b=>stream.receive(b));
+   sockets[i].on('error',e=>errors.push(e));
+   await new Promise(resolve=>sockets[i].connect(ports[1-i],'127.0.0.1',resolve));
   }
   async function carry(i,kind,frame){
-   const wire=packSession(kind,frame),src=streams[i].stream,dst=streams[1-i].stream,parts=[];
-   let length=0,onData,timer;
-   const read=new Promise((resolve,reject)=>{onData=b=>{length+=b.length;if(length>wire.length){reject(Error('handshake frame overflow'));return;}parts.push(b);if(length===wire.length)resolve(Buffer.concat(parts));};dst.on('data',onData);});
-   const write=new Promise((resolve,reject)=>src.write(wire,e=>e?reject(e):resolve()));
-   try{
-    const [got]=await Promise.race([Promise.all([read,write]),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('handshake timeout')),5000);})]);
-    return unpackSession(kind,got);
-   }finally{clearTimeout(timer);dst.off('data',onData);}
+   const packets=fragmentSession(kind,frame,context),dst=sockets[1-i],src=sockets[i],assembly=openSessionAssembly(kind,context);
+   let timer,retry,onMessage,attempt=0;
+   try{return await new Promise((resolve,reject)=>{
+    onMessage=packet=>{try{const result=assembly.push(packet);if(result)resolve(result);}catch(e){reject(e);}};
+    dst.on('message',onMessage);
+    const send=()=>{
+     if(++attempt>20){reject(Error('bootstrap retry limit'));return;}
+     // Deliberately lose one hello fragment; reorder the rest and send
+     // an exact duplicate. Repeat identical bytes, never regenerate keys.
+     const batch=[...packets].reverse();
+     if(kind==='hello'&&attempt===1){batch.pop();dropped++;}
+     if(batch.length>1)batch.push(batch[0]);
+     for(const packet of batch)src.send(packet,e=>{if(e)reject(e);});
+    };
+    timer=setTimeout(()=>reject(Error('bootstrap timeout')),4000);
+    retry=setInterval(send,150);send();
+   });}finally{clearInterval(retry);clearTimeout(timer);dst.off('message',onMessage);}
   }
   const [a,b]=sessions;
   const hello=await carry(0,'hello',a.begin());
   const response=await carry(1,'response',b.respond(hello));
   b.accept(await carry(0,'finish',a.finish(response)));
   material.push(a.take(),b.take());
-  if(errors.length||material[0].transcript!==material[1].transcript||!material[0].secret.equals(material[1].secret)||!material[0].epoch.equals(material[1].epoch))throw Error('session confirmation refused');
+  if(dropped!==1||errors.length||material[0].transcript!==material[1].transcript||!material[0].secret.equals(material[1].secret)||!material[0].epoch.equals(material[1].epoch))throw Error('session confirmation refused');
   return material.map(m=>({secretHex:m.secret.toString('hex'),epochHex:m.epoch.toString('hex'),transcript:m.transcript}));
  }finally{
   for(const session of sessions)session.close();
-  for(const stream of streams)stream.stream.destroy();
   for(const sock of sockets)await new Promise(resolve=>{try{sock.close(resolve);}catch{resolve();}});
-  for(const key of bootstrap)key.fill(0);
   for(const m of material){m.secret.fill(0);m.epoch.fill(0);}
  }
 }
