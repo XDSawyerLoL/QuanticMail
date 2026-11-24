@@ -4,7 +4,11 @@
 param(
  [Parameter(Mandatory=$true)][ValidatePattern('^[a-fA-F0-9]{64}$')][string]$ExpectedManifestSha256,
  [Parameter(Mandatory=$true)][ValidatePattern('^[a-fA-F0-9]{64}$')][string]$TrustedBinarySha256,
- [switch]$SelfTest
+ [switch]$SelfTest,
+ [string]$AdvancedAction,
+ [string]$AdvancedDirectory,
+ [string]$AdvancedInputName,
+ [string]$AdvancedOutputName
 )
 $ErrorActionPreference="Stop"
 $root=$PSScriptRoot
@@ -24,7 +28,7 @@ $actions=@(
  @{Id="RecoverOpen";Title="Recuperer une ouverture";Hint="Reprendre le resultat exact d'une enveloppe.";Input="wire";Scope=$true},
  @{Id="RecoverReceive";Title="Recuperer une reception";Hint="Reprendre le resultat exact ; nouveau fichier de recu obligatoire.";Input="receipt";Scope=$true},
  @{Id="ConfirmReceipt";Title="Confirmer un recu existant";Hint="Verifier le recu conserve et confirmer au relais.";Input="receipt";Scope=$true},
- @{Id="Provision";Title="Creer un coffre de test";Hint="Parametres publics independants requis. Ne cree pas de compte distant.";Scope=$true},
+ @{Id="ProvisionGui";Title="Identity Vault - Creer mon identite de test";Hint="Assistant graphique : deux phrases secretes distinctes. Empreinte du quorum approuvee requise. Aucun compte distant.";Scope=$true},
  @{Id="ProvisionPair";Title="Creer deux coffres de test PQ";Hint="Deux identites fictives, deux repertoires neufs. Empreintes de quorum independantes exigees ; aucun compte distant.";Scope=$true},
  @{Id="StartBridge";Title="Demarrer le pont Scattering";Hint="Dossier de transport distinct deja configure ; pacer et sink separes requis.";Scope=$true},
  @{Id="Providers";Title="Verifier la cryptographie";Hint="Diagnostic du fournisseur cryptographique natif."},
@@ -95,7 +99,7 @@ $il=Label-At "Fichier prive" 24 309 672 22
 $inputName=Text-At 24 333 672
 $ol=Label-At "Nouvelle enveloppe" 24 372 672 22
 $outputName=Text-At 24 396 672
-$run=New-Object Windows.Forms.Button;$run.Text="Continuer dans le terminal securise"
+$run=New-Object Windows.Forms.Button;$run.Text="Continuer"
 $run.ForeColor=[Drawing.Color]::Black;$run.BackColor=[Drawing.Color]::FromArgb(196,223,244)
 $run.SetBounds(24,459,485,38);$form.Controls.Add($run)
 $quit=New-Object Windows.Forms.Button;$quit.Text="Fermer";$quit.ForeColor=[Drawing.Color]::Black
@@ -106,6 +110,7 @@ $script:selectedArguments=$null;$script:selectedAction=$null
 $choice.Add_SelectedIndexChanged({
  $a=$actions[$choice.SelectedIndex]
  $hint.Text=$a.Hint
+ $run.Text=if($a.Id -eq "ProvisionGui"){"Creer mon identite"}else{"Ouvrir les outils avances (terminal)"}
  $directory.Enabled=[bool]$a.Scope
  $inputName.Enabled=[bool]$a.Input
  $outputName.Enabled=[bool]$a.Output
@@ -121,6 +126,7 @@ $run.Add_Click({
  }catch{[Windows.Forms.MessageBox]::Show($_.Exception.Message,"Parametres refuses","OK","Warning")|Out-Null}
 })
 $choice.SelectedIndex=0
+if (-not $SelfTest -and -not $AdvancedAction) {$choice.SelectedIndex=10}
 if ($SelfTest) {
  try {
   if($choice.Items.Count -ne 29 -or -not $inputName.Enabled -or -not $outputName.Enabled){throw "Dashboard initialization failed"}
@@ -135,11 +141,8 @@ if ($SelfTest) {
  }finally{$form.Dispose()}
  exit 0
 }
-try {
- while ($true) {
-  $script:selectedArguments=$null;$script:selectedAction=$null
-  if ($form.ShowDialog() -ne [Windows.Forms.DialogResult]::OK) { break }
-  $operationArgs=$script:selectedArguments
+function Invoke-AdvancedOperation([string]$ActionId,$operationArgs) {
+ $script:selectedAction=$ActionId
   if ($script:selectedAction -in @("PayOperator","PayOperatorConfigure")) {
    $configPin=Read-Host "Empreinte SHA256 independante de la configuration Pay"
    $operationArgs+=@("-PayConfigPin",$configPin)
@@ -179,7 +182,7 @@ try {
    $picker=New-Object Windows.Forms.OpenFileDialog
    $picker.Filter="Archive Quantic (*.qma)|*.qma"
    try {
-    if ($picker.ShowDialog() -ne [Windows.Forms.DialogResult]::OK) { continue }
+    if ($picker.ShowDialog() -ne [Windows.Forms.DialogResult]::OK) { return }
     $archive=$picker.FileName
    }finally{$picker.Dispose()}
    $address=Read-Host "Adresse canonique historique"
@@ -192,5 +195,67 @@ try {
   $code=$LASTEXITCODE
   Write-Host "Code de retour: $code. Un code nul n'est pas une preuve de livraison distante."
   $null=Read-Host "Entree pour revenir au tableau de bord"
+}
+# A visible terminal is opened only for explicitly selected legacy operations.
+if ($AdvancedAction) {
+ try {
+  $a=@($actions | Where-Object {$_.Id -ceq $AdvancedAction})
+  if($a.Count -ne 1 -or $AdvancedAction -eq "ProvisionGui"){throw "Operation avancee refusee"}
+  $op=New-OperationArguments $a[0] $AdvancedDirectory $AdvancedInputName $AdvancedOutputName
+  Invoke-AdvancedOperation $AdvancedAction $op
+ }finally{$form.Dispose()}
+ exit 0
+}
+function Read-PublicValue([string]$Title,[string]$Prompt) {
+ $dialog=New-Object Windows.Forms.Form
+ $dialog.Text=$Title;$dialog.StartPosition="CenterScreen"
+ $dialog.ClientSize=New-Object Drawing.Size(570,150)
+ $dialog.FormBorderStyle="FixedDialog";$dialog.MaximizeBox=$false;$dialog.MinimizeBox=$false
+ $label=New-Object Windows.Forms.Label;$label.Text=$Prompt;$label.SetBounds(12,12,546,45)
+ $field=New-Object Windows.Forms.TextBox;$field.SetBounds(12,62,546,25)
+ $ok=New-Object Windows.Forms.Button;$ok.Text="Continuer";$ok.SetBounds(345,105,100,30)
+ $ok.DialogResult=[Windows.Forms.DialogResult]::OK
+ $cancel=New-Object Windows.Forms.Button;$cancel.Text="Annuler";$cancel.SetBounds(455,105,100,30)
+ $cancel.DialogResult=[Windows.Forms.DialogResult]::Cancel
+ $dialog.Controls.AddRange(@($label,$field,$ok,$cancel));$dialog.AcceptButton=$ok;$dialog.CancelButton=$cancel
+ try{if($dialog.ShowDialog() -eq [Windows.Forms.DialogResult]::OK){return $field.Text};return $null}
+ finally{$dialog.Dispose()}
+}
+function Invoke-GraphicalProvision($operationArgs) {
+ $address=Read-PublicValue "Identity Vault - Identite" "Adresse canonique de test fournie par la preparation independante."
+ if($null -eq $address){return}
+ $quorum=Read-PublicValue "Identity Vault - Confiance" "Empreinte SHA256 du quorum, obtenue et verifiee independamment."
+ if($null -eq $quorum){return}
+ if($address -cnotmatch '^[a-z0-9][a-z0-9._-]{2,31}~[a-f0-9]{32}@quantic$' -or $quorum -cnotmatch '^[a-f0-9]{64}$'){throw "Adresse ou empreinte publique invalide."}
+ $operationArgs+=@("-CanonicalAddress",$address,"-QuorumPin",$quorum)
+ # The verified package entrypoint invokes the native vault. Native Win32
+ # dialogs collect the passwords; no secret enters PowerShell or the args.
+ $publicResult=& $shell -NoProfile -File $launcher @operationArgs
+ if($LASTEXITCODE -ne 0){throw "Creation annulee ou refusee. Conserver tout dossier partiel."}
+ # Package verifier prints a status before the native JSON result.
+ $record=($publicResult | Select-Object -Last 1 | ConvertFrom-Json)
+ if($record.status -cne "local-provision-only-not-enrolled" -or $record.address -cne $address -or $record.deviceId -cnotmatch '^d-[a-f0-9]{32}$'){throw "Resultat natif non confirme. Conserver le dossier."}
+ [Windows.Forms.MessageBox]::Show("Identite de test creee localement. Le coffre est ferme. Aucun compte distant inscrit.","Identity Vault","OK","Information")|Out-Null
+}
+try {
+ while ($true) {
+  $script:selectedArguments=$null;$script:selectedAction=$null
+  if ($form.ShowDialog() -ne [Windows.Forms.DialogResult]::OK) { break }
+  try{
+   if ($script:selectedAction -eq "ProvisionGui") {
+    Invoke-GraphicalProvision $script:selectedArguments
+   }else{
+    # All values have already been validated by New-OperationArguments.
+    # Quote only the strictly validated public path and technical names.
+    $parts=@("-NoProfile","-STA","-File",('"' + $PSCommandPath + '"'),"-ExpectedManifestSha256",$ExpectedManifestSha256,"-TrustedBinarySha256",$TrustedBinarySha256,"-AdvancedAction",$script:selectedAction)
+    $a=$actions[$choice.SelectedIndex]
+    if($a.Scope){$parts+=@("-AdvancedDirectory",('"' + $directory.Text + '"'))}
+    if($a.Input){$parts+=@("-AdvancedInputName",$inputName.Text)}
+    if($a.Output){$parts+=@("-AdvancedOutputName",$outputName.Text)}
+    Start-Process -FilePath $shell -ArgumentList ($parts -join " ") -Wait -WindowStyle Normal
+   }
+  }catch{
+   [Windows.Forms.MessageBox]::Show($_.Exception.Message,"Operation non terminee","OK","Warning")|Out-Null
+  }
  }
 }finally{$form.Dispose()}
