@@ -27,25 +27,44 @@ jobs:
           - profile: balanced
             second_mix: "0"
             layer: "0"
+            second_batch: "8"
           - profile: balanced
             second_mix: "1"
             layer: "0"
+            second_batch: "8"
           - profile: skewed
             second_mix: "1"
             layer: "0"
+            second_batch: "8"
           - profile: sparse
             second_mix: "1"
             layer: "0"
+            second_batch: "8"
           - profile: balanced
             second_mix: "1"
             layer: "1"
+            second_batch: "8"
           - profile: skewed
             second_mix: "1"
             layer: "1"
+            second_batch: "8"
           - profile: sparse
             second_mix: "1"
             layer: "1"
-    name: "Two relays / ${{ matrix.profile }} / mix2=${{ matrix.second_mix }} / layer=${{ matrix.layer }}"
+            second_batch: "8"
+          - profile: balanced
+            second_mix: "1"
+            layer: "1"
+            second_batch: "4"
+          - profile: skewed
+            second_mix: "1"
+            layer: "1"
+            second_batch: "4"
+          - profile: sparse
+            second_mix: "1"
+            layer: "1"
+            second_batch: "4"
+    name: "Two relays / ${{ matrix.profile }} / mix2=${{ matrix.second_mix }} / layer=${{ matrix.layer }} / batch2=${{ matrix.second_batch }}"
     steps:
       - uses: actions/checkout@v4
         with:
@@ -74,5 +93,6 @@ jobs:
           SCATTERING_CHAIN_PROFILE: ${{ matrix.profile }}
           SCATTERING_CHAIN_SECOND_MIX: ${{ matrix.second_mix }}
           SCATTERING_CHAIN_LAYER: ${{ matrix.layer }}
+          SCATTERING_CHAIN_SECOND_BATCH: ${{ matrix.second_batch }}
           SCATTERING_MULTIHOP_SOURCE_OFFSET_MS: "25"
         run: bash scripts/scattering-two-relay-netns-lab.sh "$RUNNER_TEMP/Quantic-Pacer"
