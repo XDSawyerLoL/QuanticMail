@@ -1,7 +1,7 @@
 // Explicit Windows PQ synthetic compose -> durable native wire -> relay deposit.
 // Never bypass the independent pinned native vault or retransmit automatically.
 // A failed/unknown transport outcome must preserve the exact original wire.
-import {timingSafeEqual} from 'node:crypto';
+import {timingSafeEqual,createCipheriv,createDecipheriv,hkdfSync,randomBytes,randomUUID} from 'node:crypto';
 import {win32} from 'node:path';
 import {normalizeNativeRecord,nativeRecordDigest} from '../lib/quantic/native-mailbox.mjs';
 import {connectNativeVault} from './native-vault-controller.mjs';
@@ -42,7 +42,8 @@ export async function composeAndSendWindowsLab(config,storage,{
   &&/^draft-[a-z0-9-]{1,48}\.json$/.test(windowsLabPath(config.windowsLab.dir,input))
   &&/^wire-[a-z0-9-]{1,48}\.json$/.test(windowsLabPath(config.windowsLab.dir,output))
   &&input!==output&&(recover===true||recover===false));
- const draft=validateDraft(await readPrivateJSON(storage,input),scope);
+ const stored=await readPrivateJSON(storage,input);
+ const draft=validateDraft(stored?.format==='quantic-local-draft-v1'?await openGraphicalDraft(storage,scope,input,stored):stored,scope);
  // An operator sees the exact recipient and plaintext before a broker request.
  if(!await approve('Chiffrer dans le coffre natif le brouillon pour '+draft.context.to+
   '\n'+safeMailDisplay(draft.payload)))return {status:'cancelled-before-seal'};
@@ -93,4 +94,56 @@ export async function composeAndSendWindowsLab(config,storage,{
  return {status:'deposited',id:answer.id,digest,relayStatus:answer.status,
   wireFile:win32.basename(output),
   liveRestoreAuthorized:false,legacyDeletionAuthorized:false};
+}
+
+const draftFormat='quantic-local-draft-v1';
+function draftAAD(scope,path){
+ return Buffer.from(JSON.stringify([draftFormat,scope.address,scope.deviceId,win32.basename(path)]),'utf8');
+}
+async function draftKey(storage,scope){
+ const root=await storage.read(scope.receiptKeyFile);
+ try{check(Buffer.isBuffer(root)&&root.length===32);return Buffer.from(hkdfSync('sha256',root,Buffer.alloc(0),Buffer.from('quantic/windows/local-draft/v1'),32));}
+ finally{root.fill(0);}
+}
+async function encryptGraphicalDraft(storage,scope,path,draft){
+ const key=await draftKey(storage,scope),raw=Buffer.from(JSON.stringify(draft),'utf8');
+ try{
+  check(raw.length<=16384);
+  const nonce=randomBytes(12),cipher=createCipheriv('aes-256-gcm',key,nonce);
+  cipher.setAAD(draftAAD(scope,path));
+  const ciphertext=Buffer.concat([cipher.update(raw),cipher.final(),cipher.getAuthTag()]);
+  return {format:draftFormat,nonce:nonce.toString('base64url'),ciphertext:ciphertext.toString('base64url')};
+ }finally{key.fill(0);raw.fill(0);}
+}
+async function openGraphicalDraft(storage,scope,path,record){
+ check(record&&Object.keys(record).length===3&&record.format===draftFormat&&typeof record.nonce==='string'&&typeof record.ciphertext==='string');
+ const nonce=Buffer.from(record.nonce,'base64url'),sealed=Buffer.from(record.ciphertext,'base64url');
+ check(nonce.length===12&&nonce.toString('base64url')===record.nonce&&sealed.length>=17&&sealed.length<=16384+16&&sealed.toString('base64url')===record.ciphertext);
+ const key=await draftKey(storage,scope);
+ let raw,first;
+ try{
+  const dec=createDecipheriv('aes-256-gcm',key,nonce);
+  dec.setAAD(draftAAD(scope,path));dec.setAuthTag(sealed.subarray(-16));
+  first=dec.update(sealed.subarray(0,-16));raw=Buffer.concat([first,dec.final()]);
+  return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(raw));
+ }finally{key.fill(0);first?.fill(0);raw?.fill(0);}
+}
+export async function createWindowsGraphicalDraft(config,storage,fields,{newId=randomUUID,now=Date.now()}={}){
+ const scope=windowsScatteringScope(config),dir=config.windowsLab.dir;
+ check(fields&&Object.keys(fields).length===3&&typeof fields.to==='string'&&typeof fields.subject==='string'&&typeof fields.body==='string');
+ const payload={subject:fields.subject,body:fields.body};safeMailDisplay(payload);
+ check(Buffer.byteLength(JSON.stringify(payload))<=8192);
+ const contacts=await readPrivateJSON(storage,win32.join(dir,'contacts.json'));
+ check(Array.isArray(contacts)&&contacts.length<=32);
+ const matches=contacts.filter(x=>x.address===fields.to&&Number.isSafeInteger(x.expires)&&x.expires>now);
+ check(matches.length===1);
+ const clientMessageId=newId();check(/^[a-f0-9-]{36}$/.test(clientMessageId));
+ const draft=validateDraft({context:{clientMessageId,from:scope.address,fromDeviceId:scope.deviceId,to:fields.to,toDeviceId:matches[0].deviceId},payload},scope);
+ const input=win32.join(dir,'draft-'+clientMessageId+'.json'),output=win32.join(dir,'wire-'+clientMessageId+'.json');
+ const sealed=await encryptGraphicalDraft(storage,scope,input,draft);
+ const bytes=Buffer.from(JSON.stringify(sealed)+'\n','utf8');
+ try{await storage.writeDraft(input,bytes);}finally{bytes.fill(0);}
+ const readback=await openGraphicalDraft(storage,scope,input,await readPrivateJSON(storage,input));
+ check(JSON.stringify(readback)===JSON.stringify(draft));
+ return {input,output};
 }
