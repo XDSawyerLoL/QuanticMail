@@ -5,11 +5,14 @@ import {mkdir} from 'node:fs/promises';
 import {readFileSync,lstatSync} from 'node:fs';
 import {isAbsolute} from 'node:path';
 import {resealLabHop} from '../lib/quantic/scattering-hop-reseal-lab.mjs';
+import {createScatteringBatchMixer} from '../lib/quantic/scattering-batch-mixer-lab.mjs';
 import {writeSpool} from '../labs/quantic-native/scattering/scattering-cell.mjs';
 
-const [bindA,bindB,queue,secondsRaw,pathA,pathB,pathOut]=process.argv.slice(2);
+const [bindA,bindB,queue,secondsRaw,pathA,pathB,pathOut,mixRaw='0']=process.argv.slice(2);
 const check=(ok,msg)=>{if(!ok)throw Error(msg);};
 const seconds=Number(secondsRaw);
+check(['0','1'].includes(mixRaw),'unsupported mixing mode');
+const mixEnabled=mixRaw==='1';
 check(bindA==='10.252.41.2:49001'&&bindB==='10.252.42.2:49002'&&
  isAbsolute(queue)&&Number.isInteger(seconds)&&seconds>=8&&seconds<=20,
  'explicit isolated trusted-hop lab topology required');
@@ -22,6 +25,21 @@ check(!keys[0].equals(keys[1])&&!keys[1].equals(keys[2])&&!keys[0].equals(keys[2
  'non-independent laboratory keys');
 const stats={ingressA:0,ingressB:0,spooled:0,unauthenticated:0,rejected:0,spoolErrors:0};
 let seq=0;const sockets=[];
+const mixer=mixEnabled?createScatteringBatchMixer({batchSize:40,
+ onBatch(batch){
+  const frames=[];
+  for(const {packet,source} of batch){
+   const frame=resealLabHop({inputKey:keys[source],outputKey:keys[2],
+     packet,hopSeq:seq+frames.length});
+   if(!frame){stats.unauthenticated++;throw Error('untrusted mixed ingress frame');}
+   frames.push(frame);
+  }
+  writeSpool(queue,frames); // 40 shuffled cells, committed together
+  seq+=frames.length;
+  stats.spooled+=frames.length;
+  for(const {source} of batch)stats[source?'ingressB':'ingressA']++;
+ }
+}):null;
 try{
  await mkdir(queue,{recursive:true,mode:0o700});
  for(const [idx,bind] of [[0,bindA],[1,bindB]]){
@@ -29,6 +47,11 @@ try{
   await new Promise((resolve,reject)=>{sock.once('error',reject);sock.bind(Number(port),ip,resolve);});
   sock.on('message',packet=>{
    if(packet.length!==168||seq>=8192){stats.rejected++;return;}
+   if(mixer){
+    try{mixer.add({packet,source:idx});}
+    catch{stats.spoolErrors++;}
+    return;
+   }
    let transformed;
    try{transformed=resealLabHop({inputKey:keys[idx],outputKey:keys[2],packet,hopSeq:seq});}
    catch{stats.rejected++;return;}
@@ -39,7 +62,11 @@ try{
   sockets.push(sock);
  }
  await new Promise(resolve=>setTimeout(resolve,seconds*1000));
- console.log(JSON.stringify({mode:'trusted-hop-reseal-lab',...stats,ciphertextModified:true,
+ if(mixer){
+  try{mixer.drain();}catch{stats.spoolErrors++;}
+ }
+ console.log(JSON.stringify({mode:'trusted-hop-reseal-lab',...stats,
+  mixedBatches:mixEnabled,mixer:mixer?.stats()??null,ciphertextModified:true,
   relayKnowsHopPlaintext:true,notEndToEndAnonymous:true,labOnly:true}));
  check(stats.ingressA>0&&stats.ingressB>0&&stats.spooled===seq&&stats.rejected===0&&stats.spoolErrors===0&&stats.unauthenticated===0,
   're-encryption did not authenticate both synthetic senders');
