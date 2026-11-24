@@ -10,6 +10,7 @@ import (
  "encoding/hex"
  "encoding/json"
  "io"
+ "net"
  "net/url"
  "os"
  "path/filepath"
@@ -30,6 +31,37 @@ type activationCheckpoint struct {
  PublicKey string `json:"publicKey"`
  TLSPin string `json:"tlsPin"`
 }
+type managedCarrierProfile struct{
+ ConfigPin string `json:"configPin"`
+ Listen string `json:"listen"`
+ Target string `json:"target"`
+}
+func managedCarrierEndpoint(s string)bool{
+ host,p,e:=net.SplitHostPort(s);if e!=nil{return false}
+ ip:=net.ParseIP(host);port,e:=strconv.Atoi(p)
+ return e==nil&&port>0&&port<=65535&&p==strconv.Itoa(port)&&ip!=nil&&ip.To4()!=nil&&ip.String()==host&&ip.To4()[0]>0&&ip.To4()[0]<224
+}
+func verifyManagedCarrierProfile(dir,endpoint string,p *managedCarrierProfile)error{
+ if p==nil{return nil}
+ if !hashRE.MatchString(p.ConfigPin)||!managedCarrierEndpoint(p.Listen)||!managedCarrierEndpoint(p.Target)||p.Listen==p.Target{return portableRefusal}
+ carrier:=filepath.Join(dir,"carrier")
+ raw,e:=winReadPrivate(filepath.Join(carrier,"scattering.json"),16384);if e!=nil{return e};defer clear(raw)
+ if hexHash(raw)!=p.ConfigPin{return portableRefusal}
+ var cfg struct{
+ LabOnly bool `json:"labOnly"`
+ Role string `json:"role"`
+ SecretHex string `json:"secretHex"`
+ EpochHex string `json:"epochHex"`
+ RecvPort int `json:"recvPort"`
+ HTTPPort int `json:"httpPort"`
+ QueueDir string `json:"queueDir"`
+ StateDir string `json:"stateDir"`
+ }
+ d:=json.NewDecoder(bytes.NewReader(raw));d.DisallowUnknownFields();var extra any
+ if d.Decode(&cfg)!=nil||d.Decode(&extra)!=io.EOF||!cfg.LabOnly||cfg.Role!="client"||!hashRE.MatchString(cfg.SecretHex)||!hashRE.MatchString(cfg.EpochHex)||cfg.SecretHex==cfg.EpochHex||cfg.SecretHex==string(bytes.Repeat([]byte("0"),64))||cfg.EpochHex==string(bytes.Repeat([]byte("0"),64))||
+ cfg.RecvPort<1||cfg.RecvPort>65535||cfg.HTTPPort<1||cfg.HTTPPort>65535||cfg.RecvPort==cfg.HTTPPort||endpoint!="http://127.0.0.1:"+strconv.Itoa(cfg.HTTPPort)+"/"||cfg.QueueDir!=filepath.Join(carrier,"queue")||cfg.StateDir!=filepath.Join(carrier,"state")||p.Listen=="127.0.0.1:"+strconv.Itoa(cfg.RecvPort){return portableRefusal}
+ return nil
+}
 type windowsActivationBundle struct {
  Format string `json:"format"`
  LabOnly bool `json:"labOnly"`
@@ -43,6 +75,7 @@ type windowsActivationBundle struct {
  AnchorTLS activationTLS `json:"anchorTls"`
  CheckpointTLS activationTLS `json:"checkpointTls"`
  Contacts []senderContact `json:"contacts"`
+ ManagedCarrier *managedCarrierProfile `json:"managedCarrier,omitempty"`
 }
 type activationFile struct {name string;raw []byte}
 func parseWindowsActivation(raw []byte,pin string)(windowsActivationBundle,error){
@@ -131,6 +164,8 @@ func activationPlan(dir,binary,binaryPin string,r enrollmentRequest,b windowsAct
    "authority":map[string]any{"authorities":b.Checkpoints,"caFile":path(files[2].name),"clientCertFile":path(files[3].name),"clientKeyFile":path("peer-checkpoint-key.vault")}},
   "windowsScattering":map[string]any{"enabled":true,"credentialMode":"vault-sealed-v1","endpoint":b.Endpoint,"address":c.Address,"deviceId":c.DeviceID,"receiptKeyFile":path("receipt.vault")},
  }
+ if e=verifyManagedCarrierProfile(dir,b.Endpoint,b.ManagedCarrier);e!=nil{return nil,e}
+ if b.ManagedCarrier!=nil{config["managedScattering"]=b.ManagedCarrier}
  desktop,e:=json.Marshal(config);if e!=nil{return nil,e}
  checkpointConfig,e:=json.Marshal(b.Checkpoints);if e!=nil{return nil,e}
  return append(files,activationFile{"quorum.json",quorum},activationFile{"contacts.json",contacts},activationFile{"checkpoint-authorities.json",checkpointConfig},activationFile{"desktop.json",desktop}),nil
@@ -183,7 +218,7 @@ func windowsActivationCLI(args []string)error{
  h:=sha256.New();n,e:=io.Copy(h,io.LimitReader(f,256*1024*1024+1));f.Close()
  if e!=nil||n<1||n>256*1024*1024||hex.EncodeToString(h.Sum(nil))!=binaryPin{return portableRefusal}
  digest,e:=checkEnrollmentApprovals(r,b.Approvals,b.RosterPin,time.Now());if e!=nil||digest!=b.RequestDigest{return portableRefusal}
- if !winGUIApprove("Configuration de messagerie de laboratoire pour "+r.Claim.Address+". L'empreinte du dossier a ete verifiee. Aucun compte actif ni connexion distante prouvee. Importer ?"){return portableRefusal}
+ if !winGUIApprove("Configuration de messagerie de laboratoire pour "+r.Claim.Address+". L'empreinte du dossier a ete verifiee. Aucun compte actif ni connexion distante prouvee. Importer ? Si un transport est configure, son trafic UDP de laboratoire demarrera avec l application."){return portableRefusal}
  pw,e:=winGUIPassphrase("Secret classique de l'appareil",true);if e!=nil{return e};defer clear(pw)
  pqw,e:=winGUIPassphrase("Secret post-quantique de l'appareil",true);if e!=nil{return e};defer clear(pqw)
  if e=importWindowsActivation(dir,binary,binaryPin,b,pw,pqw,time.Now());e!=nil{return e}

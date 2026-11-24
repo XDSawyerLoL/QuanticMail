@@ -73,7 +73,17 @@ func TestWindowsActivationPrivateImport(t *testing.T){
  pt:=peer.agreement.PublicKey().Bytes()
  peerID:="d-"+hexHash([]byte("P-256:"+b64.EncodeToString(pt[1:33])+":"+b64.EncodeToString(pt[33:])))[:32]
  contacts:=[]senderContact{{Address:"testpeer~"+strings.Repeat("a",32)+"@quantic",Device:peerID,ClassicalRoot:sk,PQRoot:dd,Encryption:ek,KEM:kd,Expires:now.Add(time.Hour).UnixMilli()}}
- b:=windowsActivationBundle{"quantic-native-windows-activation-lab/v2",true,digest,roster,approvals,proof,"http://127.0.0.1:45001/",anchors,cps,anchorTLS,checkpointTLS,contacts}
+ b:=windowsActivationBundle{"quantic-native-windows-activation-lab/v2",true,digest,roster,approvals,proof,"http://127.0.0.1:45001/",anchors,cps,anchorTLS,checkpointTLS,contacts,nil}
+ carrier:=filepath.Join(dir,"carrier")
+ if e=winCreateScattering(carrier);e!=nil{t.Fatal(e)}
+ carrierConfig,_:=json.Marshal(map[string]any{"labOnly":true,"role":"client","secretHex":strings.Repeat("a",64),"epochHex":strings.Repeat("b",64),"recvPort":45002,"httpPort":45001,"queueDir":filepath.Join(carrier,"queue"),"stateDir":filepath.Join(carrier,"state")})
+ if e=winWritePrivate(filepath.Join(carrier,"scattering.json"),carrierConfig);e!=nil{t.Fatal(e)}
+ b.ManagedCarrier=&managedCarrierProfile{hexHash(carrierConfig),"127.0.0.1:45003","127.0.0.1:45004"}
+ if e=verifyManagedCarrierProfile(dir,b.Endpoint,b.ManagedCarrier);e!=nil{t.Fatal(e)}
+ wrong:=*b.ManagedCarrier;wrong.ConfigPin=strings.Repeat("e",64)
+ if e=verifyManagedCarrierProfile(dir,b.Endpoint,&wrong);e==nil{t.Fatal("modified carrier accepted")}
+ wrong=*b.ManagedCarrier;wrong.Target="0.0.0.0:45004"
+ if e=verifyManagedCarrierProfile(dir,b.Endpoint,&wrong);e==nil{t.Fatal("wildcard accepted")}
  raw,e:=json.Marshal(b);if e!=nil{t.Fatal(e)}
  if _,e=parseWindowsActivation(raw,strings.Repeat("e",64));e==nil{t.Fatal("wrong package pin accepted")}
  if _,e=parseWindowsActivation(raw,hexHash(raw));e!=nil{t.Fatal(e)}
