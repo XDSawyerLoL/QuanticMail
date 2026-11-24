@@ -6,53 +6,48 @@ import {randomBytes,createHash} from 'node:crypto';
 import {mkdir,realpath} from 'node:fs/promises';
 import {join,isAbsolute} from 'node:path';
 import {startScatteringMailboxEndpoint} from '../../standalone-relay/native-scattering-mailbox.mjs';
-import {openHybridSessionLab} from '../../lib/quantic/scattering-session-lab.mjs';
-import {fragmentSession,openSessionAssembly} from '../../lib/quantic/scattering-session-udp-bootstrap-lab.mjs';
-// Public context and peer pins are preconfigured, no shared bootstrap key.
-// Only this fixture orchestrates cutover. Bootstrap traffic is recognizable.
+import {negotiateUdpSessionLab} from '../../lib/quantic/scattering-session-udp-endpoint-lab.mjs';
+// Public context and peer pins are provisioned by the fixture. The same
+// endpoint-local negotiation engine is used by independent process tests.
 async function negotiateCarrier(peers){
- const sockets=[],sessions=[],material=[],errors=[];
- let dropped=0;
+ const sockets=[],material=[],errors=[];
+ let dropped=0,duplicated=0;
  try{
   const context={channel:randomBytes(48).toString('hex'),generation:0,previous:'0'.repeat(96)};
   for(let i=0;i<2;i++){
    const sock=createSocket('udp4');sockets.push(sock);
    await new Promise((resolve,reject)=>{sock.once('error',reject);sock.bind(0,'127.0.0.1',resolve);});
-   sessions.push(openHybridSessionLab({role:i?'responder':'initiator',...peers[i],peer:peers[1-i].local,context}));
   }
   const ports=sockets.map(s=>s.address().port);
   for(let i=0;i<2;i++){
    sockets[i].on('error',e=>errors.push(e));
-   await new Promise(resolve=>sockets[i].connect(ports[1-i],'127.0.0.1',resolve));
+   await new Promise((resolve,reject)=>{sockets[i].once('error',reject);sockets[i].connect(ports[1-i],'127.0.0.1',resolve);});
   }
-  async function carry(i,kind,frame){
-   const packets=fragmentSession(kind,frame,context),dst=sockets[1-i],src=sockets[i],assembly=openSessionAssembly(kind,context);
-   let timer,retry,onMessage,attempt=0;
-   try{return await new Promise((resolve,reject)=>{
-    onMessage=packet=>{try{const result=assembly.push(packet);if(result)resolve(result);}catch(e){reject(e);}};
-    dst.on('message',onMessage);
-    const send=()=>{
-     if(++attempt>20){reject(Error('bootstrap retry limit'));return;}
-     // Deliberately lose one hello fragment; reorder the rest and send
-     // an exact duplicate. Repeat identical bytes, never regenerate keys.
-     const batch=[...packets].reverse();
-     if(kind==='hello'&&attempt===1){batch.pop();dropped++;}
-     if(batch.length>1)batch.push(batch[0]);
-     for(const packet of batch)src.send(packet,e=>{if(e)reject(e);});
-    };
-    timer=setTimeout(()=>reject(Error('bootstrap timeout')),4000);
-    retry=setInterval(send,150);send();
-   });}finally{clearInterval(retry);clearTimeout(timer);dst.off('message',onMessage);}
-  }
-  const [a,b]=sessions;
-  const hello=await carry(0,'hello',a.begin());
-  const response=await carry(1,'response',b.respond(hello));
-  b.accept(await carry(0,'finish',a.finish(response)));
-  material.push(a.take(),b.take());
-  if(dropped!==1||errors.length||material[0].transcript!==material[1].transcript||!material[0].secret.equals(material[1].secret)||!material[0].epoch.equals(material[1].epoch))throw Error('session confirmation refused');
-  return material.map(m=>({secretHex:m.secret.toString('hex'),epochHex:m.epoch.toString('hex'),transcript:m.transcript}));
+  // Inject loss and one duplicate at the fixture socket boundary, not in
+  // the engine. The engine must retransmit the original signed hello.
+  const source=sockets[0];
+  const impaired={
+   remoteAddress:()=>source.remoteAddress(),
+   on:(...args)=>source.on(...args),
+   off:(...args)=>source.off(...args),
+   send(packet,cb){
+    if(packet.subarray(0,4).toString('ascii')==='QHUB'&&packet[5]===1){
+     if(!dropped){dropped++;queueMicrotask(()=>cb(null));return;}
+     if(!duplicated){duplicated++;source.send(packet,e=>{if(e)errors.push(e);});}
+    }
+    source.send(packet,cb);
+   }
+  };
+  const negotiate=i=>negotiateUdpSessionLab({socket:i?sockets[1]:impaired,role:i?'responder':'initiator',
+   ...peers[i],peer:peers[1-i].local,context,timeoutMs:8000});
+  // Keep both sockets alive until both endpoint operations settle.
+  const outcomes=await Promise.allSettled([negotiate(1),negotiate(0)]);
+  for(const o of outcomes)if(o.status==='fulfilled')material.push(o.value);
+  if(outcomes.some(o=>o.status==='rejected'))throw Error('endpoint handshake refused');
+  const [b,a]=outcomes.map(o=>o.value);
+  if(dropped!==1||duplicated!==1||errors.length||a.transcript!==b.transcript||!a.secret.equals(b.secret)||!a.epoch.equals(b.epoch))throw Error('session confirmation refused');
+  return [a,b].map(m=>({secretHex:m.secret.toString('hex'),epochHex:m.epoch.toString('hex'),transcript:m.transcript}));
  }finally{
-  for(const session of sessions)session.close();
   for(const sock of sockets)await new Promise(resolve=>{try{sock.close(resolve);}catch{resolve();}});
   for(const m of material){m.secret.fill(0);m.epoch.fill(0);}
  }
