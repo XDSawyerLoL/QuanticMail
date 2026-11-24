@@ -6,11 +6,11 @@ import {randomBytes,createHash} from 'node:crypto';
 import {mkdir,realpath} from 'node:fs/promises';
 import {join,isAbsolute} from 'node:path';
 import {startScatteringMailboxEndpoint} from '../../standalone-relay/native-scattering-mailbox.mjs';
-import {negotiateUdpSessionLab} from '../../lib/quantic/scattering-session-udp-endpoint-lab.mjs';
-// Public context and peer pins are provisioned by the fixture. The same
-// endpoint-local negotiation engine is used by independent process tests.
-async function negotiateCarrier(peers){
- const sockets=[],material=[],errors=[];
+import {startNegotiatedScatteringMailboxEndpoint} from '../../standalone-relay/native-scattering-negotiated-mailbox-lab.mjs';
+// The fixture provisions public context, pins and addresses. Each endpoint
+// derives and consumes its own traffic keys, returning only the running endpoint.
+async function negotiateCarrier(peers,configs){
+ const sockets=[],endpoints=[],errors=[];
  let dropped=0,duplicated=0;
  try{
   const context={channel:randomBytes(48).toString('hex'),generation:0,previous:'0'.repeat(96)};
@@ -23,13 +23,10 @@ async function negotiateCarrier(peers){
    sockets[i].on('error',e=>errors.push(e));
    await new Promise((resolve,reject)=>{sockets[i].once('error',reject);sockets[i].connect(ports[1-i],'127.0.0.1',resolve);});
   }
-  // Inject loss and one duplicate at the fixture socket boundary, not in
-  // the engine. The engine must retransmit the original signed hello.
   const source=sockets[0];
   const impaired={
    remoteAddress:()=>source.remoteAddress(),
-   on:(...args)=>source.on(...args),
-   off:(...args)=>source.off(...args),
+   on:(...args)=>source.on(...args),off:(...args)=>source.off(...args),
    send(packet,cb){
     if(packet.subarray(0,4).toString('ascii')==='QHUB'&&packet[5]===1){
      if(!dropped){dropped++;queueMicrotask(()=>cb(null));return;}
@@ -38,19 +35,16 @@ async function negotiateCarrier(peers){
     source.send(packet,cb);
    }
   };
-  const negotiate=i=>negotiateUdpSessionLab({socket:i?sockets[1]:impaired,role:i?'responder':'initiator',
+  const start=i=>startNegotiatedScatteringMailboxEndpoint({config:configs[i],socket:i?sockets[1]:impaired,
    ...peers[i],peer:peers[1-i].local,context,timeoutMs:8000});
-  // Keep both sockets alive until both endpoint operations settle.
-  const outcomes=await Promise.allSettled([negotiate(1),negotiate(0)]);
-  for(const o of outcomes)if(o.status==='fulfilled')material.push(o.value);
+  const outcomes=await Promise.allSettled([start(1),start(0)]);
+  for(const o of outcomes)if(o.status==='fulfilled')endpoints.push(o.value);
   if(outcomes.some(o=>o.status==='rejected'))throw Error('endpoint handshake refused');
   const [b,a]=outcomes.map(o=>o.value);
-  if(dropped!==1||duplicated!==1||errors.length||a.transcript!==b.transcript||!a.secret.equals(b.secret)||!a.epoch.equals(b.epoch))throw Error('session confirmation refused');
-  return [a,b].map(m=>({secretHex:m.secret.toString('hex'),epochHex:m.epoch.toString('hex'),transcript:m.transcript}));
- }finally{
-  for(const sock of sockets)await new Promise(resolve=>{try{sock.close(resolve);}catch{resolve();}});
-  for(const m of material){m.secret.fill(0);m.epoch.fill(0);}
- }
+  if(dropped!==1||duplicated!==1||errors.length||a.transcript!==b.transcript||a.epochId!==b.epochId)throw Error('session confirmation refused');
+  return [a,b];
+ }catch(e){for(const endpoint of endpoints)endpoint.close();throw e;}
+ finally{for(const sock of sockets)await new Promise(resolve=>{try{sock.close(resolve);}catch{resolve();}});}
 }
 async function freeUDP(){
  const s=createSocket('udp4');
@@ -71,13 +65,20 @@ export async function startNativeScatteringLink({dir,binary,relayPort,profile='m
  }
  try{
   await mkdir(dir,{mode:0o700});dir=await realpath(dir);
-  const negotiated=sessionPeers?await negotiateCarrier(sessionPeers):null;
-  const common={labOnly:true,...(negotiated?{}:{secretHex:randomBytes(32).toString('hex'),epochHex:randomBytes(32).toString('hex')}),recvPort:0};
-  const queues=[];
+  const queues=[],configs=[];
   for(const role of ['client','relay']){
    const queueDir=join(dir,role+'-queue'),stateDir=join(dir,role+'-state');
    await mkdir(queueDir,{mode:0o700});await mkdir(stateDir,{mode:0o700});queues.push(queueDir);
-   endpoints.push(await startScatteringMailboxEndpoint({...common,...(negotiated?negotiated[role==='client'?0:1]:{}),role,queueDir,stateDir,httpPort:role==='client'?0:relayPort},{profile}));
+   configs.push({labOnly:true,role,queueDir,stateDir,recvPort:0,httpPort:role==='client'?0:relayPort});
+  }
+  let epochId;
+  if(sessionPeers){
+   if(profile!=='mailbox')throw Error('negotiated mailbox profile only');
+   endpoints.push(...await negotiateCarrier(sessionPeers,configs));epochId=endpoints[0].epochId;
+  }else{
+   const common={secretHex:randomBytes(32).toString('hex'),epochHex:randomBytes(32).toString('hex')};
+   for(const config of configs)endpoints.push(await startScatteringMailboxEndpoint({...config,...common},{profile}));
+   epochId=createHash('sha256').update(Buffer.from(common.epochHex,'hex')).digest('hex');
   }
   const ports=[await freeUDP(),await freeUDP()];if(ports[0]===ports[1])throw Error('port collision');
   const launch=args=>{const p=spawn(binary,args,{stdio:'ignore'});children.push(p);p.on('error',()=>{void close();});p.on('exit',()=>{void close();});};
@@ -86,6 +87,6 @@ export async function startNativeScatteringLink({dir,binary,relayPort,profile='m
    launch(['-target','127.0.0.1:'+ports[1-i],'-queue-dir',queues[i],'-period-us','5000','-poll','10ms','-wait-mode','native']);
   }
   await new Promise(r=>setTimeout(r,400));if(closing||children.some(p=>p.exitCode!==null||p.signalCode!==null))throw Error('carrier failed');
-  return {url:'http://127.0.0.1:'+endpoints[0].httpPort+'/',epochId:createHash('sha256').update(Buffer.from(negotiated?negotiated[0].epochHex:common.epochHex,'hex')).digest('hex'),negotiated:!!negotiated,close};
+  return {url:'http://127.0.0.1:'+endpoints[0].httpPort+'/',epochId,negotiated:!!sessionPeers,close};
  }catch(e){await close();throw e;}
 }
