@@ -43,16 +43,20 @@ func MonitorDefenderEvents(ctx context.Context,started time.Time,period time.Dur
             if !send(DefenderNotice{Restored:true}){return false}
             hadError=false
         }
-        if overflow && (lastOverflow.IsZero() || time.Since(lastOverflow)>time.Minute){
-            if !send(DefenderNotice{Overflow:true}){return false}
-            lastOverflow=time.Now()
-        }
+        // EvtQuery can return more than 64 HISTORICAL events even when no
+        // current events were missed. Report incomplete coverage only when
+        // the oldest fetched event is within this agent session.
         // EvtQuery returns reverse chronological order. Normalize for a
         // deterministic persisted history and the burst correlation window.
         sort.Slice(events,func(i,j int)bool{
             if events[i].Time.Equal(events[j].Time){return events[i].RecordID<events[j].RecordID}
             return events[i].Time.Before(events[j].Time)
         })
+        if overflow && len(events)>0 && !events[0].Time.Before(started) &&
+            (lastOverflow.IsZero() || time.Since(lastOverflow)>time.Minute){
+            if !send(DefenderNotice{Overflow:true}){return false}
+            lastOverflow=time.Now()
+        }
         for _,e:=range events{
             if e.Time.Before(started) || e.Time.After(time.Now().Add(5*time.Second)){continue}
             key:=fmt.Sprintf("%d:%d",e.RecordID,e.Time.UnixNano())
