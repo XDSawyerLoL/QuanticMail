@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {generateKeyPairSync,randomBytes} from 'node:crypto';
 import {win32} from 'node:path';
 import {composeAndSendWindowsLab} from '../desktop/native-windows-integrated-mail.mjs';
+import {runWindowsScatteringMail,listWindowsSignedMail} from '../desktop/native-windows-mail-flow.mjs';
 import {nativeRecordDigest} from '../lib/quantic/native-mailbox.mjs';
 
 const dir='C:\\Quantic\\private';
@@ -105,7 +106,11 @@ test('Native disk write or readback tamper prevents any relay call; preserve dra
 });
 test('Ambiguous network failure never retries or deletes the signed wire',async()=>{
  const x=setup({failSend:true,recover:true});
- await assert.rejects(composeAndSendWindowsLab(cfg,x.storage,x.deps),/ambiguous transport/);
+ const pending=await composeAndSendWindowsLab(cfg,x.storage,x.deps);
+ assert.equal(pending.status,'deposit-unconfirmed');
+ assert.equal(pending.digest,nativeRecordDigest(x.signed));
+ assert.equal(pending.wireFile,'wire-confirmed.json');
+ assert.equal(pending.retryRequiresConfirmation,true);
  assert.equal(x.stats().sends,1);
  assert.equal(x.stats().write,1);
  assert.deepEqual(JSON.parse(x.files.get(output)),x.signed);
@@ -116,4 +121,54 @@ test('Ambiguous network failure never retries or deletes the signed wire',async(
  await assert.rejects(composeAndSendWindowsLab(cfg,mismatchedId.storage,mismatchedId.deps));
  assert.equal(mismatchedId.stats().write,0);
  assert.equal(mismatchedId.stats().sends,0);
+});
+
+test('explicit recovery of an unconfirmed send uses the same signed record and a fresh client',async()=>{
+ const x=setup({failSend:true});
+ const pending=await composeAndSendWindowsLab(cfg,x.storage,x.deps);
+ const before=Buffer.from(x.files.get(output));
+ let retries=0,opened=0;
+ const deps={operation:'retry-send',path:output,expectedDigest:pending.digest,approve:async()=>true,
+  connect:async()=>{throw Error('retry must not open signing vault');},
+  mailboxFactory:async scope=>{opened++;assert.equal(scope.address,alice);
+   return {send:async record=>{retries++;assert.deepEqual(record,x.signed);
+    return {id:'01234567-89ab-4cde-8fab-0123456789ab',digest:pending.digest,status:'queued',duplicate:true};
+   }};
+  }};
+ const answer=await runWindowsScatteringMail(cfg,x.storage,deps);
+ assert.equal(answer.status,'deposited');assert.equal(answer.digest,pending.digest);
+ assert.equal(retries,1);assert.equal(opened,1);assert.deepEqual(x.files.get(output),before);
+ assert.equal(x.stats().seal,1);assert.equal(x.stats().write,1);
+ await assert.rejects(runWindowsScatteringMail(cfg,x.storage,{...deps,expectedDigest:'0'.repeat(64)}));
+ const cancelled=await runWindowsScatteringMail(cfg,x.storage,{...deps,approve:async()=>false});
+ assert.equal(cancelled.status,'cancelled');assert.equal(retries,1);assert.equal(opened,1);
+ await assert.rejects(runWindowsScatteringMail(cfg,x.storage,{...deps,approve:async()=>{
+  x.files.set(output,Buffer.from(JSON.stringify(fakeSigned())));return true;
+ }}));
+ assert.equal(retries,1);assert.equal(opened,1);
+});
+test('malformed or missing recovery receipt stays unconfirmed, never auto-retries',async()=>{
+ const x=setup({failSend:true});const pending=await composeAndSendWindowsLab(cfg,x.storage,x.deps);
+ let attempts=0;
+ const answer=await runWindowsScatteringMail(cfg,x.storage,{operation:'retry-send',path:output,
+  expectedDigest:pending.digest,approve:async()=>true,mailboxFactory:async()=>({send:async()=>{
+   attempts++;return {id:'bad',digest:pending.digest,status:'queued'};
+  }})});
+ assert.equal(answer.status,'deposit-unconfirmed');assert.equal(answer.retryRequiresConfirmation,true);
+ assert.equal(attempts,1);assert.deepEqual(JSON.parse(x.files.get(output)),x.signed);
+});
+
+test('graphical recovery catalog exposes only signed-message selection metadata',async()=>{
+ const x=setup({failSend:true});await composeAndSendWindowsLab(cfg,x.storage,x.deps);
+ const entry=(name,file=true,link=false)=>({name,isFile:()=>file,isSymbolicLink:()=>link});
+ const candidates=[entry('wire-confirmed.json'),entry('draft-proposal.json'),entry('wire-link.json',false,true),entry('wire-../evil.json')];
+ const rows=await listWindowsSignedMail(cfg,x.storage,{listNames:async p=>{assert.equal(p,dir);return candidates;}});
+ assert.deepEqual(rows,[{name:'wire-confirmed.json',digest:nativeRecordDigest(x.signed),recipient:ctx.to,reference:ctx.clientMessageId}]);
+ assert.equal(x.stats().sends,1);
+ assert.equal(x.stats().seal,1);
+ assert.equal(x.stats().write,1);
+ assert.equal(JSON.stringify(rows).includes(x.signed.envelope.ciphertext),false);
+ await assert.rejects(listWindowsSignedMail(cfg,x.storage,{listNames:async()=>Array.from({length:65},(_,i)=>entry('wire-'+i+'.json'))}));
+ x.files.set(output,Buffer.from('{}'));
+ await assert.rejects(listWindowsSignedMail(cfg,x.storage,{listNames:async()=>[entry('wire-confirmed.json')]}));
 });
