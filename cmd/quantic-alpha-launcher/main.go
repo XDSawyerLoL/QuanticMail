@@ -64,11 +64,39 @@ func verify(root,manifestPin,vaultPin string)error{
  if got!=vaultPin{return errors.New("native cryptography provider mismatch")}
  return nil
 }
+// Resolve the Windows root from the OS, not the caller's environment.
+func trustedWindowsRoot()(string,error){
+ var buffer [32768]uint16
+ proc:=syscall.NewLazyDLL("kernel32.dll").NewProc("GetSystemWindowsDirectoryW")
+ n,_,_:=proc.Call(uintptr(unsafe.Pointer(&buffer[0])),uintptr(len(buffer)))
+ if n==0||n>=uintptr(len(buffer)){return "",errors.New("Windows root unavailable")}
+ root:=syscall.UTF16ToString(buffer[:int(n)])
+ if !filepath.IsAbs(root)||filepath.Clean(root)!=root||len(root)<3||root[1:3]!=":\\"{return "",errors.New("Windows root invalid")}
+ return root,nil
+}
+
+// Fresh allowlist: do not inherit debugger, runtime preload, TLS keylog,
+// proxy, cloud tokens, arbitrary module paths or other parent variables.
+// User profile/temp locations are retained for normal Windows operation;
+// these remain inside the trusted same-user OS boundary.
+func dashboardEnvironment(winDir,modules string,parent []string)[]string{
+ allowed:=map[string]bool{"USERPROFILE":true,"LOCALAPPDATA":true,"APPDATA":true,"HOMEDRIVE":true,"HOMEPATH":true,"TEMP":true,"TMP":true,"USERNAME":true,"USERDOMAIN":true,"COMPUTERNAME":true,"PROGRAMDATA":true,"ALLUSERSPROFILE":true}
+ values:=map[string]string{}
+ for _,entry:=range parent{
+  key,value,ok:=strings.Cut(entry,"=")
+  key=strings.ToUpper(key)
+  if ok&&allowed[key]&&value!=""{values[key]=value}
+ }
+ env:=[]string{"SystemRoot="+winDir,"WINDIR="+winDir,"PATH="+filepath.Join(winDir,"System32")+";"+filepath.Join(winDir,"System32","WindowsPowerShell","v1.0"),"PSModulePath="+modules}
+ for key,value:=range values{env=append(env,key+"="+value)}
+ return env
+}
+
 // Default Windows UI is graphical: do not allocate a background PowerShell console.
 // Only a deliberate Advanced operation may launch a visible separate terminal.
 func localPowerShell(root,manifestPin,vaultPin string,smoke bool)(uint32,error){
- winDir:=os.Getenv("SystemRoot")
- if winDir==""{return 1,errors.New("Windows root unavailable")}
+ winDir,e:=trustedWindowsRoot()
+ if e!=nil{return 1,e}
  shell:=filepath.Join(winDir,"System32","WindowsPowerShell","v1.0","powershell.exe")
  info,e:=os.Stat(shell);if e!=nil||!info.Mode().IsRegular(){return 1,errors.New("system PowerShell missing")}
  action:="Dashboard"
@@ -86,13 +114,7 @@ func localPowerShell(root,manifestPin,vaultPin string,smoke bool)(uint32,error){
  systemModules:=filepath.Join(winDir,"System32","WindowsPowerShell","v1.0","Modules")
  stat,e:=os.Stat(systemModules)
  if e!=nil||!stat.IsDir(){return 1,errors.New("trusted Windows PowerShell system modules unavailable")}
- environment:=make([]string,0,len(os.Environ())+1)
- for _,entry:=range os.Environ(){
-  key,_,ok:=strings.Cut(entry,"=")
-  if ok&&strings.EqualFold(key,"PSModulePath"){continue}
-  environment=append(environment,entry)
- }
- cmd.Env=append(environment,"PSModulePath="+systemModules)
+ cmd.Env=dashboardEnvironment(winDir,systemModules,os.Environ())
  cmd.SysProcAttr=&syscall.SysProcAttr{CreationFlags:0x08000000} // CREATE_NO_WINDOW
  // The smoke test uses only synthetic identities; collect process stderr
  // into a private temporary diagnostic file for the CI test exclusively.

@@ -43,6 +43,11 @@ jobs:
             [string]$TrustedBinarySha256
           )
           if ($Operation -cne "DashboardCheck") { exit 42 }
+          foreach($name in @('NODE_OPTIONS','NODE_PATH','SSLKEYLOGFILE','OPENSSL_CONF','OPENSSL_MODULES','HTTP_PROXY','HTTPS_PROXY','QUANTIC_SYNTHETIC_PARENT_SECRET')){
+            if(Test-Path -LiteralPath "Env:$name"){exit 46}
+          }
+          if($env:SystemRoot -ne [Environment]::GetFolderPath('Windows')){exit 47}
+          if($env:PATH -match 'quantic-untrusted' -or $env:PSModulePath -match 'quantic-untrusted'){exit 48}
           if ($ExpectedManifestSha256 -cnotmatch '^[a-f0-9]{64}$' -or $TrustedBinarySha256 -cnotmatch '^[a-f0-9]{64}$') { exit 43 }
           $nested = Join-Path $PSScriptRoot "Quantic-Sillage-Alpha.ps1"
           & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -STA -ExecutionPolicy Bypass -File $nested -SelfTest
@@ -75,7 +80,15 @@ jobs:
           # Start-Process -Wait exposes their actual process exit codes.
           $p = Start-Process -FilePath $exe -ArgumentList "$manifestPin $vaultPin --self-test" -Wait -PassThru
           if ($p.ExitCode -ne 0) { throw "Native GUI did not validate pinned fixture: $($p.ExitCode)" }
+          # Inject synthetic parent variables; the native launcher must not pass them to PowerShell.
+          $poison=@{NODE_OPTIONS='--require=quantic-untrusted';NODE_PATH='quantic-untrusted';SSLKEYLOGFILE='quantic-untrusted';OPENSSL_CONF='quantic-untrusted';OPENSSL_MODULES='quantic-untrusted';HTTP_PROXY='http://quantic-untrusted.invalid';HTTPS_PROXY='http://quantic-untrusted.invalid';QUANTIC_SYNTHETIC_PARENT_SECRET='synthetic-only';PATH=($env:PATH+';C:\quantic-untrusted');PSModulePath=($env:PSModulePath+';C:\quantic-untrusted');SystemRoot='C:\quantic-untrusted'}
+          $saved=@{}
+          foreach($name in $poison.Keys){$saved[$name]=[Environment]::GetEnvironmentVariable($name,'Process');[Environment]::SetEnvironmentVariable($name,$poison[$name],'Process')}
+          try{
           $p = Start-Process -FilePath $exe -ArgumentList "$manifestPin $vaultPin --smoke-ui" -Wait -PassThru
+          }finally{
+            foreach($name in $saved.Keys){[Environment]::SetEnvironmentVariable($name,$saved[$name],'Process')}
+          }
           if ($p.ExitCode -ne 0) { throw "Native GUI did not launch local PowerShell dashboard: $($p.ExitCode)" }
           $p = Start-Process -FilePath $exe -ArgumentList "$manifestPin $('0'*64) --self-test" -Wait -PassThru
           if ($p.ExitCode -eq 0) { throw "Tampered key fingerprint was accepted" }
