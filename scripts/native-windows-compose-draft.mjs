@@ -1,10 +1,13 @@
 // One-shot headless GUI helper. Plaintext is read only over a local private pipe.
 import {saveWindowsDraftFromInput} from '../desktop/native-windows-draft.mjs';
 import {composeSendWindowsGUI} from '../desktop/native-windows-gui-send.mjs';
+import {listWindowsMailAttempts} from '../desktop/native-windows-mail-status.mjs';
 try{
  const args=process.argv.slice(2);
- if(process.platform!=='win32'||process.versions.node.split('.')[0]!=='24'||!([3,4].includes(args.length))||args.length===4&&!['--list','--send'].includes(args[3])||process.stdin.isTTY)throw Error('Not the Windows GUI lab');
- if(args[3]==='--list'){
+ if(process.platform!=='win32'||process.versions.node.split('.')[0]!=='24'||!([3,4].includes(args.length))||args.length===4&&!['--list','--send','--status'].includes(args[3])||process.stdin.isTTY)throw Error('Not the Windows GUI lab');
+ if(args[3]==='--status'){
+  process.stdout.write(JSON.stringify(await listWindowsMailAttempts({binary:args[0],binarySha256:args[1],dir:args[2]}))+'\n');
+ }else if(args[3]==='--list'){
   const {listWindowsDraftRecipients}=await import('../desktop/native-windows-draft.mjs');
   process.stdout.write(JSON.stringify(await listWindowsDraftRecipients({binary:args[0],binarySha256:args[1],dir:args[2]}))+'\n');
  } else {
