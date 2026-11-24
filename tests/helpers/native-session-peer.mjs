@@ -34,17 +34,17 @@ process.once('message',async m=>{
   const plain=Buffer.from('synthetic independent payload '+direction);
   const expected=Buffer.from('synthetic independent payload '+opposite);
   const frame=sender.seal(plain);plain.fill(0);
-  let received=false,reported=false,started=false,tick,deadline;
-  const cleanup=()=>{clearInterval(tick);clearTimeout(deadline);socket.off('message',onData);sender.close();receiver.close();frame.fill(0);expected.fill(0);};
+  let received=false,receivedFrame,reported=false,started=false,tick,deadline;
+  const cleanup=()=>{clearInterval(tick);clearTimeout(deadline);socket.off('message',onData);sender.close();receiver.close();frame.fill(0);expected.fill(0);receivedFrame?.fill(0);};
   function onData(packet){
    if(packet.length!==128)return;
    try{
     const data=receiver.open(packet);
     if(data){
      if(received||!data.equals(expected)){data.fill(0);cleanup();return end({type:'refused'});}
-     received=true;data.fill(0);return;
+     received=true;receivedFrame=Buffer.from(packet);data.fill(0);return;
     }
-    if(received&&started&&!reported){
+    if(received&&started&&!reported&&receivedFrame.equals(packet)){
      reported=true;process.send({type:'exchanged',authenticatedPayload:true,replayRefused:true});
     }
    }catch{cleanup();end({type:'refused'});}
