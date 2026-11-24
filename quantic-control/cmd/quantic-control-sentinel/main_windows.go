@@ -21,7 +21,7 @@ const(
  wsChild=0x40000000;wsVisible=0x10000000;wsOverlappedWindow=0x00CF0000
  wsVScroll=0x00200000;wsBorder=0x00800000;lbsNotify=0x0001
  lbAddString=0x0180;lbSetTopIndex=0x0197;lbResetContent=0x0184
- cmdSelect=201;cmdStop=202;cmdClear=203;cmdInstall=204;cmdUninstall=205;cmdHistory=206;cmdDefender=207;cmdProtectionCheck=208;wmTimer=0x0113
+ cmdSelect=201;cmdStop=202;cmdClear=203;cmdInstall=204;cmdUninstall=205;cmdHistory=206;cmdDefender=207;cmdProtectionCheck=208;cmdBackup=209;wmTimer=0x0113
  colorWindow=5;defaultGuiFont=17
  bifReturnOnlyFSDirs=1;bifEditBox=0x10;bifNewDialogStyle=0x40
 )
@@ -187,10 +187,11 @@ func wndProc(hwnd uintptr,msg uint32,wparam,lparam uintptr)uintptr{
    statsLabel=makeControl(hwnd,"STATIC","Événements : 0",22,334,700,28,0)
    makeControl(hwnd,"STATIC","Activité et alertes (session courante ou historisées)",22,373,700,28,0)
    activityList=makeControl(hwnd,"LISTBOX","",22,409,722,190,0)
-   makeControl(hwnd,"STATIC","Agent volontaire au prochain login. Pas de réseau. Microsoft Defender reste actif.",22,610,730,34,0)
+   backupLabel=makeControl(hwnd,"STATIC","Copie de sauvegarde : aucun verrou actif.",22,610,730,34,0)
    protectionLabel=makeControl(hwnd,"STATIC","Protection Windows : état non vérifié.",22,646,730,48,0)
    makeControl(hwnd,"BUTTON","Configurer la protection Windows",22,698,330,38,cmdDefender)
-   makeControl(hwnd,"BUTTON","Vérifier",370,698,150,38,cmdProtectionCheck)
+   makeControl(hwnd,"BUTTON","Vérifier",364,698,132,38,cmdProtectionCheck)
+   backupButton=makeControl(hwnd,"BUTTON","Verrouiller une copie",510,698,234,38,cmdBackup)
    user32.NewProc("SetTimer").Call(hwnd,1,30000,0)
    refreshProtection(hwnd)
    return 0
@@ -226,6 +227,7 @@ func wndProc(hwnd uintptr,msg uint32,wparam,lparam uintptr)uintptr{
        addLog("Démarrage automatique supprimé. Agent arrêté et fichiers du programme retirés.")
        setLabel(statusLabel,"AGENT UTILISATEUR DÉSINSTALLÉ — les journaux locaux sont conservés")
      }
+   case cmdBackup:toggleBackup(hwnd)
    case cmdProtectionCheck:refreshProtection(hwnd)
    case cmdDefender:
      // Open existing Windows protections; never change antivirus settings
@@ -272,7 +274,7 @@ func wndProc(hwnd uintptr,msg uint32,wparam,lparam uintptr)uintptr{
    return 0
  case wmTimer:if wparam==1{refreshProtection(hwnd)};return 0
  case wmAppUpdate:drain(hwnd);return 0
- case wmDestroy:user32.NewProc("KillTimer").Call(hwnd,1);stopMonitor();postQuit.Call(0);return 0
+ case wmDestroy:if backupHandle!=nil{_ = backupHandle.Close()};user32.NewProc("KillTimer").Call(hwnd,1);stopMonitor();postQuit.Call(0);return 0
  }
  ret,_,_:=defWindowProc.Call(hwnd,uintptr(msg),wparam,lparam)
  return ret
