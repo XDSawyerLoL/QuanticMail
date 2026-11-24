@@ -80,14 +80,14 @@ func trustedWindowsRoot()(string,error){
 // User profile/temp locations are retained for normal Windows operation;
 // these remain inside the trusted same-user OS boundary.
 func dashboardEnvironment(winDir,modules string,parent []string)[]string{
- allowed:=map[string]bool{"USERPROFILE":true,"LOCALAPPDATA":true,"APPDATA":true,"HOMEDRIVE":true,"HOMEPATH":true,"TEMP":true,"TMP":true,"USERNAME":true,"USERDOMAIN":true,"COMPUTERNAME":true,"PROGRAMDATA":true,"ALLUSERSPROFILE":true}
+ allowed:=map[string]bool{"USERPROFILE":true,"LOCALAPPDATA":true,"APPDATA":true,"HOMEDRIVE":true,"HOMEPATH":true,"TEMP":true,"TMP":true,"USERNAME":true,"USERDOMAIN":true,"COMPUTERNAME":true,"PROGRAMDATA":true,"ALLUSERSPROFILE":true,"PROCESSOR_ARCHITECTURE":true,"PROCESSOR_IDENTIFIER":true,"NUMBER_OF_PROCESSORS":true,"PROCESSOR_LEVEL":true,"PROCESSOR_REVISION":true}
  values:=map[string]string{}
  for _,entry:=range parent{
   key,value,ok:=strings.Cut(entry,"=")
   key=strings.ToUpper(key)
   if ok&&allowed[key]&&value!=""{values[key]=value}
  }
- env:=[]string{"SystemRoot="+winDir,"WINDIR="+winDir,"PATH="+filepath.Join(winDir,"System32")+";"+filepath.Join(winDir,"System32","WindowsPowerShell","v1.0"),"PSModulePath="+modules}
+ env:=[]string{"SystemRoot="+winDir,"WINDIR="+winDir,"ComSpec="+filepath.Join(winDir,"System32","cmd.exe"),"OS=Windows_NT","PATHEXT=.COM;.EXE;.BAT;.CMD","PATH="+filepath.Join(winDir,"System32")+";"+filepath.Join(winDir,"System32","WindowsPowerShell","v1.0"),"PSModulePath="+modules}
  for key,value:=range values{env=append(env,key+"="+value)}
  return env
 }

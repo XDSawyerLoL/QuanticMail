@@ -47,8 +47,10 @@ if ($Operation -eq "Providers") { & $vault --providers; exit $LASTEXITCODE }
 if ($Operation -in @("Dashboard","DashboardCheck")) {
  $ui = Join-Path $root "Quantic-Sillage-Alpha.ps1"
  $shell = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
- $uiArgs = @("-NoProfile","-STA","-File",$ui,"-ExpectedManifestSha256",$ExpectedManifestSha256,"-TrustedBinarySha256",$TrustedBinarySha256)
- if ($Operation -eq "DashboardCheck") { $uiArgs += "-SelfTest" }
+ # The script is verified against the independent manifest above. Use the
+ # same process-scoped policy as the native bootstrap; do not rely on inheritance.
+ $uiArgs = @("-NoProfile","-STA","-ExecutionPolicy","Bypass","-File",$ui,"-ExpectedManifestSha256",$ExpectedManifestSha256,"-TrustedBinarySha256",$TrustedBinarySha256)
+ if ($Operation -eq "DashboardCheck") { $uiArgs = @("-NonInteractive") + $uiArgs + "-SelfTest" }
  & $shell @uiArgs
  exit $LASTEXITCODE
 }
