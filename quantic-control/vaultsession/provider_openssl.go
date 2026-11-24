@@ -3,7 +3,9 @@
 package vaultsession
 
 /*
-#cgo pkg-config: openssl
+#cgo !pqstatic pkg-config: openssl
+#cgo windows,pqstatic CFLAGS: -I/ucrt64/include
+#cgo windows,pqstatic LDFLAGS: -Wl,-Bstatic -lcrypto -Wl,-Bdynamic -lws2_32 -lcrypt32 -lbcrypt -ladvapi32 -luser32 -lgdi32
 #include <openssl/evp.h>
 #include <openssl/x509.h>
 static int available(void) {
