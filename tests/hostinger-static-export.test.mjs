@@ -1,25 +1,19 @@
 import assert from "node:assert/strict";
-import fs from "node:fs";
+import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import test from "node:test";
 
-const config=fs.readFileSync("next.config.ts","utf8");
-assert.match(config,/QUANTIC_STATIC_EXPORT/);
-assert.match(config,/output:\s*["']export["']/);
-assert.match(config,/basePath:\s*["']\/mail["']/);
-assert.match(config,/trailingSlash:\s*true/);
-
-const pkg=JSON.parse(fs.readFileSync("package.json","utf8"));
-assert.equal(pkg.version,"1.3.1");
-assert.equal(pkg.scripts["build:hostinger"],"node scripts/build-hostinger-static.mjs");
-
-const script=fs.readFileSync("scripts/build-hostinger-static.mjs","utf8");
-assert.match(script,/app[\\/]api|app",\s*"api"/);
-assert.match(script,/cpSync|copyFileSync/);
-assert.match(script,/next/);
-assert.match(script,/out/);
-
-const publish=fs.readFileSync(".github/workflows/publish-hostinger-dist.yml","utf8");
-assert.match(publish,/https:\/\/quantic-hostinger-relay\.invalid/);
-assert.match(publish,/NEXT_PUBLIC_QUANTIC_BOOTSTRAPS/);
-assert.match(publish,/grep -R -q/);
-
-console.log(JSON.stringify({ok:true,contract:"hostinger-static-export"}));
+test("legacy publication and normal runtime scripts cannot restart the Web product", () => {
+  const pkg = JSON.parse(readFileSync("package.json", "utf8"));
+  for (const name of ["dev","build","start","relay:start","relay:dev","build:hostinger","relay:hostinger","relay:smoke","desktop:start","desktop:dist"]) {
+    assert.equal(pkg.scripts[name], "node scripts/legacy-retired.mjs", name);
+  }
+  const result = spawnSync(process.execPath, ["scripts/legacy-retired.mjs"], { encoding: "utf8" });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /retired/);
+  for (const path of [".github/workflows/publish-hostinger-dist.yml", ".github/workflows/desktop-release.yml"]) {
+    const workflow = readFileSync(path, "utf8");
+    assert.match(workflow, /permissions: \{\}/);
+    assert.doesNotMatch(workflow, /push:|gh release|git push|npm run|actions\/checkout/);
+  }
+});

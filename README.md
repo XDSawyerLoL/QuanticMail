@@ -1,5 +1,7 @@
 # QuanticMail
 
+> **Native-only direction — 24 November 2026.** The Web client, Electron wrapper and legacy HTTP relay are retired as product targets. The historical material below is retained for migration analysis, not deployment instructions. See [mandatory native-only policy](docs/NATIVE-ONLY-RETIREMENT.md). No real migration or production certification is implied.
+
 QuanticMail is the local-first messaging product of Quantic Sillage.
 
 QuanticMail does not use Gmail-style hosted mailboxes or SMTP as its core transport. Quantic Network uses human identities such as `sansa@quantic` and self-certifying canonical identities derived from a signing key.
