@@ -13,7 +13,9 @@ WORK="$(mktemp -d "${RUNNER_TEMP:-/tmp}/qs-netns-XXXXXX")"
 NSA="qsna-$$"
 NSB="qsnb-$$"
 VETHA="qsa$$"
-VETHB="qsb$$"
+VETHB="qsb$"
+# One ephemeral synthetic AES-GCM test key, never a user or application secret.
+"$NODE" -e "require('node:fs').writeFileSync(process.argv[1],require('node:crypto').randomBytes(32),{mode:0o600})" "$WORK/test-key"
 CAP_PID=""
 REC_PID=""
 cleanup() {
@@ -54,7 +56,15 @@ sudo ip -n "$NSB" link set "$VETHB" up
 one_condition() {
   local mode="$1"
   local sender="send"
-  if [[ "$mode" == synthetic ]]; then sender="send-synthetic"; fi
+  local receiver="receive"
+  local sender_extra=()
+  local receiver_extra=()
+  if [[ "$mode" == synthetic ]]; then
+    sender="send-synthetic"
+    receiver="receive-synthetic"
+    sender_extra=("$WORK/test-key")
+    receiver_extra=("$WORK/test-key")
+  fi
   # Tcpdump has no access to sender's application data or keys.
   sudo timeout -s INT 11s ip netns exec "$NSB" \
     tcpdump -i "$VETHB" -Q in -n -tt -l 'udp and dst port 49001' \
@@ -67,12 +77,12 @@ one_condition() {
     return 1
   fi
   sudo ip netns exec "$NSB" "$NODE" "$ROOT/scripts/scattering-physical-probe.mjs" \
-    receive "$PACER" 10.251.27.2 49001 10 \
+    "$receiver" "$PACER" 10.251.27.2 49001 10 "${receiver_extra[@]}" \
     >"$WORK/$mode.receiver" 2>&1 &
   REC_PID="$!"
   sleep 1.2
   sudo ip netns exec "$NSA" "$NODE" "$ROOT/scripts/scattering-physical-probe.mjs" \
-    "$sender" "$PACER" 10.251.27.2 49001 6 >"$WORK/$mode.sender" 2>&1 || {
+    "$sender" "$PACER" 10.251.27.2 49001 6 "${sender_extra[@]}" >"$WORK/$mode.sender" 2>&1 || {
       cat "$WORK/$mode.sender" >&2; return 1;
     }
   wait "$REC_PID" || { cat "$WORK/$mode.receiver" >&2; return 1; }
