@@ -246,7 +246,7 @@ test('native-only relay durably publishes two quorum-enrolled identities, refuse
    assert.equal((await call('native/v1/pull',scope(b),cb.token)).body.item,null);
    await fresh.close();
    await assert.rejects(call('native/v1/send',record,ca.token));
-   console.log('ENROLLED_NATIVE_UDP_EVIDENCE '+JSON.stringify({twoEnrolledIdentities:true,authenticatedHybridHandshake:true,deviceSigningPinsBound:true,bootstrapPreconfigured:true,independentCarrierEpochs:true,hybridDecryption:true,relayRestart:true,exactRetry:true,noDuplicate:true,noDirectFallback:true,physicalHosts:1,releaseAuthorized:false}));
+   console.log('ENROLLED_NATIVE_UDP_EVIDENCE '+JSON.stringify({twoEnrolledIdentities:true,authenticatedHybridHandshake:true,deviceSigningPinsBound:true,bootstrapPreconfigured:true,preSharedBootstrapSecret:false,bootstrapFragmentLossRecovered:true,independentCarrierEpochs:true,hybridDecryption:true,relayRestart:true,exactRetry:true,noDuplicate:true,noDirectFallback:true,physicalHosts:1,releaseAuthorized:false}));
   }
   assert.deepEqual(await readFile(join(root,'relay-state.json')),legacy);
  }finally{await Promise.all([...links.values()].map(x=>x.close()));await stop();await rm(root,{recursive:true,force:true});}
