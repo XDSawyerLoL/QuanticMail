@@ -10,6 +10,7 @@ import {tmpdir} from 'node:os';
 import {join,resolve,win32} from 'node:path';
 import {startNativeScatteringLink} from './helpers/native-scattering-link.mjs';
 import {composeAndSendWindowsLab} from '../desktop/native-windows-integrated-mail.mjs';
+import {listWindowsSignedMail,runWindowsScatteringMail} from '../desktop/native-windows-mail-flow.mjs';
 import {receiveWindowsLabFromGUI} from '../desktop/native-windows-gui-receive.mjs';
 import {
  restoreNativeMailbox,normalizeNativeRecord,nativeRecordDigest,
@@ -147,7 +148,7 @@ test('two isolated GUI clients exchange synthetic encrypted envelopes across two
    const a=newActor(p1,d1,'C:\\QuanticLab\\Alice',links[0].url,messages);
    const b=newActor(p2,d2,'C:\\QuanticLab\\Bobby',links[1].url,messages);
    assert.notEqual(a.cfg.windowsScattering.token,b.cfg.windowsScattering.token);
-   await a.seal(p2,d2,'Forward lab','Alice to Bob only');
+   const first=await a.seal(p2,d2,'Forward lab','Alice to Bob only');
    let approved=false;
    const cancelled=await b.receive(async()=>{approved=true;return false;});
    assert.equal(approved,true);
@@ -164,6 +165,33 @@ test('two isolated GUI clients exchange synthetic encrypted envelopes across two
    assert.equal(JSON.stringify(stored).includes('Alice to Bob only'),false,'encrypted receipt contains no plaintext');
    const recovered=openReceipt(await b.storage.read(b.cfg.windowsScattering.receiptKeyFile),b.cfg.windowsScattering,stored);
    assert.equal(recovered.payload.body,'Alice to Bob only');
+
+   // The graphical catalog must recover the already signed envelope, even
+   // after replacing the complete native transport. No vault or draft access
+   // is permitted during this exact retry. An acknowledged record stays ACKed.
+   const oldEpoch=links[0].epochId;
+   await links[0].close();
+   const fresh=await startNativeScatteringLink({dir:join(root,'link-a-recovery'),binary,relayPort});
+   links[0]=fresh;assert.notEqual(fresh.epochId,oldEpoch);
+   a.cfg.windowsScattering.endpoint=fresh.url;
+   const catalog=await listWindowsSignedMail(a.cfg,a.storage,{listNames:async()=>[...a.files.keys()].map(path=>({
+    name:win32.basename(path),isFile:()=>true,isSymbolicLink:()=>false
+   }))});
+   assert.equal(catalog.length,1);assert.equal(catalog[0].digest,first.digest);
+   assert.equal(catalog[0].recipient,p2);
+   const selected=catalog[0],wirePath=win32.join(a.cfg.windowsLab.dir,selected.name);
+   const before=Buffer.from(a.files.get(wirePath)),writes=a.stats().writes;
+   const retry=await runWindowsScatteringMail(a.cfg,a.storage,{
+    operation:'retry-send',path:wirePath,expectedDigest:selected.digest,
+    approve:async()=>true,connect:async()=>{throw Error('recovery must never open signing vault');}
+   });
+   assert.equal(retry.status,'deposited');assert.equal(retry.relayStatus,'acknowledged');
+   assert.equal(retry.duplicate,true);assert.equal(retry.id,first.id);assert.equal(retry.digest,first.digest);
+   assert.deepEqual(a.files.get(wirePath),before);assert.equal(a.stats().writes,writes);
+   assert.equal(pullNativeRecord(p2,d2),null,'recovery must not deliver an acknowledged message again');
+   assert.equal(acks,1);
+   console.log('GUI_EXACT_RETRY_EVIDENCE '+JSON.stringify({freshCarrierEpoch:true,
+    originalWireUnchanged:true,sameMailboxId:true,duplicateSuppressed:true,remoteDeliveryVerified:false}));
 
    await b.seal(p1,d1,'Reply lab','Bob to Alice only');
    const gotA=await a.receive();
