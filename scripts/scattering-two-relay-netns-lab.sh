@@ -5,6 +5,9 @@ set -Eeuo pipefail
 export SCATTERING_MULTIHOP_RESEAL=1 SCATTERING_MULTIHOP_E2E=1 SCATTERING_MULTIHOP_MIX=1 SCATTERING_MULTIHOP_BATCH_SIZE=8
 CHAIN_PROFILE="${SCATTERING_CHAIN_PROFILE:-balanced}"
 CHAIN_MIX="${SCATTERING_CHAIN_SECOND_MIX:-1}"
+LAYER="${SCATTERING_CHAIN_LAYER:-0}"
+[[ "$LAYER" == 0 || "$LAYER" == 1 ]] || exit 2
+LAYER_ARGS=(); INNER_BYTES=92
 case "$CHAIN_PROFILE" in
  balanced) export SCATTERING_MULTIHOP_B_REAL_CELLS=100 SCATTERING_MULTIHOP_PROFILE=regular;;
  skewed) export SCATTERING_MULTIHOP_B_REAL_CELLS=20 SCATTERING_MULTIHOP_PROFILE=regular;;
@@ -18,8 +21,8 @@ PACER="$(realpath "$1")"
 NODE="$(command -v node)"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORK="$(mktemp -d "${RUNNER_TEMP:-/tmp}/qs-multihop-XXXXXX")"
-NSA="qma-$$"; NSB="qmb-$$"; NSR="qmr-$"; NSD="qmd-$"; NS2="qm2-$"
-VAA="qa$$"; VAR="qar$$"; VBB="qb$$"; VBR="qbr$$"; VRD="qrd$$"; VDR="qdr$"; VM1="qm1$"; VM2="qm2$"
+NSA="qma-$$"; NSB="qmb-$$"; NSR="qmr-$$"; NSD="qmd-$$"; NS2="qm2-$$"
+VAA="qa$$"; VAR="qar$$"; VBB="qb$$"; VBR="qbr$$"; VRD="qrd$$"; VDR="qdr$$"; VM1="qm1$$"; VM2="qm2$$"
 CAP_PIDS=(); CHILD_PIDS=(); LOAD_PIDS=()
 cleanup(){
  local code=$?
@@ -95,16 +98,20 @@ if [[ "$E2E" == "1" ]]; then
  # The relay receives only per-hop key paths. Inner key remains endpoint-only.
  "$NODE" -e "require('node:fs').writeFileSync(process.argv[1],require('node:crypto').randomBytes(32),{mode:0o600})" "$WORK/e2e.key"
 fi
+if [[ "$LAYER" == 1 ]]; then
+ "$NODE" -e "require('node:fs').writeFileSync(process.argv[1],require('node:crypto').randomBytes(32),{mode:0o600})" "$WORK/second.key"
+ LAYER_ARGS=("$WORK/second.key"); INNER_BYTES=120
+fi
 # Capture binary PCAPs to stdout (opened by unprivileged shell), never as artifacts.
 sudo timeout -s INT 19s ip netns exec "$NSR" tcpdump -i "$VAR" -Q in -n -s 256 -U -w - 'udp and dst port 49001' >"$WORK/a.pcap" 2>"$WORK/a.caplog" & CAP_PIDS+=("$!")
 sudo timeout -s INT 19s ip netns exec "$NSR" tcpdump -i "$VBR" -Q in -n -s 256 -U -w - 'udp and dst port 49002' >"$WORK/b.pcap" 2>"$WORK/b.caplog" & CAP_PIDS+=("$!")
 sudo timeout -s INT 19s ip netns exec "$NSD" tcpdump -i "$VDR" -Q in -n -s 256 -U -w - 'udp and dst port 49003' >"$WORK/out.pcap" 2>"$WORK/out.caplog" & CAP_PIDS+=("$!")
 sudo timeout -s INT 19s ip netns exec "$NS2" tcpdump -i "$VM2" -Q in -n -s 256 -U -w - 'udp and dst port 49004' >"$WORK/mid.pcap" 2>"$WORK/mid.caplog" & CAP_PIDS+=("$!")
 sleep .8
-sudo ip netns exec "$NS2" "$NODE" "$ROOT/scripts/scattering-second-hop-lab.mjs" "$WORK/queue2" "$WORK/mid.key" "$WORK/out.key" "$CHAIN_PROFILE" "$CHAIN_MIX" >"$WORK/relay2.json" 2>"$WORK/relay2.err" &
+sudo ip netns exec "$NS2" "$NODE" "$ROOT/scripts/scattering-second-hop-lab.mjs" "$WORK/queue2" "$WORK/mid.key" "$WORK/out.key" "$CHAIN_PROFILE" "$CHAIN_MIX" "${LAYER_ARGS[@]}" >"$WORK/relay2.json" 2>"$WORK/relay2.err" &
 RELAY2_PID="$!"; CHILD_PIDS+=("$!")
 if [[ "$RESEAL" == "1" ]]; then
- sudo ip netns exec "$NSR" "$NODE" "$ROOT/scripts/scattering-hop-reseal-relay-lab.mjs" 10.252.41.2:49001 10.252.42.2:49002 "$WORK/queue" 12 "$WORK/a.key" "$WORK/b.key" "$WORK/mid.key" "$MIX" "$EXPECTED_COVER" "$BATCH" "$FLUSH" >"$WORK/relay.json" 2>"$WORK/relay.err" &
+ sudo ip netns exec "$NSR" "$NODE" "$ROOT/scripts/scattering-hop-reseal-relay-lab.mjs" 10.252.41.2:49001 10.252.42.2:49002 "$WORK/queue" 12 "$WORK/a.key" "$WORK/b.key" "$WORK/mid.key" "$MIX" "$EXPECTED_COVER" "$BATCH" "$FLUSH" "$INNER_BYTES" >"$WORK/relay.json" 2>"$WORK/relay.err" &
 else
  sudo ip netns exec "$NSR" "$NODE" "$ROOT/scripts/scattering-opaque-relay-lab.mjs" 10.252.41.2:49001 10.252.42.2:49002 "$WORK/queue" 12 >"$WORK/relay.json" 2>"$WORK/relay.err" &
 fi
@@ -129,9 +136,9 @@ if [[ "${SCATTERING_MULTIHOP_CPU_LOAD:-0}" == '1' ]]; then
 fi
 sleep .5
 if [[ "$E2E" == "1" ]]; then
- sudo ip netns exec "$NSA" "$NODE" "$ROOT/scripts/scattering-e2e-sender-lab.mjs" "$PACER" 10.252.41.2 49001 5 "$WORK/a.key" "$WORK/e2e.key" 0 "$A_PRELOAD" >"$WORK/a.report" 2>"$WORK/a.err" & PID_A="$!"
+ sudo ip netns exec "$NSA" "$NODE" "$ROOT/scripts/scattering-e2e-sender-lab.mjs" "$PACER" 10.252.41.2 49001 5 "$WORK/a.key" "$WORK/e2e.key" 0 "$A_PRELOAD" "${LAYER_ARGS[@]}" >"$WORK/a.report" 2>"$WORK/a.err" & PID_A="$!"
  if [[ "$OFFSET" == "25" ]];then sleep .025;fi
- sudo ip netns exec "$NSB" "$NODE" "$ROOT/scripts/scattering-e2e-sender-lab.mjs" "$PACER" 10.252.42.2 49002 5 "$WORK/b.key" "$WORK/e2e.key" 1 "$B_PRELOAD" >"$WORK/b.report" 2>"$WORK/b.err" & PID_B="$!"
+ sudo ip netns exec "$NSB" "$NODE" "$ROOT/scripts/scattering-e2e-sender-lab.mjs" "$PACER" 10.252.42.2 49002 5 "$WORK/b.key" "$WORK/e2e.key" 1 "$B_PRELOAD" "${LAYER_ARGS[@]}" >"$WORK/b.report" 2>"$WORK/b.err" & PID_B="$!"
 elif [[ "$RESEAL" == "1" ]]; then
  sudo ip netns exec "$NSA" "$NODE" "$ROOT/scripts/scattering-physical-probe.mjs" send-synthetic "$PACER" 10.252.41.2 49001 5 "$WORK/a.key" 50000 >"$WORK/a.report" 2>"$WORK/a.err" & PID_A="$!"
  sudo ip netns exec "$NSB" "$NODE" "$ROOT/scripts/scattering-physical-probe.mjs" send-synthetic "$PACER" 10.252.42.2 49002 5 "$WORK/b.key" 50000 >"$WORK/b.report" 2>"$WORK/b.err" & PID_B="$!"
@@ -150,4 +157,4 @@ for p in "$RELAY_PID" "$MID_PID" "$RELAY2_PID" "$RECEIVE_PID" "$EGRESS_PID"; do
  fi
 done
 for p in "${CAP_PIDS[@]}";do wait "$p" || true; done
-"$NODE" "$ROOT/scripts/scattering-two-relay-evidence.mjs" "$WORK" "$CHAIN_PROFILE" "$CHAIN_MIX"
+"$NODE" "$ROOT/scripts/scattering-two-relay-evidence.mjs" "$WORK" "$CHAIN_PROFILE" "$CHAIN_MIX" "$LAYER"
