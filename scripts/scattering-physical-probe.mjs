@@ -56,29 +56,31 @@ async function sink(binary,ip,p,seconds,local){
  const n=child(binary,['-mode','sink','-listen',ip+':'+p,'-forward','127.0.0.1:'+local.socket.address().port,'-duration',seconds+'s']);
  return n;
 }
-async function send(binary,ip,p,seconds,synthetic=false,keyPath=null){
+async function send(binary,ip,p,seconds,synthetic=false,keyPath=null,periodUs=20000){
  const dir=await mkdtemp(join(tmpdir(),'qs-cover-probe-'));
  if(synthetic){
   // Native transport remains keyless. Only bounded synthetic AES-GCM cells enter its local queue.
   const key=keyPath?readTestKey(keyPath):randomBytes(32), cells=[];
   try{
-   for(let seq=0;seq<seconds*50+40;seq++)
+   for(let seq=0;seq<Math.ceil(seconds*1000000/periodUs)+40;seq++)
     cells.push(sealReliable(key,{seq,ack:0,data:randomBytes(128)}));
    writeSpool(dir,cells);
   }catch(e){await rm(dir,{recursive:true,force:true});throw e;}
   finally{key.fill(0);}
  }
- const n=child(binary,['-target',ip+':'+p,'-queue-dir',dir,'-period-us','20000','-poll','10ms','-wait-mode','native','-duration',seconds+'s']);
+ const n=child(binary,['-target',ip+':'+p,'-queue-dir',dir,'-period-us',String(periodUs),'-poll','10ms','-wait-mode','native','-duration',seconds+'s']);
  try{const r=await n.done;check(r.ok);return r.data.trim();}finally{n.p.kill();await rm(dir,{recursive:true,force:true});}
 }
 async function main(){
  const [mode,binary,...args]=process.argv.slice(2);
  check(isAbsolute(binary));
  if(mode==='send'||mode==='send-synthetic'){
-  check((args.length===3||(mode==='send-synthetic'&&args.length===4))&&isIPv4(args[0])&&args[0]!=='0.0.0.0'&&!args[0].startsWith('127.')&&!args[0].startsWith('224.')&&!args[0].startsWith('255.'));
-  if(args.length===4)check(isAbsolute(args[3]));
+  check((args.length===3||(mode==='send-synthetic'&&(args.length===4||args.length===5)))&&isIPv4(args[0])&&args[0]!=='0.0.0.0'&&!args[0].startsWith('127.')&&!args[0].startsWith('224.')&&!args[0].startsWith('255.'));
+  if(args.length>=4)check(isAbsolute(args[3]));
+  const selectedPeriod=args.length===5?number(args[4],20000,50000):20000;
+  check([20000,50000].includes(selectedPeriod));
   const p=port(args[1]),seconds=number(args[2],5,120);
-  console.log(JSON.stringify({mode:mode==='send-synthetic'?'physical-synthetic-send':'physical-cover-send',report:await send(binary,args[0],p,seconds,mode==='send-synthetic',args[3]??null),wireDeliveryProven:false,authenticatedPayloadProven:false}));
+  console.log(JSON.stringify({mode:mode==='send-synthetic'?'physical-synthetic-send':'physical-cover-send',report:await send(binary,args[0],p,seconds,mode==='send-synthetic',args[3]??null,selectedPeriod),wireDeliveryProven:false,authenticatedPayloadProven:false}));
  }else if(mode==='receive'||mode==='receive-synthetic'){
   check(args.length===(mode==='receive-synthetic'?4:3)&&isIPv4(args[0])&&args[0]!=='0.0.0.0');
   const p=port(args[1]),seconds=number(args[2],10,150);
