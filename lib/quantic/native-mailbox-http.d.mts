@@ -1,1 +1,1 @@
-export function nativeMailboxOperation(runtime:unknown,peerSource:(address:string,deviceId:string)=>Promise<unknown>,op:string,body:unknown,token:string|null):Promise<unknown>;
+export function nativeMailboxOperation(runtime:unknown,peerSource:(address:string,deviceId:string)=>Promise<unknown>,op:string,body:unknown,token:string|null,options?:{nativeOnly?:boolean}):Promise<unknown>;
