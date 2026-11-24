@@ -9,6 +9,7 @@ import {startScatteringMailboxEndpoint} from '../standalone-relay/native-scatter
 import {validateDirectTrust,createDirectRecipient,sendStoredDirectWire} from './native-direct-mail.mjs';
 import {approveWindowsGUIPrompt} from './native-windows-gui-send.mjs';
 import {listWindowsMailAttempts} from './native-windows-mail-status.mjs';
+import {verifyLocalDirectIdentity} from './native-windows-local-direct.mjs';
 const check=x=>{if(!x)throw Error('Windows direct mail refused');};
 const hex=/^[a-f0-9]{64}$/;
 const exact=(v,ks)=>v&&Object.getPrototypeOf(v)===Object.prototype&&Object.keys(v).length===ks.length&&ks.every(k=>Object.hasOwn(v,k));
@@ -22,7 +23,7 @@ export async function loadWindowsDirectMail({binary,binarySha256,pacerSha256,dir
   check(Buffer.isBuffer(raw)&&raw.length>=2&&raw.length<=16384&&createHash('sha256').update(raw).digest('hex')===planSha256);
   p=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(raw));
  }finally{raw.fill(0);}
- check(exact(p,['format','labOnly','vaultDir','trust','plan'])&&p.format==='quantic-windows-direct-mail/v1'&&p.labOnly===true&&pathOK(p.vaultDir)&&p.vaultDir!==dir&&win32.dirname(p.vaultDir)!==dir);
+ check(exact(p,['format','labOnly','vaultDir','trust','plan'])&&['quantic-windows-direct-mail/v1','quantic-windows-direct-mail/v2'].includes(p.format)&&p.labOnly===true&&pathOK(p.vaultDir)&&p.vaultDir!==dir&&win32.dirname(p.vaultDir)!==dir);
  validateDirectTrust(p.trust);validatePrivateCarrierPlan(p.plan);
  check(p.plan.pacerBinary===win32.join(win32.dirname(binary),'Scattering-Pacer.exe')&&p.plan.pacerSha256===pacerSha256);
  const c=p.plan.carrier;
@@ -32,10 +33,12 @@ export async function loadWindowsDirectMail({binary,binarySha256,pacerSha256,dir
  const vaultStorage=await storageFactory(boot);
  // Require a previously provisioned vault and bind its actual local public
  // identity to the pinned plan. No remote authority is queried for deposit.
- const cfgRaw=await vaultStorage.read(win32.join(boot.dir,'desktop.json'));
+ const local=p.format==='quantic-windows-direct-mail/v2';
+ const cfgRaw=await vaultStorage.read(win32.join(boot.dir,local?'direct-identity.json':'desktop.json'));
  try{
   const cfg=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(cfgRaw));
-  check(cfg.labOnly===true&&cfg.windowsLab?.dir===boot.dir&&cfg.windowsLab.enabled===true&&cfg.binary===binary&&cfg.binarySha256===binarySha256&&cfg.pqMode?.enabled===true&&cfg.pqMode.address===p.trust.self.address&&cfg.pqMode.deviceId===p.trust.self.deviceId);
+  if(local){const own=verifyLocalDirectIdentity(cfg);check(own.address===p.trust.self.address&&own.deviceId===p.trust.self.deviceId);}
+  else check(cfg.labOnly===true&&cfg.windowsLab?.dir===boot.dir&&cfg.windowsLab.enabled===true&&cfg.binary===binary&&cfg.binarySha256===binarySha256&&cfg.pqMode?.enabled===true&&cfg.pqMode.address===p.trust.self.address&&cfg.pqMode.deviceId===p.trust.self.deviceId);
  }finally{cfgRaw.fill(0);}
  return {plan:p.plan,trust:p.trust,boot,storage:vaultStorage,carrierBoot:{...base,dir:lane,ledgerDir:dir}};
 }
