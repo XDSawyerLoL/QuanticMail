@@ -31,6 +31,24 @@ type BackupIdentity struct{
 }
 func (b *BackupLock) Path()string{return b.path}
 func (b *BackupLock) Identity()BackupIdentity{return b.identity}
+
+// Healthy checks the actual held Windows file handle, including its identity
+// and current resolved path. This does not attempt a write or modify the file.
+func (b *BackupLock) Healthy()bool{
+ b.mu.Lock();defer b.mu.Unlock()
+ if b.handle==0{return false}
+ var info syscall.ByHandleFileInformation
+ if syscall.GetFileInformationByHandle(b.handle,&info)!=nil{return false}
+ if info.FileAttributes&(0x10|0x400)!=0||info.VolumeSerialNumber!=b.identity.Volume||
+  info.FileIndexHigh!=b.identity.IndexHigh||info.FileIndexLow!=b.identity.IndexLow{return false}
+ resolved:=make([]uint16,32768)
+ k:=syscall.NewLazyDLL("kernel32.dll")
+ n,_,_:=k.NewProc("GetFinalPathNameByHandleW").Call(uintptr(b.handle),uintptr(unsafe.Pointer(&resolved[0])),uintptr(len(resolved)),0)
+ if n==0||n>=uintptr(len(resolved)){return false}
+ actual:=strings.TrimPrefix(syscall.UTF16ToString(resolved[:n]),"\\\\?\\")
+ return strings.EqualFold(actual,b.path)
+}
+
 const MaxBackupLocks=16
 
 // LockBackupSet acquires only previously selected exact file identities.
