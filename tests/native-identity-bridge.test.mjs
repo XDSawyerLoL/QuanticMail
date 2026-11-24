@@ -77,7 +77,8 @@ test('independent authority quorum reads durable schema, pins both roots and ref
  assert.throws(()=>issue(state,[{...policy[0],pqRootPin:'0'.repeat(64)}]));
 });
 
-import {mkdtemp,readFile,rm} from 'node:fs/promises';
+import {mkdtemp,readFile,rm,open,mkdir} from 'node:fs/promises';
+import {sealReceipt,openReceipt,syncReceiptDirectory} from '../desktop/native-receipt-store.mjs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {execFileSync} from 'node:child_process';
@@ -119,7 +120,7 @@ import {createIdentityChallenge,registerIdentity} from '../lib/quantic/relay.ts'
 import {nativeRecordDigest} from '../lib/quantic/native-mailbox.mjs';
 import {startNativeScatteringLink} from './helpers/native-scattering-link.mjs';
 const scatteringBinary=process.env.QUANTIC_INTEGRATED_SCATTERING_BINARY;
-test('integrated native relay with four real mTLS authorities, hybrid ciphertext, exact retry, ack and restart'+(scatteringBinary?' via two independent native UDP links':''),{timeout:180000},async()=>{
+test('integrated native relay with four real mTLS authorities, bidirectional hybrid ciphertext, durable receipts, exact retry, ack and restart'+(scatteringBinary?' via two independent native UDP links':''),{timeout:180000},async()=>{
  const dir=await mkdtemp(join(tmpdir(),'quantic-native-mailbox-'));
  const a=fixture('queuealice'),b=fixture('queuebob');
  const fixtures=[a,b],services=[];
@@ -160,19 +161,19 @@ test('integrated native relay with four real mTLS authorities, hybrid ciphertext
   const t=contextText(c),salt=createHash('sha256').update('quantic-hybrid-kdf-salt-v1\n'+t).digest();
   return Buffer.from(hkdfSync('sha256',Buffer.concat([z,pq]),salt,Buffer.from(t),32));
  }
- function makeRecord(){
-  const context={clientMessageId:'native-durable-0001',from:a.checkpoint.address,fromDeviceId:a.checkpoint.deviceId,to:b.checkpoint.address,toDeviceId:b.checkpoint.deviceId};
-  const eph=ec(),z=diffieHellman({privateKey:eph.privateKey,publicKey:b.enc.publicKey}),kem=encapsulate(b.kem.publicKey),key=symmetric(context,z,kem.sharedKey),iv=randomBytes(12);
+ function makeRecord(sender=a,recipient=b,id='native-durable-0001',message=plaintext){
+  const context={clientMessageId:id,from:sender.checkpoint.address,fromDeviceId:sender.checkpoint.deviceId,to:recipient.checkpoint.address,toDeviceId:recipient.checkpoint.deviceId};
+  const eph=ec(),z=diffieHellman({privateKey:eph.privateKey,publicKey:recipient.enc.publicKey}),kem=encapsulate(recipient.kem.publicKey),key=symmetric(context,z,kem.sharedKey),iv=randomBytes(12);
   const g=createCipheriv('aes-256-gcm',key,iv);g.setAAD(Buffer.from(contextText(context)+'\nquantic-aes-gcm-aad-v1'));
-  const ciphertext=Buffer.concat([g.update(plaintext),g.final(),g.getAuthTag()]);
+  const ciphertext=Buffer.concat([g.update(message),g.final(),g.getAuthTag()]);
   const j=pk(eph);
   const envelope={cryptoSuite:suite,keyMode:'hybrid-static-fallback',classicalEphemeralPublicKey:{kty:j.kty,crv:j.crv,x:j.x,y:j.y},pqKemCiphertext:Buffer.from(kem.ciphertext).toString('base64url'),iv:iv.toString('base64url'),ciphertext:ciphertext.toString('base64url')};
   const raw=nativeSenderTranscript(context,envelope);
   z.fill(0);kem.sharedKey.fill(0);key.fill(0);
-  return {format:'quantic-native-mail',version:1,context,envelope,senderAuth:{classicalSignature:sig(a.ds,raw).toString('base64url'),pqSignature:sign(null,raw,a.dsa.privateKey).toString('base64url')}};
+  return {format:'quantic-native-mail',version:1,context,envelope,senderAuth:{classicalSignature:sig(sender.ds,raw).toString('base64url'),pqSignature:sign(null,raw,sender.dsa.privateKey).toString('base64url')}};
  }
- function decryptRecord(record){
-  const e=record.envelope,c=record.context,key=symmetric(c,diffieHellman({privateKey:b.enc.privateKey,publicKey:createPublicKey({key:e.classicalEphemeralPublicKey,format:'jwk'})}),decapsulate(b.kem.privateKey,Buffer.from(e.pqKemCiphertext,'base64url')));
+ function decryptRecord(record,recipient=b){
+  const e=record.envelope,c=record.context,key=symmetric(c,diffieHellman({privateKey:recipient.enc.privateKey,publicKey:createPublicKey({key:e.classicalEphemeralPublicKey,format:'jwk'})}),decapsulate(recipient.kem.privateKey,Buffer.from(e.pqKemCiphertext,'base64url')));
   const ciphertext=Buffer.from(e.ciphertext,'base64url'),g=createDecipheriv('aes-256-gcm',key,Buffer.from(e.iv,'base64url'));
   g.setAAD(Buffer.from(contextText(c)+'\nquantic-aes-gcm-aad-v1'));g.setAuthTag(ciphertext.subarray(-16));
   try{return Buffer.concat([g.update(ciphertext.subarray(0,-16)),g.final()]);}finally{key.fill(0);}
@@ -199,12 +200,53 @@ test('integrated native relay with four real mTLS authorities, hybrid ciphertext
   const ack={...target(b),id:saved.id,digest:saved.digest};
   assert.notEqual((await post('ack',ack,a))[0],200);
   assert.equal((await post('ack',{...ack,digest:'0'.repeat(64)},b))[0],409);
+  const receiptDir=join(dir,'recipient-receipts');await mkdir(receiptDir,{mode:0o700});
+  const receiptKeys=new Map([[a,randomBytes(32)],[b,randomBytes(32)]]);
+  async function saveReceipt(recipient,item,expected){
+   const key=receiptKeys.get(recipient),scope=target(recipient);
+   const raw=decryptRecord(item.record,recipient);
+   assert.deepEqual(raw,expected);
+   const payload=JSON.parse(raw.toString('utf8'));raw.fill(0);
+   const sealed=sealReceipt(key,scope,item,payload);
+   const path=join(receiptDir,item.id+'.json');
+   const bytes=Buffer.from(JSON.stringify(sealed));
+   assert.equal(bytes.includes(Buffer.from(payload.body)),false);
+   const fd=await open(path,'wx',0o600);
+   try{await fd.writeFile(bytes);await fd.sync();}finally{await fd.close();}
+   await syncReceiptDirectory(path);
+   const persisted=JSON.parse(await readFile(path,'utf8'));
+   assert.deepEqual(openReceipt(key,scope,persisted),{id:item.id,digest:item.digest,payload});
+   assert.throws(()=>openReceipt(receiptKeys.get(recipient===a?b:a),scope,persisted));
+   assert.throws(()=>openReceipt(key,scope,{...persisted,digest:'0'.repeat(64)}));
+   return {path,payload};
+  }
+  const firstReceipt=await saveReceipt(b,pull.item,plaintext);
   assert.equal((await post('ack',ack,b))[0],200);
   await relay.close();relay=undefined;relay=await start();
   assert.equal((await post('pull',target(b),b))[1].item,null);
   assert.deepEqual((await post('recover',ack,b))[1].item.record,r);
   const [lastCode,last]=await post('send',r,a);assert.equal(lastCode,202);assert.equal(last.status,'acknowledged');assert.equal(last.id,saved.id);
   assert.equal((await post('send',changed,a))[0],409);
+  // Reply B -> A uses an independent message ID and the other recipient keys.
+  const replyBody=Buffer.from(JSON.stringify({subject:'Reply',body:'bidirectional encrypted response'}));
+  const reply=makeRecord(b,a,'native-durable-reply-0001',replyBody);
+  const bob=createNativeMailboxClient({endpoint:endpoint(b),...target(b),token:authToken(b)});
+  const deposited=await bob.send(reply);
+  assert.equal(deposited.status,'queued');assert.equal(deposited.digest,nativeRecordDigest(reply));
+  await relay.close();relay=undefined;relay=await start();
+  const incoming=await client.pull();assert.deepEqual(incoming.record,reply);
+  assert.equal(incoming.id,deposited.id);
+  assert.throws(()=>decryptRecord(incoming.record,b));
+  const secondReceipt=await saveReceipt(a,incoming,replyBody);
+  await client.ack(incoming.id,incoming.digest);
+  await relay.close();relay=undefined;relay=await start();
+  assert.equal(await client.pull(),null);
+  assert.deepEqual((await client.recover(incoming.id,incoming.digest)).record,reply);
+  for(const [recipient,savedReceipt] of [[a,secondReceipt],[b,firstReceipt]]){
+   const stored=JSON.parse(await readFile(savedReceipt.path,'utf8'));
+   assert.deepEqual(openReceipt(receiptKeys.get(recipient),target(recipient),stored).payload,savedReceipt.payload);
+  }
+  for(const key of receiptKeys.values())key.fill(0);
   policy[1].active=false;
   assert.notEqual((await post('send',r,a))[0],202);
   assert.notEqual((await post('pull',target(b),b))[0],200);
