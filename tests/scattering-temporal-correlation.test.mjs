@@ -38,7 +38,8 @@ test('offline scoring uses E2E labels exclusively for grading with cover false-p
   const r=evaluateTimeOnlyLab({
    captureA:pcap([[100,aa]]),captureB:pcap([[140,bb]]),
    captureEgress:pcap([[165,outA],[180,outB],[200,randomBytes(168)]]),
-   outputHopKey:outputKey,endToEndKey:e2e,maxLagMs:250,
+   outputHopKey:outputKey,endToEndKey:e2e,
+   inputHopAKey:ingressA,inputHopBKey:ingressB,maxLagMs:250,
   });
   assert.equal(r.data.total,2);
   assert.equal(r.data.correct,1);
@@ -50,6 +51,8 @@ test('offline scoring uses E2E labels exclusively for grading with cover false-p
   assert.equal(r.attackerKeysProvided,false);
   assert.equal(r.oracleKeysUsedForScoringOnly,true);
   assert.equal(r.physicalHosts,1);
+  assert.deepEqual(r.authenticatedMessageDelayMs,{count:2,p50:40,p95:65,max:65,
+    truthKeysNeverGivenToAttacker:true});
  }finally{for(const k of [ingressA,ingressB,outputKey,e2e])k.fill(0);}
 });
 test('wrong end-to-end key cannot silently establish scoring ground truth',()=>{
