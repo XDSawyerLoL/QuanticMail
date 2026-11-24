@@ -1,3 +1,4 @@
+import {sealReceipt,openReceipt} from '../desktop/native-receipt-store.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {randomBytes} from 'node:crypto';
@@ -26,14 +27,15 @@ test('receive persists encrypted receipt before acknowledgement; explicit recove
 
 test('sealed receive uses one native broker for pull, authenticated opening and ACK; refuses plain token fallback',async()=>{
  const {token,...plainScope}=scope;
- const sealed={...cfg,windowsScattering:{...plainScope,credentialMode:'vault-sealed-v1'}};
+ const sealed={...cfg,windowsScattering:{...plainScope,receiptKeyFile:dir+'\\receipt.vault',credentialMode:'vault-sealed-v1'}};
  assert.throws(()=>windowsScatteringScope({...sealed,windowsScattering:{...sealed.windowsScattering,token:'x'.repeat(43)}}));
  const key=randomBytes(32);let saved,opened=0,closed=0,connected=0,acked=0;
  const storage={read:async p=>p===scope.receiptKeyFile?Buffer.from(key):Buffer.from(saved),writeReceipt:async(p,b)=>{assert.equal(p,path);saved=Buffer.from(b);}};
+ const read=storage.read;storage.read=async p=>{assert.ok(!p.endsWith('.key')&&!p.endsWith('.vault'));return read(p);};
  const item={id,digest,record:{}};
  const mailbox={pull:async()=>item,ack:async()=>{assert.ok(saved);assert.equal(closed,0);acked++;}};
  const connect=async config=>{connected++;assert.equal(config.guiWindowsApproval,true);assert.equal(config.windowsScattering.token,undefined);
-  return {mailbox,openHybrid:async()=>{opened++;return payload;},close(){closed++;}};
+  return {mailbox,sealReceipt:(item,payload)=>sealReceipt(key,sealed.windowsScattering,item,payload),openReceipt:r=>openReceipt(key,sealed.windowsScattering,r),openHybrid:async()=>{opened++;return payload;},close(){closed++;}};
  };
  const res=await runWindowsScatteringMail(sealed,storage,{operation:'receive',path,approve:async()=>true,connect,mailboxFactory:()=>{throw Error('plaintext fallback');}});
  assert.equal(res.status,'acknowledged');assert.deepEqual({connected,opened,acked,closed},{connected:1,opened:1,acked:1,closed:1});

@@ -7,9 +7,7 @@ import (
  "crypto/ed25519"
  "crypto/elliptic"
  "crypto/rand"
- "crypto/x509"
  "encoding/json"
- "encoding/pem"
  "os"
  "path/filepath"
  "time"
@@ -39,8 +37,8 @@ func prepareWindowsEnrollmentVault(parent,handle,quorum string,devicePW,pqPW,own
  rootPQ,e:=pqGenerate("ML-DSA-65");if e!=nil{return empty,"",e};defer rootPQ.close()
  claim,e:=nativeEnrollmentClaim(handle,owner,device,pq,rootPQ,time.Now());if e!=nil{return empty,"",e}
  pub,controller,e:=ed25519.GenerateKey(rand.Reader);if e!=nil{return empty,"",e};defer clear(controller)
- der,e:=x509.MarshalPKCS8PrivateKey(controller);if e!=nil{return empty,"",e};defer clear(der)
- pemKey:=pem.EncodeToMemory(&pem.Block{Type:"PRIVATE KEY",Bytes:der});defer clear(pemKey)
+ request,e:=signEnrollmentRequest(claim,quorum,b64.EncodeToString(pub),owner,rootPQ)
+ if e!=nil{return empty,"",e}
  ownerSealed,e:=sealEnrollmentRoots(owner,rootPQ,claim,ownerPW)
  if e!=nil{return empty,"",e};defer clear(ownerSealed)
  appPin:=hexHash(pub)
@@ -53,8 +51,12 @@ func prepareWindowsEnrollmentVault(parent,handle,quorum string,devicePW,pqPW,own
  if e=winInitReplay(filepath.Join(dir,"journal.log"),claim.SigningPin,claim.EncryptionPin,appPin);e!=nil{return empty,"",e}
  var receipt [32]byte
  if _,e=rand.Read(receipt[:]);e!=nil{return empty,"",e};defer clear(receipt[:])
- if e=winWritePrivate(filepath.Join(dir,"receipt.key"),receipt[:]);e!=nil{return empty,"",e}
- if e=winWritePrivate(filepath.Join(dir,"controller.pem"),pemKey);e!=nil{return empty,"",e}
+ if e=writeLocalCustody(dir,"receipt",request,receipt[:],devicePW,pqPW);e!=nil{return empty,"",e}
+ seed:=controller.Seed();defer clear(seed)
+ if e=writeLocalCustody(dir,"controller",request,seed,devicePW,pqPW);e!=nil{return empty,"",e}
+ verified,e:=readEnrollmentController(dir,request,devicePW,pqPW);if e!=nil{return empty,"",e};clear(verified)
+ receiptCheck,e:=readLocalCustody(dir,"receipt",request,devicePW,pqPW);if e!=nil{return empty,"",e};defer clear(receiptCheck)
+ if !equalSecret(receiptCheck,receipt[:]){return empty,"",portableRefusal}
  reopened,e:=winReadClassical(filepath.Join(dir,"classical.vault"),magic,devicePW,claim.SigningPin,claim.EncryptionPin)
  if e!=nil||reopened.signing==nil{return empty,"",portableRefusal}
  reopenedPQ,e:=winReadPQ(filepath.Join(dir,"pq.vault"),binding,pqPW,addr,id,claim.KemPin,claim.DsaPin)
@@ -62,8 +64,6 @@ func prepareWindowsEnrollmentVault(parent,handle,quorum string,devicePW,pqPW,own
  rootBytes,e:=winReadPrivate(filepath.Join(dir,"owner-roots.vault"),50000)
  if e!=nil{return empty,"",e};defer clear(rootBytes)
  if e=verifySealedEnrollmentRoots(rootBytes,claim,ownerPW);e!=nil{return empty,"",e}
- request,e:=signEnrollmentRequest(claim,quorum,b64.EncodeToString(pub),owner,rootPQ)
- if e!=nil{return empty,"",e}
  raw,e:=json.Marshal(request);if e!=nil{return empty,"",e}
  if e=winWritePrivate(filepath.Join(dir,"enrollment-request.json"),raw);e!=nil{return empty,"",e}
  if e=winWritePrivate(filepath.Join(dir,"lab-provisioned"),[]byte(appPin));e!=nil{return empty,"",e}

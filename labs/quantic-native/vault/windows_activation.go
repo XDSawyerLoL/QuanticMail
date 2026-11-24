@@ -124,12 +124,12 @@ func activationPlan(dir,binary,binaryPin string,r enrollmentRequest,b windowsAct
  c:=r.Claim
  config:=map[string]any{
   "labOnly":true,"binary":binary,"binarySha256":binaryPin,
-  "vault":path("classical.vault"),"journal":path("journal.log"),"quorum":path("quorum.json"),"controllerKeyFile":path("controller.pem"),
+  "vault":path("classical.vault"),"journal":path("journal.log"),"quorum":path("quorum.json"),"controllerKeyFile":path("controller.vault"),"controllerPublic":r.ControllerPublic,
   "signingPin":c.SigningPin,"encryptionPin":c.EncryptionPin,
   "windowsLab":map[string]any{"enabled":true,"dir":dir},
   "pqMode":map[string]any{"enabled":true,"sidecar":path("pq.vault"),"contactDirectory":path("contacts.json"),"address":c.Address,"deviceId":c.DeviceID,"kemPin":c.KemPin,"dsaPin":c.DsaPin,"rootPin":c.PQRootPin,
    "authority":map[string]any{"authorities":b.Checkpoints,"caFile":path(files[2].name),"clientCertFile":path(files[3].name),"clientKeyFile":path("peer-checkpoint-key.vault")}},
-  "windowsScattering":map[string]any{"enabled":true,"credentialMode":"vault-sealed-v1","endpoint":b.Endpoint,"address":c.Address,"deviceId":c.DeviceID,"receiptKeyFile":path("receipt.key")},
+  "windowsScattering":map[string]any{"enabled":true,"credentialMode":"vault-sealed-v1","endpoint":b.Endpoint,"address":c.Address,"deviceId":c.DeviceID,"receiptKeyFile":path("receipt.vault")},
  }
  desktop,e:=json.Marshal(config);if e!=nil{return nil,e}
  checkpointConfig,e:=json.Marshal(b.Checkpoints);if e!=nil{return nil,e}
@@ -160,7 +160,7 @@ func importWindowsActivation(dir,binary,binaryPin string,b windowsActivationBund
  // the exact public credential delivered for this account.
  raw,e:=winReadPrivate(filepath.Join(dir,"mailbox-token.vault"),1024);if e!=nil{return e};defer clear(raw)
  token,e:=openNativeMailboxCredential(raw,b.RequestDigest,pw,pqw);if e!=nil{return e};defer clear(token)
- key,e:=readSyntheticControllerKey(dir,syntheticProfile{ControllerPublic:r.ControllerPublic});if e!=nil{return e};defer clear(key)
+ key,e:=readEnrollmentController(dir,r,pw,pqw);if e!=nil{return e};defer clear(key)
  proof,e:=nativeMailboxCredentialProof(token,b.RequestDigest,key)
  if e!=nil||proof!=b.Credential{return portableRefusal}
  secret,e:=transportSecret(pw,pqw);if e!=nil{return e};defer clear(secret)

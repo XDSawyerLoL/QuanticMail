@@ -4,6 +4,7 @@ package main
 
 import(
  "bytes"
+ "crypto/ed25519"
  "encoding/json"
  "io"
  "os"
@@ -51,13 +52,16 @@ func winBroker(args []string)error{
  dir,app,s,a,addr,device,kem,dsa,root:=args[2],args[3],args[4],args[5],args[6],args[7],args[8],args[9],args[10]
  for _,pin:=range []string{s,a,kem,dsa,root}{if !hashRE.MatchString(pin){return portableRefusal}}
  if !strongAddr.MatchString(addr)||!strongDevice.MatchString(device){return portableRefusal}
- pub,e:=appPublic(app);if e!=nil{return e}
+ framePub,e:=appPublic(app);if e!=nil{return e}
+ pub:=framePub
+ var controller ed25519.PrivateKey
  hs,e:=winLockDirectory(dir,true);if e!=nil{return e};defer winClose(hs)
  var q *quorumAnchor
  var quorumPinValue string
  var enrollment enrollmentRequest
  if enrolled{
   enrollment,e=readPendingEnrollment(dir);if e!=nil{return e};quorumPinValue=enrollment.QuorumPin
+  pub,e=appPublic(enrollment.ControllerPublic);if e!=nil||bytes.Equal(pub,framePub){return portableRefusal}
  }else{q,e=winLoadQuorum(dir);if e!=nil{return e};quorumPinValue=q.pin}
  if !approve("Open Windows PQ LAB vault "+addr+" / "+device){return portableRefusal}
  pw,e:=secret("Classical laboratory passphrase: ",true);if e!=nil{return e}
@@ -73,10 +77,13 @@ func winBroker(args []string)error{
  if enrolled{
   request:=enrollment
   claim:=request.Claim
-  if request.QuorumPin!=quorumPinValue||request.ControllerPublic!=app||claim.Address!=addr||claim.DeviceID!=device||claim.SigningPin!=s||claim.EncryptionPin!=a||claim.KemPin!=kem||claim.DsaPin!=dsa||claim.PQRootPin!=root{return portableRefusal}
+  if request.QuorumPin!=quorumPinValue||claim.Address!=addr||claim.DeviceID!=device||claim.SigningPin!=s||claim.EncryptionPin!=a||claim.KemPin!=kem||claim.DsaPin!=dsa||claim.PQRootPin!=root{return portableRefusal}
   digest,e:=nativeEnrollmentDigest(request);if e!=nil{return e}
   raw,e:=winReadPrivate(filepath.Join(dir,"mailbox-token.vault"),1024);if e!=nil{return e}
   token,e:=openNativeMailboxCredential(raw,digest,pw,pqw);clear(raw);if e!=nil{return e};defer clear(token)
+  controller,e=readEnrollmentController(dir,request,pw,pqw);if e!=nil{return e};defer clear(controller)
+  receiptKey,e:=readLocalCustody(dir,"receipt",request,pw,pqw);if e!=nil{return e};defer clear(receiptKey)
+  receiptOps,closeReceipt,e:=nativeReceiptTransport(addr,device,receiptKey);clear(receiptKey);if e!=nil{return e};defer closeReceipt()
   storageSecret,e:=transportSecret(pw,pqw);clear(pw);clear(pqw);if e!=nil{return e};defer clear(storageSecret)
   q,e=winLoadSealedQuorum(dir,digest,storageSecret);if e!=nil||q.pin!=quorumPinValue{return portableRefusal}
   contactRaw,e:=winReadPrivate(filepath.Join(dir,"contacts.json"),131072);if e!=nil{return e}
@@ -86,14 +93,14 @@ func winBroker(args []string)error{
   var closeTransport func()
   transport,closeTransport,e=newMailboxTransport(args[11],addr,device,token);clear(token);if e!=nil{return e};defer closeTransport()
   mail:=transport
-  transport=func(op string,body json.RawMessage)(json.RawMessage,error){if op=="checkpoint"{return checkpointTransport(op,body)};return mail(op,body)}
+  transport=func(op string,body json.RawMessage)(json.RawMessage,error){if op=="checkpoint"{return checkpointTransport(op,body)};if op=="receipt-seal"||op=="receipt-open"{return receiptOps(op,body)};return mail(op,body)}
  }
  raw,e:=winReadPrivate(filepath.Join(dir,"contacts.json"),131072);if e!=nil{return e}
  senders,e:=parseSenderTrust(raw);if e!=nil{return e}
  j,e:=winOpenReplay(filepath.Join(dir,"journal.log"),s,a,hexHash(pub));if e!=nil{return e};defer j.close()
  id,e:=anchorID(s,a,hexHash(pub));if e!=nil{return e}
  if e=winAttachPQ(j,q,p,root,id);e!=nil{return e}
- return authenticateFrames(pub,os.Stdin,os.Stdout,func(in io.Reader,out io.Writer)error{
+ return authenticateFramesDelegated(framePub,controller,os.Stdin,os.Stdout,func(in io.Reader,out io.Writer)error{
   return serveGuardedPQTransport(softwareSigner{k.signing},k.agreement,"windows-software-pq-quorum-lab",in,out,func(detail string)bool{
    // Existing operation details include only constrained identifiers and hashes.
    if strings.ContainsAny(detail,"\r\n\x00"){return false}

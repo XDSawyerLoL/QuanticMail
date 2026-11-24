@@ -2,7 +2,7 @@
  * Requires independently provisioned compact-manifest-quorum laboratory vault.
  */
 import {spawn} from 'node:child_process';
-import {createHash,createPublicKey,createPrivateKey,sign,verify,randomBytes} from 'node:crypto';
+import {createHash,createPublicKey,createPrivateKey,sign,verify,randomBytes,generateKeyPairSync} from 'node:crypto';
 import {readFile,stat} from 'node:fs/promises';
 import {isAbsolute,win32} from 'node:path';
 import {createWindowsNativeStorage} from './native-windows-storage.mjs';
@@ -41,7 +41,7 @@ export function normalizeClassicalEnvelope(e){
   b64(e.iv,12,12,'base64');b64(e.ciphertext,16,8208,'base64');
   return {ciphertext:e.ciphertext,iv:e.iv,ephemeralPublicKey:jwk};
 }
-export async function connectNativeVault({binary,binarySha256,vault,journal,quorum,controllerKeyFile,signingPin,encryptionPin,labOnly,pqMode,windowsLab,windowsScattering,guiWindowsApproval=false}){
+export async function connectNativeVault({binary,binarySha256,vault,journal,quorum,controllerKeyFile,controllerPublic,signingPin,encryptionPin,labOnly,pqMode,windowsLab,windowsScattering,guiWindowsApproval=false}){
   const sealed=windowsScattering?.credentialMode==='vault-sealed-v1';
   if(sealed)check(guiWindowsApproval===true&&windowsScattering.token===undefined&&windowsScattering.address===pqMode?.address&&windowsScattering.deviceId===pqMode?.deviceId,'sealed mailbox configuration required');
   const windows=process.platform==='win32';
@@ -54,13 +54,14 @@ export async function connectNativeVault({binary,binarySha256,vault,journal,quor
   if(windows){
     check(Number(process.versions.node.split('.')[0])>=24,'Node 24 required');
     storage=await createWindowsNativeStorage({binary,binarySha256,dir:windowsLab.dir});
-    for(const [path,n] of [[vault,'classical.vault'],[journal,'journal.log'],[quorum,'quorum.json'],[controllerKeyFile,'controller.pem'],[pqMode.sidecar,'pq.vault'],[pqMode.contactDirectory,'contacts.json']])check(path===win32.join(storage.dir,n),'Windows vault layout mismatch');
+    for(const [path,n] of [[vault,'classical.vault'],[journal,'journal.log'],[quorum,'quorum.json'],[controllerKeyFile,sealed?'controller.vault':'controller.pem'],[pqMode.sidecar,'pq.vault'],[pqMode.contactDirectory,'contacts.json']])check(path===win32.join(storage.dir,n),'Windows vault layout mismatch');
   }else{
     const ks=await stat(controllerKeyFile);
     check(ks.isFile()&&(ks.mode&0o077)===0&&ks.uid===process.getuid(),'controller key must be private');
   }
-  const secret=await (storage?storage.read(controllerKeyFile):readFile(controllerKeyFile));
-  let key;try{key=createPrivateKey(secret);}finally{secret.fill(0);}
+  let key;
+  if(sealed){b64(controllerPublic,32,32);key=generateKeyPairSync('ed25519').privateKey;}
+  else{const secret=await (storage?storage.read(controllerKeyFile):readFile(controllerKeyFile));try{key=createPrivateKey(secret);}finally{secret.fill(0);}}
   check(key.asymmetricKeyType==='ed25519','invalid controller key');
   check(hex(await readFile(binary))===binarySha256,'broker executable mismatch');
   const app=createPublicKey(key).export({format:'jwk'}).x;
@@ -125,6 +126,11 @@ export async function connectNativeVault({binary,binarySha256,vault,journal,quor
   let enc;
   try{
     const hello=await receive();nonce=b64(hello.session,32,32);
+    if(sealed){
+      const root=createPublicKey({key:{kty:'OKP',crv:'Ed25519',x:controllerPublic},format:'jwk'});
+      const digest=hash(Buffer.concat([Buffer.from('quantic-native-controller-session-lab/v1\0'),nonce,b64(app,32,32)]));
+      check(verify(null,digest,root,b64(hello.delegation,64,64)),'native controller delegation refused');
+    }
     const p=await call({op:'public'});signing=publicPoint(p.signing);enc=publicPoint(p.encryption);
     check(signing.pin===signingPin&&enc.pin===encryptionPin,'native vault point mismatch');
     if(pqMode){
@@ -163,8 +169,13 @@ export async function connectNativeVault({binary,binarySha256,vault,journal,quor
         check(r.mailboxResult&&typeof r.mailboxResult==='object','invalid mailbox result');
         return r.mailboxResult;
       })}):undefined;
+      const receiptCall=(op,body)=>exclusive(async()=>{
+        const r=await call({op:'native-mailbox-lab',mailboxOp:op,mailboxBody:body});
+        check(r.mailboxResult&&typeof r.mailboxResult==='object','invalid native receipt result');
+        return r.mailboxResult;
+      });
       return Object.freeze({
-        ...(mailbox?{mailbox}:{}),
+        ...(mailbox?{mailbox,sealReceipt:(item,payload)=>receiptCall('receipt-seal',{id:item.id,digest:item.digest,payload}),openReceipt:record=>receiptCall('receipt-open',record)}:{}),
         publicKeys:Object.freeze({signing:Object.freeze(signing.jwk),encryption:Object.freeze(enc.jwk)}),
         // Enrollment is a separate, one-time locally approved native broker
         // operation; it does NOT install a live account or revoke old keys.

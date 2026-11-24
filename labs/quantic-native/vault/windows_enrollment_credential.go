@@ -22,7 +22,7 @@ func prepareWindowsMailboxCredential(dir string,b enrollmentApprovalBundle,pin s
  pub,e:=decode(r.ControllerPublic,32,32);if e!=nil{return empty,"",e}
  binding,e:=pqBinding(c.SigningPin,c.EncryptionPin,hexHash(pub),r.QuorumPin,c.Address,c.DeviceID);if e!=nil{return empty,"",e}
  pq,e:=winReadPQ(filepath.Join(dir,"pq.vault"),binding,pqw,c.Address,c.DeviceID,c.KemPin,c.DsaPin);if e!=nil{return empty,"",e};pq.close()
- key,e:=readSyntheticControllerKey(dir,syntheticProfile{ControllerPublic:r.ControllerPublic});if e!=nil{return empty,"",e};defer clear(key)
+ key,e:=readEnrollmentController(dir,r,pw,pqw);if e!=nil{return empty,"",e};defer clear(key)
  if !bytes.Equal(key.Public().(ed25519.PublicKey),pub){return empty,"",portableRefusal}
  path:=filepath.Join(dir,"mailbox-token.vault")
  raw,e:=winReadPrivate(path,1024)

@@ -39,6 +39,16 @@ func TestWindowsEnrollmentClaimPrivatePersistence(t *testing.T){
  if e=windowsListEnrollmentCLI([]string{"Vault.exe","--gui-list-enrollment-candidates-lab",parent,"extra"});e==nil{t.Fatal("extra argument accepted")}
 
  if e=windowsPrepareEnrollmentCLI([]string{"Vault.exe","--gui-prepare-enrollment-claim-lab",parent,"testalice"});e==nil{t.Fatal("missing anchor accepted")}
+ for _,name:=range []string{"controller.pem","receipt.key"}{if _,e=os.Stat(filepath.Join(dir,name));!os.IsNotExist(e){t.Fatal("plaintext secret exists",name)}}
+ controller,e:=readEnrollmentController(dir,r,pw,pq);if e!=nil{t.Fatal(e)};clear(controller)
+ if _,e=readEnrollmentController(dir,r,pq,pw);e==nil{t.Fatal("wrong secrets opened controller")}
+ key,e:=readLocalCustody(dir,"receipt",r,pw,pq);if e!=nil{t.Fatal(e)};defer clear(key)
+ op,closeOp,e:=nativeReceiptTransport(c.Address,c.DeviceID,key);if e!=nil{t.Fatal(e)}
+ sealedReceipt,e:=op("receipt-seal",[]byte(`{"id":"01234567-89ab-4cde-8fab-0123456789ab","digest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","payload":{"subject":"synthetic","body":"private receipt example"}}`));if e!=nil||bytes.Contains(sealedReceipt,[]byte("private receipt example")){t.Fatal("receipt not sealed",e)}
+ openedReceipt,e:=op("receipt-open",sealedReceipt);if e!=nil||!bytes.Contains(openedReceipt,[]byte("private receipt example")){t.Fatal("receipt not opened",e)}
+ var altered nativeReceipt;if e=json.Unmarshal(sealedReceipt,&altered);e!=nil{t.Fatal(e)};altered.Digest=strings.Repeat("b",64);tampered,_:=json.Marshal(altered)
+ if _,e=op("receipt-open",tampered);e==nil{t.Fatal("altered receipt accepted")}
+ closeOp();if _,e=op("receipt-open",sealedReceipt);e==nil{t.Fatal("closed session reused")}
  now:=time.Now()
  approvals,roster:=credentialTestApprovals(t,r,now)
  bad:=approvals;bad.Votes=bad.Votes[:2]

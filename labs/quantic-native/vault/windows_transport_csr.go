@@ -73,7 +73,7 @@ func prepareWindowsTransportRequests(dir string,b enrollmentApprovalBundle,roste
  actual,e:=checkEnrollmentApprovals(r,b,roster,now);if e!=nil||actual!=digest{return empty,portableRefusal}
  raw,e:=winReadPrivate(filepath.Join(dir,"mailbox-token.vault"),1024);if e!=nil{return empty,e};defer clear(raw)
  token,e:=openNativeMailboxCredential(raw,digest,pw,pqw);if e!=nil{return empty,e};defer clear(token)
- controller,e:=readSyntheticControllerKey(dir,syntheticProfile{ControllerPublic:r.ControllerPublic});if e!=nil{return empty,e};defer clear(controller)
+ controller,e:=readEnrollmentController(dir,r,pw,pqw);if e!=nil{return empty,e};defer clear(controller)
  expected,e:=nativeMailboxCredentialProof(token,digest,controller)
  if e!=nil||expected!=proof{return empty,portableRefusal}
  secret,e:=transportSecret(pw,pqw);if e!=nil{return empty,e};defer clear(secret)

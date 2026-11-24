@@ -22,6 +22,7 @@ func winClientIO(args []string)(bool,error){
  if _,_,e:=winPathParts(dir);e!=nil{return true,e}
  path:=filepath.Join(dir,name)
  if args[1]=="--windows-client-read-lab"{
+  if enrollmentDirectory.MatchString(filepath.Base(dir))&&(name=="receipt.key"||name=="controller.pem"||name=="peer-anchor-key.pem"||name=="peer-checkpoint-key.pem"){return true,portableRefusal}
   data,e:=winReadPrivate(path,131072);if e!=nil{return true,e};defer clear(data)
   n,e:=os.Stdout.Write(data);if e==nil&&n!=len(data){e=io.ErrShortWrite};return true,e
  }
