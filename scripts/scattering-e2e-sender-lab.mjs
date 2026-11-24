@@ -17,15 +17,18 @@ function readLabKey(p){
  return readFileSync(p);
 }
 async function main(){
- const [binary,target,port,secondsRaw,hopPath,e2ePath,senderRaw]=process.argv.slice(2);
+ const [binary,target,port,secondsRaw,hopPath,e2ePath,senderRaw,realCellsRaw]=process.argv.slice(2);
  const seconds=Number(secondsRaw),senderId=Number(senderRaw);
+ const realCells=realCellsRaw===undefined?seconds*20+40:Number(realCellsRaw);
+ check(Number.isInteger(realCells)&&realCells>=1&&realCells<=seconds*20+40,
+  'synthetic real-cell count out of bounds');
  check(typeof binary==='string'&&isAbsolute(binary)&&['10.252.41.2','10.252.42.2'].includes(target)&&
   (target==='10.252.41.2'?(port==='49001'&&senderId===0):(port==='49002'&&senderId===1))&&
   Number.isInteger(seconds)&&seconds>=5&&seconds<=10,'bounded lab source only');
  const hopKey=readLabKey(hopPath),e2eKey=readLabKey(e2ePath);
  const dir=await mkdtemp(join(tmpdir(),'qs-e2e-source-'));
  try{
-  const count=seconds*20+40,cells=[];
+  const count=realCells,cells=[];
   for(let seq=0;seq<count;seq++)
    cells.push(sealNestedLab({hopKey,endToEndKey:e2eKey,senderId,seq,
       data:randomBytes(E2E_LAB.dataLength)}));
@@ -43,7 +46,8 @@ async function main(){
   const m=/planned=(\d+) sent=(\d+) missed=(\d+)/.exec(report);
   check(m&&Number(m[2])>=seconds*18&&Number(m[3])<=Number(m[1]),'native pacer missed slots');
   console.log(JSON.stringify({mode:'nested-e2e-synthetic-send',senderId,planned:Number(m[1]),
-    sent:Number(m[2]),missed:Number(m[3]),cellBytes:168,innerBytes:92,
+    sent:Number(m[2]),missed:Number(m[3]),preparedAuthenticatedCells:realCells,
+    cellBytes:168,innerBytes:92,
     e2eKeyGivenToRelay:false,realAccountsUsed:false}));
  }finally{hopKey.fill(0);e2eKey.fill(0);await rm(dir,{recursive:true,force:true});}
 }
