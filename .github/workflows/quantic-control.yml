@@ -29,6 +29,64 @@ jobs:
           cache-dependency-path: quantic-control/go.mod
       - name: Test
         run: go test ./...
+      - name: Defender Event Log API smoke (reports SKIP if channel unavailable)
+        if: runner.os == 'Windows'
+        run: go test -v -run '^TestReadNativeDefenderEventLogWithoutModification
+      - name: Vet
+        run: go vet ./...
+      - name: Build agent prototype
+        run: go build -o quantic-control-alpha${{ runner.os == 'Windows' && '.exe' || '' }} ./cmd/quantic-control
+
+      - name: Compile real Win32 GUI without console
+        if: runner.os == 'Windows'
+        run: go build -ldflags="-H windowsgui" -o quantic-control-gui-alpha.exe ./cmd/quantic-control-gui
+      - name: Verify PE Windows GUI subsystem
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $bytes = [IO.File]::ReadAllBytes("quantic-control-gui-alpha.exe")
+          $pe = [BitConverter]::ToInt32($bytes, 0x3c)
+          $subsystem = [BitConverter]::ToInt16($bytes, $pe + 24 + 68)
+          if ($subsystem -ne 2) { throw "Console subsystem detected; Windows GUI binary required" }
+      - name: Upload Windows GUI Alpha (unsigned)
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: quantic-control-native-gui-windows-unsigned
+          path: quantic-control/quantic-control-gui-alpha.exe
+          if-no-files-found: error
+          retention-days: 7
+      - name: Compile Windows Sentinel (no console)
+        if: runner.os == 'Windows'
+        run: go build -ldflags="-H windowsgui" -o quantic-sentinel-alpha.exe ./cmd/quantic-control-sentinel
+      - name: Verify Sentinel native GUI subsystem
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $bytes = [IO.File]::ReadAllBytes("quantic-sentinel-alpha.exe")
+          $pe = [BitConverter]::ToInt32($bytes, 0x3c)
+          $subsystem = [BitConverter]::ToInt16($bytes, $pe + 24 + 68)
+          if ($subsystem -ne 2) { throw "Sentinel must be a native GUI binary, not a console application" }
+      - name: Upload Sentinel unsigned Windows lab executable
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: quantic-sentinel-alpha-windows-unsigned
+          path: quantic-control/quantic-sentinel-alpha.exe
+          if-no-files-found: error
+          retention-days: 7
+      - name: Smoke native Windows executable
+        if: runner.os == 'Windows'
+        run: ./quantic-control-alpha.exe status
+      - name: Upload unsigned Windows laboratory binary
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: quantic-control-alpha1-windows-unsigned
+          path: quantic-control/quantic-control-alpha.exe
+          if-no-files-found: error
+          retention-days: 7
+ ./sentinel
       - name: Race test (Linux)
         if: runner.os == 'Linux'
         run: go test -race ./...
