@@ -3,6 +3,7 @@
 import {spawn} from 'node:child_process';
 import {randomUUID} from 'node:crypto';
 import {win32} from 'node:path';
+import {readdir} from 'node:fs/promises';
 import {createWindowsNativeStorage} from './native-windows-storage.mjs';
 import {bindWindowsDesktopConfig} from './native-windows-desktop.mjs';
 import {saveWindowsDraftFromInput} from './native-windows-draft.mjs';
@@ -114,4 +115,44 @@ export async function receiveWindowsGUI(boot,operation,receiptFile,{
  check(receipt.id===result.id&&receipt.digest===result.digest);
  return Object.freeze({status:'acknowledged',receiptFile:name,display:safeMailDisplay(receipt.payload),
   noAutomaticRetry:true,liveAccountEnrollmentAuthorized:false});
+}
+
+
+// Names from the filesystem are untrusted hints ONLY. Every selected
+// receipt is reopened through the native ACL-checked helper and AEAD.
+const receiptName=/^receipt-[a-z0-9-]{1,48}\.json$/;
+export async function listWindowsGUIReceipts(boot,{
+ makeStorage=createWindowsNativeStorage,enumerate=readdir
+}={}){
+ const storage=await makeStorage(boot);
+ const cfg=bindWindowsDesktopConfig(await readConfig(storage,win32.join(boot.dir,'desktop.json')),boot);
+ const scope=windowsScatteringScope(cfg);
+ const names=await enumerate(boot.dir);
+ check(Array.isArray(names)&&names.length<=512&&names.every(n=>typeof n==='string'));
+ const candidates=names.filter(n=>receiptName.test(n)).sort();
+ check(new Set(candidates).size===candidates.length);
+ const key=await storage.read(scope.receiptKeyFile);
+ const items=[];let refused=0;
+ try{
+  check(key.length===32);
+  for(const file of candidates.slice(0,64)){
+   try{
+    const r=openReceipt(key,scope,await readConfig(storage,win32.join(boot.dir,file)));
+    // Safe visible subject, bounded list output; read full body only on selection.
+    const subject=safeMailDisplay({subject:r.payload.subject,body:''}).slice(8).trim().replace(/\s+/gu,' ');
+    items.push({file,subject:Array.from(subject).slice(0,120).join('')||'(Sans objet)'});
+   }catch{refused++;}
+  }
+ }finally{key.fill(0);}
+ return Object.freeze({status:'authenticated-local-receipts',items,refused,remaining:candidates.length-Math.min(64,candidates.length),deliveryVerified:false});
+}
+export async function readWindowsGUIReceipt(boot,file,{makeStorage=createWindowsNativeStorage}={}){
+ check(typeof file==='string'&&receiptName.test(file));
+ const storage=await makeStorage(boot);
+ const cfg=bindWindowsDesktopConfig(await readConfig(storage,win32.join(boot.dir,'desktop.json')),boot);
+ const scope=windowsScatteringScope(cfg),key=await storage.read(scope.receiptKeyFile);
+ try{
+  const r=openReceipt(key,scope,await readConfig(storage,win32.join(boot.dir,file)));
+  return Object.freeze({status:'authenticated-local-receipt',receiptFile:file,display:safeMailDisplay(r.payload),deliveryVerified:false});
+ }finally{key.fill(0);}
 }
