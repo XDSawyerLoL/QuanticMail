@@ -52,6 +52,13 @@ async function invoke(boot,args,input,{spawnProcess=spawn,timeout=300000}={}){
 export async function localDirectOperation(boot,action,fields,{makeStorage=createWindowsNativeStorage,call=invoke,enumerate=readdir,now=Date.now}={}){
  check(typeof action==='string'&&fields&&Object.getPrototypeOf(fields)===Object.prototype);
  const protectedMode=action.startsWith('protected-');if(protectedMode)action=action.slice(10);
+ if(protectedMode&&action==='roster'){
+  check(exact(fields,['cards'])&&typeof fields.cards==='string'&&Buffer.byteLength(fields.cards)<=32768);
+  const raw=Buffer.from(fields.cards);try{
+   const r=await call(boot,['--windows-witness-roster-lab'],raw);
+   check(hex.test(r?.rosterPin)&&r.cardsPin===sha(raw));return r;
+  }finally{raw.fill(0);}
+ }
  if(action==='create'){
   check(exact(fields,protectedMode?['alias','roster']:['alias'])&&/^[a-z0-9][a-z0-9._-]{2,31}$/.test(fields.alias));
   if(protectedMode)check(hex.test(fields.roster)&&!/^0+$/.test(fields.roster));
@@ -80,6 +87,14 @@ export async function localDirectOperation(boot,action,fields,{makeStorage=creat
  }
  const pin=fields.pin;check(hex.test(pin));
  const protectedCall=(op,input)=>call(boot,['--windows-protected-direct-gui-lab',boot.dir,pin,op],input);
+ if(protectedMode&&action==='pair'){
+  check(exact(fields,['pin','cards'])&&typeof fields.cards==='string'&&Buffer.byteLength(fields.cards)<=32768);
+  const raw=Buffer.from(fields.cards);try{
+   const caps=await call(boot,['--windows-witness-prepare-gui-lab',boot.dir,pin,sha(raw)],raw);
+   check(Array.isArray(caps)&&caps.length===4);
+   return {status:'direct-witness-pairing',capsules:caps.map(c=>{const card=JSON.stringify(c);return {card,sha256:sha(card)};})};
+  }finally{raw.fill(0);}
+ }
  if(protectedMode&&['initialize','status','revoke'].includes(action)){
   check(exact(fields,['pin']));return protectedCall(action);
  }
