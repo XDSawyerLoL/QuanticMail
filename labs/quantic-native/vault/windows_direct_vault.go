@@ -2,9 +2,9 @@
 
 package main
 
-// New, explicitly local-only laboratory identities. No fallback from quorum
-// mode. Trust is a short-lived, independently approved contact file. The
-// journal resists accidental reuse, not rollback by the local administrator.
+// Distinct local-only and quorum-protected laboratory identities. The local
+// journal cannot resist snapshot rollback. Protected private keys have a
+// separate encryption domain; neither mode can open the other.
 import (
  "bytes"
  "crypto/rand"
@@ -88,9 +88,13 @@ func winDirectTrust(dir,pin string)(*senderTrust,error){
  return parseSenderTrust(raw)
 }
 func winDirectImport(dir,pin string,raw []byte)error{
- id,e:=winReadDirectIdentity(dir);if e!=nil{return e}
+ return winDirectImportMode(dir,pin,raw,false)
+}
+func winDirectImportMode(dir,pin string,raw []byte,protected bool)error{
+ id,e:=winReadDirectIdentityMode(dir,protected);if e!=nil{return e}
  if !hashRE.MatchString(pin)||hexHash(raw)!=pin{return portableRefusal}
  t,e:=parseSenderTrust(raw);if e!=nil{return e}
+ if protected&&len(t.contacts)!=1{return portableRefusal}
  for _,s:=range t.contacts{
   if s.Address==id.Address||s.Device==id.Device{return portableRefusal}
   if _,e=recipientKey(s);e!=nil{return e}
