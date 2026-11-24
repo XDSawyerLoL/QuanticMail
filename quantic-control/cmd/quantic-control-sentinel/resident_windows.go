@@ -174,9 +174,10 @@ func installResident(root string)error{
  installed,err:=os.OpenFile(dest,os.O_WRONLY|os.O_CREATE|os.O_EXCL,0600)
  if err!=nil{return err}
  committed:=false
+ manifestWritten:=false
  defer func(){
   if !committed{
-   _=os.Remove(manifest)
+   if manifestWritten{_ =os.Remove(manifest)}
    _=os.Remove(dest)
   }
  }()
@@ -190,6 +191,7 @@ func installResident(root string)error{
  data,err:=json.Marshal(installManifest{Version:residentVersion,ExeHash:srcHash,Root:root})
  if err!=nil{return err}
  if err:=writeExclusive(manifest,data);err!=nil{return err}
+ manifestWritten=true
  if err:=regSetStartup(command);err!=nil{return err}
  committed=true
  // Startup is installed even if immediate launch fails; UI reports that error
