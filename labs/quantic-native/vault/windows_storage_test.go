@@ -5,6 +5,11 @@ package main
 import(
  "bytes"
  "crypto/sha256"
+ "crypto/ed25519"
+ "crypto/rand"
+ "crypto/x509"
+ "encoding/pem"
+ "encoding/binary"
  "os"
  "os/exec"
  "path/filepath"
@@ -107,4 +112,23 @@ func TestWindowsLocalSecretProtection(t *testing.T){
  if e=os.WriteFile(other,plain,0600);e!=nil{t.Fatal(e)}
  if _,e=winReadLocalSecret(other);e==nil{t.Fatal("legacy plaintext fallback")}
  retained,e:=winReadPrivate(other,4096);if e!=nil||!bytes.Equal(retained,plain){t.Fatal("legacy secret changed")}
+}
+
+func TestWindowsControllerCustody(t *testing.T){
+ dir:=filepath.Join(t.TempDir(),"custody")
+ if e:=winCreatePrivateDirectory(dir);e!=nil{t.Fatal(e)}
+ pub,key,e:=ed25519.GenerateKey(rand.Reader);if e!=nil{t.Fatal(e)};defer clear(key)
+ der,e:=x509.MarshalPKCS8PrivateKey(key);if e!=nil{t.Fatal(e)};defer clear(der)
+ raw:=pem.EncodeToMemory(&pem.Block{Type:"PRIVATE KEY",Bytes:der});defer clear(raw)
+ if e=winWriteLocalSecret(filepath.Join(dir,"controller.pem"),raw);e!=nil{t.Fatal(e)}
+ if e=winWritePrivate(filepath.Join(dir,"lab-provisioned"),[]byte(hexHash(pub)));e!=nil{t.Fatal(e)}
+ if handled,e:=winClientIO([]string{"vault","--windows-client-read-lab",dir,"controller.pem"});!handled||e==nil{t.Fatal("controller export allowed")}
+ nonce:=bytes.Repeat([]byte{7},32)
+ frame:=make([]byte,36);copy(frame,nonce);binary.BigEndian.PutUint32(frame[32:],1)
+ body:=[]byte("{\"op\":\"public\"}")
+ sig,e:=winControllerFrameSign(dir,append(frame,body...));if e!=nil{t.Fatal(e)}
+ d:=appDigest(nonce,1,body);if !ed25519.Verify(pub,d[:],sig){t.Fatal("frame signature mismatch")}
+ for _,bad:=range [][]byte{nil,append(frame,[]byte("{\"op\":\"arbitrary-sign\"}")...),append(frame,[]byte("{\"op\":\"public\",\"unknown\":true}")...)}{
+  if _,e=winControllerFrameSign(dir,bad);e==nil{t.Fatal("invalid frame signed")}
+ }
 }
