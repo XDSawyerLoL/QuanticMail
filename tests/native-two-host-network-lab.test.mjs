@@ -31,8 +31,11 @@ test('Malformed pairing code is rejected before any UDP proof',async()=>{
 test('Different valid secret cannot authenticate a synthetic UDP packet',async()=>{
  const port=await randomLocalPort();
  const r=await startTwoHostReceiver({port,listen:'127.0.0.1',seconds:5});
+ // Attach the rejection assertion immediately: receiver and sender may
+ // time out in the same event-loop turn, before a later await.
+ const rejectedReceiver=assert.rejects(r.wait,/No authenticated synthetic UDP exchange/);
  try{
   await assert.rejects(runTwoHostSender({host:'127.0.0.1',port,code:'0'.repeat(24)===r.code?'1'.repeat(24):'0'.repeat(24),seconds:5}));
-  await assert.rejects(r.wait);
+  await rejectedReceiver;
  }finally{r.cancel();}
 });
