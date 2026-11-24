@@ -56,6 +56,9 @@ export function createNativeSessionClientLab({service,authorities,tls,candidate,
  return Object.freeze({login,whoami,lock,isUnlocked:()=>Boolean(live())});
 }
 export async function createWindowsNativeSessionClientLab(config){
- const prove=await createWindowsEnrollmentProver(config);
- return watchWindowsSessionLifetime(config,createNativeSessionClientLab({...config,prove}));
+ const abort=new AbortController();
+ const prove=await createWindowsEnrollmentProver({...config,signal:abort.signal});
+ const core=createNativeSessionClientLab({...config,prove});
+ const guarded=Object.freeze({...core,lock(){abort.abort();return core.lock();}});
+ return watchWindowsSessionLifetime(config,guarded);
 }
