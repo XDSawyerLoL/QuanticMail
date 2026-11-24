@@ -1,11 +1,11 @@
 name: Native Vault laboratory
 on:
   pull_request:
-    branches: [main, feat/identity-vault-security-hardening-20261121]
-    paths: ['labs/quantic-native/**', 'desktop/**', 'lib/quantic/**', 'scripts/native-vault-windows-local.mjs', 'scripts/package-windows-pq-lab.sh', 'scripts/scattering-physical-probe.mjs', 'scripts/Start-Windows-PQ-Lab.ps1', 'scripts/Test-Windows-PQ-Package.ps1', 'scripts/Quantic-Sillage-Alpha.ps1', 'scripts/Quantic-Sillage-Alpha.nsi', 'scripts/Test-Native-Installer-Signature.ps1', 'scripts/Sign-Native-Lab-Installer.ps1', 'tests/native-windows-desktop.test.mjs', 'tests/native-windows-mail-flow.test.mjs', 'tests/native-scattering-mailbox.test.mjs', 'standalone-relay/native-scattering-mailbox.mjs', 'scripts/serve-native-scattering-windows.mjs', 'scripts/native-vault-windows-mailbox.mjs', 'scripts/verify-migration-local.mjs', '.github/workflows/native-vault-lab.yml']
+    branches: [main, feat/identity-vault-security-hardening-20261121, feat/native-id-possession-proof-20261124]
+    paths: ['labs/quantic-native/**', 'desktop/**', 'lib/quantic/**', 'scripts/native-vault-windows-local.mjs', 'scripts/package-windows-pq-lab.sh', 'scripts/scattering-physical-probe.mjs', 'scripts/Start-Windows-PQ-Lab.ps1', 'scripts/Test-Windows-PQ-Package.ps1', 'scripts/Quantic-Sillage-Alpha.ps1', 'scripts/Quantic-Sillage-Alpha.nsi', 'scripts/Test-Native-Installer-Signature.ps1', 'scripts/Sign-Native-Lab-Installer.ps1', 'tests/native-windows-desktop.test.mjs', 'tests/native-owner-candidate.test.mjs', 'tests/native-windows-mail-flow.test.mjs', 'tests/native-scattering-mailbox.test.mjs', 'standalone-relay/native-scattering-mailbox.mjs', 'scripts/serve-native-scattering-windows.mjs', 'scripts/native-vault-windows-mailbox.mjs', 'scripts/verify-migration-local.mjs', '.github/workflows/native-vault-lab.yml']
   push:
     branches: [main, "feat/**"]
-    paths: ['labs/quantic-native/**', 'desktop/**', 'lib/quantic/**', 'scripts/native-vault-windows-local.mjs', 'scripts/package-windows-pq-lab.sh', 'scripts/scattering-physical-probe.mjs', 'scripts/Start-Windows-PQ-Lab.ps1', 'scripts/Test-Windows-PQ-Package.ps1', 'scripts/Quantic-Sillage-Alpha.ps1', 'scripts/Quantic-Sillage-Alpha.nsi', 'scripts/Test-Native-Installer-Signature.ps1', 'scripts/Sign-Native-Lab-Installer.ps1', 'tests/native-windows-desktop.test.mjs', 'tests/native-windows-mail-flow.test.mjs', 'tests/native-scattering-mailbox.test.mjs', 'standalone-relay/native-scattering-mailbox.mjs', 'scripts/serve-native-scattering-windows.mjs', 'scripts/native-vault-windows-mailbox.mjs', 'scripts/verify-migration-local.mjs', '.github/workflows/native-vault-lab.yml']
+    paths: ['labs/quantic-native/**', 'desktop/**', 'lib/quantic/**', 'scripts/native-vault-windows-local.mjs', 'scripts/package-windows-pq-lab.sh', 'scripts/scattering-physical-probe.mjs', 'scripts/Start-Windows-PQ-Lab.ps1', 'scripts/Test-Windows-PQ-Package.ps1', 'scripts/Quantic-Sillage-Alpha.ps1', 'scripts/Quantic-Sillage-Alpha.nsi', 'scripts/Test-Native-Installer-Signature.ps1', 'scripts/Sign-Native-Lab-Installer.ps1', 'tests/native-windows-desktop.test.mjs', 'tests/native-owner-candidate.test.mjs', 'tests/native-windows-mail-flow.test.mjs', 'tests/native-scattering-mailbox.test.mjs', 'standalone-relay/native-scattering-mailbox.mjs', 'scripts/serve-native-scattering-windows.mjs', 'scripts/native-vault-windows-mailbox.mjs', 'scripts/verify-migration-local.mjs', '.github/workflows/native-vault-lab.yml']
 permissions:
   contents: read
 # Keep only the latest feature validation; retain independent main runs.
@@ -14,6 +14,19 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' || startsWith(github.ref, 'refs/heads/feat/') }}
 
 jobs:
+  native-enrollment-registry-linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24.8.0
+      - name: Verify independent durable enrollment and quorum receipts
+        run: node --experimental-transform-types --test tests/native-owner-candidate.test.mjs
+
   native-linux-pq:
     runs-on: ubuntu-latest
     timeout-minutes: 15
