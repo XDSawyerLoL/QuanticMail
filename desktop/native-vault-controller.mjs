@@ -190,6 +190,24 @@ export async function connectNativeVault({binary,binarySha256,vault,journal,quor
               const r=await call({op:'scattering-renewal-grant-lab',mailboxBody:{address,deviceId,channel,role}});
               const g=r.mailboxResult;check(Number.isSafeInteger(g?.expires)&&g.expires>Date.now()&&g.attempts===4,'invalid renewal grant');renewal=true;return Object.freeze({expires:g.expires,attempts:g.attempts});
             }),
+            fence:Object.freeze({
+              reserve:()=>exclusive(async()=>{
+                check(renewal,'renewal grant required');
+                const r=await call({op:'scattering-fence-lab',mailboxOp:'reserve',mailboxBody:{}});
+                const v=r.mailboxResult;check(/^[a-f0-9]{64}$/.test(v?.token)&&/^[a-f0-9]{96}$/.test(v.context?.channel)&&Number.isInteger(v.context.generation)&&/^[a-f0-9]{96}$/.test(v.context.previous),'invalid fence reservation');
+                return Object.freeze({token:v.token,context:Object.freeze(v.context)});
+              }),
+              stage:(reservation,material)=>exclusive(async()=>{
+                check(renewal,'renewal grant required');
+                const r=await call({op:'scattering-fence-lab',mailboxOp:'stage',mailboxBody:{token:reservation.token,generation:material.generation,transcript:material.transcript}});
+                return r.mailboxResult;
+              }),
+              finish:(reservation,material)=>exclusive(async()=>{
+                check(renewal,'renewal grant required');
+                const r=await call({op:'scattering-fence-lab',mailboxOp:'finish',mailboxBody:{token:reservation.token,generation:material.generation,transcript:material.transcript}});
+                return r.mailboxResult;
+              })
+            }),
             signHandshake:(raw,evidence)=>exclusive(async()=>{
               check(Buffer.isBuffer(raw)&&raw.length<=4096&&peer.expires>Date.now(),'invalid scattering request');
               const r=await call({op:'scattering-sign-lab',mailboxBody:{address,deviceId,raw:raw.toString('base64url'),...(renewal?{renewal:true}:{}),...(evidence?{evidence}:{})}});

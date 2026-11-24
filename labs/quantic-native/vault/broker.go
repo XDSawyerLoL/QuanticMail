@@ -247,7 +247,7 @@ func serveGuardedPQTransport(s signer,key agreementKey,backend string,in io.Read
 			}
 			continue
 		}
-		if pq != nil && q.Op != "public" && q.Op != "pq-public-lab" && q.Op != "pq-proof-lab" && q.Op != "mail-open-hybrid-lab" && q.Op != "mail-seal-hybrid-lab" && q.Op != "close" && !(q.Op=="native-mailbox-lab"&&transport!=nil) && !((q.Op=="scattering-sign-lab"||q.Op=="scattering-renewal-grant-lab")&&transport!=nil&&backend=="windows-software-pq-quorum-lab") {
+		if pq != nil && q.Op != "public" && q.Op != "pq-public-lab" && q.Op != "pq-proof-lab" && q.Op != "mail-open-hybrid-lab" && q.Op != "mail-seal-hybrid-lab" && q.Op != "close" && !(q.Op=="native-mailbox-lab"&&transport!=nil) && !((q.Op=="scattering-sign-lab"||q.Op=="scattering-renewal-grant-lab"||q.Op=="scattering-fence-lab")&&transport!=nil&&backend=="windows-software-pq-quorum-lab") {
 			if e = enc.Encode(fail); e != nil {
 				return e
 			}
@@ -260,6 +260,10 @@ func serveGuardedPQTransport(s signer,key agreementKey,backend string,in io.Read
             scatteringGrantIssued=true
             grant,err:=issueScatteringRenewal(pq,senders,journal,approve,q.MailboxBody)
             if err==nil{scatteringGrant=grant;result,_:=json.Marshal(map[string]any{"expires":grant.expires,"attempts":scatteringRenewalAttempts});r=reply{OK:true,MailboxResult:result}}
+		case "scattering-fence-lab":
+            if pq==nil||journal==nil||journal.anchor==nil||transport==nil||backend!="windows-software-pq-quorum-lab"||q.Recover||scatteringGrant==nil{break}
+            result,err:=scatteringFenceOperation(scatteringGrant,senders,journal,q.MailboxOp,q.MailboxBody)
+            if err==nil{r=reply{OK:true,MailboxResult:result}}else if journal.failed{return err}
 		case "scattering-sign-lab":
             if pq==nil||journal==nil||journal.anchor==nil||transport==nil||backend!="windows-software-pq-quorum-lab"||q.MailboxOp!=""||q.Recover{break}
             result,err:=authorizeScatteringSignature(s,pq,senders,journal,approve,q.MailboxBody,scatteringGrant)

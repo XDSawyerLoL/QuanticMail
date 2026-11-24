@@ -22,6 +22,7 @@ type scatteringRenewalGrant struct{
  expires int64
  next int
  closed bool
+ fence scatteringFenceState
 }
 func newScatteringRenewal(q scatteringRenewalRequest,peer senderContact,now time.Time)(*scatteringRenewalGrant,error){
  if q.Address!=peer.Address||q.Device!=peer.Device||!strongAddr.MatchString(q.Address)||!strongDevice.MatchString(q.Device)||!scatteringHex.MatchString(q.Channel)||q.Channel==scatteringZero||(q.Role!="initiator"&&q.Role!="responder")||peer.Expires<=now.UnixMilli(){return nil,portableRefusal}

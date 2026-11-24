@@ -92,7 +92,7 @@ func authorizeScatteringSignature(s signer,p *pqKeys,trust *senderTrust,j *repla
  raw,e:=decode(q.Raw,1,4096);if e!=nil{return nil,e}
  own,e:=x509.MarshalPKIXPublicKey(s.Public());if e!=nil{return nil,e}
  id,e:=scatteringSigningInput(raw,own,p.dsaPub,peer,q.Evidence);if e!=nil||j.has(id){return nil,portableRefusal}
- if q.Renewal{if grant==nil||!grant.consume(peer,raw,time.Now()){return nil,portableRefusal}}else if !approve("Session Scattering LAB avec "+peer.Address+" / "+peer.Device+" / SHA256 "+hexHash(raw)){return nil,portableRefusal}
+ if q.Renewal{if grant==nil||!grant.permitsFencedSignature(raw)||!grant.consume(peer,raw,time.Now()){return nil,portableRefusal}}else if !approve("Session Scattering LAB avec "+peer.Address+" / "+peer.Device+" / SHA256 "+hexHash(raw)){return nil,portableRefusal}
  if peer.Expires<=time.Now().UnixMilli()||!j.beginContact(peer){return nil,portableRefusal}
  defer j.endContact()
  result,e:=j.reservePrivateSignature(id,func()([]byte,error){
@@ -105,5 +105,6 @@ func authorizeScatteringSignature(s signer,p *pqKeys,trust *senderTrust,j *repla
  if peer.Expires<=time.Now().UnixMilli()||q.Renewal&&!grant.live(time.Now()){return nil,portableRefusal}
  if e=j.anchor.check(j.anchorID,len(j.seen),j.tail);e!=nil{return nil,e}
  if q.Renewal&&!grant.live(time.Now()){return nil,portableRefusal}
+ if q.Renewal{grant.fence.signed=true}
  return result,nil
 }
