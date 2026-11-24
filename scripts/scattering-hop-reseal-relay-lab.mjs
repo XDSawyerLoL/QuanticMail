@@ -6,13 +6,16 @@ import {readFileSync,lstatSync} from 'node:fs';
 import {isAbsolute} from 'node:path';
 import {resealLabHop} from '../lib/quantic/scattering-hop-reseal-lab.mjs';
 import {createScatteringBatchMixer} from '../lib/quantic/scattering-batch-mixer-lab.mjs';
+import {openReliable} from '../labs/quantic-native/scattering/scattering-reliable-lab.mjs';
 import {writeSpool} from '../labs/quantic-native/scattering/scattering-cell.mjs';
 
-const [bindA,bindB,queue,secondsRaw,pathA,pathB,pathOut,mixRaw='0']=process.argv.slice(2);
+const [bindA,bindB,queue,secondsRaw,pathA,pathB,pathOut,mixRaw='0',expectedCoverRaw='0']=process.argv.slice(2);
 const check=(ok,msg)=>{if(!ok)throw Error(msg);};
 const seconds=Number(secondsRaw);
 check(['0','1'].includes(mixRaw),'unsupported mixing mode');
 const mixEnabled=mixRaw==='1';
+const expectedCover=Number(expectedCoverRaw);
+check(Number.isSafeInteger(expectedCover)&&[0,80].includes(expectedCover),'invalid cover baseline');
 check(bindA==='10.252.41.2:49001'&&bindB==='10.252.42.2:49002'&&
  isAbsolute(queue)&&Number.isInteger(seconds)&&seconds>=8&&seconds<=20,
  'explicit isolated trusted-hop lab topology required');
@@ -48,6 +51,13 @@ try{
   sock.on('message',packet=>{
    if(packet.length!==168||seq>=8192){stats.rejected++;return;}
    if(mixer){
+    // Cover never enters a data batch. A lab test with 20 real cells from B
+    // still has 100 on-wire cells because the native source pads with cover.
+    const opened=openReliable(keys[idx],packet);
+    if(!opened||opened.seq===null||opened.data.length!==92){
+     opened?.data?.fill(0);stats.unauthenticated++;return;
+    }
+    opened.data.fill(0);
     try{mixer.add({packet,source:idx});}
     catch{stats.spoolErrors++;}
     return;
@@ -66,8 +76,9 @@ try{
   try{mixer.drain();}catch{stats.spoolErrors++;}
  }
  console.log(JSON.stringify({mode:'trusted-hop-reseal-lab',...stats,
-  mixedBatches:mixEnabled,mixer:mixer?.stats()??null,ciphertextModified:true,
+  mixedBatches:mixEnabled,mixer:mixer?.stats()??null,
+  expectedCover, ciphertextModified:true,
   relayKnowsHopPlaintext:true,notEndToEndAnonymous:true,labOnly:true}));
- check(stats.ingressA>0&&stats.ingressB>0&&stats.spooled===seq&&stats.rejected===0&&stats.spoolErrors===0&&stats.unauthenticated===0,
+ check(stats.ingressA>0&&stats.ingressB>0&&stats.spooled===seq&&stats.rejected===0&&stats.spoolErrors===0&&stats.unauthenticated===expectedCover,
   're-encryption did not authenticate both synthetic senders');
 }finally{for(const sock of sockets)sock.close();for(const key of keys)key.fill(0);}
