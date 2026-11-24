@@ -10,6 +10,10 @@ on:
       - 'scripts/native-windows-compose-draft.mjs'
       - 'desktop/native-windows-draft.mjs'
       - 'desktop/native-windows-gui-send.mjs'
+      - 'desktop/native-windows-mail-status.mjs'
+      - 'tests/native-windows-mail-status.test.mjs'
+      - 'desktop/native-windows-mail-status.mjs'
+      - 'tests/native-windows-mail-status.test.mjs'
       - 'tests/native-windows-gui-send.test.mjs'
       - 'tests/native-windows-draft.test.mjs'
       - 'scripts/Quantic-Sillage-Alpha.nsi'
@@ -57,7 +61,7 @@ jobs:
           if($LASTEXITCODE -ne 0){throw "Native composer self-test failed"}
           & $runner -NoProfile -STA -NonInteractive -File ./scripts/Quantic-Sillage-Advanced.ps1 -ExpectedManifestSha256 ("a"*64) -TrustedBinarySha256 ("b"*64) -SelfTest
           if($LASTEXITCODE -ne 0){throw "Explicit advanced contract failed"}
-          node --test tests/native-windows-draft.test.mjs tests/native-windows-gui-send.test.mjs
+          node --test tests/native-windows-draft.test.mjs tests/native-windows-gui-send.test.mjs tests/native-windows-mail-status.test.mjs
           if($LASTEXITCODE -ne 0){throw "Draft validation failed"}
           $source = Get-Content -LiteralPath $path -Raw
           if ($source -match "(?i)WebBrowser|WebView2|loadURL|onrender\.com") { throw "Remote renderer reintroduced" }
