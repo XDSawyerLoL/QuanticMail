@@ -24,7 +24,8 @@ func TestBackupHealthTracksHeldHandleAndRelease(t *testing.T){
  if collision,e:=newBackupHealthEvent(m);e==nil{closeWinHandle.Call(collision);t.Fatal("event collision accepted")}
  ctx,cancel:=context.WithCancel(context.Background())
  done:=make(chan struct{})
- go monitorBackupHealth(ctx,h,[]*sentinel.BackupLock{lock},1,done)
+ name,err:=backupHealthEventName(m);if err!=nil{t.Fatal(err)}
+ go monitorBackupHealth(ctx,&healthPublisher{event:h,name:name},[]*sentinel.BackupLock{lock},1,done)
  defer func(){cancel();<-done}()
  await:=func(want backupHealthState){
   t.Helper()
@@ -40,4 +41,26 @@ func TestBackupHealthTracksHeldHandleAndRelease(t *testing.T){
  <-done
  closeWinHandle.Call(h);h=0
  await(backupStatusAbsent)
+}
+
+
+// An expired pulse can still be signalled and held open by a frozen agent.
+// Test the actual Windows event lookup, with deterministic bucket selection.
+func TestFrozenBackupAgentSignalExpires(t *testing.T){
+ m:=installManifest{Version:residentVersion,ExeHash:strings.Repeat("b",64),Root:t.TempDir()}
+ h,err:=newBackupHealthEvent(m);if err!=nil{t.Fatal(err)}
+ defer closeWinHandle.Call(h)
+ name,err:=backupHealthEventName(m);if err!=nil{t.Fatal(err)}
+ p:=&healthPublisher{event:h,name:name}
+ defer p.clear()
+ p.publish(true)
+ if p.pulse==0{t.Fatal("health pulse not published")}
+ if !hasFreshHealthPulse(name,p.bucket)||!hasFreshHealthPulse(name,p.bucket+1){t.Fatal("fresh pulse refused")}
+ if hasFreshHealthPulse(name,p.bucket+2){t.Fatal("stale positive pulse accepted")}
+ // Even with the long-lived status event still signalled, the old
+ // pulse is excluded by the bounded freshness window.
+ state,_,_:=waitWinObject.Call(h,0)
+ if state!=0{t.Fatal("test did not retain stale positive signal")}
+ p.clear()
+ if hasFreshHealthPulse(name,p.bucket){t.Fatal("closed pulse still appears active")}
 }
