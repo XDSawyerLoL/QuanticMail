@@ -62,10 +62,14 @@ jobs:
         working-directory: labs/quantic-native/vault
         run: |
           go test -count=1 ./...
-          go test -count=1 -tags pqopenssl ./...
+          QUANTIC_ENROLLMENT_TEST_OUTPUT="$RUNNER_TEMP/quantic-native-enrollment-public.json" go test -count=1 -tags pqopenssl ./...
           go vet -tags pqopenssl ./...
           go build -trimpath -tags pqopenssl -o VaultIsolated-linux .
           CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -o /tmp/VaultIsolated-Windows-nonPQ.exe .
+      - name: Verify native Go enrollment claim in the existing Node manifest and profile verifier
+        run: |
+          test -s "$RUNNER_TEMP/quantic-native-enrollment-public.json"
+          QUANTIC_ENROLLMENT_TEST_OUTPUT="$RUNNER_TEMP/quantic-native-enrollment-public.json" node --experimental-transform-types --test tests/native-enrollment-interop.test.mjs
       - name: Authority and native enrolment regressions
         working-directory: labs/quantic-native
         run: |
@@ -110,7 +114,7 @@ jobs:
           openssl version
           openssl list -kem-algorithms | grep -qi ML-KEM-768
           openssl list -signature-algorithms | grep -qi ML-DSA-65
-          go test -count=1 -tags pqopenssl -run '^(TestPQProviderRoundTrip|TestWindowsPrivateStorage|TestWindowsPQStorageReopen|TestWindowsProvisionJournalRestart|TestWindowsConsoleParsing|TestWindowsCredentialDiagnosticRefusal|TestSyntheticFirstRunMetadataNeverBecomesEnrollment|TestSyntheticGUICommandsRejectUnexpectedArgumentsWithoutDialogs|TestSyntheticContactCardSignedButNeverAuthorized|TestNativeSyntheticRegistryAndContactCommandsFailClosed|TestWindowsRecoveryExactResult|TestWindowsQuorumConfigRefusal|TestWindowsScatteringEpochGuard|TestWindowsLabImport|TestWindowsAutoController|TestWindowsPayLab|TestWindowsAnchoredPayLab|TestNativeFinancialPermitVerification|TestWindowsPayQuorumImportBinding)$' -v .
+          go test -count=1 -tags pqopenssl -run '^(TestPQProviderRoundTrip|TestWindowsPrivateStorage|TestWindowsPQStorageReopen|TestWindowsProvisionJournalRestart|TestWindowsConsoleParsing|TestWindowsCredentialDiagnosticRefusal|TestSyntheticFirstRunMetadataNeverBecomesEnrollment|TestSyntheticGUICommandsRejectUnexpectedArgumentsWithoutDialogs|TestSyntheticContactCardSignedButNeverAuthorized|TestNativeSyntheticRegistryAndContactCommandsFailClosed|TestNativeEnrollmentClaimInterop|TestWindowsEnrollmentClaimPrivatePersistence|TestWindowsRecoveryExactResult|TestWindowsQuorumConfigRefusal|TestWindowsScatteringEpochGuard|TestWindowsLabImport|TestWindowsAutoController|TestWindowsPayLab|TestWindowsAnchoredPayLab|TestNativeFinancialPermitVerification|TestWindowsPayQuorumImportBinding)$' -v .
           go build -trimpath -tags pqopenssl -o "$RUNNER_TEMP/Vault-PQ-provider-lab.exe" .
           cd ../scattering/native
           CGO_ENABLED=0 go build -trimpath -o "$RUNNER_TEMP/Scattering-Pacer.exe" .
