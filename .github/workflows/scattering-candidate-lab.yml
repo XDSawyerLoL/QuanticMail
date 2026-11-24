@@ -1,0 +1,92 @@
+name: Scattering candidate profile validation
+on:
+  push:
+    branches: ["feat/scattering-mix-compare-*"]
+    paths:
+      - ".github/workflows/scattering-candidate-lab.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [balanced, skewed, sparse]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.8.0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+      - name: Check existing cryptographic and batching tests
+        run: |
+          bash -n scripts/scattering-two-relay-netns-lab.sh
+          node --check scripts/scattering-two-relay-evidence.mjs
+          node --test tests/scattering-batch-mixer.test.mjs tests/scattering-second-layer.test.mjs tests/scattering-two-relay.test.mjs
+      - name: Install virtual network tools
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq iproute2 tcpdump
+      - name: Compile native Go pacer
+        working-directory: labs/quantic-native/scattering/native
+        run: go build -trimpath -o "$RUNNER_TEMP/Quantic-Pacer" .
+      - name: Validate fixed 8+4 layered profile across three repeats
+        env:
+          SCATTERING_CHAIN_PROFILE: ${{ matrix.profile }}
+          SCATTERING_CHAIN_SECOND_MIX: "1"
+          SCATTERING_CHAIN_LAYER: "1"
+          SCATTERING_CHAIN_SECOND_BATCH: "4"
+          SCATTERING_CHAIN_FIRST_FLUSH_MS: "200"
+        run: |
+          set -euo pipefail
+          dir="$(mktemp -d "$RUNNER_TEMP/scattering-candidate-XXXXXX")"
+          trap 'rm -rf -- "$dir"' EXIT
+          for i in 1 2 3; do
+            export SCATTERING_MULTIHOP_SOURCE_OFFSET_MS="$(( (i % 2) * 25 ))"
+            bash scripts/scattering-two-relay-netns-lab.sh "$RUNNER_TEMP/Quantic-Pacer" > "$dir/run-$i.json"
+            echo "Completed repeat $i/3"
+          done
+          node --input-type=module - "$dir" "$SCATTERING_CHAIN_PROFILE" <<'NODE'
+          import {readFileSync} from 'node:fs';
+          import {join} from 'node:path';
+          const [dir,profile]=process.argv.slice(2);
+          const expected={balanced:200,skewed:120,sparse:4}[profile];
+          const check=(ok,msg)=>{if(!ok)throw Error(msg)};
+          const rows=[1,2,3].map(i=>{
+            const r=JSON.parse(readFileSync(join(dir,'run-'+i+'.json'),'utf8'));
+            check(r.profile===profile&&r.secondLayerEnabled===true&&r.secondBatchSize===4&&
+              r.firstFlushMs===200&&r.authenticated===expected&&r.releaseAuthorized===false&&
+              r.native.first.missed===0&&r.native.second.missed===0&&
+              r.hop2.visiblePayloadMatches===0&&r.endToEnd.authenticatedUnchangedInner===expected,
+              'incomplete or incorrect candidate evidence');
+            const a=r.timingAttacks;
+            check(a.length===3&&a.map(x=>x.processingSlackMs).join(',')==='0,5,12'&&
+              a.every(x=>Number.isFinite(x.sourceMetrics.balancedRecall)),
+              'missing prespecified attack evidence');
+            return {repeat:i,authenticated:r.authenticated,p95Ms:r.endToEnd.p95Ms,
+              maxMs:r.endToEnd.maxMs,firstHopPaddedCover:r.relay1.paddedCover,
+              worstBalancedRecall:Math.max(...a.map(x=>x.sourceMetrics.balancedRecall)),
+              worstMinorityRecall:Math.max(...a.map(x=>x.sourceMetrics.B.recall)),
+              maxCoverFalseFraction:Math.max(...a.map(x=>x.cover.falseSourceAttributionRate))};
+          });
+          const worstP95Ms=Math.max(...rows.map(r=>r.p95Ms));
+          const worstBalancedRecall=Math.max(...rows.map(r=>r.worstBalancedRecall));
+          const latencyPass=worstP95Ms<=500;
+          const fifoScreen=profile==='sparse'?null:worstBalancedRecall<=.60;
+          console.log(JSON.stringify({experiment:'8+4 fixed candidate repeated screen',profile,
+            repeats:3,authenticatedTotal:rows.reduce((s,r)=>s+r.authenticated,0),
+            worstP95Ms,worstBalancedRecall,latencyPass,fifoScreen,
+            releaseAuthorized:false,rows,
+            limitation:'Synthetic single-host virtual networks. Sparse sample too small for privacy screening. FIFO recall alone does not prove anonymity.'},null,2));
+          if(!latencyPass||fifoScreen===false)process.exitCode=1;
+          NODE
