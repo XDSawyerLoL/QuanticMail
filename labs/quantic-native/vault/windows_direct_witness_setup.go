@@ -194,6 +194,19 @@ func winServeDirectWitness(ctx stdcontext.Context,dir string)error{
 func winDirectWitnessCLI(args []string)(bool,error){
  if len(args)<2{return false,nil}
  switch args[1]{
+ case "--windows-witness-roster-lab":
+  if len(args)!=2{return true,portableRefusal}
+  raw,e:=io.ReadAll(io.LimitReader(os.Stdin,32769));if e!=nil||len(raw)>32768{return true,portableRefusal}
+  var cards []directWitnessCard
+  if directDecode(raw,&cards)!=nil||len(cards)!=4{return true,portableRefusal}
+  var roster [4]directWitnessMember
+  seen:=map[string]bool{}
+  for i,c:=range cards{
+   pub,_,e:=directWitnessCardCheck(c);if e!=nil||seen[c.IP]{return true,portableRefusal};seen[c.IP]=true
+   roster[i]=directWitnessMember{pub,func(stdcontext.Context,directWitnessRequest)([]byte,error){return nil,portableRefusal}}
+  }
+  pin,e:=directWitnessRosterPin(roster);if e!=nil{return true,e}
+  return true,json.NewEncoder(os.Stdout).Encode(map[string]string{"rosterPin":pin,"cardsPin":hexHash(raw)})
  case "--windows-witness-create-gui-lab":
   if len(args)!=3{return true,portableRefusal}
   raw,e:=io.ReadAll(io.LimitReader(os.Stdin,4097));if e!=nil||len(raw)>4096{return true,portableRefusal}
