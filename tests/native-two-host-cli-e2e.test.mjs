@@ -3,9 +3,14 @@ import assert from 'node:assert/strict';
 import {spawn} from 'node:child_process';
 import {createSocket} from 'node:dgram';
 import {fileURLToPath} from 'node:url';
+import {win32} from 'node:path';
 import {setTimeout as sleep} from 'node:timers/promises';
 
-const script=fileURLToPath(new URL('../scripts/native-two-host-network-lab.mjs',import.meta.url));
+const packageRoot=process.env.QS_ALPHA_PACKAGE;
+const script=packageRoot
+ ?win32.join(packageRoot,'scripts','native-two-host-network-lab.mjs')
+ :fileURLToPath(new URL('../scripts/native-two-host-network-lab.mjs',import.meta.url));
+const nodeBinary=packageRoot?win32.join(packageRoot,'runtime','node.exe'):process.execPath;
 async function pickPort(){
  const s=createSocket('udp4');
  await new Promise((ok,no)=>{s.once('error',no);s.bind(0,'127.0.0.1',ok);});
@@ -14,7 +19,7 @@ async function pickPort(){
  return port;
 }
 function launch(args,input){
- const child=spawn(process.execPath,[script,...args],{
+ const child=spawn(nodeBinary,[script,...args],{
   shell:false,windowsHide:true,stdio:['pipe','pipe','pipe'],env:{...process.env}});
  let stdout='',stderr='';
  child.stdout.on('data',x=>{stdout+=x.toString('utf8');if(stdout.length>4096)child.kill();});
