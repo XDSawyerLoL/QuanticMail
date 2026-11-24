@@ -4,6 +4,10 @@ package main
 
 import (
  "bytes"
+ "crypto/tls"
+ "crypto/x509"
+ "crypto/ed25519"
+ "net/url"
  "encoding/json"
  "encoding/base64"
  "io"
@@ -77,9 +81,16 @@ func checkMailKitConfig(dir,binary,pin string,r map[string]string,files map[stri
  pins:=map[string]bool{};tlsPins:=map[string]bool{};urls:=map[string]bool{}
  for _,a:=range d.PQ.Authority.Authorities{
   if !hashRE.MatchString(a.Pin)||!hashRE.MatchString(a.TLSPin)||pins[a.Pin]||tlsPins[a.TLSPin]||urls[a.URL]{return portableRefusal}
+  u,e:=url.Parse(a.URL);if e!=nil||u.Scheme!="https"||u.Hostname()==""||u.Path!="/native-checkpoint"||u.User!=nil||u.RawQuery!=""||u.Fragment!=""{return portableRefusal}
+  raw,e:=base64.RawURLEncoding.DecodeString(a.PublicKey);if e!=nil||hexHash(raw)!=a.Pin{return portableRefusal}
+  key,e:=x509.ParsePKIXPublicKey(raw);if e!=nil{return e};if _,ok:=key.(ed25519.PublicKey);!ok{return portableRefusal}
   pins[a.Pin]=true;tlsPins[a.TLSPin]=true;urls[a.URL]=true
  }
- for _,p:=range []string{d.PQ.Authority.CAFile,d.PQ.Authority.ClientCertFile,d.PQ.Authority.ClientKeyFile}{b,e:=read(p);if e!=nil{return e};clear(b)}
+ ca,e:=read(d.PQ.Authority.CAFile);if e!=nil{return e};defer clear(ca)
+ roots:=x509.NewCertPool();if !roots.AppendCertsFromPEM(ca){return portableRefusal}
+ cert,e:=read(d.PQ.Authority.ClientCertFile);if e!=nil{return e};defer clear(cert)
+ private,e:=read(d.PQ.Authority.ClientKeyFile);if e!=nil{return e};defer clear(private)
+ if _,e=tls.X509KeyPair(cert,private);e!=nil{return e}
  for n:=range files{if mailKitPEM.MatchString(n)&&!used[n]{return portableRefusal}}
  if _,e=parseSenderTrust(files["contacts.json"]);e!=nil{return e}
  return nil
