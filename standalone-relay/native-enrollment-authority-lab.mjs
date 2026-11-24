@@ -1,38 +1,15 @@
 // Private laboratory transport: one independently preapproved candidate per
 // authority. No public enrollment endpoint, bearer token, or policy activation.
 import {createServer} from 'node:https';
-import {createHash,createPublicKey,sign,verify} from 'node:crypto';
+import {createHash,sign} from 'node:crypto';
 import {createNativeEnrollmentRegistryLab,verifyNativeEnrollmentReceipts} from '../lib/quantic/native-enrollment-registry-lab.mjs';
 import {issueNativePossessionChallenge} from '../lib/quantic/native-possession-challenge.mjs';
 const check=x=>{if(!x)throw Error('Native enrollment transport refused');};
 const sha=b=>createHash('sha256').update(b).digest('hex');
 const hex=/^[a-f0-9]{64}$/;
 const exact=(o,keys)=>check(o&&typeof o==='object'&&!Array.isArray(o)&&Object.keys(o).length===keys.length&&keys.every(k=>Object.hasOwn(o,k)));
-const authFormat='quantic-native-authentication-receipt-lab/v1';
-const authFields=['format','authorityPin','address','deviceId','candidateDigest','clientPin','nonce','challengeSha256','issuedAt','expires'];
-function authBytes(r){
- exact(r,[...authFields,'signature']);check(r.format===authFormat);
- for(const k of ['authorityPin','candidateDigest','clientPin','nonce','challengeSha256'])check(typeof r[k]==='string'&&hex.test(r[k]));
- check(/^[a-z0-9][a-z0-9._-]{2,31}~[a-f0-9]{32}@quantic$/.test(r.address)&&/^d-[a-f0-9]{32}$/.test(r.deviceId));
- check(Number.isSafeInteger(r.issuedAt)&&r.expires===r.issuedAt+15000);
- return Buffer.from(JSON.stringify(authFields.map(k=>r[k])));
-}
-// This verifies fresh proof statements, NOT an access token or authorization.
-export function verifyNativeAuthenticationQuorum({receipts,trusted,candidate,expected,clientPin,nonce,now=Date.now()}){
- check(hex.test(clientPin)&&hex.test(nonce)&&Number.isSafeInteger(now)&&Array.isArray(receipts)&&receipts.length>=3&&receipts.length<=4&&Array.isArray(trusted)&&trusted.length===4);
- const target=sha(JSON.stringify(candidate)),keys=new Map(),seen=new Set(),challenges=new Set();
- for(const t of trusted){
-  const raw=Buffer.from(t.publicKey,'base64url');check(raw.length===44&&raw.toString('base64url')===t.publicKey&&sha(raw)===t.pin&&!keys.has(t.pin));
-  const k=createPublicKey({key:raw,type:'spki',format:'der'});check(k.asymmetricKeyType==='ed25519');keys.set(t.pin,k);
- }
- for(const r of receipts){
-  const raw=authBytes(r);
-  check(keys.has(r.authorityPin)&&!seen.has(r.authorityPin)&&!challenges.has(r.challengeSha256)&&r.address===expected.address&&r.deviceId===expected.deviceId&&r.candidateDigest===target&&r.clientPin===clientPin&&r.nonce===nonce&&r.issuedAt<=now&&now<r.expires);
-  const sig=Buffer.from(r.signature,'base64url');check(sig.length===64&&sig.toString('base64url')===r.signature&&verify(null,raw,keys.get(r.authorityPin),sig));
-  seen.add(r.authorityPin);challenges.add(r.challengeSha256);
- }
- return Object.freeze({status:'fresh-native-authentication-quorum-lab',address:expected.address,deviceId:expected.deviceId,authorityCount:seen.size,nonce,labOnly:true,sessionAuthorized:false,mailPolicyActive:false});
-}
+import {authFormat,authBytes} from '../lib/quantic/native-authentication-receipt-lab.mjs';
+export {verifyNativeAuthenticationQuorum} from '../lib/quantic/native-authentication-receipt-lab.mjs';
 export async function startNativeEnrollmentAuthorityLab({directory,authorityKey,authorityPin,tls,clientPin,candidate,expected,trusted,port=0,labOnly,operatorApproved}){
  check(labOnly===true&&operatorApproved===true&&hex.test(clientPin)&&Number.isInteger(port)&&port>=0&&port<=65535);
  const snapshot=structuredClone(candidate),pins=structuredClone(expected),trust=structuredClone(trusted);
