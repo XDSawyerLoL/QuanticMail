@@ -11,6 +11,7 @@ import (
  "io"
  "os"
  "path/filepath"
+ "bufio"
  "strings"
 )
 
@@ -54,6 +55,7 @@ func validateInstallation(root,manifestPin,vaultPin string)error{
   actual,err:=fileSHA256(filepath.Join(app,entry.name),entry.size)
   if err!=nil||actual!=entry.pin{return fmt.Errorf("unexpected %s SHA256",entry.name)}
  }
+ if err:=validateEntrypointHashes(app);err!=nil{return err}
  // The Windows PowerShell entry point repeats full inventory validation
  // before touching the vault, and the native GUI never has a direct relay
  // fallback or a path to historical user keys.
@@ -70,6 +72,37 @@ func validateEmbeddedPins()error{
  if !validPin(expectedManifestSHA256)||!validPin(expectedVaultSHA256)||
   strings.EqualFold(expectedManifestSHA256,expectedVaultSHA256){
   return errors.New("release build has no independent package pins")
+ }
+ return nil
+}
+
+
+// Verify every script executed during startup BEFORE launching PowerShell.
+// A pinned manifest alone does not protect a script if its digest is never checked.
+func validateEntrypointHashes(app string) error {
+ manifest,err:=os.Open(filepath.Join(app,"SHA256SUMS.txt"))
+ if err!=nil{return err}
+ defer manifest.Close()
+ expected:=map[string]string{}
+ required:=[]string{"Start-Windows-PQ-Lab.ps1","Test-Windows-PQ-Package.ps1","Quantic-Sillage-Alpha.ps1"}
+ scanner:=bufio.NewScanner(io.LimitReader(manifest,262145))
+ for scanner.Scan(){
+  line:=scanner.Text()
+  if len(line)<68 || line[64:68]!=" *./" || !validPin(line[:64]) {return errors.New("invalid package manifest")}
+  name:=line[68:]
+  for _,requiredName:=range required {
+   if name==requiredName {
+    if _,exists:=expected[name];exists{return errors.New("duplicate startup script")}
+    expected[name]=line[:64]
+   }
+  }
+ }
+ if err:=scanner.Err();err!=nil{return err}
+ for _,name:=range required {
+  pin,ok:=expected[name]
+  if !ok{return fmt.Errorf("startup script missing from signed inventory: %s",name)}
+  actual,err:=fileSHA256(filepath.Join(app,name),1024*1024)
+  if err!=nil||actual!=pin{return fmt.Errorf("startup script integrity failure: %s",name)}
  }
  return nil
 }

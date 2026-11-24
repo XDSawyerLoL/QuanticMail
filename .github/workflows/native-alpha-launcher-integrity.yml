@@ -1,0 +1,40 @@
+name: Native Alpha launcher integrity
+on:
+  pull_request:
+    branches:
+      - main
+      - feat/identity-vault-security-hardening-20261121
+    paths:
+      - 'labs/quantic-native/alpha-launcher/**'
+      - '.github/workflows/native-alpha-launcher-integrity.yml'
+  push:
+    branches:
+      - 'fix/native-alpha-launcher-integrity-*'
+    paths:
+      - 'labs/quantic-native/alpha-launcher/**'
+      - '.github/workflows/native-alpha-launcher-integrity.yml'
+permissions:
+  contents: read
+jobs:
+  launcher-integrity:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: labs/quantic-native/alpha-launcher
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+        with:
+          go-version: '1.23.2'
+      - name: Run launcher integrity regressions
+        run: go test -count=1 -v ./...
+      - name: Compile Windows GUI launcher without console subsystem
+        if: runner.os == 'Windows'
+        run: go build -trimpath -ldflags="-H windowsgui" -o "${{ runner.temp }}/Quantic-Sillage-Alpha.exe" .
