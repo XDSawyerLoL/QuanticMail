@@ -50,6 +50,12 @@ The new **separate** `cmd/quantic-control-sentinel` Win32 binary periodically sc
 
 Build on Windows with `go build -ldflags="-H windowsgui" -o quantic-sentinel-alpha.exe ./cmd/quantic-control-sentinel`. Windows/Linux CI tests changed-file detection, cancellation and binary subsystem. The unsafe asynchronous Windows notification prototype was removed after a Windows runner crash. See [SENTINEL_ALPHA.md](SENTINEL_ALPHA.md) for exact detection thresholds, constraints and remaining gates.
 
+## Quantic Sentinel Windows resident mode (Alpha)
+
+The **same** Win32 GUI program now optionally installs a **per-user**, unelevated background agent when the user clicks **Installer pour ma session Windows**. It copies the verified executable into LocalAppData, registers only an **HKCU Run** entry, and starts monitoring the explicitly selected folder. Monitoring continues after the GUI closes and starts again at the next user sign-in. Local, bounded JSONL audit records are readable from the GUI via **Historique local**. **Désinstaller** removes only registered startup and known installation files, leaving logs intact.
+
+**It is not a Windows SCM service** and does not operate before logon or after sign-out. The agent cannot block ransomware or reliably identify malicious processes. No production Identity Vault integration. Read [SENTINEL_RESIDENT_ALPHA.md](SENTINEL_RESIDENT_ALPHA.md) for exact behavior, cleanup rules and remaining validation requirements.
+
 ## Local developer demo
 
 From quantic-control:

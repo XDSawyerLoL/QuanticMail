@@ -1,0 +1,125 @@
+package sentinel
+
+import (
+ "context"
+ "encoding/json"
+ "errors"
+ "fmt"
+ "io"
+ "os"
+ "path/filepath"
+ "strings"
+ "time"
+)
+
+const maxEventLogBytes=4<<20
+const maxRecentReadBytes=4<<20
+type Record struct{
+ Time time.Time `json:"time"`
+ Type string `json:"type"`
+ Message string `json:"message,omitempty"`
+ Alert *Alert `json:"alert,omitempty"`
+}
+
+type localAudit struct{file *os.File;path string;size int64}
+func openAudit(path string)(*localAudit,error){
+ if !filepath.IsAbs(path){return nil,errors.New("absolute audit path required")}
+ parent:=filepath.Dir(path)
+ stat,err:=os.Stat(parent);if err!=nil||!stat.IsDir(){return nil,errors.New("audit folder not available")}
+ before,err:=os.Lstat(path)
+ if err!=nil&&!errors.Is(err,os.ErrNotExist){return nil,err}
+ if err==nil&&(!before.Mode().IsRegular()||before.Size()>maxEventLogBytes){return nil,errors.New("audit file invalid or full")}
+ f,err:=os.OpenFile(path,os.O_WRONLY|os.O_CREATE|os.O_APPEND,0600)
+ if err!=nil{return nil,err}
+ after,err:=f.Stat()
+ if err!=nil||!after.Mode().IsRegular()||(before!=nil&&!os.SameFile(before,after)){
+  f.Close();return nil,errors.New("audit file changed during open")
+ }
+ return &localAudit{file:f,path:path,size:after.Size()},nil
+}
+func (a *localAudit) Close()error{
+ if a==nil||a.file==nil{return nil}
+ err:=a.file.Close();a.file=nil;return err
+}
+func (a *localAudit) Append(r Record)error{
+ if a==nil||a.file==nil{return errors.New("audit closed")}
+ if r.Type==""{return errors.New("event type required")}
+ if r.Time.IsZero(){r.Time=time.Now().UTC()}
+ if r.Message!=""&&len(r.Message)>512{r.Message=r.Message[:512]}
+ if r.Alert!=nil{
+  cp:=*r.Alert
+  if len(cp.Example)>512{cp.Example=cp.Example[:512]}
+  r.Alert=&cp
+ }
+ raw,err:=json.Marshal(r);if err!=nil{return err}
+ raw=append(raw,'\n')
+ if a.size+int64(len(raw))>maxEventLogBytes{return errors.New("audit log full: monitoring stopped")}
+ n,err:=a.file.Write(raw)
+ if err!=nil{return err}
+ if n!=len(raw){return io.ErrShortWrite}
+ if err:=a.file.Sync();err!=nil{return err}
+ a.size+=int64(n)
+ return nil
+}
+
+// RunResident continuously observes an explicitly configured directory until
+// cancelled. No elevated privileges, network connections, or destructive
+// actions are used. Every alert is durably recorded before processing more.
+func RunResident(ctx context.Context,root,logPath string)error{
+ if ctx==nil{return errors.New("context required")}
+ audit,err:=openAudit(logPath)
+ if err!=nil{return err}
+ defer audit.Close()
+ if err:=audit.Append(Record{Type:"started",Message:"Surveillance locale démarrée"});err!=nil{return err}
+ events:=make(chan Event,256)
+ watchCtx,cancel:=context.WithCancel(ctx)
+ defer cancel()
+ watchDone:=make(chan error,1)
+ go func(){watchDone<-Watch(watchCtx,root,events);close(events)}()
+ detector:=NewDetector(DefaultPolicy())
+ heartbeat:=time.NewTicker(time.Minute)
+ defer heartbeat.Stop()
+ var received uint64
+ for{
+  select{
+  case <-ctx.Done():
+   cancel()
+   select{case <-watchDone:case <-time.After(5*time.Second):}
+   _=audit.Append(Record{Type:"stopped",Message:"Surveillance arrêtée à la demande"})
+   return nil
+  case err:=<-watchDone:
+   if err!=nil{
+    _=audit.Append(Record{Type:"error",Message:err.Error()})
+    return fmt.Errorf("watcher unavailable: %w",err)
+   }
+   return nil
+  case ev,ok:=<-events:
+   if !ok{events=nil;continue}
+   received++
+   if alert:=detector.Observe(ev);alert!=nil{
+    if err:=audit.Append(Record{Type:"alert",Message:alert.Rule,Alert:alert});err!=nil{return err}
+   }
+  case <-heartbeat.C:
+   if err:=audit.Append(Record{Type:"heartbeat",Message:fmt.Sprintf("%d événements détectés",received)});err!=nil{return err}
+  }
+ }
+}
+
+// RecentRecords allows GUI display without loading an unbounded/untrusted log.
+// It does not grant a local attacker tamper-proof audit guarantees.
+func RecentRecords(path string,limit int)([]Record,error){
+ if limit<1||limit>100{return nil,errors.New("invalid recent record count")}
+ before,err:=os.Lstat(path);if err!=nil{return nil,err}
+ if !before.Mode().IsRegular()||before.Size()>maxRecentReadBytes{return nil,errors.New("invalid audit log")}
+ raw,err:=os.ReadFile(path);if err!=nil{return nil,err}
+ lines:=strings.Split(strings.TrimSuffix(string(raw),"\n"),"\n")
+ if len(lines)>limit{lines=lines[len(lines)-limit:]}
+ records:=make([]Record,0,len(lines))
+ for _,line:=range lines{
+  if line==""{continue}
+  var r Record
+  if len(line)>8192||json.Unmarshal([]byte(line),&r)!=nil{return nil,errors.New("corrupt audit record")}
+  records=append(records,r)
+ }
+ return records,nil
+}
