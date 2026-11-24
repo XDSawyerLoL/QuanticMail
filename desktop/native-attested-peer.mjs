@@ -1,5 +1,6 @@
 // Trusted desktop process only; no renderer IPC, cookies or redirects.
 import {request as httpsRequest} from 'node:https';
+import {checkServerIdentity} from 'node:tls';
 import {createHash,randomBytes} from 'node:crypto';
 import {readFile} from 'node:fs/promises';
 import {isAbsolute} from 'node:path';
@@ -22,7 +23,12 @@ export async function createAttestedPeerSource(config,{read=readFile}={}){
  function fetchOne(a,challenge){
   return new Promise((resolve,reject)=>{
    const raw=Buffer.from(JSON.stringify(challenge));let pinned=false;
-   const req=httpsRequest(a.url,{...tls,agent:false,method:'POST',headers:{'Content-Type':'application/json','Content-Length':raw.length,'Connection':'close'}},res=>{
+   const req=httpsRequest(a.url,{...tls,agent:false,method:'POST',checkServerIdentity(host,cert){
+     const error=checkServerIdentity(host,cert);
+     if(error)return error;
+     if(!cert?.raw||createHash('sha256').update(cert.raw).digest('hex')!==a.tlsPin)return Error('authority TLS pin mismatch');
+     pinned=true;
+    },headers:{'Content-Type':'application/json','Content-Length':raw.length,'Connection':'close'}},res=>{
     if(!pinned||res.statusCode!==200||res.headers['transfer-encoding']||!/^\d+$/.test(res.headers['content-length']??'')){res.destroy();reject(Error('invalid authority response'));return;}
     const len=Number(res.headers['content-length']);if(len<1||len>131072){res.destroy();reject(Error('authority response size'));return;}
     let total=0;const chunks=[];
@@ -31,12 +37,13 @@ export async function createAttestedPeerSource(config,{read=readFile}={}){
    });
    const timer=setTimeout(()=>req.destroy(Error('authority deadline')),4000);
    req.on('close',()=>clearTimeout(timer));req.on('error',reject);
+   // Release application metadata only after normal certificate validation,
+   // hostname validation and exact certificate pin have all succeeded.
    req.on('socket',s=>s.once('secureConnect',()=>{
-    const cert=s.getPeerCertificate();
-    pinned=Boolean(s.authorized&&cert?.raw&&createHash('sha256').update(cert.raw).digest('hex')===a.tlsPin);
-    if(!pinned)req.destroy(Error('authority TLS pin mismatch'));
+    if(!pinned||!s.authorized){req.destroy(Error('authority TLS pin mismatch'));return;}
+    req.end(raw);
    }));
-   req.end(raw);
+   req.on('close',()=>raw.fill(0));
   });
  }
  return async (addr,dev)=>{

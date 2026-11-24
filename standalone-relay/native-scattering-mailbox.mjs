@@ -116,7 +116,12 @@ export async function startScatteringMailboxEndpoint(c,{windowsBootstrap,profile
   const op=typeof req.url==='string'&&req.url.startsWith(BASE)?req.url.slice(BASE.length):'';
   const auth=req.headers.authorization;
   const len=Number(req.headers['content-length']);
-  if(req.method!=='POST'||!allowed.has(op)||typeof auth!=='string'||!auth.startsWith('Bearer ')||!tokenOK(auth.slice(7))||req.headers.origin!==undefined||req.headers['transfer-encoding']!==undefined||req.headers['content-type']!=='application/json'||!Number.isInteger(len)||len<1||len>MAX){response(res,400,errorBody);req.resume();return;}
+  const distinct=req.headersDistinct;
+  const expectedHost='127.0.0.1:'+req.socket.localPort;
+  const hostOK=req.headers.host===expectedHost||(req.socket.localPort===80&&req.headers.host==='127.0.0.1');
+  const foreignHeaders=Object.keys(req.headers).some(k=>k==='referer'||k==='cookie'||k==='forwarded'||k.startsWith('sec-fetch-')||k.startsWith('x-forwarded-'));
+  const unambiguous=['host','authorization','content-type','content-length'].every(k=>distinct?.[k]?.length===1);
+  if(!hostOK||foreignHeaders||!unambiguous||req.method!=='POST'||!allowed.has(op)||typeof auth!=='string'||!auth.startsWith('Bearer ')||!tokenOK(auth.slice(7))||req.headers.origin!==undefined||req.headers['transfer-encoding']!==undefined||req.headers['content-type']!=='application/json'||!Number.isInteger(len)||len<1||len>MAX){response(res,400,errorBody);req.resume();return;}
   if(stopped||busy||next>operationLimit){response(res,503,errorBody);req.resume();return;}
   busy=true;let transmitted=false,data;
   try{

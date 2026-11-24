@@ -12,8 +12,8 @@ const binary=process.env.QUANTIC_SCATTERING_NATIVE_TEST?resolve(process.env.QUAN
 const windows=process.platform==='win32',vault=process.env.QUANTIC_WINDOWS_VAULT_TEST?resolve(process.env.QUANTIC_WINDOWS_VAULT_TEST):undefined;
 const token='synthetic-'+'a'.repeat(48),base='/api/quantic/native/v1/';
 async function freeUDP(){const s=createSocket('udp4');await new Promise(r=>s.bind(0,'127.0.0.1',r));const p=s.address().port;await new Promise(r=>s.close(r));return p;}
-function post(port,path,body){
- return new Promise((resolve,reject)=>{const b=Buffer.from(JSON.stringify(body));const q=request({hostname:'127.0.0.1',port,path,method:'POST',headers:{'content-type':'application/json','content-length':b.length,authorization:'Bearer '+token}},res=>{const parts=[];res.on('data',x=>parts.push(x));res.on('end',()=>resolve({status:res.statusCode,body:JSON.parse(Buffer.concat(parts))}));res.on('error',reject);});q.on('error',reject);q.setTimeout(19000,()=>q.destroy(Error('deadline')));q.end(b);});
+function post(port,path,body,extraHeaders={}){
+ return new Promise((resolve,reject)=>{const b=Buffer.from(JSON.stringify(body));const q=request({hostname:'127.0.0.1',port,path,method:'POST',headers:{'content-type':'application/json','content-length':b.length,authorization:'Bearer '+token,...extraHeaders}},res=>{const parts=[];res.on('data',x=>parts.push(x));res.on('end',()=>resolve({status:res.statusCode,body:JSON.parse(Buffer.concat(parts))}));res.on('error',reject);});q.on('error',reject);q.setTimeout(19000,()=>q.destroy(Error('deadline')));q.end(b);});
 }
 test('native Scattering pacers and sinks carry bounded mailbox HTTP operations over real UDP without public HTTP',{skip:!binary||(windows&&!vault),timeout:90000},async()=>{
  const parent=windows?(process.env.QUANTIC_WINDOWS_TEST_ROOT??await realpath(tmpdir())):tmpdir();
@@ -39,6 +39,10 @@ test('native Scattering pacers and sinks carry bounded mailbox HTTP operations o
   }
   await new Promise(r=>setTimeout(r,400));assert.ok(kids.every(p=>p.exitCode===null));
   assert.equal((await post(endpoints[0].httpPort,'/not-a-mailbox-route',{})).status,400);assert.equal(hits.length,0);
+  for(const headers of [{host:'foreign.invalid'},{origin:'https://foreign.invalid'},{referer:'https://foreign.invalid/'},{'sec-fetch-site':'cross-site'},{cookie:'synthetic=1'},{'x-forwarded-host':'foreign.invalid'},{authorization:['Bearer '+token,'Bearer '+token]}]){
+   assert.equal((await post(endpoints[0].httpPort,base+'pull',{},headers)).status,400);
+  }
+  assert.equal(hits.length,0,'rejected local requests must never enter the UDP carrier');
   for(let i=0;i<16;i++){
    const op=['send','pull','ack','recover'][i%4];
    const payload={fixture:op,sequence:i,...(i===0?{syntheticCiphertext:'x'.repeat(8192)}:{})};
