@@ -37,9 +37,9 @@ export async function runWindowsScatteringMail(config,storage,{operation,path,ex
   try{
    const client=await mailboxFactory(scope);
    const r=await client.send(reread);
-   check(r?.digest===digest&&['queued','acknowledged'].includes(r.status)
+   check(r?.digest===digest&&typeof r.duplicate==='boolean'&&['queued','acknowledged'].includes(r.status)
     &&/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(r.id));
-   return {status:'deposited',id:r.id,relayStatus:r.status,...saved};
+   return {status:'deposited',id:r.id,relayStatus:r.status,duplicate:r.duplicate,...saved};
   }catch{return {status:'deposit-unconfirmed',...saved,retryRequiresConfirmation:true};}
  }
  const client=await mailboxFactory(scope);
