@@ -48,6 +48,8 @@ mkdir -p "$WORK/queue" "$WORK/sender-a" "$WORK/sender-b"
 chmod 700 "$WORK/queue" "$WORK/sender-a" "$WORK/sender-b"
 RESEAL="${SCATTERING_MULTIHOP_RESEAL:-0}"
 E2E="${SCATTERING_MULTIHOP_E2E:-0}"
+MIX="${SCATTERING_MULTIHOP_MIX:-0}"
+if [[ "$MIX" == "1" && "$E2E" != "1" ]];then echo 'batch-mix requires E2E lab' >&2;exit 2;fi
 if [[ "$E2E" == "1" && "$RESEAL" != "1" ]]; then
  echo 'E2E test requires independent hop resealing' >&2; exit 2
 fi
@@ -66,7 +68,7 @@ sudo timeout -s INT 17s ip netns exec "$NSR" tcpdump -i "$VBR" -Q in -n -s 256 -
 sudo timeout -s INT 17s ip netns exec "$NSD" tcpdump -i "$VDR" -Q in -n -s 256 -U -w - 'udp and dst port 49003' >"$WORK/out.pcap" 2>"$WORK/out.caplog" & CAP_PIDS+=("$!")
 sleep .8
 if [[ "$RESEAL" == "1" ]]; then
- sudo ip netns exec "$NSR" "$NODE" "$ROOT/scripts/scattering-hop-reseal-relay-lab.mjs" 10.252.41.2:49001 10.252.42.2:49002 "$WORK/queue" 12 "$WORK/a.key" "$WORK/b.key" "$WORK/out.key" >"$WORK/relay.json" 2>"$WORK/relay.err" &
+ sudo ip netns exec "$NSR" "$NODE" "$ROOT/scripts/scattering-hop-reseal-relay-lab.mjs" 10.252.41.2:49001 10.252.42.2:49002 "$WORK/queue" 12 "$WORK/a.key" "$WORK/b.key" "$WORK/out.key" "$MIX" >"$WORK/relay.json" 2>"$WORK/relay.err" &
 else
  sudo ip netns exec "$NSR" "$NODE" "$ROOT/scripts/scattering-opaque-relay-lab.mjs" 10.252.41.2:49001 10.252.42.2:49002 "$WORK/queue" 12 >"$WORK/relay.json" 2>"$WORK/relay.err" &
 fi
@@ -129,9 +131,14 @@ if(relay.ingressA<50||relay.ingressB<50||
  throw Error('multi-hop capture mismatch or missing relayed traffic');
 const reseal=process.env.SCATTERING_MULTIHOP_RESEAL==='1';
 const e2e=process.env.SCATTERING_MULTIHOP_E2E==='1';
+const mix=process.env.SCATTERING_MULTIHOP_MIX==='1';
 const rxLines=get('receive.json').toString().trim().split('\n');
 const receiver=JSON.parse(rxLines.at(-1));
 if(e2e){
+ if((relay.mixedBatches===true)!==mix)throw Error('relay batch mixing expectation mismatch');
+ if(mix&&(relay.mixer?.batchSize!==40||relay.mixer?.batches!==5||
+          relay.mixer?.pending!==0||relay.mixer?.emitted!==200))
+    throw Error('mixed batch-count/completeness requirement failed');
  if(!reseal||relay.mode!=='trusted-hop-reseal-lab'||relay.ciphertextModified!==true||
     receiver.mode!=='nested-e2e-synthetic-receive'||receiver.authenticatedE2E!==200||
     receiver.authenticatedHop!==200||receiver.perSender.A!==100||receiver.perSender.B!==100||
@@ -163,7 +170,7 @@ if(e2e){
     throw Error('temporal scorer observed incomplete authenticated truth');
  }finally{hopKey.fill(0);contentKey.fill(0);}
 }
-console.log(JSON.stringify({lab:e2e?'nested-e2e-inner-under-trusted-hop':reseal?'trusted-hop-reseal-control':'negative-control-2-senders-1-opaque-relay',
+console.log(JSON.stringify({lab:mix?'nested-e2e-40-cell-randomized-mix':e2e?'nested-e2e-inner-under-trusted-hop':reseal?'trusted-hop-reseal-control':'negative-control-2-senders-1-opaque-relay',
  CPUContentionRequested:process.env.SCATTERING_MULTIHOP_CPU_LOAD==='1',
  impairmentRequested:process.env.SCATTERING_MULTIHOP_IMPAIRMENT==='1',
  native,relay,receiver:{received:receiver.received,authenticatedSynthetic:receiver.authenticatedSynthetic??0,
