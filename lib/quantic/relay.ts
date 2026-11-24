@@ -153,13 +153,13 @@ function parseLocator(value: string) {
 }
 
 function validateEncryptionPublicKey(key: QuanticPublicKey) {
-  if (key.kty !== "EC" || key.crv !== "P-256" || !key.x || !key.y) {
+  if (!key || typeof key !== "object" || Object.hasOwn(key, "d") || key.kty !== "EC" || key.crv !== "P-256" || !key.x || !key.y) {
     throw new RelayError("Clé publique de chiffrement invalide.", 400);
   }
 }
 
 function validateSigningPublicKey(key: QuanticPublicKey) {
-  if (key.kty !== "EC" || key.crv !== "P-256" || !key.x || !key.y) {
+  if (!key || typeof key !== "object" || Object.hasOwn(key, "d") || key.kty !== "EC" || key.crv !== "P-256" || !key.x || !key.y) {
     throw new RelayError("Clé publique de signature invalide.", 400);
   }
 }
