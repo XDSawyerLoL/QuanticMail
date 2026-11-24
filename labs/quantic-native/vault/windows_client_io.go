@@ -13,7 +13,7 @@ import (
 // Explicit local helper for the trusted Node desktop process, not a web API.
 // It accepts only designated client files inside the private vault directory.
 // Same-Windows-user processes are in the trusted OS boundary.
-var clientFileName=regexp.MustCompile("^(scattering[.]json|desktop[.]json|controller[.]pem|contacts[.]json|peer-[a-z0-9-]{1,48}[.]pem|draft-[a-z0-9-]{1,48}[.]json|wire-[a-z0-9-]{1,48}[.]json|receipt[.]key|receipt-[a-z0-9-]{1,48}[.]json)$")
+var clientFileName=regexp.MustCompile("^(direct-identity[.]json|scattering[.]json|desktop[.]json|controller[.]pem|contacts[.]json|peer-[a-z0-9-]{1,48}[.]pem|draft-[a-z0-9-]{1,48}[.]json|wire-[a-z0-9-]{1,48}[.]json|receipt[.]key|receipt-[a-z0-9-]{1,48}[.]json)$")
 var clientDraftName=regexp.MustCompile("^draft-[a-z0-9-]{1,48}[.]json$")
 var clientWireName=regexp.MustCompile("^(wire|receipt)-[a-z0-9-]{1,48}[.]json$")
 func winClientIO(args []string)(bool,error){
