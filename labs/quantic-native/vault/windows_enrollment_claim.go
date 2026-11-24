@@ -62,12 +62,8 @@ func prepareWindowsEnrollmentVault(parent,handle,quorum string,devicePW,pqPW,own
  rootBytes,e:=winReadPrivate(filepath.Join(dir,"owner-roots.vault"),50000)
  if e!=nil{return empty,"",e};defer clear(rootBytes)
  if e=verifySealedEnrollmentRoots(rootBytes,claim,ownerPW);e!=nil{return empty,"",e}
- request:=struct{
-  Format string `json:"format"`
-  QuorumPin string `json:"quorumPin"`
-  ControllerPublic string `json:"controllerPublic"`
-  Claim enrollmentClaim `json:"claim"`
- }{"quantic-native-enrollment-request-lab/v1",quorum,b64.EncodeToString(pub),claim}
+ request,e:=signEnrollmentRequest(claim,quorum,b64.EncodeToString(pub),owner,rootPQ)
+ if e!=nil{return empty,"",e}
  raw,e:=json.Marshal(request);if e!=nil{return empty,"",e}
  if e=winWritePrivate(filepath.Join(dir,"enrollment-request.json"),raw);e!=nil{return empty,"",e}
  if e=winWritePrivate(filepath.Join(dir,"lab-provisioned"),[]byte(appPin));e!=nil{return empty,"",e}
