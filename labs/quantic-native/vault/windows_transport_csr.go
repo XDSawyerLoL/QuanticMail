@@ -50,8 +50,8 @@ func readLocalTransportKey(dir,role,digest string,secret []byte,create bool)(*ec
   prefix:=append(append([]byte(nil),aad...),nonce...)
   sealed:=g.Seal(prefix,nonce,der,aad);defer clear(sealed)
   if e=winWritePrivate(path,sealed);e!=nil{return nil,nil,e}
-  raw,e=winReadPrivate(path,4096)
  }
+ if e!=nil{raw,e=winReadPrivate(path,4096)}
  if e!=nil{return nil,nil,e};defer clear(raw)
  n:=len(header);if len(raw)<=n+16+12+16||!bytes.Equal(raw[:n],header){return nil,nil,portableRefusal}
  g,e:=portableAEAD(secret,raw[n:n+16]);if e!=nil{return nil,nil,e};n+=16
