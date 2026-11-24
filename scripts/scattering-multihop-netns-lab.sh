@@ -177,16 +177,18 @@ if(e2e){
 let timeOnlyObserver=null;
 if(e2e){
  const {evaluateTimeOnlyLab}=await import(pathToFileURL(resolve(root,'lib/quantic/scattering-temporal-correlation-lab.mjs')).href);
- const hopKey=get('out.key'),contentKey=get('e2e.key');
+ const hopKey=get('out.key'),contentKey=get('e2e.key'),
+       inputAKey=get('a.key'),inputBKey=get('b.key');
  try{
   timeOnlyObserver=evaluateTimeOnlyLab({
    captureA:get('a.pcap'),captureB:get('b.pcap'),captureEgress:get('out.pcap'),
-   outputHopKey:hopKey,endToEndKey:contentKey,maxLagMs:250
+   outputHopKey:hopKey,endToEndKey:contentKey,
+   inputHopAKey:inputAKey,inputHopBKey:inputBKey,maxLagMs:250
   });
   if(timeOnlyObserver.data.total!==expectedData||timeOnlyObserver.truth.A!==100||
      timeOnlyObserver.truth.B!==bReal||timeOnlyObserver.observedPackets!==native.sent)
     throw Error('temporal scorer observed incomplete authenticated truth');
- }finally{hopKey.fill(0);contentKey.fill(0);}
+ }finally{hopKey.fill(0);contentKey.fill(0);inputAKey.fill(0);inputBKey.fill(0);}
 }
 console.log(JSON.stringify({lab:mix?'nested-e2e-40-cell-randomized-mix':e2e?'nested-e2e-inner-under-trusted-hop':reseal?'trusted-hop-reseal-control':'negative-control-2-senders-1-opaque-relay',
  CPUContentionRequested:process.env.SCATTERING_MULTIHOP_CPU_LOAD==='1',
