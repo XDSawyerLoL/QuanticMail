@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import {generateKeyPairSync,createHash,sign,createPublicKey,diffieHellman,decapsulate,encapsulate,hkdfSync,createDecipheriv,createCipheriv,randomBytes} from 'node:crypto';
 import {mkdtemp,mkdir,writeFile,readFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {join,resolve} from 'node:path';
+import {startNativeScatteringLink} from './helpers/native-scattering-link.mjs';
+const carrierBinary=process.env.QUANTIC_ENROLLED_SCATTERING_BINARY?resolve(process.env.QUANTIC_ENROLLED_SCATTERING_BINARY):null;
 import {createSignedAuthorityRenewalLab} from '../standalone-relay/native-authority-renewal-lab.mjs';
 import {approveNativeAuthorityRenewalLab} from '../standalone-relay/native-authority-approval-lab.mjs';
 import {canonicalManifestText} from '../lib/quantic/manifest-core.mjs';
@@ -139,7 +141,7 @@ test('approved enrollment survives the real signed renewal and durable head of t
  }finally{await rm(root,{recursive:true,force:true});}
 });
 
-test('native-only relay durably publishes two quorum-enrolled identities, refuses web and legacy auth, exchanges encrypted mail after live checkpoint approval',{skip:process.platform!=='linux',timeout:30000},async()=>{
+test('native-only relay durably publishes two quorum-enrolled identities, refuses web and legacy auth, exchanges encrypted mail after live checkpoint approval'+(carrierBinary?' via two native UDP carriers':''),{skip:process.platform!=='linux',timeout:120000},async()=>{
  const a=fixture(),b=fixture({sharedAuthority:a.authority}),root=await mkdtemp(join(tmpdir(),'qs-native-enrolled-'));
  const options=f=>({...f.opts,approved:true});
  const ca=makeNativeEnrollmentCredential(a.request,a.votes,options(a),a.controller.privateKey);
@@ -148,16 +150,19 @@ test('native-only relay durably publishes two quorum-enrolled identities, refuse
  assert.throws(()=>prepareNativeEnrollmentPublication(createEmptyRelayState(),a.request,a.votes.slice(0,2),ca.credential,options(a)));
  assert.throws(()=>prepareNativeEnrollmentPublication(createEmptyRelayState(),a.request,a.votes,{...ca.credential,tokenHash:'f'.repeat(64)},options(a)));
  assert.throws(()=>makeNativeEnrollmentCredential(a.request,a.votes,options(a),b.controller.privateKey));
- let service,policy=[],snapshot;
+ let service,policy=[],snapshot,relayPort=0,requireCarrier=false;const links=new Map();
  const source=async(address,deviceId)=>{
   const now=Date.now(),request={address,deviceId,nonce:randomBytes(32).toString('hex'),expires:now+14000};
   const results=a.authority.slice(0,3).map(k=>issueCheckpoint({state:snapshot,policy,request,privateKey:k.privateKey,now}));
   return {bundle:results[0].bundle,checkpoint:verifyCheckpointQuorum(results.map(r=>r.attestation),a.opts.trusted,request,now)};
  };
- async function start(e){service=await startNativeMailboxOnly({dataDir:root,peerSource:source,enrollment:e});}
+ async function start(e){service=await startNativeMailboxOnly({dataDir:root,port:relayPort,peerSource:source,enrollment:e});if(relayPort)assert.equal(service.port,relayPort);}
  async function stop(){if(service){await service.close();service=undefined;}}
  async function call(op,body,token,headers={}){
-  const r=await fetch('http://127.0.0.1:'+service.port+'/api/quantic/'+op,{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token,...headers},body:JSON.stringify(body)});
+  const link=links.get(token);
+  if(requireCarrier)assert.ok(link,'native carrier mandatory after enrollment; no direct fallback');
+  const base=link?link.url:'http://127.0.0.1:'+service.port+'/';
+  const r=await fetch(new URL('/api/quantic/'+op,base),{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token,Connection:'close',...headers},body:JSON.stringify(body),signal:AbortSignal.timeout(30000)});
   return {status:r.status,body:await r.json()};
  }
  function scope(f){return {address:f.request.claim.address,deviceId:f.request.claim.deviceId};}
@@ -186,6 +191,12 @@ test('native-only relay durably publishes two quorum-enrolled identities, refuse
   for(const f of [a,b]){
    policy=prepareQuorumEnrollmentPolicy(f.request,f.votes,{...f.opts,now:Date.now(),state:snapshot,previousPolicy:policy,approved:true}).policy;
   }
+  if(carrierBinary){
+   relayPort=service.port;
+   for(const [i,credential] of [ca,cb].entries())links.set(credential.token,await startNativeScatteringLink({dir:join(root,'carrier-'+i),binary:carrierBinary,relayPort}));
+   assert.notEqual(links.get(ca.token).epochId,links.get(cb.token).epochId);
+   requireCarrier=true;
+  }
   assert.equal((await call('native/v1/pull',scope(a),cb.token)).status,403);
   assert.equal((await call('native/v1/pull',scope(a),ca.token)).status,200);
   // Real hybrid ciphertext and both sender signatures; no fabricated wire.
@@ -213,7 +224,19 @@ test('native-only relay durably publishes two quorum-enrolled identities, refuse
   assert.equal((await call('native/v1/ack',{...scope(b),id:item.id,digest:item.digest},cb.token)).status,200);
   assert.equal((await call('native/v1/pull',scope(b),cb.token)).body.item,null);
   await stop();await start();snapshot=await service.exportAuthoritySnapshot();
-  assert.equal((await call('native/v1/recover',{...scope(b),id:item.id,digest:item.digest},cb.token)).body.item.id,item.id);
+  const recovered=await call('native/v1/recover',{...scope(b),id:item.id,digest:item.digest},cb.token);
+  assert.equal(recovered.status,200);assert.equal(recovered.body.item.id,item.id);assert.deepEqual(recovered.body.item.record,record);
+  if(carrierBinary){
+   const old=links.get(ca.token);await old.close();
+   const fresh=await startNativeScatteringLink({dir:join(root,'carrier-replacement'),binary:carrierBinary,relayPort});
+   links.set(ca.token,fresh);assert.notEqual(fresh.epochId,old.epochId);
+   const retry=await call('native/v1/send',record,ca.token);
+   assert.equal(retry.status,202);assert.equal(retry.body.id,item.id);assert.equal(retry.body.duplicate,true);assert.equal(retry.body.status,'acknowledged');
+   assert.equal((await call('native/v1/pull',scope(b),cb.token)).body.item,null);
+   await fresh.close();
+   await assert.rejects(call('native/v1/send',record,ca.token));
+   console.log('ENROLLED_NATIVE_UDP_EVIDENCE '+JSON.stringify({twoEnrolledIdentities:true,independentCarrierEpochs:true,hybridDecryption:true,relayRestart:true,exactRetry:true,noDuplicate:true,noDirectFallback:true,physicalHosts:1,releaseAuthorized:false}));
+  }
   assert.deepEqual(await readFile(join(root,'relay-state.json')),legacy);
- }finally{await stop();await rm(root,{recursive:true,force:true});}
+ }finally{await Promise.all([...links.values()].map(x=>x.close()));await stop();await rm(root,{recursive:true,force:true});}
 });
