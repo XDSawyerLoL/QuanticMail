@@ -93,3 +93,50 @@ test('missing encryption possession, incorrect PQ signature, expired or reused c
  const a=issueNativePossessionChallenge(candidate,f.expected,{clock:()=>f.now}),b=issueNativePossessionChallenge(candidate,f.expected,{clock:()=>f.now});
  assert.throws(()=>b.verify(deviceResponse(f,a)));a.close();
 });
+
+import {createNativeEnrollmentRegistryLab,verifyNativeEnrollmentReceipts} from '../lib/quantic/native-enrollment-registry-lab.mjs';
+import {mkdtemp,mkdir,rm,readFile,writeFile} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+test('independent durable enrollment: three proofs, restart readback, address collision and tamper refusal',{skip:process.platform!=='linux'},async()=>{
+ const f=fixture(),candidate=prepareNativeIdentityCandidate(f);
+ const dir=await mkdtemp(join(tmpdir(),'native-enroll-'));
+ try{
+  const keys=Array.from({length:4},()=>generateKeyPairSync('ed25519'));
+  const trust=keys.map(k=>({pin:sha(spki(k.publicKey)),publicKey:spki(k.publicKey).toString('base64url')}));
+  const configs=await Promise.all(keys.map(async(k,i)=>{
+   const directory=join(dir,'authority-'+i);await mkdir(directory,{mode:0o700});
+   return {directory,authorityKey:k.privateKey,authorityPin:trust[i].pin,clock:()=>f.now,labOnly:true};
+  }));
+  const registries=await Promise.all(configs.map(createNativeEnrollmentRegistryLab));
+  await assert.rejects(registries[0].begin(candidate,f.expected));
+  const first=await registries[0].begin(candidate,f.expected,{operatorApproved:true});
+  const competitor=await registries[0].begin(candidate,f.expected,{operatorApproved:true});
+  const receipt=await first.commit(deviceResponse(f,first));
+  await assert.rejects(competitor.commit(deviceResponse(f,competitor)));
+  await assert.rejects(first.commit(deviceResponse(f,first)));
+  await assert.rejects(registries[0].begin(candidate,f.expected,{operatorApproved:true}));
+  const receipts=[receipt];
+  for(const reg of registries.slice(1,3)){
+   const c=await reg.begin(candidate,f.expected,{operatorApproved:true});
+   receipts.push(await c.commit(deviceResponse(f,c)));
+  }
+  assert.throws(()=>verifyNativeEnrollmentReceipts(receipts.slice(0,2),trust,candidate,f.expected));
+  assert.throws(()=>verifyNativeEnrollmentReceipts([receipt,receipt,receipts[1]],trust,candidate,f.expected));
+  const result=verifyNativeEnrollmentReceipts(receipts,trust,candidate,f.expected);
+  assert.equal(result.authorityCount,3);
+  assert.equal(result.registrationAuthorized,false);
+  assert.equal(result.mailPolicyActive,false);
+  const reopened=await createNativeEnrollmentRegistryLab(configs[0]);
+  assert.deepEqual(await reopened.readback(candidate,f.expected),receipt);
+  const fourth=await registries[3].begin(candidate,f.expected,{operatorApproved:true});
+  await assert.rejects(fourth.commit(deviceResponse(f,fourth,{wrongKEM:true})));
+  await assert.rejects(registries[3].readback(candidate,f.expected));
+  const path=join(configs[0].directory,'identity-'+sha(f.expected.address)+'.json');
+  const stored=JSON.parse(await readFile(path,'utf8'));
+  stored.receipt.deviceId='d-'+'0'.repeat(32);
+  await writeFile(path,JSON.stringify(stored));
+  await assert.rejects(reopened.readback(candidate,f.expected));
+  await assert.rejects(reopened.begin(candidate,f.expected,{operatorApproved:true}));
+ }finally{await rm(dir,{recursive:true,force:true});}
+});
