@@ -21,6 +21,7 @@ type Record struct{
  Message string `json:"message,omitempty"`
  Alert *Alert `json:"alert,omitempty"`
  Defender *DefenderCFAEvent `json:"defender,omitempty"`
+ FileAudit *FileAccessAudit `json:"file_audit,omitempty"`
  Evidence string `json:"evidence,omitempty"`
  Advice string `json:"advice,omitempty"`
 }
@@ -52,6 +53,12 @@ func (a *localAudit) Append(r Record)error{
  if r.Message!=""&&len(r.Message)>512{r.Message=r.Message[:512]}
  if len(r.Evidence)>512 {r.Evidence=r.Evidence[:512]}
  if len(r.Advice)>512 {r.Advice=r.Advice[:512]}
+ if r.FileAudit!=nil{
+  cp:=*r.FileAudit
+  if len(cp.ProcessName)>512{cp.ProcessName=cp.ProcessName[:512]}
+  if len(cp.ObjectName)>512{cp.ObjectName=cp.ObjectName[:512]}
+  r.FileAudit=&cp
+ }
  if r.Defender!=nil{
   cp:=*r.Defender
   if len(cp.ProcessPath)>512{cp.ProcessPath=cp.ProcessPath[:512]}
@@ -78,13 +85,18 @@ func (a *localAudit) Append(r Record)error{
 // cancelled. No elevated privileges, network connections, or destructive
 // actions are used. Every alert is durably recorded before processing more.
 func RunResident(ctx context.Context,root,logPath string)error{
- return runResidentWithDefender(ctx,root,logPath,ReadRecentCFA,runtime.GOOS=="windows")
+ return runResidentWithSources(ctx,root,logPath,ReadRecentCFA,runtime.GOOS=="windows",ReadRecentFileAudits,runtime.GOOS=="windows")
 }
 
 // runResidentWithDefender makes the native event-log source replaceable by a
 // test double, without exposing an API for untrusted code to inject events
 // into the installed agent. Only RunResident is called by the Windows binary.
 func runResidentWithDefender(ctx context.Context,root,logPath string,reader CFAReader,enabled bool)error{
+ return runResidentWithSources(ctx,root,logPath,reader,enabled,nil,false)
+}
+
+func runResidentWithSources(ctx context.Context,root,logPath string,reader CFAReader,enabled bool,
+ fileAuditReader FileAuditReader,fileAuditEnabled bool)error{
  if ctx==nil{return errors.New("context required")}
  audit,err:=openAudit(logPath)
  if err!=nil{return err}
@@ -98,6 +110,15 @@ func runResidentWithDefender(ctx context.Context,root,logPath string,reader CFAR
  detector:=NewDetector(DefaultPolicy())
  heartbeat:=time.NewTicker(time.Minute)
  defer heartbeat.Stop()
+ var fileAudits <-chan FileAuditNotice
+ if fileAuditEnabled && fileAuditReader!=nil{
+  changes:=make(chan FileAuditNotice,64)
+  fileAudits=changes
+  go func(){
+   defer close(changes)
+   MonitorFileAccessAudits(watchCtx,time.Now().UTC(),15*time.Second,root,fileAuditReader,changes)
+  }()
+ }
  var received uint64
  var lastFileAlert *Alert
  // Only Windows can read the local Defender Operational journal. No remote
@@ -148,6 +169,30 @@ func runResidentWithDefender(ctx context.Context,root,logPath string,reader CFAR
     if err:=audit.Append(Record{
       Time:notice.Event.Time,Type:"defender_cfa",Message:message,
       Defender:notice.Event,Evidence:cf.Evidence,Advice:cf.RecommendedAction,
+    });err!=nil{return err}
+   }
+  case notice,ok:=<-fileAudits:
+   if !ok{fileAudits=nil;continue}
+   switch{
+   case notice.Err!=nil:
+    if err:=audit.Append(Record{Type:"file_audit_unavailable",Message:notice.Err.Error()});err!=nil{return err}
+   case notice.Restored:
+    if err:=audit.Append(Record{Type:"file_audit_restored",Message:"Audit Security 4663 de nouveau accessible"});err!=nil{return err}
+   case notice.Overflow:
+    if err:=audit.Append(Record{Type:"file_audit_incomplete",Message:"Journal 4663 trop actif : preuves possiblement manquantes"});err!=nil{return err}
+   case notice.Event!=nil:
+    e:=notice.Event
+    process:="Programme non indiqué par Windows"
+    if e.ProcessName!=""{process=e.ProcessName}
+    evidence:="Audit Windows 4663 : droit d'accès compatible écriture utilisé ; pas une preuve de modification ou de malveillance"
+    if lastFileAlert!=nil&&absDuration(lastFileAlert.Time.Sub(e.Time))<=30*time.Second{
+     evidence+=" ; proche d'une alerte de fichiers (lien causal non démontré)"
+    }
+    if err:=audit.Append(Record{
+     Time:e.Time,Type:"file_write_access",FileAudit:e,
+     Message:"Accès selon Windows Security : "+process,
+     Evidence:evidence,
+     Advice:"Examiner l'application dans les propriétés du fichier et dans Sécurité Windows ; ne pas terminer un PID historique",
     });err!=nil{return err}
    }
   case <-heartbeat.C:

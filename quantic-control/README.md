@@ -64,6 +64,14 @@ Its local history includes the relevant Defender evidence and conservative manua
 
 See [SENTINEL_DEFENDER_CFA.md](SENTINEL_DEFENDER_CFA.md) for technical limits, native Windows API and validation gates.
 
+## Process-file audit evidence and verified Windows installer test
+
+A new read-only native Windows Security Event Log **4663** reader records the process and PID that Windows explicitly associates with the use of write-capable access rights on a file within the watched folder. This does **not** attribute every file modification, prove malware, or authorize process termination; a SACL and Windows audit policy must already permit the source event. The agent degrades visibly when access is denied.
+
+Windows CI now tests the **actual compiled Win32 GUI binary** as a background process, verifies an alert after 25 harmless file changes, and performs reversible HKCU startup removal and targeted uninstall. The test does not establish autostart after a real Windows logout/login cycle.
+
+An optional **publisher Authenticode signing workflow** can sign and Windows-verify this executable only once real publisher certificate secrets are configured. The Alpha is **unsigned** and is not ready for release. Quantic ID/Identity Vault do not yet authorize this resident agent, and Sentinel itself cannot prevent ransomware. See [SENTINEL_RELEASE_GATES_2026.md](SENTINEL_RELEASE_GATES_2026.md) for precise evidence and outstanding gates.
+
 ## Local developer demo
 
 From quantic-control:

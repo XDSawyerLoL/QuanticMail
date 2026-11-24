@@ -150,9 +150,16 @@ func regDeleteStartup()error{
  return nil
 }
 func installResident(root string)error{
- if err:=validateSelectedRoot(root);err!=nil{return err}
  source,err:=os.Executable();if err!=nil{return err}
- source,err=filepath.Abs(source);if err!=nil{return err}
+ return installResidentFrom(source,root,true)
+}
+
+// installResidentFrom separates the verified install operation from launch,
+// so Windows integration tests can exercise real HKCU state and reversible
+// cleanup without accidentally launching a Go test binary as an agent.
+func installResidentFrom(source,root string,launch bool)error{
+ if err:=validateSelectedRoot(root);err!=nil{return err}
+ source,err:=filepath.Abs(source);if err!=nil{return err}
  dir,err:=userInstallFolder();if err!=nil{return err}
  dest,err:=installExePath();if err!=nil{return err}
  manifest,err:=installManifestPath();if err!=nil{return err}
@@ -196,6 +203,7 @@ func installResident(root string)error{
  committed=true
  // Startup is installed even if immediate launch fails; UI reports that error
  // so the user can disable it. No shell, PowerShell or UAC is launched.
+ if !launch{return nil}
  child:=exec.Command(dest,"--resident")
  if err:=child.Start();err!=nil{return fmt.Errorf("startup registered but agent launch failed: %w",err)}
  return child.Process.Release()

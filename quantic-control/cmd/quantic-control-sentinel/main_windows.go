@@ -224,6 +224,15 @@ func wndProc(hwnd uintptr,msg uint32,wparam,lparam uintptr)uintptr{
      for _,record:=range records{
        at:=record.Time.Local().Format("02/01 15:04:05")
        addLog(at+" ["+record.Type+"] "+record.Message)
+       if record.Type=="file_write_access"&&record.FileAudit!=nil{
+         e:=record.FileAudit
+         process:=e.ProcessName
+         if process==""{process="Non communiqué par Windows Security"}
+         addLog(fmt.Sprintf("   Audit Windows 4663 — processus : %s (PID historique : %d)",process,e.ProcessID))
+         addLog("   Fichier : "+e.ObjectName)
+         addLog("   Source : "+record.Evidence)
+         addLog("   Action prudente : "+record.Advice)
+       }
        if record.Type=="defender_cfa"&&record.Defender!=nil{
          process:=record.Defender.ProcessPath
          if process==""{process="non indiqué par le journal Defender"}

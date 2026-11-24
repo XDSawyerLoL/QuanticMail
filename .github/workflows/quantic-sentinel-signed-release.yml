@@ -1,0 +1,55 @@
+name: Quantic Sentinel — verified publisher-signed Windows release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  authentic-publisher-signature:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: quantic-control
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: quantic-control/go.mod
+          cache-dependency-path: quantic-control/go.mod
+      - name: Run security and installer tests
+        run: go test -count=1 ./...
+      - name: Build unmodified native Win32 GUI
+        run: |
+          New-Item -ItemType Directory -Path dist -Force | Out-Null
+          go build -ldflags="-H windowsgui" -o dist/quantic-sentinel-unsigned.exe ./cmd/quantic-control-sentinel
+      - name: Sign only with the actual publisher's private certificate
+        shell: pwsh
+        env:
+          QUANTIC_CODE_SIGNING_PFX_BASE64: ${{ secrets.QUANTIC_CODE_SIGNING_PFX_BASE64 }}
+          QUANTIC_SIGNING_PFX_PASSWORD: ${{ secrets.QUANTIC_CODE_SIGNING_PFX_PASSWORD }}
+          QUANTIC_EXPECTED_PUBLISHER_SUBJECT: ${{ secrets.QUANTIC_EXPECTED_PUBLISHER_SUBJECT }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:QUANTIC_CODE_SIGNING_PFX_BASE64) -or
+              [string]::IsNullOrWhiteSpace($env:QUANTIC_SIGNING_PFX_PASSWORD) -or
+              [string]::IsNullOrWhiteSpace($env:QUANTIC_EXPECTED_PUBLISHER_SUBJECT)) {
+            throw "Publisher signing requires all three configured secrets. Nothing can be uploaded as signed."
+          }
+          $privateCertificate = Join-Path $env:RUNNER_TEMP "quantic-cert-private.pfx"
+          try {
+            [IO.File]::WriteAllBytes($privateCertificate,
+              [Convert]::FromBase64String($env:QUANTIC_CODE_SIGNING_PFX_BASE64))
+            & ./scripts/sign-sentinel.ps1 -InputExecutable dist/quantic-sentinel-unsigned.exe -SignedExecutable dist/quantic-sentinel-signed.exe -PfxPath $privateCertificate -ExpectedPublisherSubject $env:QUANTIC_EXPECTED_PUBLISHER_SUBJECT
+            if ($LASTEXITCODE -ne 0) { throw "Signing verification failed" }
+          }
+          finally {
+            Remove-Item -LiteralPath $privateCertificate -Force -ErrorAction SilentlyContinue
+          }
+      - name: Publish ONLY Windows-trusted signed binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: quantic-sentinel-windows-publisher-signed
+          path: quantic-control/dist/quantic-sentinel-signed.exe
+          if-no-files-found: error
+          retention-days: 14
