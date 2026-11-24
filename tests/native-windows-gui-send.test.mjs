@@ -4,7 +4,7 @@ import {EventEmitter} from 'node:events';
 import {win32} from 'node:path';
 import {sealReceipt} from '../desktop/native-receipt-store.mjs';
 import {randomBytes} from 'node:crypto';
-import {approveWindowsGUIPrompt,composeSendWindowsGUI,receiveWindowsGUI} from '../desktop/native-windows-gui-send.mjs';
+import {approveWindowsGUIPrompt,composeSendWindowsGUI,receiveWindowsGUI,listWindowsGUIReceipts,readWindowsGUIReceipt} from '../desktop/native-windows-gui-send.mjs';
 
 const dir='C:\\Quantic\\private',binary='C:\\Quantic\\bin\\Vault-PQ-lab.exe';
 const boot={binary,binarySha256:'a'.repeat(64),dir};
@@ -124,4 +124,27 @@ test('GUI refuses a corrupt receipt, missing receipt, unexpected status and path
  f.deps.run=async()=>({status:'delivered-to-world'});
  await assert.rejects(receiveWindowsGUI(boot,'receive',undefined,f.deps));
  await assert.rejects(receiveWindowsGUI(boot,'confirm-receipt','..\\receipt-test.json',f.deps));
+});
+
+
+test('local receipt inbox authenticates every candidate and reads only explicitly selected message',async()=>{
+ const f=receiveFixture();f.write();
+ const good=f.file,bad='receipt-invalid.json';
+ const read=f.deps.makeStorage;
+ const deps={enumerate:async d=>{assert.equal(d,dir);return ['desktop.json','receipt.key',good,bad,'..\\receipt-traversal.json'];},
+  makeStorage:async()=>{
+   const s=await read();
+   return {...s,read:async p=>p===win32.join(dir,bad)?Buffer.from('{}'):s.read(p)};
+  }};
+ const out=await listWindowsGUIReceipts(boot,deps);
+ assert.equal(out.status,'authenticated-local-receipts');
+ assert.deepEqual(out.items,[{file:good,subject:'Test PQ'}]);
+ assert.equal(out.refused,1);assert.equal(out.remaining,0);assert.equal(out.deliveryVerified,false);
+ assert.ok(!JSON.stringify(out).includes(f.payload.body));
+ const item=await readWindowsGUIReceipt(boot,good,deps);
+ assert.equal(item.status,'authenticated-local-receipt');assert.ok(item.display.includes(f.payload.body));
+ assert.equal(item.deliveryVerified,false);
+ await assert.rejects(readWindowsGUIReceipt(boot,bad,deps));
+ await assert.rejects(readWindowsGUIReceipt(boot,'..\\receipt-test.json',deps));
+ assert.equal(f.ran(),0,'local browsing must not run a network operation');
 });
