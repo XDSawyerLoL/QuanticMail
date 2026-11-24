@@ -173,7 +173,18 @@ test('two isolated GUI clients exchange synthetic encrypted envelopes across two
    assert.equal(acks,2);
    assert.equal(a.stats().opened,1);
    assert.equal(b.stats().opened,1);
-   assert.ok(operations>=8,'both client routes traversed independently');
+
+   // A disk failure after cryptographic open must never ACK or delete the
+   // pending mailbox item. No invisible retry is attempted by the GUI adapter.
+   await a.seal(p2,d2,'Disk failure lab','Persisted private reply only');
+   const originalWrite=b.storage.writeReceipt;
+   b.storage.writeReceipt=async()=>{throw Error('synthetic NTFS write refused');};
+   await assert.rejects(b.receive(),/synthetic NTFS write refused/);
+   assert.equal(acks,2,'failed durable write cannot acknowledge third message');
+   assert.ok(pullNativeRecord(p2,d2),'unacknowledged wire preserved on relay');
+   b.storage.writeReceipt=originalWrite;
+   assert.equal(b.stats().opened,2);
+   assert.ok(operations>=9,'both client routes traversed independently');
    assert.equal(server.address().address,'127.0.0.1','no public HTTP listener');
   }finally{
    for(const link of links.reverse())await link.close();
