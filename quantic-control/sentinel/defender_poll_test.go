@@ -68,3 +68,19 @@ func TestDefenderPollNoUnrequestedReaderAfterCancellation(t *testing.T){
     select{case <-finished:case <-time.After(time.Second):t.Fatal("monitor did not stop")}
     if calls>1{t.Fatal("excessive reads after cancellation")}
 }
+
+func TestHistoricalCFARecordsDoNotClaimLostCurrentEvents(t *testing.T){
+    start:=time.Now()
+    reader:=func(int)([]DefenderCFAEvent,bool,error){
+        return []DefenderCFAEvent{{RecordID:3,Time:start.Add(-time.Hour),EventID:1123}},true,nil
+    }
+    ctx,cancel:=context.WithTimeout(context.Background(),70*time.Millisecond)
+    defer cancel()
+    out:=make(chan DefenderNotice,10)
+    MonitorDefenderEvents(ctx,start,15*time.Millisecond,reader,out)
+    close(out)
+    for notice:=range out{
+        if notice.Overflow {t.Fatal("old Defender records misreported as missed events during current session")}
+        if notice.Event!=nil{t.Fatal("historical event reported")}
+    }
+}
