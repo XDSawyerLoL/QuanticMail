@@ -313,7 +313,7 @@ function Invoke-ComposePipe([string]$vaultDir,$fields){
   $child.StandardInput.Write($ascii);$child.StandardInput.Close()
   $result=$child.StandardOutput.ReadToEnd();$child.WaitForExit()
   if($child.ExitCode -ne 0){throw "Message non confirme. Reprendre le brouillon conserve plutot que creer un nouvel envoi."}
-  return $result
+  return (($result -split '\r?\n') | Where-Object {$_ -ne ""} | Select-Object -Last 1)
  }finally{$child.Dispose();$json=$null;$ascii=$null}
 }
 function Invoke-GraphicalMail([string]$action,$operationArgs,[string]$vaultDir) {
