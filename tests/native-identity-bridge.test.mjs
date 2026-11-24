@@ -144,7 +144,13 @@ test('integrated native relay with four real mTLS authorities, bidirectional hyb
   }
   source=await createAttestedPeerSource({authorities,caFile:join(dir,'ca.crt'),clientCertFile:join(dir,'client.crt'),clientKeyFile:join(dir,'client.key')});
  }
- const start=()=>startRelayServer({host:'127.0.0.1',port:relayPort,dataDir:dir,nativePeerSource:source});
+ const start=async()=>{
+  const service=await startRelayServer({host:'127.0.0.1',port:relayPort,dataDir:dir,nativePeerSource:source});
+  if(relayPort&&Number(new URL(service.url).port)!==relayPort){
+   await service.close();throw Error('relay listener changed across restart');
+  }
+  return service;
+ };
  const endpoint=f=>{if(scatteringBinary){const link=links.get(f);assert.ok(link,'No direct HTTP fallback');return link.url;}return relay.url;};
  const authToken=f=>sha('synthetic-token-'+f.checkpoint.address);
  function register(f){
@@ -180,13 +186,15 @@ test('integrated native relay with four real mTLS authorities, bidirectional hyb
  }
  const target=f=>({address:f.checkpoint.address,deviceId:f.checkpoint.deviceId});
  const post=async(op,body,f)=>{
-  const res=await fetch(new URL('/api/quantic/native/v1/'+op,endpoint(f)),{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+authToken(f)},body:JSON.stringify(body)});
+  const res=await fetch(new URL('/api/quantic/native/v1/'+op,endpoint(f)),{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+authToken(f),Connection:'close'},body:JSON.stringify(body)});
   return [res.status,await res.json()];
  };
  try{
   await setupAuthorities();relay=await start();register(a);register(b);
+  // Preserve the actual listener address across every restart. The direct
+  // fixture also retains mailbox clients across restarts, just like UDP.
+  relayPort=Number(new URL(relay.url).port);assert.ok(relayPort>0);
   if(scatteringBinary){
-   relayPort=Number(new URL(relay.url).port);assert.ok(relayPort>0);
    for(const [idx,f] of fixtures.entries())links.set(f,await startNativeScatteringLink({dir:join(dir,'carrier-'+idx),binary:scatteringBinary,relayPort}));
   }
   const r=makeRecord(),changed=makeRecord();
