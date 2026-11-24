@@ -66,3 +66,22 @@ func TestBackupLockRejectsExistingWriterAndNonBackup(t *testing.T){
   if l,err:=LockBackup(p);err==nil{l.Close();t.Fatalf("unsafe target accepted: %s",p)}
  }
 }
+
+func TestBackupLockSetRefusesDifferentIdentityWithoutPartialLocks(t *testing.T){
+ dir:=t.TempDir()
+ var ids []BackupIdentity
+ for _,name:=range []string{"first.bak","second.bak"}{
+  path:=filepath.Join(dir,name)
+  if err:=os.WriteFile(path,[]byte("fixture"),0600);err!=nil{t.Fatal(err)}
+  l,err:=LockBackup(path);if err!=nil{t.Fatal(err)}
+  ids=append(ids,l.Identity())
+  if err:=l.Close();err!=nil{t.Fatal(err)}
+ }
+ ids[1].IndexLow^=1
+ locks,err:=LockBackupSet(ids)
+ if err==nil{for _,l:=range locks{l.Close()};t.Fatal("wrong identity accepted")}
+ if len(locks)!=0{t.Fatal("partial lock set returned")}
+ for _,id:=range ids{
+  if err:=os.WriteFile(id.Path,[]byte("no residual lock"),0600);err!=nil{t.Fatal("partial lock leaked",err)}
+ }
+}
