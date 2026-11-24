@@ -143,15 +143,17 @@ test('independent durable enrollment: three proofs, restart readback, address co
 
 import {execFileSync} from 'node:child_process';
 import {X509Certificate} from 'node:crypto';
+import {startNativeSessionServiceLab,createNativeSessionStateLab} from '../standalone-relay/native-session-service-lab.mjs';
+import {createNativeSessionClientLab} from '../desktop/native-session-client.mjs';
 import {startNativeEnrollmentAuthorityLab,verifyNativeAuthenticationQuorum} from '../standalone-relay/native-enrollment-authority-lab.mjs';
 import {nativeAuthorityRequest,runNativeEnrollmentAuthorityClient} from '../desktop/native-enrollment-authority-client.mjs';
 test('mTLS enrollment and fresh authentication over four distinct HTTPS authorities, with outage and restart',{skip:process.platform!=='linux',timeout:60000},async()=>{
  const f=fixture(),candidate=prepareNativeIdentityCandidate(f),dir=await mkdtemp(join(tmpdir(),'native-enroll-net-'));
- const services=new Map();
+ const services=new Map();let sessionService;
  try{
   const ssl=(...args)=>execFileSync('openssl',args,{cwd:dir,stdio:'ignore'});
   ssl('req','-x509','-newkey','ec','-pkeyopt','ec_paramgen_curve:prime256v1','-nodes','-keyout','ca.key','-out','ca.crt','-subj','/CN=Enrollment test CA','-days','1','-addext','basicConstraints=critical,CA:TRUE');
-  for(const name of ['client','other','w0','w1','w2','w3']){
+  for(const name of ['client','other','w0','w1','w2','w3','session']){
    ssl('req','-new','-newkey','ec','-pkeyopt','ec_paramgen_curve:prime256v1','-nodes','-keyout',name+'.key','-out',name+'.csr','-subj','/CN='+name,'-addext','subjectAltName=IP:127.0.0.1');
    ssl('x509','-req','-in',name+'.csr','-CA','ca.crt','-CAkey','ca.key','-CAcreateserial','-out',name+'.crt','-days','1','-copy_extensions','copy');
   }
@@ -180,9 +182,46 @@ test('mTLS enrollment and fresh authentication over four distinct HTTPS authorit
   const authenticated=await login();
   assert.equal(authenticated.result.authorityCount,4);assert.equal(authenticated.result.sessionAuthorized,false);
   assert.throws(()=>verifyNativeAuthenticationQuorum({receipts:authenticated.receipts,trusted:authorities,candidate,expected:f.expected,clientPin,nonce:'0'.repeat(64)}));
+  const sessionTls=await tlsFor('session');
+  const sessionConfig={candidate,expected:f.expected,trusted:authorities,clientPin,enrollmentReceipts:enrolled.receipts,labOnly:true,tls:sessionTls};
+  sessionService=await startNativeSessionServiceLab(sessionConfig);
+  const service={url:'https://127.0.0.1:'+sessionService.port+'/',tlsPin:sha(new X509Certificate(sessionTls.cert).raw)};
+  const sessionBase={...base,service,enrollmentReceipts:enrolled.receipts,labOnly:true};
+  const client=createNativeSessionClientLab(sessionBase);
+  await assert.rejects(client.whoami());
+  const s=await client.login();
+  assert.equal(s.status,'native-session-open-lab');
+  assert.equal((await client.whoami()).address,f.expected.address);
+  assert.equal(client.isUnlocked(),true);
+  assert.equal((await client.lock()).remoteLockConfirmed,true);
+  assert.equal(client.isUnlocked(),false);await assert.rejects(client.whoami());
+  // A valid old auth receipt cannot open a different relying-party challenge.
+  const ch=await nativeAuthorityRequest(service,tls,'/native-session/begin',{});
+  await assert.rejects(nativeAuthorityRequest(service,tls,'/native-session/open',{nonce:ch.nonce,receipts:authenticated.receipts}));
+  await assert.rejects(nativeAuthorityRequest(service,tls,'/native-session/open',{nonce:ch.nonce,receipts:authenticated.receipts}));
+  // Wrong client cert cannot even request a challenge.
+  await assert.rejects(nativeAuthorityRequest(service,await tlsFor('other'),'/native-session/begin',{}));
+  // A controlled clock tests expiration, replay, and rollback without sleeping.
+  let simulated=Date.now();
+  const machine=createNativeSessionStateLab({...sessionConfig,clock:()=>simulated});
+  const next=machine.begin(clientPin);
+  const fresh=await runNativeEnrollmentAuthorityClient({...base,mode:'authenticate',enrollmentReceipts:enrolled.receipts,authenticationNonce:next.nonce});
+  simulated=Date.now();
+  const opened=machine.open(clientPin,{nonce:next.nonce,receipts:fresh.receipts});
+  assert.equal(machine.whoami(clientPin,opened.sessionId).address,f.expected.address);
+  assert.throws(()=>machine.whoami('0'.repeat(64),opened.sessionId));
+  assert.throws(()=>machine.open(clientPin,{nonce:next.nonce,receipts:fresh.receipts}));
+  simulated=opened.expires;assert.throws(()=>machine.whoami(clientPin,opened.sessionId));
+  simulated--;assert.throws(()=>machine.begin(clientPin));machine.close();
+  // Restart of the relying party invalidates even an unexpired session.
+  await client.login();await sessionService.close();
+  sessionService=await startNativeSessionServiceLab({...sessionConfig,port:Number(new URL(service.url).port)});
+  await assert.rejects(client.whoami());assert.equal(client.isUnlocked(),false);
   await services.get(3).close();services.delete(3);
   assert.equal((await login()).result.authorityCount,3);
+  await client.login();assert.equal(client.isUnlocked(),true);await client.lock();
   await services.get(2).close();services.delete(2);
   await assert.rejects(login());
- }finally{await Promise.all([...services.values()].map(s=>s.close()));await rm(dir,{recursive:true,force:true});}
+  await assert.rejects(client.login());assert.equal(client.isUnlocked(),false);
+ }finally{await sessionService?.close();await Promise.all([...services.values()].map(s=>s.close()));await rm(dir,{recursive:true,force:true});}
 });
