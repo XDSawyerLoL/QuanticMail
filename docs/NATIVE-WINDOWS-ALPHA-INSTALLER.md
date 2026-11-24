@@ -11,6 +11,14 @@ Le premier parcours Quantic Mail est **« Rédiger un message (sans terminal) »
 
 Les opérations historiques de laboratoire restent accessibles après un consentement explicite ouvrant **une console technique distincte**. Elles ne font pas partie du parcours standard. L'installateur demeure non signé.
 
+## Autotest interactif des boites de dialogue Windows — 24 novembre 2026
+
+Depuis le tableau de bord natif, ouvrir **DIAGNOSTIC → Tester les fenêtres de sécurité Windows**. L'essai ne nécessite **aucun coffre** ni mot de passe réel : il déclenche la vraie boite de confirmation native (répondre OUI), un dialogue Windows CredUI masqué pour recopier un code temporaire affiché dans la fenêtre, puis une autorisation OUI et un refus NON. Le résultat est validé dans le processus Go natif déjà épinglé par SHA-256.
+
+La commande `Vault-PQ-lab.exe --windows-gui-operator-check-lab` est **délibérément interactive** ; elle refuse les environnements Windows sans station graphique visible et les arguments supplémentaires. Aucune clé, aucun compte, aucune donnée utilisateur, aucune connexion réseau ou modification de configuration n'est impliqué. Les tests CI couvrent le contrat et la compilation mais **ne prouvent pas** qu'un humain a ouvert et manipulé les dialogues. L'acceptation finale doit être constatée sur un poste Windows réel, avec les clics OUI/OUI/NON et la saisie du code d'essai. Ne jamais entrer une vraie phrase secrète dans le test.
+
+Le test ne remplace ni un audit du poste, ni une preuve de réception du courrier sur un deuxième ordinateur, ni une signature d'éditeur. Tant qu'un certificat de signature de code valide et vérifié n'est pas disponible, l'exécutable d'installation reste une Alpha **non signée** ; ne pas contourner SmartScreen sur un poste sensible.
+
 ## Historique des essais locaux — PR #61
 
 Le bouton **« Mes essais locaux »** lit uniquement l'inventaire privé du coffre à travers son binaire Go natif déjà vérifié : les brouillons DPAPI sont authentifiés lors de la lecture, les enveloppes sont simplement recensées sans déduire leur validité cryptographique. Il montre des états **« Brouillon protégé — non envoyé »** ou **« Enveloppe locale présente — livraison inconnue »**. Il ne supprime, ne renvoie et ne déchiffre aucun courrier à l'écran. Les fichiers JSON ne sont jamais demandés à l'utilisateur. Aucune présence de fichier n'est interprétée comme une confirmation de livraison.
