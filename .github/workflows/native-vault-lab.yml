@@ -310,6 +310,22 @@ jobs:
           $env:PATH = "$dir\bin;$env:SystemRoot\System32"
           & $node --test tests/native-scattering-mailbox.test.mjs
           if ($LASTEXITCODE -ne 0) { throw "Packaged Scattering mailbox failed" }
+      - name: Reject unauthorized LAN diagnostic targets in packaged launcher
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP "QuanticMail-Windows-PQ-Lab"
+          $manifestPin = (Get-FileHash -LiteralPath "$dir\SHA256SUMS.txt" -Algorithm SHA256).Hash
+          $ps = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
+          foreach ($target in @("8.8.8.8","127.0.0.1","224.0.0.1","192.168.1.255","172.15.1.2","10.1.999.2","10.001.2.3")) {
+            & $ps -NoProfile -NonInteractive -File "$dir\Start-Windows-PQ-Lab.ps1" -Operation ProbeLanSend -ExpectedManifestSha256 $manifestPin -ProbeAddress $target
+            if ($LASTEXITCODE -eq 0) { throw "Unauthorized LAN diagnostic target accepted: $target" }
+          }
+          $local = @(Get-NetIPAddress -AddressFamily IPv4 | Select-Object -ExpandProperty IPAddress)
+          $absent = @("10.254.253.252","192.168.253.252","172.31.253.252") | Where-Object { $_ -notin $local } | Select-Object -First 1
+          if (-not $absent) { throw "No unassigned synthetic private address for negative test" }
+          & $ps -NoProfile -NonInteractive -File "$dir\Start-Windows-PQ-Lab.ps1" -Operation ProbeLanReceive -ExpectedManifestSha256 $manifestPin -ProbeAddress $absent
+          if ($LASTEXITCODE -eq 0) { throw "Unassigned receiver address accepted" }
+          Write-Host "Unauthorized diagnostic targets rejected; no remote traffic required"
       - name: Verify packaged entry points and cryptography runtime
         shell: pwsh
         run: |
