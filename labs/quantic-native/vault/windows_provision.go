@@ -56,6 +56,7 @@ func windowsVaultCLI(args []string)(bool,error){
  if handled,e:=windowsPayCLI(args);handled{return true,e}
  if len(args)>1&&args[1]=="--windows-import-lab-file"{return true,winImportCLI(args)}
  if handled,e:=winScatteringCLI(args);handled{return true,e}
+ if handled,e:=winGUIOperatorCheck(args);handled{return true,e}
  if handled,e:=winMailLabStatus(args);handled{return true,e}
  if handled,e:=winClientIO(args);handled{return true,e}
  if len(args)>1&&(args[1]=="--broker-windows-pq-quorum-lab"||args[1]=="--broker-windows-pq-quorum-gui-lab"){return true,winBroker(args)}
