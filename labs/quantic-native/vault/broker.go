@@ -55,6 +55,8 @@ type packet struct {
 	Ciphertext string `json:"ciphertext"`
 }
 type request struct {
+	MailboxOp string `json:"mailboxOp,omitempty"`
+	MailboxBody json.RawMessage `json:"mailboxBody,omitempty"`
 	Recover bool `json:"recover,omitempty"`
 	SenderAuth *senderAuth `json:"senderAuth,omitempty"`
 	PQContext   *pqContext    `json:"pqContext,omitempty"`
@@ -70,6 +72,7 @@ type request struct {
 	Approved    bool          `json:"approved,omitempty"`
 }
 type reply struct {
+	MailboxResult json.RawMessage `json:"mailboxResult,omitempty"`
 	HybridEnvelope *pqEnvelope `json:"pqEnvelope,omitempty"`
 	SenderAuth *senderAuth `json:"senderAuth,omitempty"`
 	PQKEM           string     `json:"pqKem,omitempty"`
@@ -197,6 +200,9 @@ func serveGuarded(s signer, key agreementKey, backend string, in io.Reader, out 
 	return serveGuardedPQ(s, key, backend, in, out, approve, journal, nil)
 }
 func serveGuardedPQ(s signer, key agreementKey, backend string, in io.Reader, out io.Writer, approve func(string) bool, journal *replayLog, pq *pqKeys, trustedSenders ...*senderTrust) error {
+ return serveGuardedPQTransport(s,key,backend,in,out,approve,journal,pq,nil,trustedSenders...)
+}
+func serveGuardedPQTransport(s signer,key agreementKey,backend string,in io.Reader,out io.Writer,approve func(string)bool,journal *replayLog,pq *pqKeys,transport mailboxTransport,trustedSenders ...*senderTrust)error{
 	var e error
 	var senders *senderTrust
 	if pq!=nil {
@@ -239,7 +245,7 @@ func serveGuardedPQ(s signer, key agreementKey, backend string, in io.Reader, ou
 			}
 			continue
 		}
-		if pq != nil && q.Op != "public" && q.Op != "pq-public-lab" && q.Op != "pq-proof-lab" && q.Op != "mail-open-hybrid-lab" && q.Op != "mail-seal-hybrid-lab" && q.Op != "close" {
+		if pq != nil && q.Op != "public" && q.Op != "pq-public-lab" && q.Op != "pq-proof-lab" && q.Op != "mail-open-hybrid-lab" && q.Op != "mail-seal-hybrid-lab" && q.Op != "close" && !(q.Op=="native-mailbox-lab"&&transport!=nil) {
 			if e = enc.Encode(fail); e != nil {
 				return e
 			}
@@ -247,6 +253,12 @@ func serveGuardedPQ(s signer, key agreementKey, backend string, in io.Reader, ou
 		}
 		if q.Recover&&(pq==nil||(q.Op!="mail-seal-hybrid-lab"&&q.Op!="mail-open-hybrid-lab")){if e=enc.Encode(fail);e!=nil{return e};continue}
 		switch q.Op {
+		case "native-mailbox-lab":
+   if pq==nil||journal==nil||journal.anchor==nil||transport==nil||q.Recover||q.MailboxOp==""||len(q.MailboxBody)==0{break}
+   // Recheck the independently anchored local session before transport.
+   if err:=journal.anchor.check(journal.anchorID,len(journal.seen),journal.tail);err!=nil{return err}
+   raw,err:=transport(q.MailboxOp,q.MailboxBody)
+   if err==nil{r=reply{OK:true,MailboxResult:raw}}
 		case "pq-public-lab":
 			if pq != nil {
 				r = reply{OK: true, PQKEM: b64.EncodeToString(pq.kemPub), PQDSA: b64.EncodeToString(pq.dsaPub)}

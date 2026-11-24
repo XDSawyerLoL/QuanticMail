@@ -41,7 +41,9 @@ export function normalizeClassicalEnvelope(e){
   b64(e.iv,12,12,'base64');b64(e.ciphertext,16,8208,'base64');
   return {ciphertext:e.ciphertext,iv:e.iv,ephemeralPublicKey:jwk};
 }
-export async function connectNativeVault({binary,binarySha256,vault,journal,quorum,controllerKeyFile,signingPin,encryptionPin,labOnly,pqMode,windowsLab,guiWindowsApproval=false}){
+export async function connectNativeVault({binary,binarySha256,vault,journal,quorum,controllerKeyFile,signingPin,encryptionPin,labOnly,pqMode,windowsLab,windowsScattering,guiWindowsApproval=false}){
+  const sealed=windowsScattering?.credentialMode==='vault-sealed-v1';
+  if(sealed)check(guiWindowsApproval===true&&windowsScattering.token===undefined&&windowsScattering.address===pqMode?.address&&windowsScattering.deviceId===pqMode?.deviceId,'sealed mailbox configuration required');
   const windows=process.platform==='win32';
   check(guiWindowsApproval===false||guiWindowsApproval===true,'invalid native GUI approval mode');
   if(guiWindowsApproval)check(windows&&windowsLab?.enabled===true&&pqMode?.enabled===true,'Windows GUI approval requires explicitly scoped PQ lab');
@@ -74,7 +76,7 @@ export async function connectNativeVault({binary,binarySha256,vault,journal,quor
     else{const ds=await stat(pqMode.contactDirectory);check(ds.isFile()&&ds.uid===process.getuid()&&(ds.mode&0o077)===0&&ds.size<=131072,'private contact directory required');contacts=JSON.parse(await readFile(pqMode.contactDirectory,'utf8'));}
     check(Array.isArray(contacts)&&contacts.length>=1&&contacts.length<=32,'invalid contacts');
   }
-  const args=windows?[guiWindowsApproval?'--broker-windows-pq-gui-lab':'--broker-windows-pq-quorum-lab',storage.dir,app,signingPin,encryptionPin,pqMode.address,pqMode.deviceId,pqMode.kemPin,pqMode.dsaPin,pqMode.rootPin]:pqMode?['--broker-software-pq-quorum-lab',vault,signingPin,encryptionPin,app,journal,quorum,pqMode.sidecar,pqMode.address,pqMode.deviceId,pqMode.kemPin,pqMode.dsaPin,pqMode.rootPin,'auto',pqMode.contactDirectory]:['--broker-software-compact-manifest-quorum-lab',vault,signingPin,encryptionPin,app,journal,quorum];
+  const args=windows?[sealed?'--broker-windows-pq-enrolled-mail-gui-lab':guiWindowsApproval?'--broker-windows-pq-gui-lab':'--broker-windows-pq-quorum-lab',storage.dir,app,signingPin,encryptionPin,pqMode.address,pqMode.deviceId,pqMode.kemPin,pqMode.dsaPin,pqMode.rootPin,...(sealed?[windowsScattering.endpoint]:[])]:pqMode?['--broker-software-pq-quorum-lab',vault,signingPin,encryptionPin,app,journal,quorum,pqMode.sidecar,pqMode.address,pqMode.deviceId,pqMode.kemPin,pqMode.dsaPin,pqMode.rootPin,'auto',pqMode.contactDirectory]:['--broker-software-compact-manifest-quorum-lab',vault,signingPin,encryptionPin,app,journal,quorum];
   if(storage)await storage.verifyBinary();
   const child=spawn(binary,args,{shell:false,stdio:['pipe','pipe',guiWindowsApproval?'ignore':'inherit'],...(storage?{cwd:win32.dirname(binary),env:storage.env,windowsHide:guiWindowsApproval}:{})});
   let buf=Buffer.alloc(0),waiter=null,closed=false,busy=false,seq=0,nonce,signing;
@@ -144,7 +146,13 @@ export async function connectNativeVault({binary,binarySha256,vault,journal,quor
       }
       let mailBusy=false;
       async function exclusive(fn){check(!mailBusy&&!closed,'native session unavailable');mailBusy=true;try{return await fn();}catch(e){fail();throw e;}finally{mailBusy=false;}}
+      const mailbox=sealed?(await import('./native-mailbox-client.mjs')).createNativeMailboxClient(windowsScattering,{transport:(op,body)=>exclusive(async()=>{
+        const r=await call({op:'native-mailbox-lab',mailboxOp:op,mailboxBody:body});
+        check(r.mailboxResult&&typeof r.mailboxResult==='object','invalid mailbox result');
+        return r.mailboxResult;
+      })}):undefined;
       return Object.freeze({
+        ...(mailbox?{mailbox}:{}),
         publicKeys:Object.freeze({signing:Object.freeze(signing.jwk),encryption:Object.freeze(enc.jwk)}),
         // Enrollment is a separate, one-time locally approved native broker
         // operation; it does NOT install a live account or revoke old keys.
@@ -167,7 +175,15 @@ export async function connectNativeVault({binary,binarySha256,vault,journal,quor
             verified(record,await peers(context));return record;
           }finally{raw.fill(0);}
         });},
-        close(){fail();}
+        close(){
+          // Close stdin after queued operations so the broker can exit normally
+          // and run its cleanup; a stuck process is forcibly terminated.
+          if(closed)return;
+          if(busy||waiter){fail();return;}
+          closed=true;child.stdin.end();
+          const timer=setTimeout(()=>child.kill(),2000);timer.unref();
+          child.once('exit',()=>clearTimeout(timer));
+        }
       });
     }
     return Object.freeze({

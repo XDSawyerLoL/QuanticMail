@@ -46,17 +46,19 @@ export async function composeAndSendWindowsLab(config,storage,{
  // An operator sees the exact recipient and plaintext before a broker request.
  if(!await approve('Chiffrer dans le coffre natif le brouillon pour '+draft.context.to+
   '\n'+safeMailDisplay(draft.payload)))return {status:'cancelled-before-seal'};
+ const sealed=scope.credentialMode==="vault-sealed-v1";
  let vault;
+ try{
  let signed;
  try{
-  vault=await connect(config);
+  vault=await connect(sealed?{...config,guiWindowsApproval:true}:config);
   signed=await vault.sealHybrid(draft.context,draft.payload,{recover});
   // Validate exact hybrid envelope and sender binding before storage.
   signed=normalizeNativeRecord(signed);
   check(signed.context.from===scope.address&&signed.context.fromDeviceId===scope.deviceId
    &&signed.context.to===draft.context.to&&signed.context.toDeviceId===draft.context.toDeviceId
    &&signed.context.clientMessageId===draft.context.clientMessageId);
- }finally{vault?.close();}
+ }finally{if(!sealed){vault?.close();vault=undefined;}}
  const digest=nativeRecordDigest(signed);
  const bytes=Buffer.from(JSON.stringify(signed)+'\n','utf8');
  try{
@@ -89,7 +91,7 @@ export async function composeAndSendWindowsLab(config,storage,{
  const saved={digest,wireFile:win32.basename(output),
   liveRestoreAuthorized:false,legacyDeletionAuthorized:false};
  try{
-  const client=await mailboxFactory(scope);
+  const client=sealed?vault?.mailbox:await mailboxFactory(scope);check(client);
   const answer=await client.send(signed);
   check(answer?.digest===digest&&['queued','acknowledged'].includes(answer.status)
    &&/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(answer.id));
@@ -99,4 +101,5 @@ export async function composeAndSendWindowsLab(config,storage,{
   // Do not claim failure of delivery, delete, resign or automatically retry.
   return {status:'deposit-unconfirmed',...saved,retryRequiresConfirmation:true};
  }
+ }finally{vault?.close();}
 }

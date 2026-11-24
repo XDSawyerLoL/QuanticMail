@@ -39,9 +39,11 @@ func winAttachPQ(j *replayLog,q *quorumAnchor,p *pqKeys,rootPin,id string)error{
 func winBroker(args []string)error{
  // Only the dedicated native GUI command opts into Windows Credential UI.
  // Legacy command remains console-only, without environment/CLI secret fallback.
- if len(args)!=11{return portableRefusal}
- gui:=args[1]=="--broker-windows-pq-gui-lab"
+ enrolled:=len(args)==12&&args[1]=="--broker-windows-pq-enrolled-mail-gui-lab"
+ if len(args)!=11&&!enrolled{return portableRefusal}
+ gui:=args[1]=="--broker-windows-pq-gui-lab"||enrolled
  if !gui&&args[1]!="--broker-windows-pq-quorum-lab"{return portableRefusal}
+ if gui&&!enrolled&&len(args)!=11{return portableRefusal}
  approve:=winApprove
  secret:=winConsoleLine
  if gui{approve=winGUIApprove;secret=winGUIPassphrase}
@@ -54,22 +56,33 @@ func winBroker(args []string)error{
  if !approve("Open Windows PQ LAB vault "+addr+" / "+device){return portableRefusal}
  pw,e:=secret("Classical laboratory passphrase: ",true);if e!=nil{return e}
  defer clear(pw)
- k,e:=winReadClassical(filepath.Join(dir,"classical.vault"),anchoredMagic+"compact-manifest-quorum:"+q.pin+"\x00",pw,s,a);clear(pw);if e!=nil{return e}
+ k,e:=winReadClassical(filepath.Join(dir,"classical.vault"),anchoredMagic+"compact-manifest-quorum:"+q.pin+"\x00",pw,s,a);if !enrolled{clear(pw)};if e!=nil{return e}
  point:=k.agreement.PublicKey().Bytes()
  if device!="d-"+hexHash([]byte("P-256:"+b64.EncodeToString(point[1:33])+":"+b64.EncodeToString(point[33:])))[:32]{return portableRefusal}
  binding,e:=pqBinding(s,a,hexHash(pub),q.pin,addr,device);if e!=nil{return e}
  pqw,e:=secret("Post-quantum laboratory passphrase: ",true);if e!=nil{return e};defer clear(pqw)
- p,e:=winReadPQ(filepath.Join(dir,"pq.vault"),binding,pqw,addr,device,kem,dsa);clear(pqw);if e!=nil{return e};defer p.close()
+ p,e:=winReadPQ(filepath.Join(dir,"pq.vault"),binding,pqw,addr,device,kem,dsa);if !enrolled{clear(pqw)};if e!=nil{return e};defer p.close()
+ var transport mailboxTransport
+ if enrolled{
+  request,e:=readPendingEnrollment(dir);if e!=nil{return e}
+  claim:=request.Claim
+  if request.QuorumPin!=q.pin||request.ControllerPublic!=app||claim.Address!=addr||claim.DeviceID!=device||claim.SigningPin!=s||claim.EncryptionPin!=a||claim.KemPin!=kem||claim.DsaPin!=dsa||claim.PQRootPin!=root{return portableRefusal}
+  digest,e:=nativeEnrollmentDigest(request);if e!=nil{return e}
+  raw,e:=winReadPrivate(filepath.Join(dir,"mailbox-token.vault"),1024);if e!=nil{return e}
+  token,e:=openNativeMailboxCredential(raw,digest,pw,pqw);clear(raw);clear(pw);clear(pqw);if e!=nil{return e}
+  var closeTransport func()
+  transport,closeTransport,e=newMailboxTransport(args[11],addr,device,token);clear(token);if e!=nil{return e};defer closeTransport()
+ }
  raw,e:=winReadPrivate(filepath.Join(dir,"contacts.json"),131072);if e!=nil{return e}
  senders,e:=parseSenderTrust(raw);if e!=nil{return e}
  j,e:=winOpenReplay(filepath.Join(dir,"journal.log"),s,a,hexHash(pub));if e!=nil{return e};defer j.close()
  id,e:=anchorID(s,a,hexHash(pub));if e!=nil{return e}
  if e=winAttachPQ(j,q,p,root,id);e!=nil{return e}
  return authenticateFrames(pub,os.Stdin,os.Stdout,func(in io.Reader,out io.Writer)error{
-  return serveGuardedPQ(softwareSigner{k.signing},k.agreement,"windows-software-pq-quorum-lab",in,out,func(detail string)bool{
+  return serveGuardedPQTransport(softwareSigner{k.signing},k.agreement,"windows-software-pq-quorum-lab",in,out,func(detail string)bool{
    // Existing operation details include only constrained identifiers and hashes.
    if strings.ContainsAny(detail,"\r\n\x00"){return false}
    return approve(detail)
-  },j,p,senders)
+  },j,p,transport,senders)
  })
 }

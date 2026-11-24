@@ -1,0 +1,58 @@
+name: Native UDP session endpoint acceptance
+on:
+  push:
+    branches: ['feat/native-mailbox-broker-session-20261124']
+    paths:
+      - 'lib/quantic/scattering-session*.mjs'
+      - 'standalone-relay/native-scattering*-mailbox*.mjs'
+      - 'tests/scattering-session*.test.mjs'
+      - 'tests/helpers/native-session-peer.mjs'
+      - 'tests/helpers/native-scattering-link.mjs'
+      - 'tests/native-enrollment-quorum.test.mjs'
+      - '.github/workflows/native-udp-session-acceptance.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: native-udp-session-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  endpoint-acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24.8.0
+      - name: Independent endpoint sessions and wrong-peer refusal
+        run: node --experimental-transform-types --test tests/scattering-session.test.mjs tests/scattering-session-integrated.test.mjs tests/scattering-session-processes.test.mjs
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+        with:
+          go-version: '1.23.2'
+      - name: Build actual native UDP pacer
+        working-directory: labs/quantic-native/scattering/native
+        env:
+          GOTOOLCHAIN: local
+          GOPROXY: 'off'
+          GOSUMDB: 'off'
+        run: go build -trimpath -o "$RUNNER_TEMP/Quantic-Pacer" .
+      - name: Enrolled mailbox using same endpoint negotiation (no fallback)
+        run: |
+          test -x "$RUNNER_TEMP/Quantic-Pacer"
+          QUANTIC_ENROLLED_SCATTERING_BINARY="$RUNNER_TEMP/Quantic-Pacer" node --experimental-transform-types --test --test-name-pattern="native-only relay durably publishes" tests/native-enrollment-quorum.test.mjs
+
+  windows-independent-endpoints:
+    runs-on: windows-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24.8.0
+      - name: Windows independent process UDP and encrypted payload acceptance
+        run: node --experimental-transform-types --test tests/scattering-session-processes.test.mjs tests/scattering-session.test.mjs

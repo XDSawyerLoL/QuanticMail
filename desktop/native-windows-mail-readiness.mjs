@@ -81,7 +81,7 @@ export function verifyWindowsTwoHostReadiness(config,contacts,carrier,trust,{now
   &&config.encryptionPin===trust.self.classicalEncryptionPin
   &&p.kemPin===trust.self.mlKemPin&&p.dsaPin===trust.self.mlDsaPin);
  const scoped=windowsScatteringScope(config);
- check(typeof scoped.token==='string'&&/^[A-Za-z0-9._~-]{40,256}$/.test(scoped.token));
+ check(scoped.credentialMode==='vault-sealed-v1'?scoped.token===undefined:typeof scoped.token==='string'&&/^[A-Za-z0-9._~-]{40,256}$/.test(scoped.token));
  const source=p.authority;
  keys(source,['authorities','caFile','clientCertFile','clientKeyFile']);
  check(source.authorities.length===4);
