@@ -177,6 +177,20 @@ export async function connectNativeVault({binary,binarySha256,vault,journal,quor
       return Object.freeze({
         ...(mailbox?{mailbox,sealReceipt:(item,payload)=>receiptCall('receipt-seal',{id:item.id,digest:item.digest,payload}),openReceipt:record=>receiptCall('receipt-open',record),openDraft:(file,record)=>receiptCall('draft-open',{file,record})}:{}),
         publicKeys:Object.freeze({signing:Object.freeze(signing.jwk),encryption:Object.freeze(enc.jwk)}),
+        ...(sealed?{scatteringSigner(address,deviceId){
+          check(!closed,'native vault unavailable');
+          const matches=contacts.filter(x=>x.address===address&&x.deviceId===deviceId&&x.expires>Date.now());
+          check(matches.length===1&&!(address===pqMode.address&&deviceId===pqMode.deviceId),'unknown contact');
+          const peer=matches[0],pub=(v)=>createPublicKey({key:Buffer.from(v,'base64'),format:'der',type:'spki'});
+          return Object.freeze({local:Object.freeze({classical:signing.key,pq:pub(ownKeys.mlDsaSigningSpki)}),
+            peer:Object.freeze({classical:pub(peer.classicalSigningSpki),pq:pub(peer.mlDsaSigningSpki)}),
+            signHandshake:(raw,evidence)=>exclusive(async()=>{
+              check(Buffer.isBuffer(raw)&&raw.length<=4096&&peer.expires>Date.now(),'invalid scattering request');
+              const r=await call({op:'scattering-sign-lab',mailboxBody:{address,deviceId,raw:raw.toString('base64url'),...(evidence?{evidence}:{})}});
+              const sig=r.mailboxResult;
+              b64(sig?.classical,64,64);b64(sig?.pq,3309,3309);return sig;
+            })});
+        }}:{}),
         // Enrollment is a separate, one-time locally approved native broker
         // operation; it does NOT install a live account or revoke old keys.
         async signEnrollment(challenge){return exclusive(()=>signNativeEnrollment(challenge));},

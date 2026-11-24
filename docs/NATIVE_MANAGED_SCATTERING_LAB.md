@@ -36,3 +36,6 @@ Le test UDP utilise des signataires fictifs. Le broker Go doit encore
 implémenter l'autorisation dédiée (contact, contexte, expiration, anti-rejeu)
 avant tout raccordement au dashboard. Aucun renouvellement automatique ni
 changement du profil historique n'est introduit par cette interface.
+
+## Native signature bridge (experimental)
+The enrolled Windows broker supports scattering-sign-lab only through the authenticated controller pipe, with native approval, a current pinned contact, quorum contact authorization and durable one-shot replay reservation. Go reconstructs the exact hello and response transcripts, including validation of the peer's two signatures on the responder path. The controller supplies only public keys and a signing callback. This is not yet used by the dashboard; no autonomous renewal or migration of old configurations. Local approval and the existing quorum are required for each attempt. No claim of rollback resistance beyond the existing quorum assumptions.
