@@ -40,3 +40,33 @@ test('two independent OS processes negotiate P-256/ML-DSA and ML-KEM session wit
 test('independent processes refuse substituted pinned identity',{timeout:12000},async()=>{
  const [a,b]=await exercise(true);assert.equal(a.type,'refused');assert.equal(b.type,'refused');
 });
+
+test('independent native processes exchange encrypted payload both ways and reject exact ciphertext replay',{timeout:16000},async t=>{
+ const a=worker(),b=worker();let timer;
+ function next(w,type){
+  return new Promise((resolve,reject)=>{
+   const done=()=>{w.child.off('message',onMessage);w.child.off('exit',onExit);w.child.off('error',onExit);};
+   const onMessage=m=>{if(m.type===type){done();resolve(m);}else if(m.type==='refused'){done();reject(Error('Peer refused encrypted exchange'));}};
+   const onExit=()=>{done();reject(Error('Peer exited before '+type));};
+   w.child.on('message',onMessage);w.child.once('exit',onExit);w.child.once('error',onExit);
+  });
+ }
+ try{
+  await Promise.race([(async()=>{
+   const [x,y]=await Promise.all([a.ready,b.ready]);
+   const context={channel:randomBytes(48).toString('hex'),generation:0,previous:'0'.repeat(96)};
+   b.child.send({type:'start',role:'responder',peer:x.publicKeys,port:x.port,context,exchange:true});
+   a.child.send({type:'start',role:'initiator',peer:y.publicKeys,port:y.port,context,exchange:true});
+   const [aa,bb]=await Promise.all([a.result,b.result]);
+   assert.equal(aa.type,'agreed');assert.equal(bb.type,'agreed');assert.equal(aa.commitment,bb.commitment);assert.equal(aa.transcript,bb.transcript);
+   const exchanges=Promise.all([next(a,'exchanged'),next(b,'exchanged')]);
+   a.child.send({type:'exchange'});b.child.send({type:'exchange'});
+   const results=await exchanges;
+   for(const result of results){assert.deepEqual(result,{type:'exchanged',authenticatedPayload:true,replayRefused:true});}
+   const done=Promise.all([next(a,'done'),next(b,'done')]);
+   a.child.send({type:'stop'});b.child.send({type:'stop'});
+   await done;
+   t.diagnostic('INDEPENDENT_UDP_PAYLOAD_EVIDENCE '+JSON.stringify({platform:process.platform,processes:2,bidirectionalPayload:true,exactReplayRefused:true,sharedBootstrapSecret:false,privateKeyIPC:false,physicalHosts:1,releaseAuthorized:false}));
+  })(),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('Independent payload test deadline')),14000);})]);
+ }finally{clearTimeout(timer);for(const w of [a,b])if(w.child.exitCode===null&&w.child.signalCode===null)w.child.kill();}
+});
