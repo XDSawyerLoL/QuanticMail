@@ -29,8 +29,8 @@ function fakeSigned(context=ctx){
    pqSignature:randomBytes(3309).toString('base64url')}
  };
 }
-function setup({approve=async()=>true,failWrite=false,corrupt=false,failSend=false,identity=ctx,recover=false}={}){
- const files=new Map([[input,Buffer.from(JSON.stringify(draft))]]);
+function setup({approve=async()=>true,failWrite=false,corrupt=false,failSend=false,identity=ctx,recover=false,sourceDraft=draft}={}){
+ const files=new Map([[input,Buffer.from(JSON.stringify(sourceDraft))]]);
  let write=0,seal=0,close=0,sends=0,reads=0,approvals=0;
  const signed=fakeSigned(identity);
  const storage={
@@ -51,7 +51,7 @@ function setup({approve=async()=>true,failWrite=false,corrupt=false,failSend=fal
   input,output,recover,
   approve:async p=>{approvals++;return approve(p,approvals);},
   connect:async()=>({async sealHybrid(context,payload,options){
-   seal++;assert.deepEqual(context,ctx);assert.deepEqual(payload,draft.payload);
+   seal++;assert.deepEqual(context,ctx);assert.deepEqual(payload,sourceDraft.payload);
    assert.equal(options.recover,recover);
    return signed;
   },close(){close++;}}),
@@ -116,4 +116,28 @@ test('Ambiguous network failure never retries or deletes the signed wire',async(
  await assert.rejects(composeAndSendWindowsLab(cfg,mismatchedId.storage,mismatchedId.deps));
  assert.equal(mismatchedId.stats().write,0);
  assert.equal(mismatchedId.stats().sends,0);
+});
+
+
+test('GUI long message is reviewed in full, bound to durable draft and authorized by bounded native prompt',async()=>{
+ const sourceDraft={context:ctx,payload:{subject:'é'.repeat(160),body:'Ligne de test — '.repeat(220)}};
+ const reviewedFields={to:bob,...sourceDraft.payload};
+ const x=setup({sourceDraft,approve:async(p,n)=>{
+  assert.ok(Buffer.byteLength(p.replace(/\r\n?|\n/gu,' | '),'utf8')<=1024);
+  if(n===1){
+   assert.ok(p.includes(bob));
+   assert.match(p,/Empreinte du brouillon : [0-9a-f]{64}/);
+   assert.ok(p.includes(Buffer.byteLength(sourceDraft.payload.body,'utf8')+' octets'));
+   assert.ok(!p.includes(sourceDraft.payload.body));
+  }
+  return true;
+ }});
+ assert.equal((await composeAndSendWindowsLab(cfg,x.storage,{...x.deps,reviewedFields})).status,'deposited');
+ assert.equal(x.stats().seal,1);assert.equal(x.stats().sends,1);
+ assert.deepEqual(JSON.parse(x.files.get(input)),sourceDraft);
+ for(const tamper of [{to:alice},{subject:'different'},{body:'different'}]){
+  const y=setup({sourceDraft});
+  await assert.rejects(composeAndSendWindowsLab(cfg,y.storage,{...y.deps,reviewedFields:{...reviewedFields,...tamper}}));
+  assert.equal(y.stats().seal,0);assert.equal(y.stats().sends,0);assert.equal(y.stats().approvals,0);
+ }
 });
