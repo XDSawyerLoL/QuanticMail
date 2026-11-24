@@ -3,8 +3,8 @@
 // automatic epoch reuse. This is not production session negotiation.
 import {createHash} from 'node:crypto';
 import {spawn} from 'node:child_process';
-import {open,lstat,realpath,readdir} from 'node:fs/promises';
-import {isAbsolute,resolve,dirname} from 'node:path';
+import {open,lstat,realpath,readdir,readFile} from 'node:fs/promises';
+import {isAbsolute,resolve,dirname,win32} from 'node:path';
 import {isIPv4} from 'node:net';
 import {startScatteringMailboxEndpoint} from './native-scattering-mailbox.mjs';
 
@@ -70,13 +70,27 @@ async function verifyPacer(plan){
 }
 export async function startPrivateCarrierHost(plan,{
  startEndpoint=startScatteringMailboxEndpoint,spawnChild=spawn,verifyBinary=verifyPacer,
- verifyDir=privateDir,inspectQueue=readdir,acceptUntil
+ verifyDir=privateDir,inspectQueue=readdir,acceptUntil,windowsBootstrap
 }={}){
- check(process.platform==='linux');
+ const windows=process.platform==='win32';
+ check(process.platform==='linux'&&!windowsBootstrap||windows&&windowsBootstrap&&windowsBootstrap.ledgerDir);
  validatePrivateCarrierPlan(plan);
- await verifyBinary(plan);
- await verifyDir(plan.carrier.queueDir);await verifyDir(plan.carrier.stateDir);
- check((await inspectQueue(plan.carrier.queueDir)).length===0);
+ let childEnv={PATH:'/usr/bin:/bin',LANG:'C'};
+ if(windows){
+  const {createWindowsNativeStorage}=await import('../desktop/native-windows-storage.mjs');
+  const store=await createWindowsNativeStorage(windowsBootstrap);
+  check(plan.pacerBinary===win32.join(win32.dirname(store.binary),'Scattering-Pacer.exe'));
+  const st=await lstat(plan.pacerBinary);
+  check(st.isFile()&&!st.isSymbolicLink()&&st.nlink===1&&st.size>0&&st.size<=128*1024*1024);
+  check(digest(await readFile(plan.pacerBinary))===plan.pacerSha256);
+  childEnv=store.env;
+  // The native guard checks ACLs, reparse points, emptiness and epoch reuse
+  // atomically and keeps directory handles open before either child starts.
+ }else{
+  await verifyBinary(plan);
+  await verifyDir(plan.carrier.queueDir);await verifyDir(plan.carrier.stateDir);
+  check((await inspectQueue(plan.carrier.queueDir)).length===0);
+ }
  let endpoint,closing=false,failed=false,resolveClosed;
  const closed=new Promise(r=>{resolveClosed=r;});
  const kids=[];
@@ -96,7 +110,7 @@ export async function startPrivateCarrierHost(plan,{
   return closed;
  }
  function start(args){
-  const child=spawnChild(plan.pacerBinary,args,{shell:false,stdio:'ignore',env:{PATH:'/usr/bin:/bin',LANG:'C'},cwd:dirname(plan.pacerBinary)});
+  const child=spawnChild(plan.pacerBinary,args,{shell:false,stdio:'ignore',env:childEnv,windowsHide:true,cwd:dirname(plan.pacerBinary)});
   let finish;
   const exit=new Promise(r=>{finish=r;});
   kids.push({child,exit});
@@ -107,7 +121,7 @@ export async function startPrivateCarrierHost(plan,{
   });
  }
  try{
-  endpoint=await startEndpoint(plan.carrier,{acceptUntil});
+  endpoint=await startEndpoint(plan.carrier,{acceptUntil,windowsBootstrap});
   void endpoint.closed.then(()=>{if(!closing)void stop('carrier-epoch-closed');});
   await start(['-mode','sink','-listen',plan.listenIP+':'+plan.listenPort,'-forward','127.0.0.1:'+endpoint.recvPort]);
   check(!closing);
