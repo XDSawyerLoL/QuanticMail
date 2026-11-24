@@ -115,6 +115,7 @@
   "vault/windows_pay.go": "566cc16edf655f1e91869877cc9cef0b1deb679d66206af1b782f98a52867af2",
   "vault/windows_pay_test.go": "6351f020ce50b6a8f6144ed9a7b54e1ae19e3c054a2e6e05d724ee55d25b1d29",
   "vault/windows_possession.go": "5b839f3893eb1feb4aa25dce474fb8756d1a9b0361cb2e2a3134449876ff3f03",
+  "vault/windows_possession_test.go": "8a533ba12d7d7504cf17c8dcb5692589bdd6b69cd8d8978045c0b06d5a0c6964",
   "vault/windows_provision.go": "6789f78431e34f8bb1b0e09dbc9a4c2f31fafa4ccb00bde45162a45b6b68b5e8",
   "vault/windows_provision_stub.go": "437cb9b981e021757eeb6119602043c64fd07e0f52acfdd20968528e398214bf",
   "vault/windows_recovery_test.go": "ebb7f0681edefe56b42c50b87bf6ef21e8924efd501f95c76093565dbf68da49",
