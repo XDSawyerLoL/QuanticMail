@@ -1,42 +1,58 @@
 # Graphical Quantic ID session (private Alpha)
 
-The dashboard now exposes "Quantic ID - Ouvrir ma session". Choose the
-existing provisioned test vault, supply the independently authenticated
-SHA256 of its session configuration, and approve the native possession
-prompts. The session dialog shows only the authenticated address, a
-limited-duration status and a lock/close button. It never receives a
-session identifier, password or private key. The controller runs hidden
-with redirected pipes. Closing the dialog closes the pipe, invalidates
-local access and requests remote lock. A network failure is not a
-confirmed remote lock; the remaining server lease is at most 60 seconds.
+## Operator preparation
 
-The operator must already have enrolled the synthetic candidate with at
-least three independent laboratory authorities and provisioned the
-relying-party service. The private vault must contain session.json, an
-operator-approved JSON object with exactly:
+A test candidate must already have enrollment receipts from at least three
+independently approved authorities. The relying-party service and four
+authority endpoints must be provisioned by their operators. This remains a
+private laboratory workflow, not self-service enrollment or production access.
+
+In a private Linux directory (mode 0700) place configuration.json and the
+three corresponding peer-*.pem files (mode 0600). The configuration schema
+is exactly:
 - format: quantic-native-session-config-lab/v1
 - labOnly: true
 - service: pinned HTTPS relying-party URL and tlsPin
-- authorities: four independently approved HTTPS authority descriptors
-  with url, tlsPin, pin and publicKey
-- candidate: the exact inactive owner-signed identity candidate
+- authorities: four approved HTTPS descriptors (url, tlsPin, pin, publicKey)
+- candidate: exact inactive owner-signed identity candidate
 - expected: independently approved public identity pins
-- enrollmentReceipts: three or four verified enrollment receipts
+- enrollmentReceipts: three or four signed enrollment receipts
 - clientPin: SHA256 of the pinned client certificate DER
-- tlsFiles: object with ca, cert and key (basenames of protected peer-*.pem files)
+- tlsFiles: distinct basenames ca, cert and key
 
-The configuration is not itself a session or an access token. Import it
-and any required PEM files into the vault via the existing exclusive
-native laboratory import mechanism, with independently approved digests.
-No replacement of existing files is allowed. Keep the TLS private key
-inside the approved local Windows security boundary. The normal session
-dialog does not require manual editing of any JSON; initial operator
-preparation remains a separate laboratory requirement.
+Run with Node 24:
 
-The bundled runtime reads the configuration through the native private
-file helper, checks its independent digest, verifies the package manifest,
-and uses the native graphical prover and WTS watcher. A lock aborts an
-outstanding native credential proof. This is not yet a physical-machine
-acceptance test, and it authorizes only the synthetic identity lookup,
-not Quantic Mail production access or payment. No account migration or
-public deployment is performed.
+    node --experimental-transform-types scripts/prepare-native-session-kit.mjs /absolute/private/directory
+
+The builder validates the identity manifest, PQ profile, device pins,
+enrollment receipts, distinct authority and TLS pins, certificate/key match
+and file names, then exclusively creates session-kit.json and reports its
+SHA256. No device private key is included. The kit DOES contain the mTLS
+client private key and is NOT encrypted by the builder. Transfer it only
+through a separately protected confidential channel; communicate the digest
+via an independently authenticated channel. Do not email the raw kit or
+place it in a shared/public folder.
+
+## Windows user
+
+Choose "Quantic ID - Activer ma configuration" in the graphical dashboard,
+select the existing test vault and the protected session-kit.json, enter
+the independently received kit digest once, and confirm. The native
+importer binds the kit to the exact vault identity and TLS keypair, refuses
+any conflicting existing file and creates the local approval marker last,
+after rereading all files. Identical interrupted imports may resume.
+The marker is protected by the existing NTFS security boundary; it is not
+a defense against the same trusted Windows account being compromised.
+
+Choose "Quantic ID - Ouvrir ma session". No repeated configuration digest
+or manual JSON editing is needed. The controller independently verifies the
+approved file hashes, signed receipts and TLS pair before network access.
+The window shows only the authenticated test address, status and lock button.
+Closing the pipe locks the client and requests remote lock; a failed
+remote lock remains subject to the server's 60-second lease.
+
+Existing manually configured laboratory vaults need the approved kit
+import before using the new dashboard. The old direct controller interface
+still accepts an independently authenticated configuration digest.
+No legacy migration, production account activation, real mail permission,
+physical-host acceptance or signature of the installer is implied.
