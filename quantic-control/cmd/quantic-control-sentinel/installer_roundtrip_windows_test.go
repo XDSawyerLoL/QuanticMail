@@ -107,6 +107,9 @@ func TestActualResidentBinaryInstallationE2E(t *testing.T){
   if started{break}
  }
  if !started{t.Fatal("real installed agent did not confirm both backup handles")}
+ healthManifest,err:=readManifest();if err!=nil{t.Fatal(err)}
+ if state:=readResidentBackupState(healthManifest);state!=backupStatusHeld{t.Fatalf("live agent did not signal held backup locks: %s",state)}
+
  // Closing the original selection handles models closing the GUI. Only the
  // separately launched installed resident process must hold the locks.
  for _,l:=range selected{if err:=l.Close();err!=nil{t.Fatal(err)}}
@@ -129,6 +132,8 @@ func TestActualResidentBinaryInstallationE2E(t *testing.T){
  }
  if !alerted{t.Fatal("real resident did not detect harmless file burst")}
  if err:=uninstallResident();err!=nil{t.Fatalf("real agent uninstall failed: %v",err)}
+ if state:=readResidentBackupState(healthManifest);state!=backupStatusAbsent{t.Fatalf("stopped resident left status signal: %s",state)}
+
  for _,id:=range identities{
   if err:=os.WriteFile(id.Path,[]byte("released"),0600);err!=nil{t.Fatalf("uninstall did not release backup lock: %v",err)}
  }
