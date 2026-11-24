@@ -5,6 +5,8 @@ import {readFile} from 'node:fs/promises';
 import {isIPv4} from 'node:net';
 import {dirname,isAbsolute} from 'node:path';
 import {startNegotiatedScatteringMailboxEndpoint} from '../standalone-relay/native-scattering-negotiated-mailbox-lab.mjs';
+import {negotiateUdpSessionLab} from '../lib/quantic/scattering-session-udp-endpoint-lab.mjs';
+import {confirmScatteringCutover} from '../lib/quantic/scattering-cutover-lab.mjs';
 import {startScatteringMailboxEndpoint} from '../standalone-relay/native-scattering-mailbox.mjs';
 const check=x=>{if(!x)throw Error('Managed native carrier refused');};
 const pin=/^[a-f0-9]{64}$/;
@@ -59,4 +61,32 @@ export async function startNegotiatedManagedCarrier({socket,local,privateKeys,si
  const config=options.config;
  check(config&&!Object.hasOwn(config,'secretHex')&&!Object.hasOwn(config,'epochHex'));
  return startManagedCarrier(options,{start:(c,o)=>startNegotiatedScatteringMailboxEndpoint({config:c,...o,socket,local,privateKeys,signHandshake,peer,context,timeoutMs})});
+}
+
+ // Explicit experimental path. Caller owns the connected bootstrap socket
+ // and durable fence and must already have stopped the previous carrier.
+ // The historical launcher is deliberately unchanged.
+export async function startFencedNegotiatedManagedCarrier({socket,local,privateKeys,signHandshake,peer,fence,timeoutMs=8000,cutoverTimeoutMs=5000,...options}){
+ const config=options.config;
+ check(config?.labOnly===true&&['client','relay'].includes(config.role)&&!Object.hasOwn(config,'secretHex')&&!Object.hasOwn(config,'epochHex'));
+ check(fence&&['reserve','stage','finish'].every(k=>typeof fence[k]==='function'));
+ const reservation=await fence.reserve(),role=config.role==='client'?'initiator':'responder';
+ let material,carrier,endpoint,terminated=false;
+ const abort=new AbortController();
+ try{
+  material=await negotiateUdpSessionLab({socket,role,local,privateKeys,signHandshake,peer,context:reservation.context,timeoutMs});
+  await fence.stage(reservation,material);
+  carrier=await startManagedCarrier(options,{start:async(c,o)=>{
+   const ephemeral={...c,secretHex:material.secret.toString('hex'),epochHex:material.epoch.toString('hex')};
+   try{endpoint=await startScatteringMailboxEndpoint(ephemeral,{...o,initiallyPaused:true});return endpoint;}
+   finally{delete ephemeral.secretHex;delete ephemeral.epochHex;}
+  }});
+  void carrier.closed.then(()=>{terminated=true;abort.abort();});
+  await confirmScatteringCutover({socket,role,material,context:reservation.context,timeoutMs:cutoverTimeoutMs,signal:abort.signal});
+  check(!terminated);
+  await fence.finish(reservation,material);
+  check(!terminated);endpoint.activate();
+  return Object.freeze({...carrier,generation:material.generation,transcript:material.transcript,peerReady:true});
+ }catch(e){await carrier?.close();throw e;}
+ finally{material?.secret.fill(0);material?.epoch.fill(0);}
 }
