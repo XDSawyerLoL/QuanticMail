@@ -53,6 +53,7 @@ func winControllerFrameSign(dir string,input []byte)([]byte,error){
 func winClientIO(args []string)(bool,error){
  if len(args)>1&&(args[1]=="--windows-controller-public-lab"||args[1]=="--windows-controller-sign-frame-lab"){
   if len(args)!=4||args[3]!="controller.pem"{return true,portableRefusal}
+  if e:=winProtectCryptoProcess();e!=nil{return true,e}
   var result []byte
   if args[1]=="--windows-controller-public-lab"{
    key,e:=winControllerKey(args[2]);if e!=nil{return true,e};defer clear(key)

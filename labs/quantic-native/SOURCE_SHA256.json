@@ -100,8 +100,8 @@
   "vault/tests/dual-enrollment.test.mjs": "b237d536238557d52b226baa05bceb7d9045715c079bd02a7d4a8e43e2bc2ced",
   "vault/tests/isolated-enrollment.test.mjs": "3c90b9b3ce5522877b175176a372508834719a7447a28f342d0296df00d93e7f",
   "vault/tests/native-enrollment.test.mjs": "a07c4711d5a7a18f5ee48f969fcf07b4e81ecab5771e11739c3f93a91c011807",
-  "vault/windows_broker.go": "6475f3b5a4eae5b45a488fcf0f5b400061b1cb735e449075ea127ff395c44a74",
-  "vault/windows_client_io.go": "77e684a93023ef48e4c44f4874d8ee59b0e8d25aeda9117f9e21d8e7a655d2e4",
+  "vault/windows_broker.go": "49501672d1a364daff4ffb63233da9f57a7862c194e2cb2048d160166720ffee",
+  "vault/windows_client_io.go": "348b935ebc37d1a0087796e08b8ab8cbc825e0155ea08355228e53e1e7f1a85d",
   "vault/windows_console.go": "a44834947eb6239ab5562191ab44f02f1443638331d2ce956ef6e0a0735de5ed",
   "vault/windows_enrollment_claim.go": "029acb95d62e7a940006f32e25adbe7dd0fca94ad44e24c98f1e0da38c0fd5d7",
   "vault/windows_enrollment_claim_test.go": "91ccaec7d8d86ea07882e130678bd3ef0fcc10b5d832268486b7dd3a4b21981d",
@@ -129,5 +129,7 @@
   "vault/windows_scattering_test.go": "1b8ca9c6ecd3bc9796587ed5e167c1e6eaef8b5873073406acb2d94b60e33dc4",
   "vault/windows_storage.go": "9dcaf3876bcd65a64a81f5051736e06a641564046bff59214b52a3ba66de59e2",
   "vault/windows_storage_test.go": "1bf350508e4de09ef1bf72e039927e4b3bd2d588c14f277ae668a74897bed2da",
-  "vault/windows_draft_protection.go": "6693b88b15e337e679166843eae7d2e92ccd8aa007b371f678a29073bb92c56a"
+  "vault/windows_draft_protection.go": "6693b88b15e337e679166843eae7d2e92ccd8aa007b371f678a29073bb92c56a",
+  "vault/windows_process_guard.go": "4029853d32f4733f2ffa39148dc0e070d3a2600eba4ba394c85e013dc51d41d9",
+  "vault/windows_process_guard_test.go": "1c2404b23c224472ac528edd2d9733144a81a44285e7173b33d96597bf4ac61b"
 }

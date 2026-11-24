@@ -42,6 +42,7 @@ func winBroker(args []string)error{
  if len(args)!=11{return portableRefusal}
  gui:=args[1]=="--broker-windows-pq-gui-lab"
  if !gui&&args[1]!="--broker-windows-pq-quorum-lab"{return portableRefusal}
+ if e:=winProtectCryptoProcess();e!=nil{return e}
  approve:=winApprove
  secret:=winConsoleLine
  if gui{approve=winGUIApprove;secret=winGUIPassphrase}
