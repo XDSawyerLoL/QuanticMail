@@ -29,8 +29,8 @@ export async function createWindowsNativeStorage({binary,binarySha256,dir}){
    child.on('error',()=>finish(Error('Windows native helper refused')));
    child.stdin.on('error',()=>finish(Error('Windows native helper refused')));
    child.stdout.on('error',()=>finish(Error('Windows native helper refused')));
-   child.stdout.on('data',b=>{length+=b.length;if(length>131072){finish(Error('Windows native helper bounds'));return;}chunks.push(b);});
-   child.on('close',code=>{if(code!==0){finish(Error('Windows native helper refused'));return;}const b=Buffer.concat(chunks);for(const c of chunks)c.fill(0);finish(null,b);});
+   child.stdout.on('data',b=>{if(done){b.fill(0);return;}length+=b.length;if(length>131072){b.fill(0);finish(Error('Windows native helper bounds'));return;}chunks.push(b);});
+   child.on('close',code=>{if(done)return;if(code!==0){finish(Error('Windows native helper refused'));return;}const b=Buffer.concat(chunks);for(const c of chunks)c.fill(0);chunks.length=0;finish(null,b);});
    child.stdin.end(input);
   });
  }

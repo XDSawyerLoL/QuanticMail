@@ -13,14 +13,15 @@ const device=/^d-[a-f0-9]{32}$/;
 export async function createAttestedPeerSource(config,{read=readFile}={}){
  check(Array.isArray(config?.authorities)&&config.authorities.length===4);
  for(const path of [config.caFile,config.clientCertFile,config.clientKeyFile])check(typeof path==='string'&&isAbsolute(path));
- const tls={ca:await read(config.caFile),cert:await read(config.clientCertFile),key:await read(config.clientKeyFile),minVersion:'TLSv1.3',rejectUnauthorized:true};
+ const {caFile,clientCertFile,clientKeyFile}=config;
+ const ca=await read(caFile),cert=await read(clientCertFile);
  const authorities=config.authorities.map(a=>{
   const u=new URL(a.url);
   check(u.protocol==='https:'&&u.pathname==='/native-checkpoint'&&!u.username&&!u.password&&!u.search&&!u.hash&&hex.test(a.tlsPin)&&hex.test(a.pin));
   return {...a,url:u};
  });
  check(new Set(authorities.map(a=>a.pin)).size===4&&new Set(authorities.map(a=>a.url.origin)).size===4&&new Set(authorities.map(a=>a.tlsPin)).size===4);
- function fetchOne(a,challenge){
+ function fetchOne(a,challenge,tls){
   return new Promise((resolve,reject)=>{
    const raw=Buffer.from(JSON.stringify(challenge));let pinned=false;
    const req=httpsRequest(a.url,{...tls,agent:false,method:'POST',checkServerIdentity(host,cert){
@@ -49,7 +50,14 @@ export async function createAttestedPeerSource(config,{read=readFile}={}){
  return async (addr,dev)=>{
   check(address.test(addr)&&device.test(dev));
   const challenge={address:addr,deviceId:dev,nonce:randomBytes(32).toString('hex'),expires:Date.now()+15000};
-  const answers=(await Promise.allSettled(authorities.map(a=>fetchOne(a,challenge)))).filter(r=>r.status==='fulfilled').map(r=>r.value);
+  // Load the private TLS credential only for this quorum round.
+  const key=await read(clientKeyFile);
+  let answers;
+  try{
+   check(Buffer.isBuffer(key)&&key.length>0&&key.length<=65536);
+   const tls={ca,cert,key,minVersion:'TLSv1.3',rejectUnauthorized:true};
+   answers=(await Promise.allSettled(authorities.map(a=>fetchOne(a,challenge,tls)))).filter(r=>r.status==='fulfilled').map(r=>r.value);
+  }finally{if(Buffer.isBuffer(key))key.fill(0);}
   const checkpoint=verifyCheckpointQuorum(answers.map(a=>a.attestation),authorities,challenge);
   for(const a of answers){try{const contact=bindNativeContact(a.bundle,checkpoint);return {bundle:a.bundle,checkpoint,contact};}catch{/* Other authenticated witnesses may provide the correct bundle. */}}
   throw Error('No matching authority bundle');

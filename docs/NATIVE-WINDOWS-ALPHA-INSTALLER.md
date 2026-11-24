@@ -121,3 +121,7 @@ Le client Web historique reste disponible pour les besoins des **comptes existan
 ## Protection complémentaire des nouveaux secrets locaux
 
 Le contrôleur Ed25519 et la clé des reçus des nouveaux coffres synthétiques sont désormais protégés au repos par DPAPI utilisateur, avec séparation de domaine et liaison au chemin. Les lecteurs refusent les anciennes clés en clair sans les modifier. La migration explicite des anciens coffres reste à réaliser. Les clés TLS et configurations de transport ne sont pas couvertes par ce changement. Cette protection ne constitue pas une isolation entre processus sous le même utilisateur Windows ; les opérations existantes peuvent encore déchiffrer les secrets dans le processus de confiance. Aucun compte réel ni déploiement autorisé.
+
+## Durée de vie des secrets en mémoire (laboratoire)
+
+La clé TLS du client est chargée pour chaque interrogation du quorum, puis son tampon est effacé dans un bloc finally. Les tampons IPC sont effacés après lecture ou écriture et lors des erreurs ; une session défaillante est fermée sans reprise implicite. Les références aux objets de clés du contrôleur sont abandonnées à la fermeture. Les chaînes JavaScript immuables, copies internes de Node/OpenSSL, mémoire paginée et processus du même utilisateur ne sont pas couverts par une garantie d'effacement. Cette mesure ne remplace ni l'isolation OS, ni la garde non exportable des clés, ni un audit indépendant.
