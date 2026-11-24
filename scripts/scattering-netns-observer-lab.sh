@@ -52,6 +52,12 @@ sudo ip -n "$NSA" link set lo up
 sudo ip -n "$NSB" link set lo up
 sudo ip -n "$NSA" link set "$VETHA" up
 sudo ip -n "$NSB" link set "$VETHB" up
+if [[ "${SCATTERING_IMPAIRMENT:-0}" == "1" ]]; then
+  command -v tc >/dev/null || { echo "tc/netem missing" >&2; exit 2; }
+  # Lab-only egress impairment: loss and jitter; no host-wide networking changes.
+  sudo ip netns exec "$NSA" tc qdisc replace dev "$VETHA" root netem delay 35ms 8ms loss 12% 20%
+  sudo ip netns exec "$NSA" tc -s qdisc show dev "$VETHA" >&2
+fi
 
 one_condition() {
   local mode="$1"
@@ -106,5 +112,23 @@ const r=analyzeNamespacePairPaths([
   resolve(work,'cover.capture'),resolve(work,'cover.sender'),resolve(work,'cover.receiver'),
   resolve(work,'synthetic.capture'),resolve(work,'synthetic.sender'),resolve(work,'synthetic.receiver'),
 ]);
+if(process.env.SCATTERING_IMPAIRMENT==='1') {
+  const expected=r.conditions.cover.sender.sent;
+  const observed=r.conditions.cover.receiver.received;
+  const busySent=r.conditions.synthetic.sender.sent;
+  const busyReceived=r.conditions.synthetic.receiver.received;
+  if(!(observed>0&&observed<expected&&busyReceived>0&&busyReceived<busySent))
+    throw Error('Netem impairment was not observed in both isolated trials');
+  if(r.conditions.synthetic.receiver.unauthenticated!==0 ||
+     r.conditions.synthetic.receiver.replays!==0 ||
+     r.conditions.synthetic.receiver.authenticatedSynthetic!==busyReceived)
+    throw Error('Impaired synthetic delivery was not fully authenticated');
+  r.impairment={
+    configured:'netem delay 35ms +/- 8ms; loss 12% with 20% correlation (egress sender veth)',
+    coverObservedLoss:expected-observed,
+    syntheticObservedLoss:busySent-busyReceived,
+    noRecoveryClaim:true,
+  };
+}
 console.log(JSON.stringify(r,null,2));
 NODE
