@@ -4,6 +4,7 @@ package main
 
 import(
  "path/filepath"
+ "os"
  "fmt"
  "strings"
  "runtime"
@@ -59,7 +60,7 @@ var previouslyHeld bool
 func refreshBackupLabel(){
  healthy:=0
  for _,l:=range backupHandles{if l.Healthy(){healthy++}}
- detail:="Agent : non configuré."
+ detail:="Agent : configuration indisponible."
  state:=backupStatusUnknown
  if m,e:=readManifest();e==nil{
   state=readResidentBackupState(m)
@@ -73,7 +74,7 @@ func refreshBackupLabel(){
   if previouslyHeld&&lastResidentBackupState==backupStatusHeld&&state!=backupStatusHeld{
    addLog("ATTENTION : verrous résidents non confirmés. Vérifiez l'agent avant de compter sur la protection.")
   }
- }
+ }else if os.IsNotExist(e){detail="Agent : non installé."}
  if state==backupStatusHeld{previouslyHeld=true}
  lastResidentBackupState=state
  setLabel(backupLabel,fmt.Sprintf("Copies verrouillées ici : %d/%d. %s",healthy,len(backupHandles),detail))
