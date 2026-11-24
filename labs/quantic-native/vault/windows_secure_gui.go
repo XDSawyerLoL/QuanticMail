@@ -7,6 +7,15 @@ package main
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <wincred.h>
+static int qs_gui_visible_station(void) {
+ HWINSTA station=GetProcessWindowStation();
+ if(station==NULL)return 0;
+ USEROBJECTFLAGS flags={0};
+ DWORD needed=0;
+ if(!GetUserObjectInformationW(station,UOI_FLAGS,&flags,sizeof(flags),&needed))return 0;
+ return (flags.dwFlags & WSF_VISIBLE)!=0;
+}
+
 
 // Windows-owned protected credential entry. No clipboard API, command-line
 // password, stdin echo, credential persistence or browser renderer.
@@ -59,7 +68,7 @@ import (
 // Only the specifically selected GUI broker may call these functions.
 // The existing console broker stays unchanged until Windows UI acceptance tests.
 func winGUISecret(prompt string,secret bool)([]byte,error){
- if !secret||len(prompt)<1||len(prompt)>192||strings.ContainsAny(prompt,"\r\n\x00"){
+ if !secret||len(prompt)<1||len(prompt)>192||strings.ContainsAny(prompt,"\r\n\x00")||C.qs_gui_visible_station()==0{
   return nil,portableRefusal
  }
  runtime.LockOSThread();defer runtime.UnlockOSThread()
@@ -72,7 +81,7 @@ func winGUISecret(prompt string,secret bool)([]byte,error){
  return winConsoleBytes(buf[:int(n)])
 }
 func winGUIApprove(detail string)bool{
- if len(detail)<1||len(detail)>1024||strings.ContainsAny(detail,"\r\n\x00"){return false}
+ if len(detail)<1||len(detail)>1024||strings.ContainsAny(detail,"\r\n\x00")||C.qs_gui_visible_station()==0{return false}
  runtime.LockOSThread();defer runtime.UnlockOSThread()
  return C.qs_gui_confirm(winWide(detail))!=0
 }
