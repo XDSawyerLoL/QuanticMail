@@ -1,0 +1,57 @@
+name: Scattering sparse-message deadline lab
+on:
+  push:
+    branches: ["feat/scattering-mix-compare-*"]
+    paths:
+      - ".github/workflows/scattering-sparse-lab.yml"
+      - "lib/quantic/scattering-batch-mixer-lab.mjs"
+      - "scripts/scattering-multihop-netns-lab.sh"
+      - "scripts/scattering-hop-reseal-relay-lab.mjs"
+      - "scripts/scattering-e2e-receiver-lab.mjs"
+      - "tests/scattering-batch-mixer.test.mjs"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  sparse:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        offset: ["0","25"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.8.0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+      - name: Verify sparse padding and shell syntax
+        run: |
+          node --test tests/scattering-batch-mixer.test.mjs
+          node --check scripts/scattering-hop-reseal-relay-lab.mjs
+          node --check scripts/scattering-e2e-receiver-lab.mjs
+          bash -n scripts/scattering-multihop-netns-lab.sh
+      - name: Install isolated network tools
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq iproute2 tcpdump
+      - name: Build native keyless Go pacer
+        working-directory: labs/quantic-native/scattering/native
+        run: go build -trimpath -o "$RUNNER_TEMP/Quantic-Pacer" .
+      - name: Verify sparse padded release over actual virtual UDP
+        env:
+          SCATTERING_MULTIHOP_E2E: "1"
+          SCATTERING_MULTIHOP_RESEAL: "1"
+          SCATTERING_MULTIHOP_MIX: "1"
+          SCATTERING_MULTIHOP_BATCH_SIZE: "8"
+          SCATTERING_MULTIHOP_PROFILE: "sparse"
+          SCATTERING_MULTIHOP_SOURCE_OFFSET_MS: ${{ matrix.offset }}
+        run: bash scripts/scattering-multihop-netns-lab.sh "$RUNNER_TEMP/Quantic-Pacer"

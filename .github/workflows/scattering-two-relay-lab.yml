@@ -1,0 +1,98 @@
+name: Scattering two successive relay lab
+on:
+  push:
+    branches: ["feat/scattering-mix-compare-*"]
+    paths:
+      - ".github/workflows/scattering-two-relay-lab.yml"
+      - "scripts/scattering-second-hop-lab.mjs"
+      - "scripts/scattering-two-relay-netns-lab.sh"
+      - "scripts/scattering-two-relay-evidence.mjs"
+      - "tests/scattering-two-relay.test.mjs"
+      - "tests/scattering-second-layer.test.mjs"
+      - "lib/quantic/scattering-second-layer-lab.mjs"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  chain:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - profile: balanced
+            second_mix: "0"
+            layer: "0"
+            second_batch: "8"
+          - profile: balanced
+            second_mix: "1"
+            layer: "0"
+            second_batch: "8"
+          - profile: skewed
+            second_mix: "1"
+            layer: "0"
+            second_batch: "8"
+          - profile: sparse
+            second_mix: "1"
+            layer: "0"
+            second_batch: "8"
+          - profile: balanced
+            second_mix: "1"
+            layer: "1"
+            second_batch: "8"
+          - profile: skewed
+            second_mix: "1"
+            layer: "1"
+            second_batch: "8"
+          - profile: sparse
+            second_mix: "1"
+            layer: "1"
+            second_batch: "8"
+          - profile: balanced
+            second_mix: "1"
+            layer: "1"
+            second_batch: "4"
+          - profile: skewed
+            second_mix: "1"
+            layer: "1"
+            second_batch: "4"
+          - profile: sparse
+            second_mix: "1"
+            layer: "1"
+            second_batch: "4"
+    name: "Two relays / ${{ matrix.profile }} / mix2=${{ matrix.second_mix }} / layer=${{ matrix.layer }} / batch2=${{ matrix.second_batch }}"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.8.0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+      - name: Check isolated relay scripts and cryptographic regressions
+        run: |
+          node --check scripts/scattering-second-hop-lab.mjs
+          node --check scripts/scattering-two-relay-evidence.mjs
+          bash -n scripts/scattering-two-relay-netns-lab.sh
+          node --test tests/scattering-second-layer.test.mjs tests/scattering-temporal-correlation.test.mjs tests/scattering-two-relay.test.mjs tests/scattering-batch-mixer.test.mjs tests/scattering-e2e-envelope.test.mjs
+      - name: Install isolated network tools
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq iproute2 tcpdump
+      - name: Build native Go pacer
+        working-directory: labs/quantic-native/scattering/native
+        run: go build -trimpath -o "$RUNNER_TEMP/Quantic-Pacer" .
+      - name: Observe two successive relay links
+        env:
+          SCATTERING_CHAIN_PROFILE: ${{ matrix.profile }}
+          SCATTERING_CHAIN_SECOND_MIX: ${{ matrix.second_mix }}
+          SCATTERING_CHAIN_LAYER: ${{ matrix.layer }}
+          SCATTERING_CHAIN_SECOND_BATCH: ${{ matrix.second_batch }}
+          SCATTERING_MULTIHOP_SOURCE_OFFSET_MS: "25"
+        run: bash scripts/scattering-two-relay-netns-lab.sh "$RUNNER_TEMP/Quantic-Pacer"

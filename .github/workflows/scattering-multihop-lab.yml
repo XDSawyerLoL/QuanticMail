@@ -1,0 +1,207 @@
+name: Scattering multiuser cross-hop correlation lab
+
+on:
+  push:
+    branches:
+      - "feat/scattering-mix-compare-*"
+    paths:
+      - "scripts/scattering-multihop-netns-lab.sh"
+      - "scripts/scattering-opaque-relay-lab.mjs"
+      - "lib/quantic/scattering-multihop-observer.mjs"
+      - "tests/scattering-multihop-observer.test.mjs"
+      - "tests/scattering-hop-reseal.test.mjs"
+      - "lib/quantic/scattering-hop-reseal-lab.mjs"
+      - "scripts/scattering-hop-reseal-relay-lab.mjs"
+      - "lib/quantic/scattering-e2e-envelope-lab.mjs"
+      - "tests/scattering-e2e-envelope.test.mjs"
+      - "tests/scattering-temporal-correlation.test.mjs"
+      - "lib/quantic/scattering-temporal-correlation-lab.mjs"
+      - "lib/quantic/scattering-fifo-timing-observer.mjs"
+      - "tests/scattering-fifo-timing-observer.test.mjs"
+      - "lib/quantic/scattering-batch-mixer-lab.mjs"
+      - "tests/scattering-batch-mixer.test.mjs"
+      - "scripts/scattering-e2e-sender-lab.mjs"
+      - "scripts/scattering-e2e-receiver-lab.mjs"
+      - "scripts/scattering-physical-probe.mjs"
+      - ".github/workflows/scattering-multihop-lab.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  two-senders-one-relay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: baseline
+            cpu: "0"
+            impairment: "0"
+            reseal: "0"
+            e2e: "0"
+            mix: "0"
+            offset_ms: "0"
+            b_real: "100"
+            batch: "40"
+          - name: loss-and-jitter
+            cpu: "0"
+            impairment: "1"
+            reseal: "0"
+            e2e: "0"
+            mix: "0"
+            offset_ms: "0"
+            b_real: "100"
+            batch: "40"
+          - name: cpu-contention
+            cpu: "1"
+            impairment: "0"
+            reseal: "0"
+            e2e: "0"
+            mix: "0"
+            offset_ms: "0"
+            b_real: "100"
+            batch: "40"
+          - name: trusted-hop-reseal
+            cpu: "0"
+            impairment: "0"
+            reseal: "1"
+            e2e: "0"
+            mix: "0"
+            offset_ms: "0"
+            b_real: "100"
+            batch: "40"
+          - name: recipient-only-nested-e2e
+            cpu: "0"
+            impairment: "0"
+            reseal: "1"
+            e2e: "1"
+            mix: "0"
+            offset_ms: "0"
+            b_real: "100"
+            batch: "40"
+          - name: recipient-only-nested-e2e-batch-mix
+            cpu: "0"
+            impairment: "0"
+            reseal: "1"
+            e2e: "1"
+            mix: "1"
+            offset_ms: "0"
+            b_real: "100"
+            batch: "40"
+          - name: nested-e2e-staggered-fifo
+            cpu: "0"
+            impairment: "0"
+            reseal: "1"
+            e2e: "1"
+            mix: "0"
+            offset_ms: "25"
+            b_real: "100"
+            batch: "40"
+          - name: nested-e2e-staggered-batch-mix
+            cpu: "0"
+            impairment: "0"
+            reseal: "1"
+            e2e: "1"
+            mix: "1"
+            offset_ms: "25"
+            b_real: "100"
+            batch: "40"
+          - name: nested-e2e-skewed-fifo
+            cpu: "0"
+            impairment: "0"
+            reseal: "1"
+            e2e: "1"
+            mix: "0"
+            offset_ms: "25"
+            b_real: "20"
+            batch: "40"
+          - name: nested-e2e-skewed-batch-mix
+            cpu: "0"
+            impairment: "0"
+            reseal: "1"
+            e2e: "1"
+            mix: "1"
+            offset_ms: "25"
+            b_real: "20"
+            batch: "40"
+          - name: nested-e2e-staggered-batch-8
+            cpu: "0"
+            impairment: "0"
+            reseal: "1"
+            e2e: "1"
+            mix: "1"
+            offset_ms: "25"
+            b_real: "100"
+            batch: "8"
+          - name: nested-e2e-staggered-batch-20
+            cpu: "0"
+            impairment: "0"
+            reseal: "1"
+            e2e: "1"
+            mix: "1"
+            offset_ms: "25"
+            b_real: "100"
+            batch: "20"
+          - name: nested-e2e-skewed-batch-8
+            cpu: "0"
+            impairment: "0"
+            reseal: "1"
+            e2e: "1"
+            mix: "1"
+            offset_ms: "25"
+            b_real: "20"
+            batch: "8"
+          - name: nested-e2e-skewed-batch-20
+            cpu: "0"
+            impairment: "0"
+            reseal: "1"
+            e2e: "1"
+            mix: "1"
+            offset_ms: "25"
+            b_real: "20"
+            batch: "20"
+    name: "Network observer / ${{ matrix.name }}"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.8.0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+      - name: Install isolated network and capture tools
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq iproute2 tcpdump
+      - name: Validate passive PCAP parser and shell syntax
+        run: |
+          node --test tests/scattering-multihop-observer.test.mjs
+          node --test tests/scattering-hop-reseal.test.mjs tests/scattering-e2e-envelope.test.mjs tests/scattering-temporal-correlation.test.mjs tests/scattering-fifo-timing-observer.test.mjs tests/scattering-batch-mixer.test.mjs
+          node --check scripts/scattering-e2e-sender-lab.mjs
+          node --check scripts/scattering-e2e-receiver-lab.mjs
+          node --check scripts/scattering-hop-reseal-relay-lab.mjs
+          node --check scripts/scattering-opaque-relay-lab.mjs
+          bash -n scripts/scattering-multihop-netns-lab.sh
+      - name: Build native keyless Go pacer
+        working-directory: labs/quantic-native/scattering/native
+        run: go build -trimpath -o "$RUNNER_TEMP/Quantic-Pacer" .
+      - name: Observe source-to-relay-to-destination ciphertext linkability
+        env:
+          SCATTERING_MULTIHOP_CPU_LOAD: ${{ matrix.cpu }}
+          SCATTERING_MULTIHOP_IMPAIRMENT: ${{ matrix.impairment }}
+          SCATTERING_MULTIHOP_RESEAL: ${{ matrix.reseal }}
+          SCATTERING_MULTIHOP_E2E: ${{ matrix.e2e }}
+          SCATTERING_MULTIHOP_MIX: ${{ matrix.mix }}
+          SCATTERING_MULTIHOP_SOURCE_OFFSET_MS: ${{ matrix.offset_ms }}
+          SCATTERING_MULTIHOP_B_REAL_CELLS: ${{ matrix.b_real }}
+          SCATTERING_MULTIHOP_BATCH_SIZE: ${{ matrix.batch }}
+        run: bash scripts/scattering-multihop-netns-lab.sh "$RUNNER_TEMP/Quantic-Pacer"

@@ -87,13 +87,19 @@ export async function composeAndSendWindowsLab(config,storage,{
    liveRestoreAuthorized:false,legacyDeletionAuthorized:false};
  // Do not retry an uncertain send. The operator can later use the existing
  // Send operation with the same wire, which has server-side idempotent digest.
- const client=await mailboxFactory(scope);
- const answer=await client.send(signed);
- check(answer?.digest===digest&&['queued','acknowledged'].includes(answer.status)
-  &&typeof answer.id==='string');
- return {status:'deposited',id:answer.id,digest,relayStatus:answer.status,
-  wireFile:win32.basename(output),
+ const saved={digest,wireFile:win32.basename(output),
   liveRestoreAuthorized:false,legacyDeletionAuthorized:false};
+ try{
+  const client=await mailboxFactory(scope);
+  const answer=await client.send(signed);
+  check(answer?.digest===digest&&['queued','acknowledged'].includes(answer.status)
+   &&/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(answer.id));
+  return {status:'deposited',id:answer.id,relayStatus:answer.status,...saved};
+ }catch{
+  // An error may mean the relay committed the exact wire before losing the reply.
+  // Do not claim failure of delivery, delete, resign or automatically retry.
+  return {status:'deposit-unconfirmed',...saved,retryRequiresConfirmation:true};
+ }
 }
 
 const draftFormat='quantic-local-draft-v1';

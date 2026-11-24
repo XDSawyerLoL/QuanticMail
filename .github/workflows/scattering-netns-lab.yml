@@ -1,0 +1,54 @@
+name: Scattering isolated network observability lab
+
+on:
+  push:
+    branches:
+      - "feat/scattering-mix-compare-*"
+    paths:
+      - "scripts/scattering-netns-observer-lab.sh"
+      - "scripts/scattering-physical-probe.mjs"
+      - "lib/quantic/scattering-netns-evidence.mjs"
+      - "lib/quantic/scattering-wire-metrics.mjs"
+      - "tests/scattering-netns-evidence.test.mjs"
+      - "labs/quantic-native/scattering/**"
+      - ".github/workflows/scattering-netns-lab.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native-udp-isolated-pair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.8.0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+      - name: Install tools required for independent passive capture
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq iproute2 tcpdump
+      - name: Verify parser failures and timing calculations
+        run: node --test tests/scattering-netns-evidence.test.mjs tests/scattering-wire-metrics.test.mjs
+      - name: Build real keyless Go UDP carrier
+        working-directory: labs/quantic-native/scattering/native
+        run: go build -trimpath -o "$RUNNER_TEMP/Quantic-Pacer" .
+      - name: Two isolated Linux network namespaces + independent tcpdump observer
+        shell: bash
+        run: bash scripts/scattering-netns-observer-lab.sh "$RUNNER_TEMP/Quantic-Pacer"
+      - name: Repeat with controlled packet loss and jitter via tc/netem
+        shell: bash
+        env:
+          SCATTERING_IMPAIRMENT: "1"
+        run: bash scripts/scattering-netns-observer-lab.sh "$RUNNER_TEMP/Quantic-Pacer"
