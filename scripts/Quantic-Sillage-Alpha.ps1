@@ -77,10 +77,47 @@ function New-OperationArguments($Action,[string]$Directory,[string]$InputName,[s
  }
  return ,$a
 }
-# A synthetic first-run lives entirely in the trusted native Go process.
-# This dashboard receives public identifiers only. No secret enters PowerShell.
-function Invoke-LocalIdentity([bool]$Create,[string]$Location){
- if($Location -cnotmatch '^[A-Za-z]:\\[A-Za-z0-9_. -]+(?:\\[A-Za-z0-9_. -]+)*
+# Native GUI identity test. Passwords never pass through PowerShell.
+function Invoke-LocalIdentity([bool]$Create,[string]$Location) {
+ if($Location -cnotmatch '^[A-Za-z]:\\[A-Za-z0-9_. -]+(?:\\[A-Za-z0-9_. -]+)*$'){throw 'Emplacement local refuse.'}
+ foreach($part in $Location.Substring(3).Split('\')){
+  if($part -in @('.','..') -or $part.EndsWith('.') -or $part.EndsWith(' ')){throw 'Chemin ambigu.'}
+ }
+ $vault=Join-Path $root 'bin\Vault-PQ-lab.exe'
+ if((Get-FileHash -LiteralPath $vault -Algorithm SHA256).Hash -ine $TrustedBinarySha256){throw 'Fournisseur natif non approuve.'}
+ $operation=if($Create){'--gui-create-synthetic-identity-lab'}else{'--gui-open-synthetic-identity-lab'}
+ $psi=New-Object Diagnostics.ProcessStartInfo
+ $psi.FileName=$vault
+ $psi.Arguments=('{0} "{1}"' -f $operation,$Location)
+ $psi.WorkingDirectory=(Join-Path $root 'bin')
+ $psi.UseShellExecute=$false;$psi.CreateNoWindow=$true
+ $psi.WindowStyle=[Diagnostics.ProcessWindowStyle]::Hidden
+ $psi.RedirectStandardOutput=$true
+ $psi.EnvironmentVariables.Clear()
+ $psi.EnvironmentVariables['SystemRoot']=$env:SystemRoot
+ $psi.EnvironmentVariables['WINDIR']=$env:SystemRoot
+ $psi.EnvironmentVariables['PATH']=(Join-Path $root 'bin')+';'+(Join-Path $env:SystemRoot 'System32')
+ $p=New-Object Diagnostics.Process;$p.StartInfo=$psi
+ try{
+  if(-not $p.Start()){throw 'Demarrage natif refuse.'}
+  if(-not $p.WaitForExit(240000)){$p.Kill();throw 'Operation interrompue.'}
+  if($p.ExitCode -ne 0){throw 'Verification locale refusee.'}
+  $raw=$p.StandardOutput.ReadToEnd()
+  if($raw.Length -lt 40 -or $raw.Length -gt 1024){throw 'Reponse native invalide.'}
+  $r=ConvertFrom-Json -InputObject $raw
+  if($r.labOnly -ne $true -or $r.remotelyEnrolled -ne $false -or
+     $r.address -cnotmatch '^[a-z0-9][a-z0-9._-]{2,31}~[0-9a-f]{32}@quantic$'){throw 'Identite non verifiee.'}
+  if($Create){
+   if($r.status -cne 'synthetic-identity-created-local-only' -or
+      $r.dir -cnotmatch ('^'+[Regex]::Escape($Location)+'\\quantic-test-[0-9a-f]{16}$')){throw 'Creation non confirmee.'}
+  }elseif($r.status -cne 'synthetic-identity-keys-unlocked-local-only'){throw 'Deverrouillage non confirme.'}
+  return $r
+ }finally{
+  if(-not $p.HasExited){$p.Kill()}
+  $p.Dispose()
+ }
+}
+$form=New-Object Windows.Forms.Form
 $form.Text="Quantic Sillage | Alpha privee"
 $form.StartPosition="CenterScreen"
 $form.ClientSize=New-Object Drawing.Size(760,755)
@@ -125,14 +162,14 @@ $quit.SetBounds(556,695,180,42);$form.Controls.Add($quit)
 $quit.DialogResult=[Windows.Forms.DialogResult]::Cancel;$form.CancelButton=$quit
 $form.AcceptButton=$run
 $createIdentity=New-Object Windows.Forms.Button
-$createIdentity.Text="Creer mon identite de test"
-$createIdentity.SetBounds(24,590,712,43)
+$createIdentity.Text='Creer mon identite de test'
+$createIdentity.SetBounds(24,591,712,43)
 $createIdentity.ForeColor=[Drawing.Color]::Black
 $createIdentity.BackColor=[Drawing.Color]::FromArgb(192,212,200)
 $form.Controls.Add($createIdentity)
 $openIdentity=New-Object Windows.Forms.Button
-$openIdentity.Text="Ouvrir mon coffre de test"
-$openIdentity.SetBounds(24,643,712,43)
+$openIdentity.Text='Ouvrir mon coffre de test'
+$openIdentity.SetBounds(24,645,712,43)
 $openIdentity.ForeColor=[Drawing.Color]::Black
 $form.Controls.Add($openIdentity)
 $script:latestSyntheticDirectory=$null
@@ -140,11 +177,11 @@ $createIdentity.Add_Click({
  $createIdentity.Enabled=$false
  try{
   $parent=[Environment]::GetFolderPath('LocalApplicationData')
-  $result=Invoke-LocalIdentity $true $parent
-  $script:latestSyntheticDirectory=$result.dir
-  [Windows.Forms.MessageBox]::Show(('Coffre prive cree sur ce PC pour : '+$result.address+[Environment]::NewLine+[Environment]::NewLine+'Il reste verrouille. Cliquez sur Ouvrir mon coffre pour tester vos deux secrets.'+[Environment]::NewLine+'Aucun compte distant ou contact verifie n a ete cree.'),'Identite fictive creee','OK','Information')|Out-Null
+  $r=Invoke-LocalIdentity $true $parent
+  $script:latestSyntheticDirectory=$r.dir
+  [Windows.Forms.MessageBox]::Show(('Coffre prive cree : '+$r.address+[Environment]::NewLine+'Cliquez sur Ouvrir mon coffre pour tester les deux secrets.'+[Environment]::NewLine+'Aucune inscription distante ou contact cree.'),'Identite fictive creee','OK','Information')|Out-Null
  }catch{
-  [Windows.Forms.MessageBox]::Show('Creation non confirmee. Un dossier partiel peut exister : il ne sera jamais ecrase ou supprime automatiquement. Verifiez que le disque est NTFS et que votre profil Windows utilise un chemin compatible.','Creation refusee','OK','Warning')|Out-Null
+  [Windows.Forms.MessageBox]::Show('Creation non confirmee. Un dossier partiel peut subsister : aucune suppression ou reutilisation automatique. Disque NTFS et chemin Windows compatible requis.','Creation refusee','OK','Warning')|Out-Null
  }finally{$createIdentity.Enabled=$true}
 })
 $openIdentity.Add_Click({
@@ -152,20 +189,19 @@ $openIdentity.Add_Click({
  try{
   $folder=$script:latestSyntheticDirectory
   if(-not $folder){
-   $chooser=New-Object Windows.Forms.FolderBrowserDialog
-   $chooser.Description='Selectionner mon coffre de test existant (pas de fichier JSON).'
+   $picker=New-Object Windows.Forms.FolderBrowserDialog
+   $picker.Description='Selectionner votre coffre de test existant.'
    try{
-    if($chooser.ShowDialog() -ne [Windows.Forms.DialogResult]::OK){return}
-    $folder=$chooser.SelectedPath
-   }finally{$chooser.Dispose()}
+    if($picker.ShowDialog() -ne [Windows.Forms.DialogResult]::OK){return}
+    $folder=$picker.SelectedPath
+   }finally{$picker.Dispose()}
   }
   $r=Invoke-LocalIdentity $false $folder
-  [Windows.Forms.MessageBox]::Show(('Coffre local deverrouille et cles classiques + post-quantiques verifiees : '+$r.address+[Environment]::NewLine+[Environment]::NewLine+'Aucune session distante. Pour echanger, les autorites, contacts et relais doivent encore etre configures.'),'Verification locale reussie','OK','Information')|Out-Null
+  [Windows.Forms.MessageBox]::Show(('Cles classiques et post-quantiques deverrouillees localement : '+$r.address+[Environment]::NewLine+'Aucune session distante : contacts, autorites et relais restent a configurer pour la messagerie.'),'Coffre de test verifie','OK','Information')|Out-Null
  }catch{
-  [Windows.Forms.MessageBox]::Show('Ouverture refusee : coffre, empreintes ou secrets non verifies. Aucun compte distant ouvert, aucun envoi.','Coffre verrouille','OK','Warning')|Out-Null
+  [Windows.Forms.MessageBox]::Show('Deverrouillage refuse : secrets ou fichiers non verifies. Aucune session ni message envoye.','Coffre verrouille','OK','Warning')|Out-Null
  }finally{$openIdentity.Enabled=$true}
 })
-
 $script:selectedArguments=$null;$script:selectedAction=$null
 $script:shownActions=@()
 $module.Add_SelectedIndexChanged({
@@ -208,444 +244,6 @@ $module.SelectedIndex=0
 if ($SelfTest) {
  try {
   if($actions.Count -ne 30 -or $script:shownActions[0].Id -ne 'ComposeDraft' -or $inputName.Visible -or $outputName.Visible -or $createIdentity.Text -notmatch 'identite de test' -or $openIdentity.Text -notmatch 'coffre de test'){throw "Dashboard initialization failed"}
-  $choice.SelectedIndex=1
-  if(-not $inputName.Enabled -or -not $outputName.Enabled){throw "Advanced input fields missing"}
-  $a=New-OperationArguments $actions[1] "C:\Quantic Lab\vault" "draft-test.json" "wire-test.json"
-  if($a -notcontains "C:\Quantic Lab\vault\draft-test.json" -or $a -notcontains "C:\Quantic Lab\vault\wire-test.json"){throw "Wrong arguments"}
-  $rejected=$false
-  try{$null=New-OperationArguments $actions[4] "C:\Quantic Lab\vault" "..\wire-test.json" ""}catch{$rejected=$true}
-  if(-not $rejected){throw "Path traversal accepted"}
-  $module.SelectedItem="DIAGNOSTIC"
-  if ($script:shownActions.Count -ne 1 -or $script:shownActions[0].Id -ne "Providers") { throw "Diagnostic module wrong" }
-  if($directory.Enabled -or $inputName.Enabled -or $outputName.Enabled){throw "Diagnostic fields enabled"}
-  foreach ($m in $modules) {
-   $module.SelectedItem=$m
-   if ($script:shownActions.Count -lt 1) { throw "Missing module: $m" }
-  }
-  $module.SelectedItem="QUANTIC MAIL"
-  Write-Output "Dashboard controls and operation mapping verified"
- }finally{$form.Dispose()}
- exit 0
-}
-function Quote-AdvancedArg([string]$Value){
- if($Value.Contains('"') -or $Value.Contains([char]10) -or $Value.Contains([char]13)){throw 'Argument advanced non autorise'}
- return '"'+$Value+'"'
-}
-try{
- while($true){
-  $script:selectedArguments=$null;$script:selectedAction=$null
-  if($form.ShowDialog() -ne [Windows.Forms.DialogResult]::OK){break}
-  if(-not $script:selectedAction){continue}
-  $advanced=Join-Path $root 'Quantic-Sillage-Advanced.ps1'
-  $argv=@('-NoLogo','-NoProfile','-STA','-ExecutionPolicy','Bypass',
-   '-File',(Quote-AdvancedArg $advanced),
-   '-ExpectedManifestSha256',$ExpectedManifestSha256,
-   '-TrustedBinarySha256',$TrustedBinarySha256,
-   '-Operation',$script:selectedAction,
-   '-Directory',(Quote-AdvancedArg $directory.Text),
-   '-InputName',(Quote-AdvancedArg $inputName.Text),
-   '-OutputName',(Quote-AdvancedArg $outputName.Text))
-  $psi=New-Object System.Diagnostics.ProcessStartInfo
-  $psi.FileName=$shell
-  $psi.Arguments=$argv -join ' '
-  $psi.UseShellExecute=$true
-  $psi.WindowStyle=[Diagnostics.ProcessWindowStyle]::Normal
-  $child=[Diagnostics.Process]::Start($psi)
-  if($null -eq $child){throw 'Le laboratoire technique ne peut pas demarrer'}
-  $child.Dispose()
- }
-}finally{$form.Dispose()}
-){throw 'Emplacement local non autorise.'}
- foreach($part in $Location.Substring(3).Split('\')){
-  if($part -in @('.','..') -or $part.EndsWith('.') -or $part.EndsWith(' ')){throw 'Chemin ambigu.'}
- }
- $vault=Join-Path $root 'bin\Vault-PQ-lab.exe'
- if((Get-FileHash -LiteralPath $vault -Algorithm SHA256).Hash -ine $TrustedBinarySha256){throw 'Moteur natif non approuve.'}
- $psi=New-Object Diagnostics.ProcessStartInfo
- $psi.FileName=$vault
- $operation=if($Create){'--gui-create-synthetic-identity-lab'}else{'--gui-open-synthetic-identity-lab'}
- $psi.Arguments=('{0} "{1}"' -f $operation,$Location)
- $psi.WorkingDirectory=(Join-Path $root 'bin')
- $psi.UseShellExecute=$false;$psi.CreateNoWindow=$true
- $psi.WindowStyle=[Diagnostics.ProcessWindowStyle]::Hidden
- $psi.RedirectStandardOutput=$true
- $psi.EnvironmentVariables.Clear()
- $psi.EnvironmentVariables['SystemRoot']=$env:SystemRoot
- $psi.EnvironmentVariables['WINDIR']=$env:SystemRoot
- $psi.EnvironmentVariables['PATH']=(Join-Path $root 'bin')+';'+(Join-Path $env:SystemRoot 'System32')
- $p=New-Object Diagnostics.Process;$p.StartInfo=$psi
- try{
-  if(-not $p.Start()){throw 'Demarrage natif refuse.'}
-  if(-not $p.WaitForExit(240000)){$p.Kill();throw 'Operation interrompue.'}
-  if($p.ExitCode -ne 0){throw 'Creation ou verification locale refusee.'}
-  $raw=$p.StandardOutput.ReadToEnd()
-  if($raw.Length -lt 40 -or $raw.Length -gt 1024){throw 'Retour natif invalide.'}
-  $r=ConvertFrom-Json -InputObject $raw
-  if($r.labOnly -ne $true -or $r.remotelyEnrolled -ne $false -or
-     $r.address -cnotmatch '^[a-z0-9][a-z0-9._-]{2,31}~[0-9a-f]{32}@quantic
-$form.Text="Quantic Sillage | Alpha privee"
-$form.StartPosition="CenterScreen"
-$form.ClientSize=New-Object Drawing.Size(760,622)
-$form.MinimumSize=New-Object Drawing.Size(776,661)
-$form.BackColor=[Drawing.Color]::FromArgb(19,25,35)
-$form.ForeColor=[Drawing.Color]::WhiteSmoke
-$form.Font=New-Object Drawing.Font("Segoe UI",10)
-function Label-At([string]$Text,[int]$X,[int]$Y,[int]$W,[int]$H) {
- $c=New-Object Windows.Forms.Label; $c.Text=$Text
- $c.SetBounds($X,$Y,$W,$H);$form.Controls.Add($c);return $c
-}
-function Text-At([int]$X,[int]$Y,[int]$W) {
- $c=New-Object Windows.Forms.TextBox;$c.SetBounds($X,$Y,$W,28)
- $form.Controls.Add($c);return $c
-}
-$heading=Label-At "QUANTIC SILLAGE" 22 18 712 36
-$heading.Font=New-Object Drawing.Font("Segoe UI",21,[Drawing.FontStyle]::Bold)
-$null=Label-At "Interface locale | Mail / Quantic ID / Vault / Scattering / Pay" 24 58 710 25
-$notice=Label-At "ALPHA - identites de test uniquement. Aucun compte reel ni migration." 24 90 710 38
-$notice.ForeColor=[Drawing.Color]::Khaki
-$null=Label-At "Module" 24 132 710 22
-$module=New-Object Windows.Forms.ComboBox
-$module.DropDownStyle="DropDownList";$module.SetBounds(24,157,712,30)
-foreach ($m in $modules) { $null=$module.Items.Add($m) }
-$form.Controls.Add($module)
-$null=Label-At "Operation native" 24 197 710 22
-$choice=New-Object Windows.Forms.ComboBox
-$choice.DropDownStyle="DropDownList";$choice.SetBounds(24,221,712,30)
-$form.Controls.Add($choice)
-$hint=Label-At "" 24 262 712 45
-$null=Label-At "Dossier prive du coffre (ou du transport pour le pont)" 24 316 712 23
-$directory=Text-At 24 341 712
-$il=Label-At "Fichier prive" 24 380 712 22
-$inputName=Text-At 24 404 712
-$ol=Label-At "Nouvelle enveloppe" 24 443 712 22
-$outputName=Text-At 24 467 712
-$run=New-Object Windows.Forms.Button;$run.Text="Rediger un brouillon"
-$run.ForeColor=[Drawing.Color]::Black;$run.BackColor=[Drawing.Color]::FromArgb(196,223,244)
-$run.SetBounds(24,533,513,42);$form.Controls.Add($run)
-$quit=New-Object Windows.Forms.Button;$quit.Text="Fermer";$quit.ForeColor=[Drawing.Color]::Black
-$quit.SetBounds(556,533,180,42);$form.Controls.Add($quit)
-$quit.DialogResult=[Windows.Forms.DialogResult]::Cancel;$form.CancelButton=$quit
-$form.AcceptButton=$run
-$script:selectedArguments=$null;$script:selectedAction=$null
-$script:shownActions=@()
-$module.Add_SelectedIndexChanged({
- $choice.Items.Clear()
- $script:shownActions=@($actions | Where-Object { (Get-AlphaModule $_.Id) -ceq $module.SelectedItem })
- if ($script:shownActions.Count -lt 1) { throw "Empty native module." }
- foreach ($a in $script:shownActions) { $null=$choice.Items.Add($a.Title) }
- $choice.SelectedIndex=0
-})
-$choice.Add_SelectedIndexChanged({
- if ($choice.SelectedIndex -lt 0) { return }
- $a=$script:shownActions[$choice.SelectedIndex]
- $hint.Text=$a.Hint
- $run.Text=if($a.Id -eq 'ComposeDraft'){"Rediger mon message"}else{"Ouvrir le laboratoire technique"}
- $simple=$a.Id -eq 'ComposeDraft'
- foreach($control in @($directory,$il,$inputName,$ol,$outputName)){$control.Visible=-not $simple}
- $directory.Enabled=[bool]$a.Scope
- $inputName.Enabled=[bool]$a.Input
- $outputName.Enabled=[bool]$a.Output
- $il.Text=if($a.Input){"Fichier prive ("+$a.Input+"-nom.json)"}else{"Aucun fichier requis"}
- $ol.Text=if($a.Output){"Nouvelle enveloppe (wire-nom.json)"}else{"Aucune sortie a saisir"}
-})
-$run.Add_Click({
- try{
-  $a=$script:shownActions[$choice.SelectedIndex]
-  if($a.Id -eq 'ComposeDraft'){
-   & (Join-Path $root 'Quantic-Sillage-Compose.ps1') -ExpectedManifestSha256 $ExpectedManifestSha256 -TrustedBinarySha256 $TrustedBinarySha256
-   return
-  }
-  $warn=[Windows.Forms.MessageBox]::Show('Ceci est une operation de laboratoire reservee aux tests. Elle ouvrira volontairement un terminal technique. Continuer ?','Mode technique','YesNo','Warning')
-  if($warn -ne [Windows.Forms.DialogResult]::Yes){return}
-  $script:selectedArguments=New-OperationArguments $a $directory.Text $inputName.Text $outputName.Text
-  $script:selectedAction=$a.Id
-  $form.DialogResult=[Windows.Forms.DialogResult]::OK
- }catch{
-  [Windows.Forms.MessageBox]::Show('Operation indisponible : verifiez les conditions du coffre de test. Aucune migration ni envoi implicite.','Operation non confirmee','OK','Warning')|Out-Null
- }
-})
-$module.SelectedIndex=0
-if ($SelfTest) {
- try {
-  if($actions.Count -ne 30 -or $script:shownActions[0].Id -ne 'ComposeDraft' -or $inputName.Visible -or $outputName.Visible){throw "Dashboard initialization failed"}
-  $choice.SelectedIndex=1
-  if(-not $inputName.Enabled -or -not $outputName.Enabled){throw "Advanced input fields missing"}
-  $a=New-OperationArguments $actions[1] "C:\Quantic Lab\vault" "draft-test.json" "wire-test.json"
-  if($a -notcontains "C:\Quantic Lab\vault\draft-test.json" -or $a -notcontains "C:\Quantic Lab\vault\wire-test.json"){throw "Wrong arguments"}
-  $rejected=$false
-  try{$null=New-OperationArguments $actions[4] "C:\Quantic Lab\vault" "..\wire-test.json" ""}catch{$rejected=$true}
-  if(-not $rejected){throw "Path traversal accepted"}
-  $module.SelectedItem="DIAGNOSTIC"
-  if ($script:shownActions.Count -ne 1 -or $script:shownActions[0].Id -ne "Providers") { throw "Diagnostic module wrong" }
-  if($directory.Enabled -or $inputName.Enabled -or $outputName.Enabled){throw "Diagnostic fields enabled"}
-  foreach ($m in $modules) {
-   $module.SelectedItem=$m
-   if ($script:shownActions.Count -lt 1) { throw "Missing module: $m" }
-  }
-  $module.SelectedItem="QUANTIC MAIL"
-  Write-Output "Dashboard controls and operation mapping verified"
- }finally{$form.Dispose()}
- exit 0
-}
-function Quote-AdvancedArg([string]$Value){
- if($Value.Contains('"') -or $Value.Contains([char]10) -or $Value.Contains([char]13)){throw 'Argument advanced non autorise'}
- return '"'+$Value+'"'
-}
-try{
- while($true){
-  $script:selectedArguments=$null;$script:selectedAction=$null
-  if($form.ShowDialog() -ne [Windows.Forms.DialogResult]::OK){break}
-  if(-not $script:selectedAction){continue}
-  $advanced=Join-Path $root 'Quantic-Sillage-Advanced.ps1'
-  $argv=@('-NoLogo','-NoProfile','-STA','-ExecutionPolicy','Bypass',
-   '-File',(Quote-AdvancedArg $advanced),
-   '-ExpectedManifestSha256',$ExpectedManifestSha256,
-   '-TrustedBinarySha256',$TrustedBinarySha256,
-   '-Operation',$script:selectedAction,
-   '-Directory',(Quote-AdvancedArg $directory.Text),
-   '-InputName',(Quote-AdvancedArg $inputName.Text),
-   '-OutputName',(Quote-AdvancedArg $outputName.Text))
-  $psi=New-Object System.Diagnostics.ProcessStartInfo
-  $psi.FileName=$shell
-  $psi.Arguments=$argv -join ' '
-  $psi.UseShellExecute=$true
-  $psi.WindowStyle=[Diagnostics.ProcessWindowStyle]::Normal
-  $child=[Diagnostics.Process]::Start($psi)
-  if($null -eq $child){throw 'Le laboratoire technique ne peut pas demarrer'}
-  $child.Dispose()
- }
-}finally{$form.Dispose()}
-){throw 'Identite non confirmee.'}
-  if($Create){
-   if($r.status -cne 'synthetic-identity-created-local-only' -or
-      $r.dir -cnotmatch ('^'+[Regex]::Escape($Location)+'\\quantic-test-[0-9a-f]{16}
-$form.Text="Quantic Sillage | Alpha privee"
-$form.StartPosition="CenterScreen"
-$form.ClientSize=New-Object Drawing.Size(760,622)
-$form.MinimumSize=New-Object Drawing.Size(776,661)
-$form.BackColor=[Drawing.Color]::FromArgb(19,25,35)
-$form.ForeColor=[Drawing.Color]::WhiteSmoke
-$form.Font=New-Object Drawing.Font("Segoe UI",10)
-function Label-At([string]$Text,[int]$X,[int]$Y,[int]$W,[int]$H) {
- $c=New-Object Windows.Forms.Label; $c.Text=$Text
- $c.SetBounds($X,$Y,$W,$H);$form.Controls.Add($c);return $c
-}
-function Text-At([int]$X,[int]$Y,[int]$W) {
- $c=New-Object Windows.Forms.TextBox;$c.SetBounds($X,$Y,$W,28)
- $form.Controls.Add($c);return $c
-}
-$heading=Label-At "QUANTIC SILLAGE" 22 18 712 36
-$heading.Font=New-Object Drawing.Font("Segoe UI",21,[Drawing.FontStyle]::Bold)
-$null=Label-At "Interface locale | Mail / Quantic ID / Vault / Scattering / Pay" 24 58 710 25
-$notice=Label-At "ALPHA - identites de test uniquement. Aucun compte reel ni migration." 24 90 710 38
-$notice.ForeColor=[Drawing.Color]::Khaki
-$null=Label-At "Module" 24 132 710 22
-$module=New-Object Windows.Forms.ComboBox
-$module.DropDownStyle="DropDownList";$module.SetBounds(24,157,712,30)
-foreach ($m in $modules) { $null=$module.Items.Add($m) }
-$form.Controls.Add($module)
-$null=Label-At "Operation native" 24 197 710 22
-$choice=New-Object Windows.Forms.ComboBox
-$choice.DropDownStyle="DropDownList";$choice.SetBounds(24,221,712,30)
-$form.Controls.Add($choice)
-$hint=Label-At "" 24 262 712 45
-$null=Label-At "Dossier prive du coffre (ou du transport pour le pont)" 24 316 712 23
-$directory=Text-At 24 341 712
-$il=Label-At "Fichier prive" 24 380 712 22
-$inputName=Text-At 24 404 712
-$ol=Label-At "Nouvelle enveloppe" 24 443 712 22
-$outputName=Text-At 24 467 712
-$run=New-Object Windows.Forms.Button;$run.Text="Rediger un brouillon"
-$run.ForeColor=[Drawing.Color]::Black;$run.BackColor=[Drawing.Color]::FromArgb(196,223,244)
-$run.SetBounds(24,533,513,42);$form.Controls.Add($run)
-$quit=New-Object Windows.Forms.Button;$quit.Text="Fermer";$quit.ForeColor=[Drawing.Color]::Black
-$quit.SetBounds(556,533,180,42);$form.Controls.Add($quit)
-$quit.DialogResult=[Windows.Forms.DialogResult]::Cancel;$form.CancelButton=$quit
-$form.AcceptButton=$run
-$script:selectedArguments=$null;$script:selectedAction=$null
-$script:shownActions=@()
-$module.Add_SelectedIndexChanged({
- $choice.Items.Clear()
- $script:shownActions=@($actions | Where-Object { (Get-AlphaModule $_.Id) -ceq $module.SelectedItem })
- if ($script:shownActions.Count -lt 1) { throw "Empty native module." }
- foreach ($a in $script:shownActions) { $null=$choice.Items.Add($a.Title) }
- $choice.SelectedIndex=0
-})
-$choice.Add_SelectedIndexChanged({
- if ($choice.SelectedIndex -lt 0) { return }
- $a=$script:shownActions[$choice.SelectedIndex]
- $hint.Text=$a.Hint
- $run.Text=if($a.Id -eq 'ComposeDraft'){"Rediger mon message"}else{"Ouvrir le laboratoire technique"}
- $simple=$a.Id -eq 'ComposeDraft'
- foreach($control in @($directory,$il,$inputName,$ol,$outputName)){$control.Visible=-not $simple}
- $directory.Enabled=[bool]$a.Scope
- $inputName.Enabled=[bool]$a.Input
- $outputName.Enabled=[bool]$a.Output
- $il.Text=if($a.Input){"Fichier prive ("+$a.Input+"-nom.json)"}else{"Aucun fichier requis"}
- $ol.Text=if($a.Output){"Nouvelle enveloppe (wire-nom.json)"}else{"Aucune sortie a saisir"}
-})
-$run.Add_Click({
- try{
-  $a=$script:shownActions[$choice.SelectedIndex]
-  if($a.Id -eq 'ComposeDraft'){
-   & (Join-Path $root 'Quantic-Sillage-Compose.ps1') -ExpectedManifestSha256 $ExpectedManifestSha256 -TrustedBinarySha256 $TrustedBinarySha256
-   return
-  }
-  $warn=[Windows.Forms.MessageBox]::Show('Ceci est une operation de laboratoire reservee aux tests. Elle ouvrira volontairement un terminal technique. Continuer ?','Mode technique','YesNo','Warning')
-  if($warn -ne [Windows.Forms.DialogResult]::Yes){return}
-  $script:selectedArguments=New-OperationArguments $a $directory.Text $inputName.Text $outputName.Text
-  $script:selectedAction=$a.Id
-  $form.DialogResult=[Windows.Forms.DialogResult]::OK
- }catch{
-  [Windows.Forms.MessageBox]::Show('Operation indisponible : verifiez les conditions du coffre de test. Aucune migration ni envoi implicite.','Operation non confirmee','OK','Warning')|Out-Null
- }
-})
-$module.SelectedIndex=0
-if ($SelfTest) {
- try {
-  if($actions.Count -ne 30 -or $script:shownActions[0].Id -ne 'ComposeDraft' -or $inputName.Visible -or $outputName.Visible){throw "Dashboard initialization failed"}
-  $choice.SelectedIndex=1
-  if(-not $inputName.Enabled -or -not $outputName.Enabled){throw "Advanced input fields missing"}
-  $a=New-OperationArguments $actions[1] "C:\Quantic Lab\vault" "draft-test.json" "wire-test.json"
-  if($a -notcontains "C:\Quantic Lab\vault\draft-test.json" -or $a -notcontains "C:\Quantic Lab\vault\wire-test.json"){throw "Wrong arguments"}
-  $rejected=$false
-  try{$null=New-OperationArguments $actions[4] "C:\Quantic Lab\vault" "..\wire-test.json" ""}catch{$rejected=$true}
-  if(-not $rejected){throw "Path traversal accepted"}
-  $module.SelectedItem="DIAGNOSTIC"
-  if ($script:shownActions.Count -ne 1 -or $script:shownActions[0].Id -ne "Providers") { throw "Diagnostic module wrong" }
-  if($directory.Enabled -or $inputName.Enabled -or $outputName.Enabled){throw "Diagnostic fields enabled"}
-  foreach ($m in $modules) {
-   $module.SelectedItem=$m
-   if ($script:shownActions.Count -lt 1) { throw "Missing module: $m" }
-  }
-  $module.SelectedItem="QUANTIC MAIL"
-  Write-Output "Dashboard controls and operation mapping verified"
- }finally{$form.Dispose()}
- exit 0
-}
-function Quote-AdvancedArg([string]$Value){
- if($Value.Contains('"') -or $Value.Contains([char]10) -or $Value.Contains([char]13)){throw 'Argument advanced non autorise'}
- return '"'+$Value+'"'
-}
-try{
- while($true){
-  $script:selectedArguments=$null;$script:selectedAction=$null
-  if($form.ShowDialog() -ne [Windows.Forms.DialogResult]::OK){break}
-  if(-not $script:selectedAction){continue}
-  $advanced=Join-Path $root 'Quantic-Sillage-Advanced.ps1'
-  $argv=@('-NoLogo','-NoProfile','-STA','-ExecutionPolicy','Bypass',
-   '-File',(Quote-AdvancedArg $advanced),
-   '-ExpectedManifestSha256',$ExpectedManifestSha256,
-   '-TrustedBinarySha256',$TrustedBinarySha256,
-   '-Operation',$script:selectedAction,
-   '-Directory',(Quote-AdvancedArg $directory.Text),
-   '-InputName',(Quote-AdvancedArg $inputName.Text),
-   '-OutputName',(Quote-AdvancedArg $outputName.Text))
-  $psi=New-Object System.Diagnostics.ProcessStartInfo
-  $psi.FileName=$shell
-  $psi.Arguments=$argv -join ' '
-  $psi.UseShellExecute=$true
-  $psi.WindowStyle=[Diagnostics.ProcessWindowStyle]::Normal
-  $child=[Diagnostics.Process]::Start($psi)
-  if($null -eq $child){throw 'Le laboratoire technique ne peut pas demarrer'}
-  $child.Dispose()
- }
-}finally{$form.Dispose()}
-)){throw 'Creation locale non confirmee.'}
-  }else{
-   if($r.status -cne 'synthetic-identity-keys-unlocked-local-only'){throw 'Coffre non verifie.'}
-  }
-  return $r
- }finally{
-  if($null -ne $p){if(-not $p.HasExited){$p.Kill()};$p.Dispose()}
- }
-}
-$form=New-Object Windows.Forms.Form
-$form.Text="Quantic Sillage | Alpha privee"
-$form.StartPosition="CenterScreen"
-$form.ClientSize=New-Object Drawing.Size(760,622)
-$form.MinimumSize=New-Object Drawing.Size(776,661)
-$form.BackColor=[Drawing.Color]::FromArgb(19,25,35)
-$form.ForeColor=[Drawing.Color]::WhiteSmoke
-$form.Font=New-Object Drawing.Font("Segoe UI",10)
-function Label-At([string]$Text,[int]$X,[int]$Y,[int]$W,[int]$H) {
- $c=New-Object Windows.Forms.Label; $c.Text=$Text
- $c.SetBounds($X,$Y,$W,$H);$form.Controls.Add($c);return $c
-}
-function Text-At([int]$X,[int]$Y,[int]$W) {
- $c=New-Object Windows.Forms.TextBox;$c.SetBounds($X,$Y,$W,28)
- $form.Controls.Add($c);return $c
-}
-$heading=Label-At "QUANTIC SILLAGE" 22 18 712 36
-$heading.Font=New-Object Drawing.Font("Segoe UI",21,[Drawing.FontStyle]::Bold)
-$null=Label-At "Interface locale | Mail / Quantic ID / Vault / Scattering / Pay" 24 58 710 25
-$notice=Label-At "ALPHA - identites de test uniquement. Aucun compte reel ni migration." 24 90 710 38
-$notice.ForeColor=[Drawing.Color]::Khaki
-$null=Label-At "Module" 24 132 710 22
-$module=New-Object Windows.Forms.ComboBox
-$module.DropDownStyle="DropDownList";$module.SetBounds(24,157,712,30)
-foreach ($m in $modules) { $null=$module.Items.Add($m) }
-$form.Controls.Add($module)
-$null=Label-At "Operation native" 24 197 710 22
-$choice=New-Object Windows.Forms.ComboBox
-$choice.DropDownStyle="DropDownList";$choice.SetBounds(24,221,712,30)
-$form.Controls.Add($choice)
-$hint=Label-At "" 24 262 712 45
-$null=Label-At "Dossier prive du coffre (ou du transport pour le pont)" 24 316 712 23
-$directory=Text-At 24 341 712
-$il=Label-At "Fichier prive" 24 380 712 22
-$inputName=Text-At 24 404 712
-$ol=Label-At "Nouvelle enveloppe" 24 443 712 22
-$outputName=Text-At 24 467 712
-$run=New-Object Windows.Forms.Button;$run.Text="Rediger un brouillon"
-$run.ForeColor=[Drawing.Color]::Black;$run.BackColor=[Drawing.Color]::FromArgb(196,223,244)
-$run.SetBounds(24,533,513,42);$form.Controls.Add($run)
-$quit=New-Object Windows.Forms.Button;$quit.Text="Fermer";$quit.ForeColor=[Drawing.Color]::Black
-$quit.SetBounds(556,533,180,42);$form.Controls.Add($quit)
-$quit.DialogResult=[Windows.Forms.DialogResult]::Cancel;$form.CancelButton=$quit
-$form.AcceptButton=$run
-$script:selectedArguments=$null;$script:selectedAction=$null
-$script:shownActions=@()
-$module.Add_SelectedIndexChanged({
- $choice.Items.Clear()
- $script:shownActions=@($actions | Where-Object { (Get-AlphaModule $_.Id) -ceq $module.SelectedItem })
- if ($script:shownActions.Count -lt 1) { throw "Empty native module." }
- foreach ($a in $script:shownActions) { $null=$choice.Items.Add($a.Title) }
- $choice.SelectedIndex=0
-})
-$choice.Add_SelectedIndexChanged({
- if ($choice.SelectedIndex -lt 0) { return }
- $a=$script:shownActions[$choice.SelectedIndex]
- $hint.Text=$a.Hint
- $run.Text=if($a.Id -eq 'ComposeDraft'){"Rediger mon message"}else{"Ouvrir le laboratoire technique"}
- $simple=$a.Id -eq 'ComposeDraft'
- foreach($control in @($directory,$il,$inputName,$ol,$outputName)){$control.Visible=-not $simple}
- $directory.Enabled=[bool]$a.Scope
- $inputName.Enabled=[bool]$a.Input
- $outputName.Enabled=[bool]$a.Output
- $il.Text=if($a.Input){"Fichier prive ("+$a.Input+"-nom.json)"}else{"Aucun fichier requis"}
- $ol.Text=if($a.Output){"Nouvelle enveloppe (wire-nom.json)"}else{"Aucune sortie a saisir"}
-})
-$run.Add_Click({
- try{
-  $a=$script:shownActions[$choice.SelectedIndex]
-  if($a.Id -eq 'ComposeDraft'){
-   & (Join-Path $root 'Quantic-Sillage-Compose.ps1') -ExpectedManifestSha256 $ExpectedManifestSha256 -TrustedBinarySha256 $TrustedBinarySha256
-   return
-  }
-  $warn=[Windows.Forms.MessageBox]::Show('Ceci est une operation de laboratoire reservee aux tests. Elle ouvrira volontairement un terminal technique. Continuer ?','Mode technique','YesNo','Warning')
-  if($warn -ne [Windows.Forms.DialogResult]::Yes){return}
-  $script:selectedArguments=New-OperationArguments $a $directory.Text $inputName.Text $outputName.Text
-  $script:selectedAction=$a.Id
-  $form.DialogResult=[Windows.Forms.DialogResult]::OK
- }catch{
-  [Windows.Forms.MessageBox]::Show('Operation indisponible : verifiez les conditions du coffre de test. Aucune migration ni envoi implicite.','Operation non confirmee','OK','Warning')|Out-Null
- }
-})
-$module.SelectedIndex=0
-if ($SelfTest) {
- try {
-  if($actions.Count -ne 30 -or $script:shownActions[0].Id -ne 'ComposeDraft' -or $inputName.Visible -or $outputName.Visible){throw "Dashboard initialization failed"}
   $choice.SelectedIndex=1
   if(-not $inputName.Enabled -or -not $outputName.Enabled){throw "Advanced input fields missing"}
   $a=New-OperationArguments $actions[1] "C:\Quantic Lab\vault" "draft-test.json" "wire-test.json"
