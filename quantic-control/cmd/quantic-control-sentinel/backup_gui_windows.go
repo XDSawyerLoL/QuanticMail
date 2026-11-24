@@ -54,10 +54,29 @@ func selectedBackupIdentities()[]sentinel.BackupIdentity{
  for _,l:=range backupHandles{out=append(out,l.Identity())}
  return out
 }
+var lastResidentBackupState backupHealthState
+var previouslyHeld bool
 func refreshBackupLabel(){
- configured:=0
- if m,e:=readManifest();e==nil{configured=len(m.Backups)}
- setLabel(backupLabel,fmt.Sprintf("Copies verrouillées ici : %d/16. Agent : %d configurée(s), voir historique.",len(backupHandles),configured))
+ healthy:=0
+ for _,l:=range backupHandles{if l.Healthy(){healthy++}}
+ detail:="Agent : non configuré."
+ state:=backupStatusUnknown
+ if m,e:=readManifest();e==nil{
+  state=readResidentBackupState(m)
+  switch state{
+  case backupStatusHeld:detail=fmt.Sprintf("Agent : %d/%d verrous signalés actifs.",len(m.Backups),len(m.Backups))
+  case backupStatusAbsent:detail="Agent : état absent (arrêté ou ancienne version)."
+  case backupStatusUnconfirmed:
+   if len(m.Backups)==0{detail="Agent : aucune sauvegarde configurée."}else{detail="Agent : protection non confirmée."}
+  default:detail="Agent : état inconnu."
+  }
+  if previouslyHeld&&lastResidentBackupState==backupStatusHeld&&state!=backupStatusHeld{
+   addLog("ATTENTION : verrous résidents non confirmés. Vérifiez l'agent avant de compter sur la protection.")
+  }
+ }
+ if state==backupStatusHeld{previouslyHeld=true}
+ lastResidentBackupState=state
+ setLabel(backupLabel,fmt.Sprintf("Copies verrouillées ici : %d/%d. %s",healthy,len(backupHandles),detail))
 }
 func releaseBackup(hwnd uintptr){
  remaining:=make([]*sentinel.BackupLock,0)
