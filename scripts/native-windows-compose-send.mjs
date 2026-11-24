@@ -69,6 +69,9 @@ try{
   reply({phase:'result',status:'queued-on-local-relay',remoteDeliveryVerified:false});
  }else if(result.status==='deposited'&&result.relayStatus==='acknowledged'){
   reply({phase:'result',status:'acknowledged-by-local-relay',remoteDeliveryVerified:false});
+ }else if(result.status==='deposit-unconfirmed'){
+  reply({phase:'result',status:'delivery-unknown',remoteDeliveryVerified:false});
+  process.exitCode=1;
  }else if(result.status==='saved-not-sent'){
   reply({phase:'result',status:'encrypted-saved-not-sent',remoteDeliveryVerified:false});
  }else{
