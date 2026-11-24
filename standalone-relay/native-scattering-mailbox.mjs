@@ -8,7 +8,7 @@ import {createServer,request} from 'node:http';
 import {cellKey} from '../labs/quantic-native/scattering/scattering-cell.mjs';
 import {reliableCellStream} from '../labs/quantic-native/scattering/scattering-reliable-lab.mjs';
 const MAX=32768,FRAME=65536,OPS=16;
-const profiles=Object.freeze({mailbox:Object.freeze({base:'/api/quantic/native/v1/',ops:Object.freeze(['send','pull','ack','recover'])}), 'pay-lab':Object.freeze({base:'/api/quantic/pay-lab/v1/',ops:Object.freeze(['checkpoint','submit'])}), 'pay-round-lab':Object.freeze({base:'/api/quantic/pay-round-lab/v1/',ops:Object.freeze(['status','prepare','change-view','commit','learn','upload-begin','upload-chunk','upload-finish'])}), 'pay-replica-lab':Object.freeze({base:'/api/quantic/pay-replica-lab/v1/',ops:Object.freeze(['status','admission-report','vote-admission','admit','prepare','change-view','commit','learn','upload-begin','upload-chunk','upload-finish','record-begin','record-chunk'])}), 'pay-committee-recovery-lab':Object.freeze({base:'/api/quantic/pay-committee-recovery-lab/v1/',ops:Object.freeze(['status','learn','upload-begin','upload-chunk','upload-finish','record-begin','record-chunk']),maxOps:48}), 'pay-committee-vote-lab':Object.freeze({base:'/api/quantic/pay-committee-vote-lab/v1/',ops:Object.freeze(['status','admission-prepare','admission-change','admission-commit','admit','prepare','change-view','commit','upload-begin','upload-chunk','upload-finish','result-chunk']),maxOps:48})});
+const profiles=Object.freeze({'direct-mail':Object.freeze({base:'/api/quantic/direct/v1/',ops:Object.freeze(['send'])}),mailbox:Object.freeze({base:'/api/quantic/native/v1/',ops:Object.freeze(['send','pull','ack','recover'])}), 'pay-lab':Object.freeze({base:'/api/quantic/pay-lab/v1/',ops:Object.freeze(['checkpoint','submit'])}), 'pay-round-lab':Object.freeze({base:'/api/quantic/pay-round-lab/v1/',ops:Object.freeze(['status','prepare','change-view','commit','learn','upload-begin','upload-chunk','upload-finish'])}), 'pay-replica-lab':Object.freeze({base:'/api/quantic/pay-replica-lab/v1/',ops:Object.freeze(['status','admission-report','vote-admission','admit','prepare','change-view','commit','learn','upload-begin','upload-chunk','upload-finish','record-begin','record-chunk'])}), 'pay-committee-recovery-lab':Object.freeze({base:'/api/quantic/pay-committee-recovery-lab/v1/',ops:Object.freeze(['status','learn','upload-begin','upload-chunk','upload-finish','record-begin','record-chunk']),maxOps:48}), 'pay-committee-vote-lab':Object.freeze({base:'/api/quantic/pay-committee-vote-lab/v1/',ops:Object.freeze(['status','admission-prepare','admission-change','admission-commit','admit','prepare','change-view','commit','upload-begin','upload-chunk','upload-finish','result-chunk']),maxOps:48})});
 const check=x=>{if(!x)throw Error('Scattering mailbox lab refused');};
 const port=(v,zero=false)=>Number.isInteger(v)&&v>=(zero?0:1)&&v<=65535;
 const tokenOK=v=>typeof v==='string'&&/^[A-Za-z0-9._~-]{40,256}$/.test(v);
@@ -38,8 +38,9 @@ function response(res,status,body){
  res.writeHead(status,{'Content-Type':'application/json','Content-Length':body.length,'Cache-Control':'no-store',Connection:'close'});res.end(body);
 }
 const errorBody=Buffer.from('{"error":"native mailbox operation not confirmed"}');
-export async function startScatteringMailboxEndpoint(c,{windowsBootstrap,profile='mailbox',acceptUntil}={}){
+export async function startScatteringMailboxEndpoint(c,{windowsBootstrap,profile='mailbox',acceptUntil,directReceive}={}){
  check(Object.hasOwn(profiles,profile));
+ check(profile==='direct-mail'?(c?.role==='relay'?typeof directReceive==='function':directReceive===undefined):directReceive===undefined);
  // A scheduled epoch may stop accepting new work well before it closes.
  // The fixed carrier cadence itself is not changed by this admission gate.
  check(acceptUntil===undefined||Number.isSafeInteger(acceptUntil)&&acceptUntil>Date.now());
@@ -99,7 +100,13 @@ export async function startScatteringMailboxEndpoint(c,{windowsBootstrap,profile
    }
    const data=decode(frame.body,1);busy=true;next++;
    try{
-    let result;try{result=admissionOpen()?await forward(frame,data):{status:503,body:errorBody};}catch{result={status:502,body:errorBody};}
+    let result;
+    try{
+     // Direct mode has NO upstream HTTP or mailbox relay. The remote
+     // recipient writes its own local ciphertext before returning success.
+     result=!admissionOpen()?{status:503,body:errorBody}:profile==='direct-mail'?await directReceive(data,frame.token):await forward(frame,data);
+     check(result&&Number.isInteger(result.status)&&result.status>=200&&result.status<=599&&Buffer.isBuffer(result.body)&&result.body.length<=MAX);
+    }catch{result={status:502,body:errorBody};}
     // The upstream response, not a volatile carrier ACK, is returned to the client.
     relayResponse=sendFrame({kind:'response',seq:frame.seq,status:result.status,body:result.body.toString('base64url')});
     await relayResponse;
