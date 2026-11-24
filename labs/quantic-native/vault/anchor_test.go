@@ -189,3 +189,15 @@ func TestAnchoredClassicalBrokerSignsOnlyAfterQuorum(t *testing.T) {
   }
  }
 }
+
+func TestBrokerSessionProofBoundToEphemeralPeer(t *testing.T) {
+ k, err := ecdh.P256().GenerateKey(rand.Reader); if err != nil { t.Fatal(err) }
+ a, err := ecdh.P256().GenerateKey(rand.Reader); if err != nil { t.Fatal(err) }
+ b, err := ecdh.P256().GenerateKey(rand.Reader); if err != nil { t.Fatal(err) }
+ proof, err := brokerSessionProof(k, b64.EncodeToString(a.PublicKey().Bytes()))
+ if err != nil { t.Fatal(err) }
+ if len(proof)!=43 { t.Fatal("unexpected proof length") }
+ other, err := brokerSessionProof(k, b64.EncodeToString(b.PublicKey().Bytes()))
+ if err != nil || proof==other { t.Fatal("fresh challenge not bound") }
+ if _, err := brokerSessionProof(k, "invalid"); err==nil { t.Fatal("invalid point accepted") }
+}

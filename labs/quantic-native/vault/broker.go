@@ -55,6 +55,7 @@ type packet struct {
 	Ciphertext string `json:"ciphertext"`
 }
 type request struct {
+	SessionPeer string `json:"sessionPeer,omitempty"`
 	Recover bool `json:"recover,omitempty"`
 	SenderAuth *senderAuth `json:"senderAuth,omitempty"`
 	PQContext   *pqContext    `json:"pqContext,omitempty"`
@@ -70,6 +71,7 @@ type request struct {
 	Approved    bool          `json:"approved,omitempty"`
 }
 type reply struct {
+	SessionProof string `json:"sessionProof,omitempty"`
 	HybridEnvelope *pqEnvelope `json:"pqEnvelope,omitempty"`
 	SenderAuth *senderAuth `json:"senderAuth,omitempty"`
 	PQKEM           string     `json:"pqKem,omitempty"`
@@ -180,6 +182,25 @@ func unseal(key agreementKey, p packet) ([]byte, error) {
 	}
 	return g.Open(nil, n, c, ctx)
 }
+// Fixed-purpose proof of possession; never releases the raw ECDH secret.
+// The caller must use a fresh ephemeral public key for each session.
+func brokerSessionProof(key agreementKey, peer string) (string, error) {
+	p, err := public(peer)
+	if err != nil { return "", err }
+	z, err := key.ECDH(p)
+	if err != nil { return "", err }
+	defer clear(z)
+	extract := hmac.New(sha256.New, []byte("quantic-vault-session-proof-extract/v1\x00"))
+	extract.Write(z)
+	prk := extract.Sum(nil)
+	defer clear(prk)
+	mac := hmac.New(sha256.New, prk)
+	mac.Write([]byte("quantic-vault-session-proof/v1\x00"))
+	mac.Write(p.Bytes())
+	mac.Write(key.PublicKey().Bytes())
+	return b64.EncodeToString(mac.Sum(nil)), nil
+}
+
 func serveBroker(s signer, backend string, in io.Reader, out io.Writer) error {
 	key, e := ecdh.P256().GenerateKey(rand.Reader)
 	if e != nil {
@@ -208,6 +229,7 @@ func serveGuardedPQ(s signer, key agreementKey, backend string, in io.Reader, ou
 	scan.Buffer(make([]byte, 4096), 32768)
 	var pending *authority
 	enrolled := false
+	sessionProved := false
 	seen := map[[32]byte]bool{}
 	fail := reply{Error: "refused"}
 	already := func(h [32]byte) bool { return seen[h] || (journal != nil && journal.has(h)) }
@@ -239,7 +261,7 @@ func serveGuardedPQ(s signer, key agreementKey, backend string, in io.Reader, ou
 			}
 			continue
 		}
-		if pq != nil && q.Op != "public" && q.Op != "pq-public-lab" && q.Op != "pq-proof-lab" && q.Op != "mail-open-hybrid-lab" && q.Op != "mail-seal-hybrid-lab" && q.Op != "close" {
+		if pq != nil && q.Op != "public" && q.Op != "session-proof-lab" && q.Op != "pq-public-lab" && q.Op != "pq-proof-lab" && q.Op != "mail-open-hybrid-lab" && q.Op != "mail-seal-hybrid-lab" && q.Op != "close" {
 			if e = enc.Encode(fail); e != nil {
 				return e
 			}
@@ -247,6 +269,13 @@ func serveGuardedPQ(s signer, key agreementKey, backend string, in io.Reader, ou
 		}
 		if q.Recover&&(pq==nil||(q.Op!="mail-seal-hybrid-lab"&&q.Op!="mail-open-hybrid-lab")){if e=enc.Encode(fail);e!=nil{return e};continue}
 		switch q.Op {
+		case "session-proof-lab":
+			// Only an already anchored vault, once per process; not an
+			// authorization for mail, signing, enrollment or payments.
+			if sessionProved || journal == nil || journal.anchor == nil || journal.failed { break }
+			sessionProved = true
+			proof, err := brokerSessionProof(key, q.SessionPeer)
+			if err == nil { r = reply{OK: true, SessionProof: proof} }
 		case "pq-public-lab":
 			if pq != nil {
 				r = reply{OK: true, PQKEM: b64.EncodeToString(pq.kemPub), PQDSA: b64.EncodeToString(pq.dsaPub)}
