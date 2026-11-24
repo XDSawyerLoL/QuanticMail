@@ -12,7 +12,10 @@ try{
   process.stdout.write(JSON.stringify({status:r.status,code:r.code,port:r.port,realMailProven:false})+'\n');
   process.stdout.write(JSON.stringify(await r.wait)+'\n');
  }else{
-  refuse(!process.stdin.isTTY);
+  // The Windows GUI redirects stdin through a private pipe. Refuse direct
+  // terminal input, not the pipe: the previous inverted guard made every
+  // actual Windows GUI send fail even though the unit tests were green.
+  refuse(process.stdin.isTTY!==true);
   let bytes=0;const chunks=[];
   for await(const b of process.stdin){
    bytes+=b.length;
