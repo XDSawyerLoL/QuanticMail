@@ -60,11 +60,23 @@ func windowsVaultCLI(args []string)(bool,error){
  if handled,e:=winMailLabStatus(args);handled{return true,e}
  if handled,e:=winClientIO(args);handled{return true,e}
  if len(args)>1&&(args[1]=="--broker-windows-pq-quorum-lab"||args[1]=="--broker-windows-pq-quorum-gui-lab"){return true,winBroker(args)}
- if len(args)>1&&args[1]=="--provision-windows-controller-lab"{
+ if len(args)>1&&(args[1]=="--provision-windows-controller-lab"||args[1]=="--provision-windows-controller-gui-lab"){
   if len(args)!=5||!hashRE.MatchString(args[3])||!strongAddr.MatchString(args[4]){return true,portableRefusal}
-  if !winApprove("Create NEW synthetic Windows vault and local controller; no real account enrollment."){return true,portableRefusal}
-  pw,e:=winConfirmSecret("New classical laboratory passphrase: ");if e!=nil{return true,e};defer clear(pw)
-  pq,e:=winConfirmSecret("Different post-quantum laboratory passphrase: ");if e!=nil{return true,e};defer clear(pq)
+  if _,_,e:=winPathParts(args[2]);e!=nil{return true,e}
+  // Refuse an existing target BEFORE asking for credentials. CREATE_NEW and
+  // handle ACL checks inside winProvisionAutoController remain authoritative.
+  if _,e:=os.Lstat(args[2]);!os.IsNotExist(e){return true,portableRefusal}
+  approve:=winApprove
+  confirm:=winConfirmSecret
+  detail:="Create NEW synthetic Windows vault and local controller; no real account enrollment."
+  if args[1]=="--provision-windows-controller-gui-lab"{
+   approve=winGUIApprove
+   confirm=winGUIConfirmSecret
+   detail="Creer un NOUVEAU coffre fictif pour "+args[4]+" ? Aucun compte distant ni migration. Deux phrases secretes distinctes, 20 caracteres ASCII minimum."
+  }
+  if !approve(detail){return true,portableRefusal}
+  pw,e:=confirm("Nouvelle phrase secrete classique (20 caracteres ASCII minimum)");if e!=nil{return true,e};defer clear(pw)
+  pq,e:=confirm("Autre phrase secrete post-quantique (20 caracteres ASCII minimum)");if e!=nil{return true,e};defer clear(pq)
   result,e:=winProvisionAutoController(args[2],args[3],args[4],pw,pq)
   if e!=nil{return true,e}
   return true,json.NewEncoder(os.Stdout).Encode(result)
