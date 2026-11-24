@@ -9,7 +9,7 @@ import {createScatteringBatchMixer} from '../lib/quantic/scattering-batch-mixer-
 import {openReliable} from '../labs/quantic-native/scattering/scattering-reliable-lab.mjs';
 import {writeSpool} from '../labs/quantic-native/scattering/scattering-cell.mjs';
 
-const [bindA,bindB,queue,secondsRaw,pathA,pathB,pathOut,mixRaw='0',expectedCoverRaw='0',batchSizeRaw='40']=process.argv.slice(2);
+const [bindA,bindB,queue,secondsRaw,pathA,pathB,pathOut,mixRaw='0',expectedCoverRaw='0',batchSizeRaw='40',flushRaw='0']=process.argv.slice(2);
 const check=(ok,msg)=>{if(!ok)throw Error(msg);};
 const seconds=Number(secondsRaw);
 check(['0','1'].includes(mixRaw),'unsupported mixing mode');
@@ -17,8 +17,10 @@ const mixEnabled=mixRaw==='1';
 const batchSize=Number(batchSizeRaw);
 check(Number.isSafeInteger(batchSize)&&[8,20,40].includes(batchSize),
  'unsupported lab batch size');
+const flushMs=Number(flushRaw);
+check([0,200].includes(flushMs)&&(!flushMs||(mixEnabled&&batchSize===8)),'invalid timed flush profile');
 const expectedCover=Number(expectedCoverRaw);
-check(Number.isSafeInteger(expectedCover)&&[0,80].includes(expectedCover),'invalid cover baseline');
+check(Number.isSafeInteger(expectedCover)&&[0,80,196].includes(expectedCover),'invalid cover baseline');
 check(bindA==='10.252.41.2:49001'&&bindB==='10.252.42.2:49002'&&
  isAbsolute(queue)&&Number.isInteger(seconds)&&seconds>=8&&seconds<=20,
  'explicit isolated trusted-hop lab topology required');
@@ -30,20 +32,21 @@ const keys=[keyFile(pathA),keyFile(pathB),keyFile(pathOut)];
 check(!keys[0].equals(keys[1])&&!keys[1].equals(keys[2])&&!keys[0].equals(keys[2]),
  'non-independent laboratory keys');
 const stats={ingressA:0,ingressB:0,spooled:0,unauthenticated:0,rejected:0,spoolErrors:0};
-let seq=0;const sockets=[];
+let seq=0,paddedCover=0,timedFlushes=0,timer=null;const sockets=[];
 const mixer=mixEnabled?createScatteringBatchMixer({batchSize,
  onBatch(batch){
-  const frames=[];
+  const frames=[];let real=0,pads=0;
   for(const {packet,source} of batch){
+   if(source===null){frames.push(packet);pads++;continue;}
    const frame=resealLabHop({inputKey:keys[source],outputKey:keys[2],
-     packet,hopSeq:seq+frames.length});
+     packet,hopSeq:seq+real});
    if(!frame){stats.unauthenticated++;throw Error('untrusted mixed ingress frame');}
-   frames.push(frame);
+   frames.push(frame);real++;
   }
-  writeSpool(queue,frames); // 40 shuffled cells, committed together
-  seq+=frames.length;
-  stats.spooled+=frames.length;
-  for(const {source} of batch)stats[source?'ingressB':'ingressA']++;
+  writeSpool(queue,frames); // one shuffled batch, committed together
+  seq+=real;paddedCover+=pads;
+  stats.spooled+=real;
+  for(const {source} of batch)if(source!==null)stats[source?'ingressB':'ingressA']++;
  }
 }):null;
 try{
@@ -74,14 +77,19 @@ try{
   });
   sockets.push(sock);
  }
+ // Fixed periodic tick, not triggered by packet arrivals. Native pacer remains constant-rate.
+ if(flushMs)timer=setInterval(()=>{
+  try{if(mixer.flushPadded())timedFlushes++;}catch{stats.spoolErrors++;clearInterval(timer);}
+ },flushMs);
  await new Promise(resolve=>setTimeout(resolve,seconds*1000));
+ clearInterval(timer);
  if(mixer){
-  try{mixer.drain();}catch{stats.spoolErrors++;}
+  try{if(flushMs)mixer.flushPadded();else mixer.drain();}catch{stats.spoolErrors++;}
  }
  console.log(JSON.stringify({mode:'trusted-hop-reseal-lab',...stats,
   mixedBatches:mixEnabled,mixer:mixer?.stats()??null,
-  expectedCover, ciphertextModified:true,
+  expectedCover,flushMs,paddedCover,timedFlushes,ciphertextModified:true,
   relayKnowsHopPlaintext:true,notEndToEndAnonymous:true,labOnly:true}));
  check(stats.ingressA>0&&stats.ingressB>0&&stats.spooled===seq&&stats.rejected===0&&stats.spoolErrors===0&&stats.unauthenticated===expectedCover,
   're-encryption did not authenticate both synthetic senders');
-}finally{for(const sock of sockets)sock.close();for(const key of keys)key.fill(0);}
+}finally{clearInterval(timer);for(const sock of sockets)sock.close();for(const key of keys)key.fill(0);}
