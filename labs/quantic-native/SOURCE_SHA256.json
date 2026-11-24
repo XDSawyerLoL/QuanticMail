@@ -1,5 +1,6 @@
 {
-  "scattering/anchor-bridge.mjs": "48dcb42f7bc38099ea21c8295c53b6ce28370dd2fe92d7b29ea1a82240d47aa8",
+  "scattering/anchor-bridge-handoff.test.mjs": "1cd33f904fc58dccb758016ae053e14cbea652b0f405517ea4fe22b7ecae1aee",
+  "scattering/anchor-bridge.mjs": "8936ab40eba0a0ea7bb193c02ec65e7bd3f99bfa569ead3f14fb66a3b15508f9",
   "scattering/compact-pacing.test.mjs": "37d05982931e3a8f87276efdb8f605e0982c0842d4ea6a6714efd71183dd78de",
   "scattering/dual-proof-pacing.test.mjs": "702347483b1fbab29f8e52b568e6392ae3d77ea1c5f504e41bb1658300b38040",
   "scattering/isolated_pacer.py": "e9a0ffe905b1a5d7344b62bf52f166c75cd938c754229d34180bcbc4d8773954",
