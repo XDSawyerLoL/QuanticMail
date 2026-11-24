@@ -47,10 +47,18 @@ fi
 mkdir -p "$WORK/queue" "$WORK/sender-a" "$WORK/sender-b"
 chmod 700 "$WORK/queue" "$WORK/sender-a" "$WORK/sender-b"
 RESEAL="${SCATTERING_MULTIHOP_RESEAL:-0}"
+E2E="${SCATTERING_MULTIHOP_E2E:-0}"
+if [[ "$E2E" == "1" && "$RESEAL" != "1" ]]; then
+ echo 'E2E test requires independent hop resealing' >&2; exit 2
+fi
 if [[ "$RESEAL" == "1" ]]; then
  for name in a b out; do
   "$NODE" -e "require('node:fs').writeFileSync(process.argv[1],require('node:crypto').randomBytes(32),{mode:0o600})" "$WORK/$name.key"
  done
+fi
+if [[ "$E2E" == "1" ]]; then
+ # The relay receives only per-hop key paths. Inner key remains endpoint-only.
+ "$NODE" -e "require('node:fs').writeFileSync(process.argv[1],require('node:crypto').randomBytes(32),{mode:0o600})" "$WORK/e2e.key"
 fi
 # Capture binary PCAPs to stdout (opened by unprivileged shell), never as artifacts.
 sudo timeout -s INT 17s ip netns exec "$NSR" tcpdump -i "$VAR" -Q in -n -s 256 -U -w - 'udp and dst port 49001' >"$WORK/a.pcap" 2>"$WORK/a.caplog" & CAP_PIDS+=("$!")
@@ -63,7 +71,9 @@ else
  sudo ip netns exec "$NSR" "$NODE" "$ROOT/scripts/scattering-opaque-relay-lab.mjs" 10.252.41.2:49001 10.252.42.2:49002 "$WORK/queue" 12 >"$WORK/relay.json" 2>"$WORK/relay.err" &
 fi
 RELAY_PID="$!"; CHILD_PIDS+=("$!")
-if [[ "$RESEAL" == "1" ]]; then
+if [[ "$E2E" == "1" ]]; then
+ sudo ip netns exec "$NSD" "$NODE" "$ROOT/scripts/scattering-e2e-receiver-lab.mjs" "$PACER" 10.252.43.2 49003 13 "$WORK/out.key" "$WORK/e2e.key" >"$WORK/receive.json" 2>"$WORK/receive.err" &
+elif [[ "$RESEAL" == "1" ]]; then
  sudo ip netns exec "$NSD" "$NODE" "$ROOT/scripts/scattering-physical-probe.mjs" receive-synthetic "$PACER" 10.252.43.2 49003 13 "$WORK/out.key" >"$WORK/receive.json" 2>"$WORK/receive.err" &
 else
  sudo ip netns exec "$NSD" "$NODE" "$ROOT/scripts/scattering-physical-probe.mjs" receive "$PACER" 10.252.43.2 49003 13 >"$WORK/receive.json" 2>"$WORK/receive.err" &
@@ -78,7 +88,10 @@ if [[ "${SCATTERING_MULTIHOP_CPU_LOAD:-0}" == '1' ]]; then
  done
 fi
 sleep .5
-if [[ "$RESEAL" == "1" ]]; then
+if [[ "$E2E" == "1" ]]; then
+ sudo ip netns exec "$NSA" "$NODE" "$ROOT/scripts/scattering-e2e-sender-lab.mjs" "$PACER" 10.252.41.2 49001 5 "$WORK/a.key" "$WORK/e2e.key" 0 >"$WORK/a.report" 2>"$WORK/a.err" & PID_A="$!"
+ sudo ip netns exec "$NSB" "$NODE" "$ROOT/scripts/scattering-e2e-sender-lab.mjs" "$PACER" 10.252.42.2 49002 5 "$WORK/b.key" "$WORK/e2e.key" 1 >"$WORK/b.report" 2>"$WORK/b.err" & PID_B="$!"
+elif [[ "$RESEAL" == "1" ]]; then
  sudo ip netns exec "$NSA" "$NODE" "$ROOT/scripts/scattering-physical-probe.mjs" send-synthetic "$PACER" 10.252.41.2 49001 5 "$WORK/a.key" 50000 >"$WORK/a.report" 2>"$WORK/a.err" & PID_A="$!"
  sudo ip netns exec "$NSB" "$NODE" "$ROOT/scripts/scattering-physical-probe.mjs" send-synthetic "$PACER" 10.252.42.2 49002 5 "$WORK/b.key" 50000 >"$WORK/b.report" 2>"$WORK/b.err" & PID_B="$!"
 else
@@ -115,9 +128,16 @@ if(relay.ingressA<50||relay.ingressB<50||
  x.egress.cells>native.sent||x.egress.repeatedCiphertext!==0)
  throw Error('multi-hop capture mismatch or missing relayed traffic');
 const reseal=process.env.SCATTERING_MULTIHOP_RESEAL==='1';
+const e2e=process.env.SCATTERING_MULTIHOP_E2E==='1';
 const rxLines=get('receive.json').toString().trim().split('\n');
 const receiver=JSON.parse(rxLines.at(-1));
-if(reseal){
+if(e2e){
+ if(!reseal||relay.mode!=='trusted-hop-reseal-lab'||relay.ciphertextModified!==true||
+    receiver.mode!=='nested-e2e-synthetic-receive'||receiver.authenticatedE2E!==200||
+    receiver.authenticatedHop!==200||receiver.perSender.A!==100||receiver.perSender.B!==100||
+    receiver.invalidInner!==0||receiver.duplicates!==0||x.egress.matchedUnique!==0)
+    throw Error('nested end-to-end message was not authenticated and correlated correctly');
+}else if(reseal){
  if(relay.mode!=='trusted-hop-reseal-lab'||relay.ciphertextModified!==true||
     receiver.mode!=='physical-synthetic-receive'||receiver.authenticatedPayloadProven!==true||
     receiver.authenticatedSynthetic<50||receiver.replays!==0||
@@ -129,10 +149,12 @@ if(reseal){
  if(process.env.SCATTERING_MULTIHOP_IMPAIRMENT!=='1'&&x.ingressMatchedRate<.90)
    throw Error('healthy opaque relay forwarded fewer than 90% of inputs');
 }
-console.log(JSON.stringify({lab:reseal?'trusted-hop-reseal-control':'negative-control-2-senders-1-opaque-relay',
+console.log(JSON.stringify({lab:e2e?'nested-e2e-inner-under-trusted-hop':reseal?'trusted-hop-reseal-control':'negative-control-2-senders-1-opaque-relay',
  CPUContentionRequested:process.env.SCATTERING_MULTIHOP_CPU_LOAD==='1',
  impairmentRequested:process.env.SCATTERING_MULTIHOP_IMPAIRMENT==='1',
  native,relay,receiver:{received:receiver.received,authenticatedSynthetic:receiver.authenticatedSynthetic??0,
-  replays:receiver.replays??0,unauthenticated:receiver.unauthenticated??0},
+  authenticatedHop:receiver.authenticatedHop??0,authenticatedE2E:receiver.authenticatedE2E??0,
+  perSender:receiver.perSender??null,replays:receiver.replays??0,unauthenticated:receiver.unauthenticated??0},
+ e2eKeyProvisionedToRelay:false,sharedHostFileSystemAccess:true,
  x,releaseReady:false},null,2));
 NODE
