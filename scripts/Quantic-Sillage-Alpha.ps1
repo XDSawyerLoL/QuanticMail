@@ -595,18 +595,19 @@ $contactGuide.Text='Inviter un contact de test (en attente)'
 $contactGuide.SetBounds(24,698,712,43)
 $contactGuide.ForeColor=[Drawing.Color]::Black
 $form.Controls.Add($contactGuide)
-$contactGuide.Add_Click({
+$script:desktopContactAction={
  $contactGuide.Enabled=$false
  try{Show-SyntheticContactGuide}catch{
   [Windows.Forms.MessageBox]::Show('Carnet de laboratoire indisponible. Creer ou ouvrir d abord un coffre de test.','Contact non configure','OK','Warning')|Out-Null
  }finally{$contactGuide.Enabled=$true}
-})
+}
+$contactGuide.Add_Click($script:desktopContactAction)
 $contactNotice=New-Object Windows.Forms.Label
 $contactNotice.Text='Les invitations ne sont pas des contacts approuves par les autorites.'
 $contactNotice.SetBounds(24,750,700,30)
 $form.Controls.Add($contactNotice)
 $script:latestSyntheticDirectory=$null
-$createIdentity.Add_Click({
+$script:desktopCreateAction={
  $createIdentity.Enabled=$false
  try{
   $parent=[Environment]::GetFolderPath('LocalApplicationData')
@@ -616,8 +617,9 @@ $createIdentity.Add_Click({
  }catch{
   [Windows.Forms.MessageBox]::Show('Creation non confirmee. Un dossier partiel peut subsister : aucune suppression ou reutilisation automatique. Disque NTFS et chemin Windows compatible requis.','Creation refusee','OK','Warning')|Out-Null
  }finally{$createIdentity.Enabled=$true}
-})
-$openIdentity.Add_Click({
+}
+$createIdentity.Add_Click($script:desktopCreateAction)
+$script:desktopOpenAction={
  $openIdentity.Enabled=$false
  try{
   $folder=Choose-SyntheticDirectory
@@ -627,7 +629,8 @@ $openIdentity.Add_Click({
  }catch{
   [Windows.Forms.MessageBox]::Show('Deverrouillage refuse : secrets ou fichiers non verifies. Aucune session ni message envoye.','Coffre verrouille','OK','Warning')|Out-Null
  }finally{$openIdentity.Enabled=$true}
-})
+}
+$openIdentity.Add_Click($script:desktopOpenAction)
 $script:selectedArguments=$null;$script:selectedAction=$null
 $script:shownActions=@()
 $module.Add_SelectedIndexChanged({
@@ -650,7 +653,7 @@ $choice.Add_SelectedIndexChanged({
  $il.Text=if($a.Input){"Fichier prive ("+$a.Input+"-nom.json)"}else{"Aucun fichier requis"}
  $ol.Text=if($a.Output){"Nouvelle enveloppe (wire-nom.json)"}else{"Aucune sortie a saisir"}
 })
-$run.Add_Click({
+$script:desktopRunAction={
  try{
   $a=$script:shownActions[$choice.SelectedIndex]
   if($a.Id -eq 'ImportMailboxActivation'){
@@ -682,7 +685,190 @@ $run.Add_Click({
  }catch{
   [Windows.Forms.MessageBox]::Show('Operation indisponible : verifiez les conditions du coffre de test. Aucune migration ni envoi implicite.','Operation non confirmee','OK','Warning')|Out-Null
  }
-})
+}
+$run.Add_Click($script:desktopRunAction)
+
+# Unified Windows desktop: no browser, no synthetic balances, no security
+# claims from unverified metadata. Existing native actions remain unchanged.
+$script:desktopColors=@{
+ Canvas=[Drawing.Color]::FromArgb(245,247,250)
+ White=[Drawing.Color]::White
+ Ink=[Drawing.Color]::FromArgb(17,33,55)
+ Muted=[Drawing.Color]::FromArgb(87,105,126)
+ Navy=[Drawing.Color]::FromArgb(14,35,58)
+ Blue=[Drawing.Color]::FromArgb(12,102,192)
+ Border=[Drawing.Color]::FromArgb(222,230,239)
+}
+function Desktop-Label($parent,[string]$text,[int]$x,[int]$y,[int]$w,[int]$h,[float]$size=10,[bool]$bold=$false){
+ $c=New-Object Windows.Forms.Label
+ $c.Text=$text;$c.ForeColor=$script:desktopColors.Ink
+ $style=if($bold){[Drawing.FontStyle]::Bold}else{[Drawing.FontStyle]::Regular}
+ $c.Font=New-Object Drawing.Font('Segoe UI',$size,$style)
+ $c.SetBounds($x,$y,$w,$h);$parent.Controls.Add($c);return $c
+}
+function Desktop-Button($parent,[string]$text,[string]$tag,[int]$x,[int]$y,[int]$w,[int]$h,[bool]$primary=$false){
+ $c=New-Object Windows.Forms.Button
+ $c.Text=$text;$c.Tag=$tag;$c.FlatStyle='Flat';$c.FlatAppearance.BorderSize=1
+ $c.FlatAppearance.BorderColor=$script:desktopColors.Border
+ $c.BackColor=if($primary){$script:desktopColors.Blue}else{$script:desktopColors.White}
+ $c.ForeColor=if($primary){[Drawing.Color]::White}else{$script:desktopColors.Ink}
+ $c.Font=New-Object Drawing.Font('Segoe UI',10)
+ $c.SetBounds($x,$y,$w,$h);$c.Cursor=[Windows.Forms.Cursors]::Hand
+ $c.Add_Click({param($sender,$e) Invoke-DesktopAction ([string]$sender.Tag)})
+ $parent.Controls.Add($c);return $c
+}
+function Desktop-Card($parent,[string]$title,[string]$description,[string]$button,[string]$tag,[int]$x,[int]$y,[int]$w=396,[int]$h=172){
+ $c=New-Object Windows.Forms.Panel
+ $c.BackColor=$script:desktopColors.White;$c.BorderStyle='FixedSingle';$c.SetBounds($x,$y,$w,$h)
+ $parent.Controls.Add($c)
+ $null=Desktop-Label $c $title 20 17 ($w-40) 31 15 $true
+ $d=Desktop-Label $c $description 20 55 ($w-40) 56 10
+ $d.ForeColor=$script:desktopColors.Muted
+ if($button){$null=Desktop-Button $c $button $tag 20 ($h-53) ($w-40) 36 $false}
+ return $c
+}
+function Invoke-DesktopNativeAction([string]$id){
+ $match=@($actions|Where-Object {$_.Id -ceq $id})
+ if($match.Count -ne 1){throw 'Action locale indisponible'}
+ $module.SelectedItem=Get-AlphaModule $id
+ for($i=0;$i -lt $script:shownActions.Count;$i++){
+  if($script:shownActions[$i].Id -ceq $id){$choice.SelectedIndex=$i;& $script:desktopRunAction;return}
+ }
+ throw 'Action locale non trouvee'
+}
+function Invoke-DesktopAction([string]$tag){
+ switch($tag){
+  'create' {& $script:desktopCreateAction;return}
+  'open' {& $script:desktopOpenAction;return}
+  'contacts' {& $script:desktopContactAction;return}
+  'compose' {Invoke-DesktopNativeAction 'ComposeDraft';return}
+  'enroll' {Invoke-DesktopNativeAction 'PrepareEnrollment';return}
+  'proof' {Invoke-DesktopNativeAction 'AnswerEnrollment';return}
+  'credential' {Invoke-DesktopNativeAction 'PrepareMailboxCredential';return}
+  'activation' {Invoke-DesktopNativeAction 'ImportMailboxActivation';return}
+  'advanced' {Show-DesktopPage 'Paramètres';$script:desktopAdvanced.Visible=$true;$script:desktopBody.Visible=$false;return}
+  default {Show-DesktopPage $tag}
+ }
+}
+function Show-DesktopPage([string]$name){
+ if($name -notin $script:desktopPages){throw 'Page inconnue'}
+ $script:desktopCurrent=$name
+ foreach($b in $script:desktopNav){
+  $b.BackColor=if($b.Tag -eq $name){[Drawing.Color]::FromArgb(28,66,105)}else{$script:desktopColors.Navy}
+ }
+ $script:desktopAdvanced.Visible=$false
+ $script:desktopBody.Visible=$true
+ $script:desktopTitle.Text=$name
+ while($script:desktopBody.Controls.Count -gt 0){$old=$script:desktopBody.Controls[0];$script:desktopBody.Controls.RemoveAt(0);$old.Dispose()}
+ $body=$script:desktopBody
+ $w=396;$right=416
+ switch($name){
+  'Accueil' {
+   $null=Desktop-Label $body 'Votre espace numérique, réuni en un seul endroit.' 0 0 820 38 13
+   $null=Desktop-Card $body 'Identité' 'Créer ou vérifier votre identité locale. Aucune session réelle n’est présumée active.' 'Mon identité' 'Identité' 0 56
+   $null=Desktop-Card $body 'Messagerie' 'Rédiger un message chiffré et configurer vos accès de test.' 'Mes messages' 'Messagerie' $right 56
+   $null=Desktop-Card $body 'Paiements' 'Simulation uniquement. Aucun solde réel disponible.' 'Mes paiements' 'Paiements' 0 246
+   $null=Desktop-Card $body 'Coffre-fort' 'Vérifier les clés du coffre local, sans export.' 'Mon coffre' 'Coffre-fort' $right 246
+   $null=Desktop-Card $body 'Protection' 'État de Sentinel non raccordé dans cette édition.' 'Ma protection' 'Protection' 0 436
+   $null=Desktop-Card $body 'Mon espace' 'Version Alpha privée. Les opérations de test sont explicitement distinguées.' 'Paramètres' 'Paramètres' $right 436
+  }
+  'Identité' {
+   $null=Desktop-Label $body 'Votre identité numérique' 0 0 810 38 19 $true
+   $null=Desktop-Card $body 'Créer une identité' 'Créer un coffre de test local sans inscription distante.' 'Créer mon identité de test' 'create' 0 58
+   $null=Desktop-Card $body 'Vérifier mon identité' 'Choisir un coffre existant et saisir ses secrets dans le moteur natif.' 'Vérifier mon coffre' 'open' $right 58
+   $null=Desktop-Card $body 'Inscription' 'Préparer une candidature de test auprès d’un opérateur indépendant.' 'Préparer mon inscription' 'enroll' 0 248
+   $null=Desktop-Card $body 'Preuve de possession' 'Répondre au défi signé fourni par votre opérateur.' 'Prouver mon identité' 'proof' $right 248
+  }
+  'Messagerie' {
+   $null=Desktop-Label $body 'Vos échanges privés' 0 0 810 38 19 $true
+   $null=Desktop-Card $body 'Nouveau message' 'Ouvrir le rédacteur natif existant. Aucun envoi implicite.' 'Rédiger un message' 'compose' 0 58
+   $null=Desktop-Card $body 'Contacts' 'Gérer les invitations locales de test, sans contact approuvé fictif.' 'Inviter un contact' 'contacts' $right 58
+   $null=Desktop-Card $body 'Configurer ma messagerie' 'Importer votre activation authentifiée et démarrer le transport prévu.' 'Configurer' 'activation' 0 248
+   $null=Desktop-Card $body 'Préparer mes accès' 'Protéger les informations d’accès locales après approbation.' 'Préparer mes accès' 'credential' $right 248
+  }
+  'Paiements' {
+   $null=Desktop-Label $body 'Votre portefeuille' 0 0 810 38 19 $true
+   $null=Desktop-Card $body 'Solde non disponible' 'Les paiements réels ne sont pas activés. Aucun montant fictif n’est affiché.' '' '' 0 58 812 172
+   $null=Desktop-Card $body 'Laboratoire Quantic Pay' 'Les simulations existantes sont réservées aux diagnostics, sans valeur monétaire.' 'Outils de laboratoire' 'advanced' 0 248 812 172
+  }
+  'Coffre-fort' {
+   $null=Desktop-Label $body 'Vos données et vos clés' 0 0 810 38 19 $true
+   $null=Desktop-Card $body 'Coffre d’identité' 'Vérification locale des deux protections cryptographiques. Les clés sont refermées après contrôle.' 'Vérifier mon coffre' 'open' 0 58 812 172
+   $null=Desktop-Card $body 'Documents personnels' 'Le stockage de documents et les sauvegardes de production ne sont pas raccordés à cette page.' '' '' 0 248 812 172
+  }
+  'Protection' {
+   $null=Desktop-Label $body 'Protection de votre appareil' 0 0 810 38 19 $true
+   $null=Desktop-Card $body 'État non vérifié' 'Sentinel est développé séparément. Son état réel et ses verrous ne sont pas encore raccordés à ce tableau de bord.' '' '' 0 58 812 172
+   $null=Desktop-Card $body 'Diagnostics' 'Les outils existants restent accessibles dans les paramètres avancés.' 'Ouvrir les diagnostics' 'advanced' 0 248 812 172
+  }
+  'Paramètres' {
+   $null=Desktop-Label $body 'Préférences et informations' 0 0 810 38 19 $true
+   $null=Desktop-Card $body 'À propos' 'Quantic Sillage Desktop — version Alpha privée. Aucune certification ou conformité officielle affirmée.' '' '' 0 58 812 172
+   $null=Desktop-Card $body 'Outils avancés' 'Opérations de laboratoire, diagnostics et simulations. Certaines actions ouvrent explicitement un terminal.' 'Ouvrir les outils avancés' 'advanced' 0 248 812 172
+  }
+ }
+}
+function Initialize-Desktop {
+ $form.SuspendLayout()
+ $old=@($form.Controls)
+ $form.AcceptButton=$null
+ $form.CancelButton=$null
+ $form.Text='Quantic Sillage'
+ $form.ClientSize=New-Object Drawing.Size(1160,810)
+ $form.MinimumSize=New-Object Drawing.Size(1100,740)
+ $form.BackColor=$script:desktopColors.Canvas
+ $form.ForeColor=$script:desktopColors.Ink
+ $sidebar=New-Object Windows.Forms.Panel
+ $sidebar.Dock='Left';$sidebar.Width=224;$sidebar.BackColor=$script:desktopColors.Navy
+ $workspace=New-Object Windows.Forms.Panel
+ $workspace.Dock='Fill';$workspace.BackColor=$script:desktopColors.Canvas
+ $form.Controls.Add($workspace);$form.Controls.Add($sidebar)
+ $workspace.BringToFront();$sidebar.BringToFront()
+ $brand=Desktop-Label $sidebar 'Quantic Sillage' 21 27 190 30 17 $true
+ $brand.ForeColor=[Drawing.Color]::White
+ $tagline=Desktop-Label $sidebar 'Votre espace numérique' 23 62 190 24 9
+ $tagline.ForeColor=[Drawing.Color]::FromArgb(170,192,214)
+ $script:desktopPages=@('Accueil','Identité','Messagerie','Paiements','Coffre-fort','Protection','Paramètres')
+ $script:desktopNav=@()
+ $y=120
+ foreach($page in $script:desktopPages){
+  $b=Desktop-Button $sidebar $page $page 12 $y 200 44 $false
+  $b.TextAlign='MiddleLeft';$b.Padding=New-Object Windows.Forms.Padding(12,0,0,0)
+  $b.FlatAppearance.BorderSize=0;$b.ForeColor=[Drawing.Color]::White
+  $script:desktopNav+= $b;$y+=54
+ }
+ $alpha=Desktop-Label $sidebar 'ÉDITION ALPHA PRIVÉE' 23 526 185 44 9
+ $alpha.ForeColor=[Drawing.Color]::FromArgb(170,192,214)
+ $header=New-Object Windows.Forms.Panel
+ $header.Dock='Top';$header.Height=94;$header.BackColor=$script:desktopColors.White
+ $workspace.Controls.Add($header)
+ $script:desktopTitle=Desktop-Label $header 'Accueil' 28 19 600 44 24 $true
+ $state=Desktop-Label $header 'Espace local  •  Test uniquement' 30 65 700 22 10
+ $state.ForeColor=$script:desktopColors.Muted
+ # Preserve status of the existing managed carrier, without claiming the
+ # transport is connected to a remote correspondent.
+ $notice.Parent=$workspace;$notice.Dock='Bottom';$notice.Height=40
+ $notice.Text='Identités de test uniquement. Aucun compte réel ni migration.'
+ $notice.ForeColor=$script:desktopColors.Muted;$notice.BackColor=$script:desktopColors.White
+ $notice.Padding=New-Object Windows.Forms.Padding(28,9,12,0)
+ $scroll=New-Object Windows.Forms.Panel
+ $scroll.Dock='Fill';$scroll.AutoScroll=$true;$workspace.Controls.Add($scroll)
+ $scroll.BringToFront()
+ $script:desktopBody=New-Object Windows.Forms.Panel
+ $script:desktopBody.SetBounds(28,20,824,650);$scroll.Controls.Add($script:desktopBody)
+ $script:desktopAdvanced=New-Object Windows.Forms.Panel
+ $script:desktopAdvanced.SetBounds(28,20,760,870);$script:desktopAdvanced.Visible=$false
+ $scroll.Controls.Add($script:desktopAdvanced)
+ foreach($c in $old){
+  if($c -eq $notice){continue}
+  $c.Parent=$script:desktopAdvanced
+  $c.ForeColor=$script:desktopColors.Ink
+  if($c -is [Windows.Forms.Button]){$c.BackColor=$script:desktopColors.White}
+ }
+ $heading.Text='Outils avancés'
+ Show-DesktopPage 'Accueil'
+ $form.ResumeLayout($true)
+}
 $module.SelectedIndex=0
 if ($SelfTest) {
  try {
@@ -702,10 +888,14 @@ if ($SelfTest) {
    if ($script:shownActions.Count -lt 1) { throw "Missing module: $m" }
   }
   $module.SelectedItem="QUANTIC MAIL"
-  Write-Output "Dashboard controls and operation mapping verified"
+  Initialize-Desktop
+  foreach($page in $script:desktopPages){Show-DesktopPage $page;if($script:desktopTitle.Text -ne $page -or $script:desktopBody.Controls.Count -lt 2){throw "Desktop page incomplete: $page"}}
+  Show-DesktopPage "Accueil"
+  Write-Output "Unified desktop: seven native pages and existing operation mapping verified"
  }finally{$form.Dispose()}
  exit 0
 }
+Initialize-Desktop
 function Quote-AdvancedArg([string]$Value){
  if($Value.Contains('"') -or $Value.Contains([char]10) -or $Value.Contains([char]13)){throw 'Argument advanced non autorise'}
  return '"'+$Value+'"'
