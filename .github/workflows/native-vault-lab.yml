@@ -105,6 +105,7 @@ jobs:
           openssl list -signature-algorithms | grep -qi ML-DSA-65
           go test -count=1 -tags pqopenssl -run '^(TestPQProviderRoundTrip|TestWindowsPrivateStorage|TestWindowsEncryptedDraftDPAPI|TestWindowsMailLabInventory|TestWindowsGUIOperatorCheckContract|TestWindowsPQStorageReopen|TestWindowsProvisionJournalRestart|TestWindowsConsoleParsing|TestWindowsRecoveryExactResult|TestWindowsQuorumConfigRefusal|TestWindowsScatteringEpochGuard|TestWindowsLabImport|TestWindowsAutoController|TestWindowsPayLab|TestWindowsAnchoredPayLab|TestNativeFinancialPermitVerification|TestWindowsPayQuorumImportBinding)$' -v .
           go build -trimpath -tags pqopenssl -o "$RUNNER_TEMP/Vault-PQ-provider-lab.exe" .
+          go test -c -trimpath -tags pqopenssl -o "$RUNNER_TEMP/Windows-Mail-E2E-Fixture.test.exe" .
           cd ../scattering/native
           CGO_ENABLED=0 go build -trimpath -o "$RUNNER_TEMP/Scattering-Pacer.exe" .
 
@@ -278,6 +279,10 @@ jobs:
           $env:PATH = "$dir\bin;$env:SystemRoot\System32"
           & $node --test tests/native-scattering-mailbox.test.mjs
           if ($LASTEXITCODE -ne 0) { throw "Packaged Scattering mailbox failed" }
+          $env:QUANTIC_WINDOWS_MAIL_E2E = "1"
+          $env:QUANTIC_WINDOWS_MAIL_FIXTURE = "$env:RUNNER_TEMP\Windows-Mail-E2E-Fixture.test.exe"
+          & $node --test tests/native-windows-mail-roundtrip-e2e.test.mjs
+          if ($LASTEXITCODE -ne 0) { throw "Native Windows PQ mail roundtrip and ACK recovery failed" }
       - name: Verify packaged entry points and cryptography runtime
         shell: pwsh
         run: |
