@@ -68,6 +68,18 @@ Le composeur Windows propose désormais, en plus de l'enregistrement du brouillo
 - Cette nouvelle voie doit encore subir la compilation Windows, les tests de paquet, un test interactif sur deux vrais PC et une revue des dialogues et de la gestion des secrets. L'absence de console dans le test CI n'est pas une preuve de sécurité face à un PC compromis. Elle demeure interdite pour les comptes réels.
 - Les anciennes identités, messages et sauvegardes sont conservés. Aucune suppression, migration définitive ni paiement réel n'est autorisé.
 
+## Réception chiffrée sans terminal (deuxième poste de laboratoire)
+
+Dans **Quantic Mail → Rédiger un message**, sélectionner un coffre de test disposant d'un contact signé et d'un relais Scattering **déjà préparé**, puis choisir **Recevoir un message chiffré (test)**.
+
+- Si la file est vide, le logiciel affiche **Aucun message**. Rien n'est acquitté.
+- Si un message est en attente, la fenêtre demande une approbation `OPEN` explicite pour ouvrir et vérifier son enveloppe. Les phrases secrètes sont demandées par le coffre natif dans les fenêtres Windows, pas par une console.
+- Le moteur existant vérifie le destinataire, les clés et la signature hybride. Il crée un **nouveau reçu chiffré privé**, le synchronise, le relit et vérifie le résultat avant de confirmer au relais local. Le contenu en clair apparaît uniquement dans la fenêtre locale en lecture seule.
+- Si le disque, la vérification ou l'accusé échoue, le résultat reste **non confirmé**. Un reçu peut subsister ; **aucune relance automatique**. La récupération explicite doit préserver l'ancien reçu.
+- L'affichage d'un message reçu sur un poste et l'acquittement du relais local **ne sont pas encore une preuve indépendante** du transport physique entre deux postes. Un essai de bout en bout avec deux PC, quatre autorités mTLS indépendantes et une observation réseau externe reste obligatoire avant tout usage réel.
+
+Les tests automatisés sont dans `tests/native-windows-gui-receive.test.mjs` et `tests/native-windows-mail-flow.test.mjs`. Ils vérifient le refus des résultats non authentifiés, les limites de réception et l'ordre écriture-vérification-ACK, mais ne remplacent pas le test interactif à deux machines.
+
 ## Publication et mises à jour
 
 La chaîne de signature existe dans `scripts/Sign-Native-Lab-Installer.ps1` mais requiert un **véritable certificat de signature de code** autorisé, sa clé privée conservée hors du dépôt, une empreinte publique d'éditeur approuvée indépendamment, Windows SDK SignTool et un service d'horodatage HTTPS. Ni certificat ni signature ne sont générés fictivement dans la CI. Pas de mise à jour automatique d'un binaire non signé.
