@@ -4,6 +4,7 @@ import {spawn} from 'node:child_process';
 import {readFile} from 'node:fs/promises';
 import {isIPv4} from 'node:net';
 import {dirname,isAbsolute} from 'node:path';
+import {startNegotiatedScatteringMailboxEndpoint} from '../standalone-relay/native-scattering-negotiated-mailbox-lab.mjs';
 import {startScatteringMailboxEndpoint} from '../standalone-relay/native-scattering-mailbox.mjs';
 const check=x=>{if(!x)throw Error('Managed native carrier refused');};
 const pin=/^[a-f0-9]{64}$/;
@@ -49,4 +50,13 @@ export async function startManagedCarrier({binary,binaryPin,config,listen,target
   for(const x of [endpoint,sink,pacer])void x.closed.then(close);
   check(!stopping);return Object.freeze({recvPort:endpoint.recvPort,httpPort:endpoint.httpPort,closed,close});
  }catch(e){await close();throw e;}
+}
+
+// Explicit negotiated laboratory path; no shared-secret config accepted.
+// The dashboard continues using its existing activation profile until native
+// signing custody and independently authenticated peer configuration exist.
+export async function startNegotiatedManagedCarrier({socket,local,privateKeys,peer,context,timeoutMs=8000,...options}){
+ const config=options.config;
+ check(config&&!Object.hasOwn(config,'secretHex')&&!Object.hasOwn(config,'epochHex'));
+ return startManagedCarrier(options,{start:(c,o)=>startNegotiatedScatteringMailboxEndpoint({config:c,...o,socket,local,privateKeys,peer,context,timeoutMs})});
 }

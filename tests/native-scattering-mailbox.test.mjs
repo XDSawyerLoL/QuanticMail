@@ -1,10 +1,10 @@
-import {startManagedCarrier,validateManagedCarrier} from '../desktop/native-managed-scattering.mjs';
+import {startManagedCarrier,startNegotiatedManagedCarrier,validateManagedCarrier} from '../desktop/native-managed-scattering.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createServer,request} from 'node:http';
 import {createSocket} from 'node:dgram';
 import {spawn,execFileSync} from 'node:child_process';
-import {randomBytes,createHash} from 'node:crypto';
+import {randomBytes,createHash,generateKeyPairSync} from 'node:crypto';
 import {mkdtemp,mkdir,rm,readFile,realpath} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
@@ -68,4 +68,48 @@ test('managed profile rejects changes, foreign paths and wrong loopback port',()
  assert.throws(()=>validateManagedCarrier({...p,target:'0.0.0.0:1234'},raw,scope,paths));
  assert.throws(()=>validateManagedCarrier(p,raw,{endpoint:'http://127.0.0.1:49009/'},paths));
  assert.throws(()=>validateManagedCarrier(p,raw,scope,{...paths,queueDir:'foreign'}));
+});
+
+test('negotiated managed carriers activate native UDP on both endpoints without pre-shared keys',{skip:!binary||(windows&&!vault),timeout:90000},async()=>{
+ const root=await realpath(await mkdtemp(join(windows?(process.env.QUANTIC_WINDOWS_TEST_ROOT??await realpath(tmpdir())):tmpdir(),'qs-negotiated-')));
+ const sockets=[],carriers=[],hits=[];
+ const server=createServer(async(req,res)=>{
+  const chunks=[];for await(const c of req)chunks.push(c);
+  hits.push({path:req.url,body:JSON.parse(Buffer.concat(chunks)),token:req.headers.authorization});
+  const data=Buffer.from(JSON.stringify({ok:true}));res.writeHead(202,{'Content-Type':'application/json','Content-Length':data.length});res.end(data);
+ });
+ const identity=()=>{const a=generateKeyPairSync('ec',{namedCurve:'prime256v1'}),b=generateKeyPairSync('ml-dsa-65');return {local:{classical:a.publicKey,pq:b.publicKey},privateKeys:{classical:a.privateKey,pq:b.privateKey}};};
+ try{
+  await new Promise((r,j)=>{server.once('error',j);server.listen(0,'127.0.0.1',r);});
+  const ids=[identity(),identity()],configs=[],boots=[];
+  for(let i=0;i<2;i++){
+   const role=i?'relay':'client',scope=join(root,role);
+   const queueDir=join(scope,'queue'),stateDir=join(scope,'state');
+   if(windows){execFileSync(vault,['--windows-scattering-create-lab',scope]);boots.push({binary:vault,binarySha256:createHash('sha256').update(await readFile(vault)).digest('hex'),dir:scope});}
+   else{await mkdir(scope,{mode:0o700});await mkdir(queueDir,{mode:0o700});await mkdir(stateDir,{mode:0o700});boots.push(undefined);}
+   configs.push({labOnly:true,role,queueDir,stateDir,recvPort:0,httpPort:i?server.address().port:0});
+   const s=createSocket('udp4');sockets.push(s);await new Promise((r,j)=>{s.once('error',j);s.bind(0,'127.0.0.1',r);});
+  }
+  const bootstrapPorts=sockets.map(s=>s.address().port);
+  for(let i=0;i<2;i++)await new Promise((r,j)=>{sockets[i].once('error',j);sockets[i].connect(bootstrapPorts[1-i],'127.0.0.1',r);});
+  const ports=[await freeUDP(),await freeUDP()];assert.notEqual(ports[0],ports[1]);
+  const binaryPin=createHash('sha256').update(await readFile(binary)).digest('hex'),context={channel:randomBytes(48).toString('hex'),generation:0,previous:'0'.repeat(96)};
+  const options=i=>({binary,binaryPin,config:configs[i],listen:'127.0.0.1:'+ports[i],target:'127.0.0.1:'+ports[1-i],windowsBootstrap:boots[i],socket:sockets[i],...ids[i],peer:ids[1-i].local,context});
+  await assert.rejects(startNegotiatedManagedCarrier({...options(0),config:{...configs[0],secretHex:'a'.repeat(64)}}));
+  const outcomes=await Promise.allSettled([startNegotiatedManagedCarrier(options(0)),startNegotiatedManagedCarrier(options(1))]);
+  for(const o of outcomes)if(o.status==='fulfilled')carriers.push(o.value);
+  for(const o of outcomes)if(o.status==='rejected')throw o.reason;
+  const client=outcomes[0].value;
+  assert.equal(Object.hasOwn(client,'secretHex'),false);assert.equal(Object.hasOwn(client,'epochHex'),false);
+  const body={synthetic:'negotiated managed UDP'};
+  assert.deepEqual(await post(client.httpPort,base+'send',body),{status:202,body:{ok:true}});
+  assert.deepEqual(hits,[{path:base+'send',body,token:'Bearer '+token}]);
+  await client.close();await assert.rejects(post(client.httpPort,base+'send',body));assert.equal(hits.length,1);
+  console.log('NEGOTIATED_MANAGED_CARRIER_EVIDENCE '+JSON.stringify({platform:process.platform,negotiated:true,nativePacer:true,preSharedSecret:false,localEpochGuard:true,syntheticMailbox:true,physicalHosts:1,releaseAuthorized:false}));
+ }finally{
+  await Promise.allSettled(carriers.map(c=>c.close()));
+  for(const s of sockets)await new Promise(r=>{try{s.close(r);}catch{r();}});
+  server.closeAllConnections();await new Promise(r=>server.close(r));
+  await rm(root,{recursive:true,force:true,maxRetries:10,retryDelay:200});
+ }
 });
