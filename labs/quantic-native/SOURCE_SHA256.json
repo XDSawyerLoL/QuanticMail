@@ -99,7 +99,7 @@
   "vault/tests/isolated-enrollment.test.mjs": "3c90b9b3ce5522877b175176a372508834719a7447a28f342d0296df00d93e7f",
   "vault/tests/native-enrollment.test.mjs": "a07c4711d5a7a18f5ee48f969fcf07b4e81ecab5771e11739c3f93a91c011807",
   "vault/windows_broker.go": "5eff666f3ca242da4c6665698197cc4b1ed86924e5226c987cdb07d6cf5ceb63",
-  "vault/windows_client_io.go": "3fb7855fb9105410d7e662351025c50c6f517333ea5331f484cf7164d2ee5aad",
+  "vault/windows_client_io.go": "8f866b4782cb1f3bd3a99ff07431be6cb84034094385b3f798820de2edf90e51",
   "vault/windows_console.go": "a44834947eb6239ab5562191ab44f02f1443638331d2ce956ef6e0a0735de5ed",
   "vault/windows_gui_provision.go": "465cbd094648250304693f5af6945722fd05098b7bf05f694850151f33dcf7d0",
   "vault/windows_gui_provision_test.go": "7ff82e673930a6f7dc6834601ecc320b2c360c314ba0753f385e10bd9d398eb0",
