@@ -84,7 +84,17 @@ func TestActualResidentBinaryInstallationE2E(t *testing.T){
  watched:=t.TempDir()
  installed:=false
  t.Cleanup(func(){if installed{_ =uninstallResident()}})
- if err:=installResidentFrom(binary,watched,true);err!=nil{t.Fatal(err)}
+ // Simulate the interface's opt-in selection of two real copies.
+ var selected []*sentinel.BackupLock
+ var identities []sentinel.BackupIdentity
+ for _,name:=range []string{"first.bak","second.zip"}{
+  path:=filepath.Join(watched,name)
+  if err:=os.WriteFile(path,[]byte("synthetic backup"),0600);err!=nil{t.Fatal(err)}
+  l,err:=sentinel.LockBackup(path);if err!=nil{t.Fatal(err)}
+  selected=append(selected,l);identities=append(identities,l.Identity())
+  defer l.Close()
+ }
+ if err:=installResidentFrom(binary,watched,true,identities...);err!=nil{t.Fatal(err)}
  installed=true
  log,err:=auditPath();if err!=nil{t.Fatal(err)}
  // Wait for the installed binary to start from the actual installation path.
@@ -92,11 +102,21 @@ func TestActualResidentBinaryInstallationE2E(t *testing.T){
  for deadline:=time.Now().Add(8*time.Second);time.Now().Before(deadline);time.Sleep(100*time.Millisecond){
   records,err:=sentinel.RecentRecords(log,30)
   if err==nil{
-   for _,r:=range records{if r.Type=="started"{started=true;break}}
+   for _,r:=range records{if r.Type=="backup_locks_active"&&strings.HasPrefix(r.Message,"2/2"){started=true;break}}
   }
   if started{break}
  }
- if !started{t.Fatal("real installed GUI binary did not start resident monitoring")}
+ if !started{t.Fatal("real installed agent did not confirm both backup handles")}
+ // Closing the original selection handles models closing the GUI. Only the
+ // separately launched installed resident process must hold the locks.
+ for _,l:=range selected{if err:=l.Close();err!=nil{t.Fatal(err)}}
+ for _,id:=range identities{
+  f,err:=os.OpenFile(id.Path,os.O_WRONLY,0600)
+  if err==nil{f.Close();t.Fatal("resident did not retain backup write lock")}
+  if !errors.Is(err,syscall.Errno(32)){t.Fatalf("unexpected backup open result: %v",err)}
+  if err:=os.Remove(id.Path);err==nil{t.Fatal("resident allowed deletion")}
+  if err:=os.Rename(id.Path,id.Path+".renamed");err==nil{t.Fatal("resident allowed rename")}
+ }
  for i:=0;i<25;i++{
   filename:=filepath.Join(watched,fmt.Sprintf("case-%03d.txt",i))
   if err:=os.WriteFile(filename,[]byte("harmless CI file"),0600);err!=nil{t.Fatal(err)}
@@ -109,6 +129,9 @@ func TestActualResidentBinaryInstallationE2E(t *testing.T){
  }
  if !alerted{t.Fatal("real resident did not detect harmless file burst")}
  if err:=uninstallResident();err!=nil{t.Fatalf("real agent uninstall failed: %v",err)}
+ for _,id:=range identities{
+  if err:=os.WriteFile(id.Path,[]byte("released"),0600);err!=nil{t.Fatalf("uninstall did not release backup lock: %v",err)}
+ }
  installed=false
  if _,err:=regReadStartup();!errors.Is(err,syscall.ERROR_FILE_NOT_FOUND){t.Fatalf("startup entry still present: %v",err)}
  if _,err:=os.Stat(log);err!=nil{t.Fatalf("uninstall deleted incident history: %v",err)}
