@@ -56,7 +56,7 @@ test('drops, duplicates, reordering, corruption and missing ACKs recover without
       await new Promise(setImmediate);
     }
     await new Promise(setImmediate);
-    assert.equal(writeError,null);
+    assert.ok(writeError==null);
     assert.equal(writeDone,true);
     assert.deepEqual(Buffer.concat(received),message);
     assert.deepEqual([...firstDropped].sort((a,b)=>a-b),[0,2]);
