@@ -33,8 +33,9 @@ function validateChallenge(ch,candidate,expected){
  const names=['address','deviceId','signingPin','encryptionPin','kemPin','dsaPin','quorumPin','controllerPublic'];
  check(names.every((k,i)=>a[i+1]===expected[k]));
 }
-export async function runNativeEnrollmentAuthorityClient({authorities,tls,candidate,expected,prove,mode,enrollmentReceipts,clientPin,authenticationNonce}){
+export async function runNativeEnrollmentAuthorityClient({authorities,tls,candidate,expected,prove,mode,enrollmentReceipts,clientPin,authenticationNonce,isCurrent=()=>true}){
  check(Array.isArray(authorities)&&authorities.length===4&&new Set(authorities.map(a=>a.pin)).size===4&&new Set(authorities.map(a=>a.tlsPin)).size===4&&new Set(authorities.map(a=>new URL(a.url).origin)).size===4);
+ check(typeof isCurrent==='function'&&isCurrent());
  check(typeof prove==='function'&&['enroll','authenticate'].includes(mode)&&hex.test(clientPin));
  const auth=mode==='authenticate';
  check(authenticationNonce===undefined||(auth&&typeof authenticationNonce==='string'&&hex.test(authenticationNonce)));
@@ -42,24 +43,26 @@ export async function runNativeEnrollmentAuthorityClient({authorities,tls,candid
  if(auth)verifyNativeEnrollmentReceipts(enrollmentReceipts,authorities,candidate,expected);
  const receipts=[],errors=[],pendingAuth=[];
  for(const a of authorities){
+  check(isCurrent());
   try{
    // On enrollment, recover only an already committed signed receipt; a
    // failed finish is never silently retried as a new proof.
    if(!auth){
-    try{receipts.push(await nativeAuthorityRequest(a,tls,'/native-enrollment/readback',{}));continue;}catch{}
+    try{const receipt=await nativeAuthorityRequest(a,tls,'/native-enrollment/readback',{});check(isCurrent());receipts.push(receipt);continue;}catch{check(isCurrent());}
    }
    const prefix=auth?'/native-authentication':'/native-enrollment';
    const ch=await nativeAuthorityRequest(a,tls,prefix+'/begin',auth?{nonce,enrollmentReceipts}:{});
-   validateChallenge(ch,candidate,expected);
+   check(isCurrent());validateChallenge(ch,candidate,expected);
    const response=await prove(ch,a);
-   check(response?.challengeSha256===ch.challengeSha256);
+   check(isCurrent());check(response?.challengeSha256===ch.challengeSha256);
    if(auth){pendingAuth.push({a,response});continue;}
    const r=await nativeAuthorityRequest(a,tls,prefix+'/finish',{response});
    receipts.push(r);
-  }catch{errors.push(a.pin);}
+  }catch{check(isCurrent());errors.push(a.pin);}
  }
  // Finish authentication proofs together: the short-lived receipt window
  // starts only after all interactive proofs have been collected.
+ check(isCurrent());
  if(auth){
   const settled=await Promise.allSettled(pendingAuth.map(({a,response})=>nativeAuthorityRequest(a,tls,'/native-authentication/finish',{response})));
   for(let i=0;i<settled.length;i++){
@@ -67,6 +70,7 @@ export async function runNativeEnrollmentAuthorityClient({authorities,tls,candid
    else errors.push(pendingAuth[i].a.pin);
   }
  }
+ check(isCurrent());
  const result=auth?verifyNativeAuthenticationQuorum({receipts,trusted:authorities,candidate,expected,clientPin,nonce}):verifyNativeEnrollmentReceipts(receipts,authorities,candidate,expected);
  return {result,receipts,unavailableAuthorityPins:errors};
 }
