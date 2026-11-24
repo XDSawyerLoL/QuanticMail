@@ -41,8 +41,10 @@ export function normalizeClassicalEnvelope(e){
   b64(e.iv,12,12,'base64');b64(e.ciphertext,16,8208,'base64');
   return {ciphertext:e.ciphertext,iv:e.iv,ephemeralPublicKey:jwk};
 }
-export async function connectNativeVault({binary,binarySha256,vault,journal,quorum,controllerKeyFile,signingPin,encryptionPin,labOnly,pqMode,windowsLab}){
+export async function connectNativeVault({binary,binarySha256,vault,journal,quorum,controllerKeyFile,signingPin,encryptionPin,labOnly,pqMode,windowsLab,guiWindowsApproval=false}){
   const windows=process.platform==='win32';
+  check(guiWindowsApproval===false||guiWindowsApproval===true,'invalid native GUI approval mode');
+  if(guiWindowsApproval)check(windows&&windowsLab?.enabled===true&&pqMode?.enabled===true,'Windows GUI approval requires explicitly scoped PQ lab');
   check(labOnly===true&&(process.platform==='linux'||windows&&windowsLab?.enabled===true&&pqMode?.enabled===true),'Explicit native laboratory only');
   for(const p of [binary,vault,journal,quorum,controllerKeyFile])check(typeof p==='string'&&isAbsolute(p),'absolute path required');
   check([binarySha256,signingPin,encryptionPin].every(p=>pinRE.test(p)),'trusted pins required');
@@ -72,9 +74,9 @@ export async function connectNativeVault({binary,binarySha256,vault,journal,quor
     else{const ds=await stat(pqMode.contactDirectory);check(ds.isFile()&&ds.uid===process.getuid()&&(ds.mode&0o077)===0&&ds.size<=131072,'private contact directory required');contacts=JSON.parse(await readFile(pqMode.contactDirectory,'utf8'));}
     check(Array.isArray(contacts)&&contacts.length>=1&&contacts.length<=32,'invalid contacts');
   }
-  const args=windows?['--broker-windows-pq-quorum-lab',storage.dir,app,signingPin,encryptionPin,pqMode.address,pqMode.deviceId,pqMode.kemPin,pqMode.dsaPin,pqMode.rootPin]:pqMode?['--broker-software-pq-quorum-lab',vault,signingPin,encryptionPin,app,journal,quorum,pqMode.sidecar,pqMode.address,pqMode.deviceId,pqMode.kemPin,pqMode.dsaPin,pqMode.rootPin,'auto',pqMode.contactDirectory]:['--broker-software-compact-manifest-quorum-lab',vault,signingPin,encryptionPin,app,journal,quorum];
+  const args=windows?[guiWindowsApproval?'--broker-windows-pq-gui-lab':'--broker-windows-pq-quorum-lab',storage.dir,app,signingPin,encryptionPin,pqMode.address,pqMode.deviceId,pqMode.kemPin,pqMode.dsaPin,pqMode.rootPin]:pqMode?['--broker-software-pq-quorum-lab',vault,signingPin,encryptionPin,app,journal,quorum,pqMode.sidecar,pqMode.address,pqMode.deviceId,pqMode.kemPin,pqMode.dsaPin,pqMode.rootPin,'auto',pqMode.contactDirectory]:['--broker-software-compact-manifest-quorum-lab',vault,signingPin,encryptionPin,app,journal,quorum];
   if(storage)await storage.verifyBinary();
-  const child=spawn(binary,args,{shell:false,stdio:['pipe','pipe','inherit'],...(storage?{cwd:win32.dirname(binary),env:storage.env,windowsHide:false}:{})});
+  const child=spawn(binary,args,{shell:false,stdio:['pipe','pipe',guiWindowsApproval?'ignore':'inherit'],...(storage?{cwd:win32.dirname(binary),env:storage.env,windowsHide:guiWindowsApproval}:{})});
   let buf=Buffer.alloc(0),waiter=null,closed=false,busy=false,seq=0,nonce,signing;
   function fail(){
     if(closed)return;closed=true;child.kill();if(waiter){const w=waiter;waiter=null;clearTimeout(w.timer);w.reject(Error('native vault unavailable'));}

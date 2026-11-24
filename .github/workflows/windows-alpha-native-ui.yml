@@ -8,7 +8,13 @@ on:
       - 'scripts/Quantic-Sillage-Compose.ps1'
       - 'scripts/Quantic-Sillage-Advanced.ps1'
       - 'scripts/native-windows-compose-draft.mjs'
+      - 'scripts/native-windows-compose-send.mjs'
+      - 'scripts/native-windows-gui-receive.mjs'
       - 'desktop/native-windows-draft.mjs'
+      - 'desktop/native-windows-gui-approval.mjs'
+      - 'desktop/native-windows-gui-receive.mjs'
+      - 'tests/native-windows-gui-approval.test.mjs'
+      - 'tests/native-windows-gui-receive.test.mjs'
       - 'tests/native-windows-draft.test.mjs'
       - 'scripts/Quantic-Sillage-Alpha.nsi'
       - '.github/workflows/windows-alpha-native-ui.yml'
@@ -18,7 +24,13 @@ on:
       - 'scripts/Quantic-Sillage-Compose.ps1'
       - 'scripts/Quantic-Sillage-Advanced.ps1'
       - 'scripts/native-windows-compose-draft.mjs'
+      - 'scripts/native-windows-compose-send.mjs'
+      - 'scripts/native-windows-gui-receive.mjs'
       - 'desktop/native-windows-draft.mjs'
+      - 'desktop/native-windows-gui-approval.mjs'
+      - 'desktop/native-windows-gui-receive.mjs'
+      - 'tests/native-windows-gui-approval.test.mjs'
+      - 'tests/native-windows-gui-receive.test.mjs'
       - 'tests/native-windows-draft.test.mjs'
       - 'scripts/Quantic-Sillage-Alpha.nsi'
       - '.github/workflows/windows-alpha-native-ui.yml'
@@ -53,7 +65,18 @@ jobs:
           if($LASTEXITCODE -ne 0){throw "Native composer self-test failed"}
           & $runner -NoProfile -STA -NonInteractive -File ./scripts/Quantic-Sillage-Advanced.ps1 -ExpectedManifestSha256 ("a"*64) -TrustedBinarySha256 ("b"*64) -SelfTest
           if($LASTEXITCODE -ne 0){throw "Explicit advanced contract failed"}
-          node --test tests/native-windows-draft.test.mjs
+          node --test tests/native-windows-draft.test.mjs tests/native-windows-gui-approval.test.mjs tests/native-windows-gui-receive.test.mjs
           if($LASTEXITCODE -ne 0){throw "Draft validation failed"}
+          node --check scripts/native-windows-compose-send.mjs
+          node --check scripts/native-windows-gui-receive.mjs
+          if($LASTEXITCODE -ne 0){throw "GUI receive helper syntax rejected"}
+          if($LASTEXITCODE -ne 0){throw "GUI PQ send helper syntax rejected"}
+          $helper = Get-Content -LiteralPath ./scripts/native-windows-compose-send.mjs -Raw
+          $approval = Get-Content -LiteralPath ./desktop/native-windows-gui-approval.mjs -Raw
+          if($helper -notmatch "guiWindowsApproval:true" -or $helper -notmatch "makeGuiDepositApproval" -or $helper -notmatch "lines.next" -or $helper -notmatch "'delivery-unknown'" -or $approval -notmatch "sealed-awaiting-deposit-approval" -or $approval -notmatch "==='SEND'") { throw "GUI send two-step native consent contract missing" }
+          $receiveSource = Get-Content -LiteralPath ./scripts/native-windows-gui-receive.mjs -Raw
+          if($receiveSource -notmatch "message-awaiting-approval" -or $receiveSource -notmatch "guiWindowsApproval:true" -or $receiveSource -notmatch "receiveWindowsLabFromGUI" -or $receiveSource -notmatch "answer==='OPEN'") { throw "GUI receive consent or native decrypt contract missing" }
+          $ui = Get-Content -LiteralPath ./scripts/Quantic-Sillage-Compose.ps1 -Raw
+          if($ui -notmatch "Chiffrer et deposer" -or $ui -notmatch "Read-GUIReply" -or $ui -match '(?i)WebBrowser|WebView2|onrender.com') { throw "Native GUI send control missing or remote renderer found" }
           $source = Get-Content -LiteralPath $path -Raw
           if ($source -match "(?i)WebBrowser|WebView2|loadURL|onrender\.com") { throw "Remote renderer reintroduced" }

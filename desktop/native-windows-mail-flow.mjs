@@ -1,7 +1,9 @@
 // Explicit loopback Scattering mailbox mode. Trusted local operator and
 // independently configured bridge/relay. Never falls back to a remote URL.
 import {win32} from 'node:path';
+import {readdir} from 'node:fs/promises';
 import {createNativeMailboxClient} from './native-mailbox-client.mjs';
+import {normalizeNativeRecord,nativeRecordDigest} from '../lib/quantic/native-mailbox.mjs';
 import {sealReceipt,openReceipt} from './native-receipt-store.mjs';
 import {safeMailDisplay} from './native-vault-desktop.mjs';
 import {windowsLabPath} from './native-windows-storage.mjs';
@@ -16,19 +18,49 @@ export function windowsScatteringScope(config){
  const u=new URL(c.endpoint);check(u.protocol==='http:'&&u.hostname==='127.0.0.1'&&u.port&&u.pathname==='/'&&!u.username&&!u.password&&!u.search&&!u.hash);
  return c;
 }
-export async function runWindowsScatteringMail(config,storage,{operation,path,approve,connect=connectNativeVault,mailboxFactory=createNativeMailboxClient}){
+// List only metadata of saved signed messages. This is NOT a pending-only queue:
+// a saved envelope may already have been deposited or acknowledged.
+export async function listWindowsSignedMail(config,storage,{listNames=readdir}={}){
  const scope=windowsScatteringScope(config),dir=config.windowsLab.dir;
- check(typeof approve==='function'&&['send','receive','recover-receive','confirm-receipt'].includes(operation));
- const name=windowsLabPath(dir,path);
- check((operation==='send'?/^wire-/:/^receipt-/).test(name));
- const client=await mailboxFactory(scope);
- if(operation==='send'){
-  const wire=await readJSON(storage,path);
-  check(wire?.context?.from===scope.address&&wire.context.fromDeviceId===scope.deviceId);
-  if(!await approve('Déposer cette enveloppe chiffrée déjà signée ?'))return {status:'cancelled'};
-  const r=await client.send(wire);
-  return {status:'deposited',id:r.id,digest:r.digest,relayStatus:r.status};
+ const entries=await listNames(dir,{withFileTypes:true});
+ check(Array.isArray(entries)&&entries.length<=2048);
+ const names=entries.filter(e=>e.isFile()&&!e.isSymbolicLink()&&/^wire-[a-z0-9-]{1,48}\.json$/.test(e.name)).map(e=>e.name).sort();
+ check(names.length<=64);
+ const rows=[];
+ for(const name of names){
+  const path=win32.join(dir,name);windowsLabPath(dir,path);
+  const wire=normalizeNativeRecord(await readJSON(storage,path));
+  if(wire.context.from!==scope.address||wire.context.fromDeviceId!==scope.deviceId)continue;
+  rows.push({name,digest:nativeRecordDigest(wire),recipient:wire.context.to,reference:wire.context.clientMessageId});
  }
+ return rows;
+}
+export async function runWindowsScatteringMail(config,storage,{operation,path,expectedDigest,approve,connect=connectNativeVault,mailboxFactory=createNativeMailboxClient}){
+ const scope=windowsScatteringScope(config),dir=config.windowsLab.dir;
+ check(typeof approve==='function'&&['send','retry-send','receive','recover-receive','confirm-receipt'].includes(operation));
+ const name=windowsLabPath(dir,path);
+ const sending=operation==='send'||operation==='retry-send';
+ check((sending?/^wire-/:/^receipt-/).test(name));
+ if(sending){
+  const wire=normalizeNativeRecord(await readJSON(storage,path));
+  check(wire.context.from===scope.address&&wire.context.fromDeviceId===scope.deviceId);
+  const digest=nativeRecordDigest(wire);
+  if(operation==='retry-send')check(typeof expectedDigest==='string'&&/^[a-f0-9]{64}$/.test(expectedDigest)&&digest===expectedDigest);
+  const saved={digest,wireFile:name};
+  if(!await approve(operation==='retry-send'?'Reprendre le dépôt non confirmé, sans recréer ni modifier le message ?':'Déposer cette enveloppe chiffrée déjà signée ?'))return {status:'cancelled',...saved};
+  // Reopen and verify after approval. Never transmit a different wire, even
+  // if the file changes while the operator is deciding.
+  const reread=normalizeNativeRecord(await readJSON(storage,path));
+  check(nativeRecordDigest(reread)===digest);
+  try{
+   const client=await mailboxFactory(scope);
+   const r=await client.send(reread);
+   check(r?.digest===digest&&typeof r.duplicate==='boolean'&&['queued','acknowledged'].includes(r.status)
+    &&/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(r.id));
+   return {status:'deposited',id:r.id,relayStatus:r.status,duplicate:r.duplicate,...saved};
+  }catch{return {status:'deposit-unconfirmed',...saved,retryRequiresConfirmation:true};}
+ }
+ const client=await mailboxFactory(scope);
  const key=await storage.read(scope.receiptKeyFile);
  let controller;
  try{

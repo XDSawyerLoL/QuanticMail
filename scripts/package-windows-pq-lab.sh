@@ -40,7 +40,7 @@ cp scripts/Start-Windows-PQ-Lab.ps1 scripts/Test-Windows-PQ-Package.ps1 scripts/
 mkdir -p "$dst/standalone-relay" "$dst/labs/quantic-native/scattering"
 cp standalone-relay/native-scattering-mailbox.mjs "$dst/standalone-relay/"
 cp labs/quantic-native/scattering/scattering-{cell,reliable-lab}.mjs "$dst/labs/quantic-native/scattering/"
-cp scripts/serve-native-scattering-windows.mjs scripts/native-vault-windows-mailbox.mjs scripts/native-windows-compose-draft.mjs "$dst/scripts/"
+cp scripts/serve-native-scattering-windows.mjs scripts/native-vault-windows-mailbox.mjs scripts/native-windows-compose-draft.mjs scripts/native-windows-compose-send.mjs scripts/native-windows-gui-receive.mjs "$dst/scripts/"
 cp docs/PHYSICAL_SCATTERING_TEST.md docs/AUDIT_WINDOWS_SCATTERING.md docs/AUDIT_WINDOWS_SCATTERING_MAIL_FLOW.md docs/WINDOWS_TWO_HOST_MAIL_READINESS.md "$dst/"
 cp "$(cygpath -u "$3")" "$dst/bin/Scattering-Pacer.exe"
 cp docs/AUDIT_WINDOWS_DESKTOP_BRIDGE.md "$dst/"

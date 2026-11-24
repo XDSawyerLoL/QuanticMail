@@ -47,6 +47,52 @@ Le paquet installe `Uninstall-Quantic-Sillage-Alpha.exe` dans son dossier de bui
 - Les coffres privés hors paquet, les identités existantes et les autres builds Alpha ne sont **pas** visés. Aucune purge de données utilisateur n'est proposée.
 - La CI Windows doit vérifier installation, refus d'écrasement, désinstallation silencieuse et survie d'un fichier étranger dans le dossier installé ainsi que d'un coffre synthétique privé. Tant que ce test n'est pas vert, la fonctionnalité reste **non validée**.
 
+## Première utilisation : identité de test sans terminal
+
+Dans **Quantic Sillage Alpha**, les deux boutons principaux permettent désormais les opérations locales suivantes :
+
+1. **Créer mon identité de test** : utilise un nouveau sous-dossier privé de `%LOCALAPPDATA%` sur un volume Windows **NTFS** ; ouvre un consentement natif et deux saisies avec confirmation. Les secrets ASCII doivent comporter au moins 20 caractères et **être différents**. Aucune phrase secrète n'est communiquée à PowerShell, à Node, à un fichier JSON ou aux arguments d'un processus.
+2. **Ouvrir mon coffre de test** : vérifie par le fournisseur Go natif les deux déchiffrements P-256 et PQ et la correspondance des clés avec les métadonnées publiques du laboratoire. Après redémarrage, l'utilisateur choisit le dossier du coffre existant (aucun fichier JSON à rechercher).
+
+La création est **localement réelle** : clés P-256 et ML-KEM-768 / ML-DSA-65 générées, coffres et contrôleur chiffrés/protégés par ACL NTFS ; fichier d'identification **synthétique**, et jamais d'inscription sur un serveur. Le `quorumPin` local est un *marqueur aléatoire fictif*, **pas** une autorité indépendante. Aucun carnet de contacts attesté ni relais n'est fabriqué. Une ouverture réussie est une **vérification de secrets et de clés locales**, pas une session Quantic ID distante, pas une première connexion à SWAPP, pas une preuve de livraison et pas une messagerie utilisable avec un autre compte.
+
+L'ouverture d'un coffre existant refuse une identité altérée, un mauvais secret ou un chemin non canonique. Une création interrompue conserve son dossier partiel ; **aucun écrasement, effacement ou reprise implicite**. Le chemin de profil Windows doit actuellement se limiter aux caractères ASCII prévus par le garde-fou de stockage natif : les profils contenant des caractères non pris en charge sont refusés plutôt que déplacés sans autorisation.
+
+Tests automatisés : `TestSyntheticFirstRunMetadataNeverBecomesEnrollment`, `TestSyntheticGUICommandsRejectUnexpectedArgumentsWithoutDialogs`, et auto-test de l'interface WinForms. Le **parcours interactif complet** (dialogues Win32, saisie réelle, annulation, redémarrage) exige encore une validation sur PC Windows physique avant distribution, ainsi qu'un installateur dont le nouveau moteur est attesté par la CI.
+
+## Vérifier les véritables fenêtres de sécurité Windows
+
+Dans l'Alpha Windows, ouvrir **Quantic Mail → Rédiger un message** puis choisir **Tester les fenêtres de sécurité Windows**. Ce diagnostic ne demande ni coffre, ni contact, ni fichier technique, ni accès réseau.
+
+1. Accepter le dialogue d'autorisation Windows. Un refus est considéré comme un test non validé.
+2. Dans la fenêtre Windows de saisie, taper exclusivement la phrase **`ALPHA-TEST-ONLY`**, jamais une vraie phrase secrète. L'application doit confirmer que les deux fenêtres fonctionnent.
+3. Aucune clé ou identité n'est chargée : l'exécutable natif renvoie uniquement un état constant `windows-native-credential-dialogs-verified`, `labOnly=true`, `vaultOpened=false`, `networkUsed=false`. Le mot de passe fictif est effacé de la mémoire native après vérification.
+
+Une annulation, un mauvais texte, un terminal sans dialogue graphique ou un processus bloqué donnent **échec**. Une compilation CI réussie ne remplace pas ce test sur un poste Windows disposant d'un bureau interactif. Cette vérification ne démontre pas l'envoi ni la réception entre deux ordinateurs.
+
+## Essai d'envoi chiffré sans terminal (branche de laboratoire)
+
+Le composeur Windows propose désormais, en plus de l'enregistrement du brouillon, une action **Chiffrer et déposer (test uniquement)**. C'est un prototype, **pas** une messagerie générale déployable.
+
+- Le coffre de test et le destinataire sont sélectionnés graphiquement. Le sujet et le contenu passent seulement par un pipe local privé vers Node ; aucune phrase secrète n'est transmise à Node, PowerShell, une ligne de commande, un fichier de configuration ou une URL.
+- Le broker Go utilise le dialogue de credentials natif Windows avec persistance interdite, et exige une approbation explicite locale. Le mode console historique reste séparé.
+- Le brouillon en clair est conservé dans le dossier NTFS privé de laboratoire. L'enveloppe signée et chiffrée PQ est écrite une seule fois, synchronisée, relue et vérifiée **avant** d'autoriser un dépôt sur le relais Scattering déjà configuré.
+- Une deuxième confirmation graphique est exigée avant le dépôt, sans nouvel essai automatique si le résultat réseau est incertain. Un dépôt local confirmé **ne prouve pas** une réception, une lecture ni une livraison sur un deuxième ordinateur.
+- Cette nouvelle voie doit encore subir la compilation Windows, les tests de paquet, un test interactif sur deux vrais PC et une revue des dialogues et de la gestion des secrets. L'absence de console dans le test CI n'est pas une preuve de sécurité face à un PC compromis. Elle demeure interdite pour les comptes réels.
+- Les anciennes identités, messages et sauvegardes sont conservés. Aucune suppression, migration définitive ni paiement réel n'est autorisé.
+
+## Réception chiffrée sans terminal (deuxième poste de laboratoire)
+
+Dans **Quantic Mail → Rédiger un message**, sélectionner un coffre de test disposant d'un contact signé et d'un relais Scattering **déjà préparé**, puis choisir **Recevoir un message chiffré (test)**.
+
+- Si la file est vide, le logiciel affiche **Aucun message**. Rien n'est acquitté.
+- Si un message est en attente, la fenêtre demande une approbation `OPEN` explicite pour ouvrir et vérifier son enveloppe. Les phrases secrètes sont demandées par le coffre natif dans les fenêtres Windows, pas par une console.
+- Le moteur existant vérifie le destinataire, les clés et la signature hybride. Il crée un **nouveau reçu chiffré privé**, le synchronise, le relit et vérifie le résultat avant de confirmer au relais local. Le contenu en clair apparaît uniquement dans la fenêtre locale en lecture seule.
+- Si le disque, la vérification ou l'accusé échoue, le résultat reste **non confirmé**. Un reçu peut subsister ; **aucune relance automatique**. La récupération explicite doit préserver l'ancien reçu.
+- L'affichage d'un message reçu sur un poste et l'acquittement du relais local **ne sont pas encore une preuve indépendante** du transport physique entre deux postes. Un essai de bout en bout avec deux PC, quatre autorités mTLS indépendantes et une observation réseau externe reste obligatoire avant tout usage réel.
+
+Les tests automatisés sont dans `tests/native-windows-gui-receive.test.mjs` et `tests/native-windows-mail-flow.test.mjs`. Ils vérifient le refus des résultats non authentifiés, les limites de réception et l'ordre écriture-vérification-ACK, mais ne remplacent pas le test interactif à deux machines.
+
 ## Publication et mises à jour
 
 La chaîne de signature existe dans `scripts/Sign-Native-Lab-Installer.ps1` mais requiert un **véritable certificat de signature de code** autorisé, sa clé privée conservée hors du dépôt, une empreinte publique d'éditeur approuvée indépendamment, Windows SDK SignTool et un service d'horodatage HTTPS. Ni certificat ni signature ne sont générés fictivement dans la CI. Pas de mise à jour automatique d'un binaire non signé.
