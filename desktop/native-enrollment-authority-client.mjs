@@ -3,7 +3,7 @@ import {request} from 'node:https';
 import {checkServerIdentity} from 'node:tls';
 import {createHash,randomBytes} from 'node:crypto';
 import {verifyNativeEnrollmentReceipts} from '../lib/quantic/native-enrollment-registry-lab.mjs';
-import {verifyNativeAuthenticationQuorum} from '../standalone-relay/native-enrollment-authority-lab.mjs';
+import {verifyNativeAuthenticationQuorum} from '../lib/quantic/native-authentication-receipt-lab.mjs';
 const sha=b=>createHash('sha256').update(b).digest('hex');
 const check=x=>{if(!x)throw Error('Native authority client refused');};
 const hex=/^[a-f0-9]{64}$/;
@@ -38,7 +38,7 @@ export async function runNativeEnrollmentAuthorityClient({authorities,tls,candid
  check(typeof prove==='function'&&['enroll','authenticate'].includes(mode)&&hex.test(clientPin));
  const auth=mode==='authenticate',nonce=auth?randomBytes(32).toString('hex'):undefined;
  if(auth)verifyNativeEnrollmentReceipts(enrollmentReceipts,authorities,candidate,expected);
- const receipts=[],errors=[];
+ const receipts=[],errors=[],pendingAuth=[];
  for(const a of authorities){
   try{
    // On enrollment, recover only an already committed signed receipt; a
@@ -51,9 +51,19 @@ export async function runNativeEnrollmentAuthorityClient({authorities,tls,candid
    validateChallenge(ch,candidate,expected);
    const response=await prove(ch,a);
    check(response?.challengeSha256===ch.challengeSha256);
+   if(auth){pendingAuth.push({a,response});continue;}
    const r=await nativeAuthorityRequest(a,tls,prefix+'/finish',{response});
    receipts.push(r);
   }catch{errors.push(a.pin);}
+ }
+ // Finish authentication proofs together: the short-lived receipt window
+ // starts only after all interactive proofs have been collected.
+ if(auth){
+  const settled=await Promise.allSettled(pendingAuth.map(({a,response})=>nativeAuthorityRequest(a,tls,'/native-authentication/finish',{response})));
+  for(let i=0;i<settled.length;i++){
+   if(settled[i].status==='fulfilled')receipts.push(settled[i].value);
+   else errors.push(pendingAuth[i].a.pin);
+  }
  }
  const result=auth?verifyNativeAuthenticationQuorum({receipts,trusted:authorities,candidate,expected,clientPin,nonce}):verifyNativeEnrollmentReceipts(receipts,authorities,candidate,expected);
  return {result,receipts,unavailableAuthorityPins:errors};
