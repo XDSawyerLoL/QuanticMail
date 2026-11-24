@@ -1,0 +1,9 @@
+# Jeton de messagerie natif Windows — laboratoire
+
+Le bouton **Préparer ma messagerie de test** utilise un dossier public QSAPPROVAL1 contenant trois ou quatre votes signés et les quatre clés de la liste d'autorités. L'empreinte de la liste doit être vérifiée indépendamment. L'opérateur peut assembler ce dossier avec `node --experimental-transform-types scripts/assemble-native-enrollment-approvals-lab.mjs /chemin/public.json PIN_ROSTER PIN_QUORUM --synthetic-only` (JSON contenant `request` QSENROLL1, `votes` QSVOTE1 et `trusted`).
+
+Le moteur natif vérifie trois signatures Ed25519 distinctes, la fraîcheur, la candidature et l'empreinte de liste. Les deux secrets du coffre sont ensuite nécessaires. Un jeton aléatoire de 256 bits est créé dans `mailbox-token.vault`, chiffré par AES-GCM avec une clé dérivée des deux secrets, un sel et un nonce distincts. La création est exclusive ; la relecture authentifiée précède la signature de la preuve. Une répétition valide restitue le même jeton sans l'écraser. Aucun jeton brut ne sort du processus, ni par stdout ni par le presse-papiers.
+
+QSCRED1 contient uniquement l'empreinte SHA-256 du jeton base64url et la signature Ed25519 du contrôleur lié par la candidature. L'opérateur décode cette preuve publique pour le champ credential de la configuration de la PR #102. Le relais vérifie à nouveau les votes et la preuve. Le contrôleur reste protégé par ACL NTFS, et non par un matériel anti-extraction. Les deux secrets sont des phrases secrètes logicielles, non deux facteurs matériels.
+
+Cette étape ne crée pas de configuration de transport, ne configure pas les autorités mTLS, ne déverrouille pas le coffre dans le processus de messagerie et ne confirme pas l'inscription distante. La récupération du jeton dans un broker natif vivant reste à relier. Ne pas convertir le jeton en fichier JSON en clair. Aucune activation ou migration réelle.
