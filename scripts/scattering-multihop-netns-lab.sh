@@ -49,6 +49,10 @@ chmod 700 "$WORK/queue" "$WORK/sender-a" "$WORK/sender-b"
 RESEAL="${SCATTERING_MULTIHOP_RESEAL:-0}"
 E2E="${SCATTERING_MULTIHOP_E2E:-0}"
 MIX="${SCATTERING_MULTIHOP_MIX:-0}"
+BATCH="${SCATTERING_MULTIHOP_BATCH_SIZE:-40}"
+if [[ "$BATCH" != "8" && "$BATCH" != "20" && "$BATCH" != "40" ]];then
+ echo 'unsupported mix batch size' >&2; exit 2
+fi
 OFFSET="${SCATTERING_MULTIHOP_SOURCE_OFFSET_MS:-0}"
 B_REAL="${SCATTERING_MULTIHOP_B_REAL_CELLS:-100}"
 if [[ "$B_REAL" != "100" && "$B_REAL" != "20" ]];then echo 'unsupported real-cell mix' >&2;exit 2;fi
@@ -78,7 +82,7 @@ sudo timeout -s INT 17s ip netns exec "$NSR" tcpdump -i "$VBR" -Q in -n -s 256 -
 sudo timeout -s INT 17s ip netns exec "$NSD" tcpdump -i "$VDR" -Q in -n -s 256 -U -w - 'udp and dst port 49003' >"$WORK/out.pcap" 2>"$WORK/out.caplog" & CAP_PIDS+=("$!")
 sleep .8
 if [[ "$RESEAL" == "1" ]]; then
- sudo ip netns exec "$NSR" "$NODE" "$ROOT/scripts/scattering-hop-reseal-relay-lab.mjs" 10.252.41.2:49001 10.252.42.2:49002 "$WORK/queue" 12 "$WORK/a.key" "$WORK/b.key" "$WORK/out.key" "$MIX" "$EXPECTED_COVER" >"$WORK/relay.json" 2>"$WORK/relay.err" &
+ sudo ip netns exec "$NSR" "$NODE" "$ROOT/scripts/scattering-hop-reseal-relay-lab.mjs" 10.252.41.2:49001 10.252.42.2:49002 "$WORK/queue" 12 "$WORK/a.key" "$WORK/b.key" "$WORK/out.key" "$MIX" "$EXPECTED_COVER" "$BATCH" >"$WORK/relay.json" 2>"$WORK/relay.err" &
 else
  sudo ip netns exec "$NSR" "$NODE" "$ROOT/scripts/scattering-opaque-relay-lab.mjs" 10.252.41.2:49001 10.252.42.2:49002 "$WORK/queue" 12 >"$WORK/relay.json" 2>"$WORK/relay.err" &
 fi
@@ -146,6 +150,7 @@ if(relay.ingressA<50||
 const reseal=process.env.SCATTERING_MULTIHOP_RESEAL==='1';
 const e2e=process.env.SCATTERING_MULTIHOP_E2E==='1';
 const mix=process.env.SCATTERING_MULTIHOP_MIX==='1';
+const batchSize=Number(process.env.SCATTERING_MULTIHOP_BATCH_SIZE||40);
 const bReal=Number(process.env.SCATTERING_MULTIHOP_B_REAL_CELLS||100);
 const expectedData=e2e?100+bReal:200;
 const expectedCover=bReal===20?80:0;
@@ -153,7 +158,7 @@ const rxLines=get('receive.json').toString().trim().split('\n');
 const receiver=JSON.parse(rxLines.at(-1));
 if(e2e){
  if((relay.mixedBatches===true)!==mix)throw Error('relay batch mixing expectation mismatch');
- if(mix&&(relay.mixer?.batchSize!==40||relay.mixer?.batches!==expectedData/40||
+ if(mix&&(relay.mixer?.batchSize!==batchSize||relay.mixer?.batches!==expectedData/batchSize||
           relay.mixer?.pending!==0||relay.mixer?.emitted!==expectedData))
     throw Error('mixed batch-count/completeness requirement failed');
  if(!reseal||relay.mode!=='trusted-hop-reseal-lab'||relay.ciphertextModified!==true||
@@ -194,6 +199,7 @@ console.log(JSON.stringify({lab:mix?'nested-e2e-40-cell-randomized-mix':e2e?'nes
  CPUContentionRequested:process.env.SCATTERING_MULTIHOP_CPU_LOAD==='1',
  sourceOffsetRequestedMs:Number(process.env.SCATTERING_MULTIHOP_SOURCE_OFFSET_MS||0),
  sourceBRealMessagesRequested:e2e?bReal:null,
+ batchSizeRequested:mix?batchSize:null,
  measuredFirstSourceOffsetMs,
  impairmentRequested:process.env.SCATTERING_MULTIHOP_IMPAIRMENT==='1',
  native,relay,receiver:{received:receiver.received,authenticatedSynthetic:receiver.authenticatedSynthetic??0,
