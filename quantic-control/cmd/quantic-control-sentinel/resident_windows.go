@@ -47,9 +47,9 @@ var(
 )
 
 type installManifest struct{
- Version int `json:"version`
- ExeHash string `json:"exe_sha256`
- Root string `json:"monitored_root`
+ Version int `json:"version"`
+ ExeHash string `json:"exe_sha256"`
+ Root string `json:"monitored_root"`
 }
 func userInstallFolder()(string,error){
  cache,err:=os.UserCacheDir()
