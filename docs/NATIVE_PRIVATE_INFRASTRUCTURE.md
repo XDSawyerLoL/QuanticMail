@@ -182,3 +182,42 @@ avant bascule. L'observation d'une cellule authentifiée n'est pas une
 preuve de livraison de message ni un audit d'anonymat. Le portage
 Windows nécessite des gardes natives distinctes pour les deux liaisons,
 avec une protection globale durable contre la réutilisation.
+
+
+## Windows Alpha : rotation avec chevauchement
+
+Le calendrier optionnel précédent est également pris en charge par le
+paquet Windows. L'opérateur doit préparer un répertoire NTFS privé neuf
+par paire, avec le coffre natif, puis un sous-répertoire lane-N par session.
+La commande existante --windows-scattering-create-lab crée ces répertoires
+avec leurs gardes natives (le répertoire principal sert de registre commun).
+Le calendrier JSON est conservé dans scattering.json à la racine privée ;
+chaque plan dans scattering.json de sa liaison, écrit via la commande
+--windows-scattering-config-lab avec un pipe privé. Aucun plan ou secret
+n'est livré dans l'installateur.
+
+Le champ file de chaque créneau est le chemin absolu du plan dans lane-N,
+et pin son empreinte approuvée. Le plan référence le pacer installé,
+son empreinte issue du manifeste vérifié, queue sous lane-N, et state
+sous le répertoire commun. Les marqueurs d'epoch sont créés dans ce
+registre commun avant de réserver le verrou exclusif de la liaison.
+Un échec consomme l'epoch ; ne jamais effacer les marqueurs pour relancer.
+La protection est locale à ce registre privé ; ne pas cloner ou restaurer
+un registre ancien. Les deux gardes peuvent coexister et conservent les
+handles natifs ouverts jusqu'à la fin effective des processus.
+
+Depuis le tableau de bord : SCATTERING > Demarrer ma liaison privee.
+Sélectionner le répertoire préparé, confirmer l'empreinte indépendante
+du calendrier. Une fenêtre indépendante affiche le statut de la liaison,
+et permet l'arrêt contrôlé sans console. Le composeur reste disponible
+dans la fenêtre principale ; son endpoint local doit correspondre au
+gatewayPort approuvé. Cette étape ne crée ni identité distante, ni
+autorités, ni jetons, et ne configure pas automatiquement le réseau.
+
+La CI Windows exécute le script depuis le paquet avec le vrai coffre
+et les pacers natifs, deux superviseurs, neuf requêtes réparties avant,
+pendant et après la bascule et un refus de réutilisation d'epoch après
+arrêt. Le scénario utilise un serveur HTTP de test sur un seul runner,
+pas deux machines physiques. La configuration initiale et les tests
+humains restent indispensables ; couverture agrégée non constante et
+plafond par liaison inchangés.
