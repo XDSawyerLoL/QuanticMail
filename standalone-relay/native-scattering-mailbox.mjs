@@ -59,8 +59,10 @@ export async function startScatteringMailboxEndpoint(c,{windowsBootstrap,profile
   if(stopped)return;stopped=true;
   if(pending){clearTimeout(pending.timer);pending.reject(Error('Scattering epoch terminated'));pending=null;}
   upstream?.destroy();cells?.stream.destroy();input.fill(0);
-  server?.closeAllConnections();server?.close();try{udp.close();}catch{}
-  guard?.close();resolveClosed();
+  server?.closeAllConnections();
+  const serverClosed=new Promise(r=>{if(!server)return r();try{server.close(()=>r());}catch{r();}});
+  const udpClosed=new Promise(r=>{try{udp.close(()=>r());}catch{r();}});
+  guard?.close();void Promise.allSettled([serverClosed,udpClosed,guard?.closed]).then(resolveClosed);
  }
  if(guard)void guard.closed.then(stop);
  async function sendFrame(frame){
@@ -144,6 +146,6 @@ export async function startScatteringMailboxEndpoint(c,{windowsBootstrap,profile
    server.on('error',stop);
   }
   check(!stopped);
-  return Object.freeze({recvPort:udp.address().port,httpPort:server?.address().port,closed,close:stop,...(initiallyPaused?{activate(){check(!stopped&&!active);active=true;}}:{})});
+  return Object.freeze({recvPort:udp.address().port,httpPort:server?.address().port,closed,close(){stop();return closed;},...(initiallyPaused?{activate(){check(!stopped&&!active);active=true;},freezeIdle(){check(!stopped&&active);active=false;check(!busy&&!pending&&!waitingNext&&input.length===0);}}:{})});
  }catch(e){stop();throw e;}finally{ab.fill(0);ba.fill(0);}
 }

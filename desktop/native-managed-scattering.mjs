@@ -40,17 +40,23 @@ async function launchNative(binary,args,env){
   child.stdout.resume();check(!ended);return {closed,close};
  }catch(e){await close();throw e;}
 }
-export async function startManagedCarrier({binary,binaryPin,config,listen,target,windowsBootstrap,env},{start=startScatteringMailboxEndpoint,launch=launchNative,read=readFile}={}){
- check(typeof binary==='string'&&isAbsolute(binary)&&pin.test(binaryPin)&&createHash('sha256').update(await read(binary)).digest('hex')===binaryPin);
+export async function startManagedCarrier({binary,binaryPin,config,listen,target,windowsBootstrap,env},{start=startScatteringMailboxEndpoint,launch=launchNative,read=readFile,signal}={}){
+ check(!signal?.aborted&&typeof binary==='string'&&isAbsolute(binary)&&pin.test(binaryPin)&&createHash('sha256').update(await read(binary)).digest('hex')===binaryPin);
  ipv4Endpoint(listen);ipv4Endpoint(target);check(listen!==target);
  let endpoint,sink,pacer,stopping=false,resolveClosed;const closed=new Promise(r=>{resolveClosed=r;});
- const close=async()=>{if(stopping)return closed;stopping=true;try{await Promise.allSettled([sink?.close(),pacer?.close()]);}finally{endpoint?.close();resolveClosed();}};
+ const close=async()=>{if(stopping)return closed;stopping=true;signal?.removeEventListener('abort',onAbort);try{await Promise.allSettled([endpoint?.close(),sink?.close(),pacer?.close()]);}finally{resolveClosed();}};
+ const onAbort=()=>{void close();};
  try{
   endpoint=await start(config,windowsBootstrap?{windowsBootstrap}:{});
+  if(signal?.aborted){await endpoint.close();throw Error('Carrier aborted');}
+  // Do not attach an abort listener until children exist: close() must own
+  // every process. Between awaits, explicitly close newly acquired resources.
   sink=await launch(binary,['-mode','sink','-listen',listen,'-forward','127.0.0.1:'+endpoint.recvPort],env);
+  if(signal?.aborted)throw Error('Carrier aborted');
   pacer=await launch(binary,['-mode','send','-target',target,'-queue-dir',config.queueDir,'-period-us','5000','-poll','10ms','-wait-mode','native'],env);
   for(const x of [endpoint,sink,pacer])void x.closed.then(close);
-  check(!stopping);return Object.freeze({recvPort:endpoint.recvPort,httpPort:endpoint.httpPort,closed,close});
+  signal?.addEventListener('abort',onAbort,{once:true});
+  check(!signal?.aborted&&!stopping);return Object.freeze({recvPort:endpoint.recvPort,httpPort:endpoint.httpPort,closed,close});
  }catch(e){await close();throw e;}
 }
 
@@ -66,27 +72,33 @@ export async function startNegotiatedManagedCarrier({socket,local,privateKeys,si
  // Explicit experimental path. Caller owns the connected bootstrap socket
  // and durable fence and must already have stopped the previous carrier.
  // The historical launcher is deliberately unchanged.
-export async function startFencedNegotiatedManagedCarrier({socket,local,privateKeys,signHandshake,peer,fence,timeoutMs=8000,cutoverTimeoutMs=5000,...options}){
+export async function startFencedNegotiatedManagedCarrier({socket,local,privateKeys,signHandshake,peer,fence,timeoutMs=8000,cutoverTimeoutMs=5000,signal,...options}){
  const config=options.config;
  check(config?.labOnly===true&&['client','relay'].includes(config.role)&&!Object.hasOwn(config,'secretHex')&&!Object.hasOwn(config,'epochHex'));
  check(fence&&['reserve','stage','finish'].every(k=>typeof fence[k]==='function'));
+ check(!signal?.aborted);
  const reservation=await fence.reserve(),role=config.role==='client'?'initiator':'responder';
  let material,carrier,endpoint,terminated=false;
- const abort=new AbortController();
+ const abort=new AbortController();const onAbort=()=>abort.abort();
+ signal?.addEventListener('abort',onAbort,{once:true});
+ if(signal?.aborted)abort.abort();
  try{
-  material=await negotiateUdpSessionLab({socket,role,local,privateKeys,signHandshake,peer,context:reservation.context,timeoutMs});
+  material=await negotiateUdpSessionLab({socket,role,local,privateKeys,signHandshake,peer,context:reservation.context,timeoutMs,signal:abort.signal});
+  check(!abort.signal.aborted);
   await fence.stage(reservation,material);
-  carrier=await startManagedCarrier(options,{start:async(c,o)=>{
+  check(!abort.signal.aborted);
+  carrier=await startManagedCarrier(options,{signal:abort.signal,start:async(c,o)=>{
    const ephemeral={...c,secretHex:material.secret.toString('hex'),epochHex:material.epoch.toString('hex')};
    try{endpoint=await startScatteringMailboxEndpoint(ephemeral,{...o,initiallyPaused:true});return endpoint;}
    finally{delete ephemeral.secretHex;delete ephemeral.epochHex;}
   }});
   void carrier.closed.then(()=>{terminated=true;abort.abort();});
   await confirmScatteringCutover({socket,role,material,context:reservation.context,timeoutMs:cutoverTimeoutMs,signal:abort.signal});
-  check(!terminated);
+  check(!terminated&&!abort.signal.aborted);
   await fence.finish(reservation,material);
-  check(!terminated);endpoint.activate();
-  return Object.freeze({...carrier,generation:material.generation,transcript:material.transcript,peerReady:true});
+  check(!terminated&&!abort.signal.aborted);endpoint.activate();
+  return Object.freeze({...carrier,generation:material.generation,transcript:material.transcript,peerReady:true,
+    retire:async()=>{try{endpoint.freezeIdle();}finally{await carrier.close();}}});
  }catch(e){await carrier?.close();throw e;}
- finally{material?.secret.fill(0);material?.epoch.fill(0);}
+ finally{signal?.removeEventListener('abort',onAbort);material?.secret.fill(0);material?.epoch.fill(0);}
 }

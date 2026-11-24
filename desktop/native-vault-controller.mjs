@@ -82,8 +82,9 @@ export async function connectNativeVault({binary,binarySha256,vault,journal,quor
   if(storage)await storage.verifyBinary();
   const child=spawn(binary,args,{shell:false,stdio:['pipe','pipe',guiWindowsApproval?'ignore':'inherit'],...(storage?{cwd:win32.dirname(binary),env:storage.env,windowsHide:guiWindowsApproval}:{})});
   let buf=Buffer.alloc(0),waiter=null,closed=false,busy=false,seq=0,nonce,signing;
+  const lifecycle=new AbortController();
   function fail(){
-    if(closed)return;closed=true;child.kill();if(waiter){const w=waiter;waiter=null;clearTimeout(w.timer);w.reject(Error('native vault unavailable'));}
+    if(closed)return;closed=true;lifecycle.abort();child.kill();if(waiter){const w=waiter;waiter=null;clearTimeout(w.timer);w.reject(Error('native vault unavailable'));}
   }
   child.on('error',fail);child.on('exit',fail);child.stdin.on('error',fail);child.stdout.on('error',fail);
   child.stdout.on('data',chunk=>{
@@ -177,7 +178,7 @@ export async function connectNativeVault({binary,binarySha256,vault,journal,quor
       return Object.freeze({
         ...(mailbox?{mailbox,sealReceipt:(item,payload)=>receiptCall('receipt-seal',{id:item.id,digest:item.digest,payload}),openReceipt:record=>receiptCall('receipt-open',record),openDraft:(file,record)=>receiptCall('draft-open',{file,record})}:{}),
         publicKeys:Object.freeze({signing:Object.freeze(signing.jwk),encryption:Object.freeze(enc.jwk)}),
-        ...(sealed?{scatteringSigner(address,deviceId){
+        ...(sealed?{lifecycleSignal:lifecycle.signal,scatteringSigner(address,deviceId){
           check(!closed,'native vault unavailable');
           const matches=contacts.filter(x=>x.address===address&&x.deviceId===deviceId&&x.expires>Date.now());
           check(matches.length===1&&!(address===pqMode.address&&deviceId===pqMode.deviceId),'unknown contact');
@@ -241,7 +242,7 @@ export async function connectNativeVault({binary,binarySha256,vault,journal,quor
           // and run its cleanup; a stuck process is forcibly terminated.
           if(closed)return;
           if(busy||waiter){fail();return;}
-          closed=true;child.stdin.end();
+          closed=true;lifecycle.abort();child.stdin.end();
           const timer=setTimeout(()=>child.kill(),2000);timer.unref();
           child.once('exit',()=>clearTimeout(timer));
         }

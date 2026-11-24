@@ -53,7 +53,7 @@ jobs:
         with:
           node-version: 24.8.0
       - name: Native Scattering mailbox traffic over UDP
-        run: QUANTIC_SCATTERING_NATIVE_TEST="$GITHUB_WORKSPACE/labs/quantic-native/scattering/QuanticNativePacer_v7_1_linux_amd64" node --test tests/native-scattering-mailbox.test.mjs tests/scattering-cutover.test.mjs
+        run: QUANTIC_SCATTERING_NATIVE_TEST="$GITHUB_WORKSPACE/labs/quantic-native/scattering/QuanticNativePacer_v7_1_linux_amd64" node --test tests/native-scattering-mailbox.test.mjs tests/scattering-cutover.test.mjs tests/native-scattering-rotation.test.mjs
       - name: Two isolated GUI clients over real native Scattering UDP (synthetic vaults)
         run: |
           node --version
@@ -293,7 +293,7 @@ jobs:
           $env:QUANTIC_WINDOWS_VAULT_TEST = "$dir\bin\Vault-PQ-lab.exe"
           $env:QUANTIC_SCATTERING_NATIVE_TEST = "$dir\bin\Scattering-Pacer.exe"
           $env:PATH = "$dir\bin;$env:SystemRoot\System32"
-          & $node --test tests/native-scattering-mailbox.test.mjs tests/scattering-cutover.test.mjs
+          & $node --test tests/native-scattering-mailbox.test.mjs tests/scattering-cutover.test.mjs tests/native-scattering-rotation.test.mjs
           if ($LASTEXITCODE -ne 0) { throw "Packaged Scattering mailbox failed" }
       - name: Verify packaged entry points and cryptography runtime
         shell: pwsh
