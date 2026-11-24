@@ -17,7 +17,7 @@ const json=b=>JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(b));
 const answer=(status,body)=>({status,body:Buffer.from(JSON.stringify(body))});
 const same=(a,b)=>timingSafeEqual(Buffer.from(sha(a),'hex'),Buffer.from(sha(b),'hex'));
 export function validateDirectTrust(t){
- check(exact(t,['format','labOnly','self','peer','contactPin','token'])&&t.format==='quantic-direct-mail/v1'&&t.labOnly===true&&hex.test(t.contactPin)&&tokenOK(t.token));
+ check(exact(t,['format','labOnly','self','peer','contactPin','token'])&&t.format==='quantic-direct-mail/v1'&&t.labOnly===true&&hex.test(t.contactPin)&&!/^0+$/.test(t.contactPin)&&tokenOK(t.token));
  for(const p of [t.self,t.peer])check(exact(p,['address','deviceId'])&&addr.test(p.address)&&dev.test(p.deviceId));
  check(t.self.address!==t.peer.address&&t.self.deviceId!==t.peer.deviceId);
  return t;
@@ -113,6 +113,8 @@ export async function sendStoredDirectWire({trust,storage,dir,file,endpoint,appr
  const raw=await storage.read(win32.join(dir,file));let record;
  try{record=normalizeNativeRecord(json(raw));}finally{raw.fill(0);}
  bound(record,trust.self,trust.peer);
+ const contactBytes=await storage.read(win32.join(dir,'contacts.json'));
+ try{pinnedContact(contactBytes,trust,Date.now());}finally{contactBytes.fill(0);}
  const digest=nativeRecordDigest(record);
  if(!await approve('Déposer directement chez '+trust.peer.address+' ?\\nEmpreinte : '+digest))return {status:'cancelled'};
  const result=await senderFactory({endpoint,trust}).send(record);
