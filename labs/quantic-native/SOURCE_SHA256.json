@@ -105,14 +105,14 @@
   "vault/tests/dual-enrollment.test.mjs": "b237d536238557d52b226baa05bceb7d9045715c079bd02a7d4a8e43e2bc2ced",
   "vault/tests/isolated-enrollment.test.mjs": "3c90b9b3ce5522877b175176a372508834719a7447a28f342d0296df00d93e7f",
   "vault/tests/native-enrollment.test.mjs": "a07c4711d5a7a18f5ee48f969fcf07b4e81ecab5771e11739c3f93a91c011807",
-  "vault/windows_activation.go": "4207916ea9df7d9fdcd2b5f10380ba3abf78235800f7a3e7eaf1e5e86836e885",
-  "vault/windows_activation_test.go": "c90d81ae24015defdc0f2a3effe3be157dd4d2a6897b0e17d5fb5903b2763e3e",
+  "vault/windows_activation.go": "efe5add078ac0335259dc903ee86a371ba30985e983094a5310927f176c86024",
+  "vault/windows_activation_test.go": "feed6214ac03e42d365ddf940adbc22b86cb2b0303c5f2d1ee2af58f609b6971",
   "vault/windows_broker.go": "837b1dab333e15b897a3eb79f82331f401431e8ad7e616215971a3b418c3a11b",
   "vault/windows_client_io.go": "e0731582f0dbe867c19fc4379263f6d6dd7432b584bad200a2b37d3c89786f35",
   "vault/windows_console.go": "a44834947eb6239ab5562191ab44f02f1443638331d2ce956ef6e0a0735de5ed",
   "vault/windows_enrollment_claim.go": "12f02278224e85ee2d0313b15f09d37f9efa03f249dbee549eb9b71c6c249fe4",
   "vault/windows_enrollment_claim_test.go": "15a27e1315b9aac51906e6773ce497a029cb0ccc2c0934d21bec9a437d2d10d4",
-  "vault/windows_enrollment_credential.go": "77864f8f96be812c0682ad559b10afbd3d0c71c869ad635f496d7de2d33855ca",
+  "vault/windows_enrollment_credential.go": "c27074dc10bacedb736f00c0098e0c68755deea0236eac09f601dfe2e55509f7",
   "vault/windows_enrollment_possession.go": "4d1793fd3b71bf2eed36fcecc66d08b0a4dd9ba67cd21d23087558d16a7c3da6",
   "vault/windows_gui_contact_card.go": "84d9a3488bb2fbcb48fc0529c90f0ab9993d9d6b81d8ea603708aa5220a34b8f",
   "vault/windows_gui_contact_card_test.go": "154eb3b3ef228b150bae1c812526adfa92a053a84661d9379e10fa12e494ee38",
@@ -137,5 +137,6 @@
   "vault/windows_scattering.go": "b0eb6c596fb98a35495ee05796c8762307a422630dbd1cc81a49c9d9c674fcc6",
   "vault/windows_scattering_test.go": "1b8ca9c6ecd3bc9796587ed5e167c1e6eaef8b5873073406acb2d94b60e33dc4",
   "vault/windows_storage.go": "9dcaf3876bcd65a64a81f5051736e06a641564046bff59214b52a3ba66de59e2",
-  "vault/windows_storage_test.go": "18b89948324caa6b6ae338be2cdad948b6f15e94fc7aafebad34781c8ad03114"
+  "vault/windows_storage_test.go": "18b89948324caa6b6ae338be2cdad948b6f15e94fc7aafebad34781c8ad03114",
+  "vault/windows_transport_csr.go": "460773ada3a2813a2bf4ad166ec9f9f3f9dbda04aec2b4e748fda96696b8a505"
 }

@@ -484,9 +484,9 @@ function Show-EnrollmentPossession([bool]$Credential=$false) {
    if($r.status -cne $status -or $r.mailAuthorized -ne $false -or $r.code -cnotmatch $pattern){throw 'Preuve non confirmee.'}
    $view=New-Object Windows.Forms.Form;$view.Text='Preuve signee - candidature en attente';$view.ClientSize=New-Object Drawing.Size(680,340);$view.StartPosition='CenterParent'
    $notice=New-Object Windows.Forms.Label;$notice.Text='Renvoyez cette preuve a l operateur qui a emis le defi. Il reste a obtenir l approbation independante. Aucun compte active.'
-   if($Credential){$notice.Text='Jeton local chiffre. Transmettez seulement cette preuve publique QSCRED1 a l operateur. Aucun compte actif.'}
+   if($Credential){if($r.transportCode -cnotmatch '^QSTLS1:[A-Za-z0-9_-]+$'){throw 'Demandes de certificats invalides.'};$notice.Text='Jeton et deux cles de transport crees localement. Transmettez les deux codes publics a l operateur. Aucune cle privee ne sort du PC.'}
    $notice.SetBounds(20,15,640,65);$view.Controls.Add($notice)
-   $reply=New-Object Windows.Forms.TextBox;$reply.Multiline=$true;$reply.ReadOnly=$true;$reply.ScrollBars='Vertical';$reply.Text=$r.code;$reply.SetBounds(20,82,640,180);$view.Controls.Add($reply)
+   $reply=New-Object Windows.Forms.TextBox;$reply.Multiline=$true;$reply.ReadOnly=$true;$reply.ScrollBars='Vertical';$reply.Text=if($Credential){$r.code+[Environment]::NewLine+$r.transportCode}else{$r.code};$reply.SetBounds(20,82,640,180);$view.Controls.Add($reply)
    $copy=New-Object Windows.Forms.Button;$copy.Text='Copier ma preuve';$copy.SetBounds(20,280,300,42);$view.Controls.Add($copy);$copy.Add_Click({[Windows.Forms.Clipboard]::SetText($reply.Text)})
    $close=New-Object Windows.Forms.Button;$close.Text='Fermer';$close.DialogResult=[Windows.Forms.DialogResult]::OK;$close.SetBounds(500,280,160,42);$view.Controls.Add($close)
    try{[void]$view.ShowDialog()}finally{$view.Dispose()}

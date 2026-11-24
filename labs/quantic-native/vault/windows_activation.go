@@ -19,7 +19,6 @@ import (
 type activationTLS struct {
  CA []byte `json:"ca"`
  Cert []byte `json:"cert"`
- Key []byte `json:"key"`
 }
 type activationAnchor struct {
  URL string `json:"url"`
@@ -51,15 +50,23 @@ func parseWindowsActivation(raw []byte,pin string)(windowsActivationBundle,error
  if len(raw)<2||len(raw)>131072||!hashRE.MatchString(pin)||hexHash(raw)!=pin{return b,portableRefusal}
  d:=json.NewDecoder(bytes.NewReader(raw));d.DisallowUnknownFields()
  var trailing any
- if d.Decode(&b)!=nil||d.Decode(&trailing)!=io.EOF||b.Format!="quantic-native-windows-activation-lab/v1"||!b.LabOnly{return windowsActivationBundle{},portableRefusal}
+ if d.Decode(&b)!=nil||d.Decode(&trailing)!=io.EOF||b.Format!="quantic-native-windows-activation-lab/v2"||!b.LabOnly{return windowsActivationBundle{},portableRefusal}
  return b,nil
 }
-func activationTLSValid(t activationTLS)bool{
- for _,b:=range [][]byte{t.CA,t.Cert,t.Key}{if len(b)<1||len(b)>16384{return false}}
+func activationTLSValid(t activationTLS,key []byte,digest,role string,now time.Time)bool{
+ for _,b:=range [][]byte{t.CA,t.Cert,key}{if len(b)<1||len(b)>16384{return false}}
  roots:=x509.NewCertPool()
  if !roots.AppendCertsFromPEM(t.CA){return false}
- pair,e:=tls.X509KeyPair(t.Cert,t.Key)
- return e==nil&&len(pair.Certificate)>0
+ pair,e:=tls.X509KeyPair(t.Cert,key)
+ if e!=nil||len(pair.Certificate)==0{return false}
+ leaf,e:=x509.ParseCertificate(pair.Certificate[0]);if e!=nil||leaf.IsCA||leaf.Subject.CommonName!=transportSubject(digest,role){return false}
+ clientAuth:=false
+ for _,u:=range leaf.ExtKeyUsage{if u==x509.ExtKeyUsageClientAuth{clientAuth=true}}
+ if !clientAuth||leaf.KeyUsage&x509.KeyUsageDigitalSignature==0{return false}
+ intermediates:=x509.NewCertPool()
+ for _,der:=range pair.Certificate[1:]{c,e:=x509.ParseCertificate(der);if e!=nil{return false};intermediates.AddCert(c)}
+ _,e=leaf.Verify(x509.VerifyOptions{Roots:roots,Intermediates:intermediates,CurrentTime:now,KeyUsages:[]x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}})
+ return e==nil
 }
 func activationEndpoint(raw,path string)(string,bool){
  u,e:=url.Parse(raw)
@@ -69,16 +76,19 @@ func activationEndpoint(raw,path string)(string,bool){
 }
 func activationPlan(dir,binary,binaryPin string,r enrollmentRequest,b windowsActivationBundle,now time.Time)([]activationFile,error){
  digest,e:=checkEnrollmentApprovals(r,b.Approvals,b.RosterPin,now)
- if e!=nil||digest!=b.RequestDigest||b.Format!="quantic-native-windows-activation-lab/v1"||!b.LabOnly||!hashRE.MatchString(binaryPin){return nil,portableRefusal}
+ if e!=nil||digest!=b.RequestDigest||b.Format!="quantic-native-windows-activation-lab/v2"||!b.LabOnly||!hashRE.MatchString(binaryPin){return nil,portableRefusal}
  if _,_,e=winPathParts(dir);e!=nil{return nil,e}
  if _,_,e=winPathParts(binary);e!=nil{return nil,e}
  u,e:=url.Parse(b.Endpoint)
  if e!=nil||u.Scheme!="http"||u.Hostname()!="127.0.0.1"||u.User!=nil||u.Path!="/"||u.RawPath!=""||u.RawQuery!=""||u.ForceQuery||u.Fragment!=""||u.Opaque!=""{return nil,portableRefusal}
  port,e:=strconv.Atoi(u.Port());if e!=nil||port<1||port>65535||u.Host!="127.0.0.1:"+strconv.Itoa(port){return nil,portableRefusal}
- if len(b.Anchors)!=4||len(b.Checkpoints)!=4||!activationTLSValid(b.AnchorTLS)||!activationTLSValid(b.CheckpointTLS){return nil,portableRefusal}
+ if len(b.Anchors)!=4||len(b.Checkpoints)!=4{return nil,portableRefusal}
+ ak,anchorKey,e:=readLocalTransportKey(dir,"anchor",false);if e!=nil{return nil,e};defer clear(anchorKey)
+ ck,checkpointKey,e:=readLocalTransportKey(dir,"checkpoint",false);if e!=nil{return nil,e};defer clear(checkpointKey)
+ if publicPin(&ak.PublicKey)==publicPin(&ck.PublicKey)||!activationTLSValid(b.AnchorTLS,anchorKey,digest,"anchor",now)||!activationTLSValid(b.CheckpointTLS,checkpointKey,digest,"checkpoint",now){return nil,portableRefusal}
  files:=[]activationFile{
-  {"peer-anchor-ca.pem",append([]byte(nil),b.AnchorTLS.CA...)},{"peer-anchor-cert.pem",append([]byte(nil),b.AnchorTLS.Cert...)},{"peer-anchor-key.pem",append([]byte(nil),b.AnchorTLS.Key...)},
-  {"peer-checkpoint-ca.pem",append([]byte(nil),b.CheckpointTLS.CA...)},{"peer-checkpoint-cert.pem",append([]byte(nil),b.CheckpointTLS.Cert...)},{"peer-checkpoint-key.pem",append([]byte(nil),b.CheckpointTLS.Key...)},
+  {"peer-anchor-ca.pem",append([]byte(nil),b.AnchorTLS.CA...)},{"peer-anchor-cert.pem",append([]byte(nil),b.AnchorTLS.Cert...)},{"peer-anchor-key.pem",append([]byte(nil),anchorKey...)},
+  {"peer-checkpoint-ca.pem",append([]byte(nil),b.CheckpointTLS.CA...)},{"peer-checkpoint-cert.pem",append([]byte(nil),b.CheckpointTLS.Cert...)},{"peer-checkpoint-key.pem",append([]byte(nil),checkpointKey...)},
  }
  path:=func(n string)string{return filepath.Join(dir,n)}
  configs:=make([]anchorConfig,0,4);pins:=[]string{};origins:=map[string]bool{}
@@ -161,11 +171,10 @@ func windowsActivationCLI(args []string)error{
  if len(args)!=6||args[1]!="--gui-import-mailbox-activation-lab"||!hashRE.MatchString(args[4])||!hashRE.MatchString(args[5]){return portableRefusal}
  dir,source,pin,binaryPin:=args[2],args[3],args[4],args[5]
  r,e:=readPendingEnrollment(dir);if e!=nil{return e}
- // The package includes transport client credentials, so require the same
- // private NTFS file/directory policy as the vault, not an ordinary download.
+ // Version 2 has only public certificates and authenticated metadata.
+ // Retain the private NTFS package policy until a separate safe import is available.
  raw,e:=winReadPrivate(source,131072);if e!=nil{return e};defer clear(raw)
  b,e:=parseWindowsActivation(raw,pin);if e!=nil{return e}
- defer clear(b.AnchorTLS.Key);defer clear(b.CheckpointTLS.Key)
  binary,e:=os.Executable();if e!=nil{return e}
  f,e:=os.Open(binary);if e!=nil{return e}
  h:=sha256.New();n,e:=io.Copy(h,io.LimitReader(f,256*1024*1024+1));f.Close()
