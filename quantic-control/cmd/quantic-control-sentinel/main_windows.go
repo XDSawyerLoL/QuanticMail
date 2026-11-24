@@ -195,6 +195,7 @@ func wndProc(hwnd uintptr,msg uint32,wparam,lparam uintptr)uintptr{
    makeControl(hwnd,"BUTTON","Libérer les verrous de cette fenêtre",22,741,360,35,cmdBackupRelease)
    refreshBackupLabel()
    user32.NewProc("SetTimer").Call(hwnd,1,30000,0)
+   user32.NewProc("SetTimer").Call(hwnd,2,2000,0)
    refreshProtection(hwnd)
    return 0
  case wmCommand:
@@ -277,9 +278,9 @@ func wndProc(hwnd uintptr,msg uint32,wparam,lparam uintptr)uintptr{
      }
    }
    return 0
- case wmTimer:if wparam==1{refreshProtection(hwnd)};return 0
+ case wmTimer:if wparam==1{refreshProtection(hwnd)}else if wparam==2{refreshBackupLabel()};return 0
  case wmAppUpdate:drain(hwnd);return 0
- case wmDestroy:for _,l:=range backupHandles{_ =l.Close()};user32.NewProc("KillTimer").Call(hwnd,1);stopMonitor();postQuit.Call(0);return 0
+ case wmDestroy:for _,l:=range backupHandles{_ =l.Close()};user32.NewProc("KillTimer").Call(hwnd,1);user32.NewProc("KillTimer").Call(hwnd,2);stopMonitor();postQuit.Call(0);return 0
  }
  ret,_,_:=defWindowProc.Call(hwnd,uintptr(msg),wparam,lparam)
  return ret
