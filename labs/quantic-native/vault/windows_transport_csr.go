@@ -4,8 +4,6 @@ package main
 
 import (
  "bytes"
- "crypto/aes"
- "crypto/cipher"
  "crypto/hmac"
  "crypto/sha256"
  "crypto/ecdsa"
@@ -29,35 +27,35 @@ type nativeTransportRequest struct {
  Signature string `json:"signature"`
 }
 func transportSubject(digest,role string)string{return "quantic-lab-"+role+"-"+digest[:32]}
-// A 256-bit random mailbox token is itself protected by both vault secrets.
-// Domain-separated HMAC derives a distinct key for each role and identity.
-func transportCipher(digest,role string,token []byte)(cipher.AEAD,[]byte,error){
- if !hashRE.MatchString(digest)||len(token)!=32||(role!="anchor"&&role!="checkpoint"){return nil,nil,portableRefusal}
- header:=[]byte("QV-TRANSPORT-KEY-LAB-V1\x00"+digest+"\x00"+role+"\x00")
- mac:=hmac.New(sha256.New,token);mac.Write([]byte("quantic-transport-key-kdf-lab/v1\x00"));mac.Write(header)
- derived:=mac.Sum(nil);defer clear(derived)
- block,e:=aes.NewCipher(derived);if e!=nil{return nil,nil,e}
- g,e:=cipher.NewGCM(block);return g,header,e
+// Storage keys are independent of the network bearer.
+func transportSecret(pw,pqw []byte)([]byte,error){
+ secret,e:=credentialPassword(pw,pqw);if e!=nil{return nil,e};defer clear(secret)
+ mac:=hmac.New(sha256.New,secret);mac.Write([]byte("quantic-transport-storage-secret-lab/v2\x00"));return mac.Sum(nil),nil
 }
-func readLocalTransportKey(dir,role,digest string,token []byte,create bool)(*ecdsa.PrivateKey,[]byte,error){
- g,header,e:=transportCipher(digest,role,token);if e!=nil{return nil,nil,e}
+func readLocalTransportKey(dir,role,digest string,secret []byte,create bool)(*ecdsa.PrivateKey,[]byte,error){
+ if !hashRE.MatchString(digest)||len(secret)!=32||(role!="anchor"&&role!="checkpoint"){return nil,nil,portableRefusal}
+ header:=[]byte("QV-TRANSPORT-KEY-LAB-V2\x00"+digest+"\x00"+role+"\x00")
  // Refuse the prior plaintext format, never silently migrate or rotate it.
- if _,e=os.Lstat(filepath.Join(dir,"peer-"+role+"-key.pem"));!os.IsNotExist(e){return nil,nil,portableRefusal}
+ if _,e:=os.Lstat(filepath.Join(dir,"peer-"+role+"-key.pem"));!os.IsNotExist(e){return nil,nil,portableRefusal}
  path:=filepath.Join(dir,"peer-"+role+"-key.vault")
  raw,e:=winReadPrivate(path,4096)
  if e!=nil&&create{
   if _,statErr:=os.Lstat(path);!os.IsNotExist(statErr){return nil,nil,portableRefusal}
   k,e:=ecdsa.GenerateKey(elliptic.P256(),rand.Reader);if e!=nil{return nil,nil,e}
   der,e:=x509.MarshalPKCS8PrivateKey(k);if e!=nil{return nil,nil,e};defer clear(der)
+  salt:=make([]byte,16);if _,e=rand.Read(salt);e!=nil{return nil,nil,e}
+  g,e:=portableAEAD(secret,salt);if e!=nil{return nil,nil,e}
   nonce:=make([]byte,g.NonceSize());if _,e=rand.Read(nonce);e!=nil{return nil,nil,e}
-  prefix:=append(append([]byte(nil),header...),nonce...)
-  sealed:=g.Seal(prefix,nonce,der,header);defer clear(sealed)
+  aad:=append(append([]byte(nil),header...),salt...)
+  prefix:=append(append([]byte(nil),aad...),nonce...)
+  sealed:=g.Seal(prefix,nonce,der,aad);defer clear(sealed)
   if e=winWritePrivate(path,sealed);e!=nil{return nil,nil,e}
   raw,e=winReadPrivate(path,4096)
  }
  if e!=nil{return nil,nil,e};defer clear(raw)
- n:=len(header);if len(raw)<=n+g.NonceSize()+g.Overhead()||!bytes.Equal(raw[:n],header){return nil,nil,portableRefusal}
- der,e:=g.Open(nil,raw[n:n+g.NonceSize()],raw[n+g.NonceSize():],header)
+ n:=len(header);if len(raw)<=n+16+12+16||!bytes.Equal(raw[:n],header){return nil,nil,portableRefusal}
+ g,e:=portableAEAD(secret,raw[n:n+16]);if e!=nil{return nil,nil,e};n+=16
+ der,e:=g.Open(nil,raw[n:n+g.NonceSize()],raw[n+g.NonceSize():],raw[:n])
  if e!=nil{return nil,nil,portableRefusal};defer clear(der)
  v,e:=x509.ParsePKCS8PrivateKey(der);if e!=nil{return nil,nil,e}
  key,ok:=v.(*ecdsa.PrivateKey);if !ok||key.Curve!=elliptic.P256(){return nil,nil,portableRefusal}
@@ -78,10 +76,11 @@ func prepareWindowsTransportRequests(dir string,b enrollmentApprovalBundle,roste
  controller,e:=readSyntheticControllerKey(dir,syntheticProfile{ControllerPublic:r.ControllerPublic});if e!=nil{return empty,e};defer clear(controller)
  expected,e:=nativeMailboxCredentialProof(token,digest,controller)
  if e!=nil||expected!=proof{return empty,portableRefusal}
+ secret,e:=transportSecret(pw,pqw);if e!=nil{return empty,e};defer clear(secret)
  out:=nativeTransportRequest{Format:"quantic-native-transport-csr-lab/v1",RequestDigest:digest,TokenHash:proof.TokenHash}
  var keyPins []string
  for _,role:=range []string{"anchor","checkpoint"}{
-  key,raw,e:=readLocalTransportKey(dir,role,digest,token,true);if e!=nil{return empty,e};clear(raw)
+  key,raw,e:=readLocalTransportKey(dir,role,digest,secret,true);if e!=nil{return empty,e};clear(raw)
   spki,e:=x509.MarshalPKIXPublicKey(&key.PublicKey);if e!=nil{return empty,e}
   keyPins=append(keyPins,hexHash(spki))
   csr,e:=x509.CreateCertificateRequest(rand.Reader,&x509.CertificateRequest{Subject:pkix.Name{CommonName:transportSubject(digest,role)},SignatureAlgorithm:x509.ECDSAWithSHA256},key)

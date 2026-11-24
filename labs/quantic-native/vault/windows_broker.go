@@ -76,12 +76,13 @@ func winBroker(args []string)error{
   if request.QuorumPin!=quorumPinValue||request.ControllerPublic!=app||claim.Address!=addr||claim.DeviceID!=device||claim.SigningPin!=s||claim.EncryptionPin!=a||claim.KemPin!=kem||claim.DsaPin!=dsa||claim.PQRootPin!=root{return portableRefusal}
   digest,e:=nativeEnrollmentDigest(request);if e!=nil{return e}
   raw,e:=winReadPrivate(filepath.Join(dir,"mailbox-token.vault"),1024);if e!=nil{return e}
-  token,e:=openNativeMailboxCredential(raw,digest,pw,pqw);clear(raw);clear(pw);clear(pqw);if e!=nil{return e};defer clear(token)
-  q,e=winLoadSealedQuorum(dir,digest,token);if e!=nil||q.pin!=quorumPinValue{return portableRefusal}
+  token,e:=openNativeMailboxCredential(raw,digest,pw,pqw);clear(raw);if e!=nil{return e};defer clear(token)
+  storageSecret,e:=transportSecret(pw,pqw);clear(pw);clear(pqw);if e!=nil{return e};defer clear(storageSecret)
+  q,e=winLoadSealedQuorum(dir,digest,storageSecret);if e!=nil||q.pin!=quorumPinValue{return portableRefusal}
   contactRaw,e:=winReadPrivate(filepath.Join(dir,"contacts.json"),131072);if e!=nil{return e}
   contacts,e:=parseSenderTrust(contactRaw);if e!=nil{return e}
   var closeCheckpoints func()
-  checkpointTransport,closeCheckpoints,e=winCheckpointTransport(dir,digest,addr,device,token,contacts);if e!=nil{return e};defer closeCheckpoints()
+  checkpointTransport,closeCheckpoints,e=winCheckpointTransport(dir,digest,addr,device,storageSecret,contacts);clear(storageSecret);if e!=nil{return e};defer closeCheckpoints()
   var closeTransport func()
   transport,closeTransport,e=newMailboxTransport(args[11],addr,device,token);clear(token);if e!=nil{return e};defer closeTransport()
   mail:=transport

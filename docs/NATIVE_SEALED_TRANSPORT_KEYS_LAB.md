@@ -3,12 +3,12 @@
 Les deux clés mTLS de la candidature sont générées localement. Leur PKCS#8
 est chiffré par AES-256-GCM, avec un nonce aléatoire, un en-tête authentifié
 liant le rôle et le digest de candidature, et une clé dérivée par HMAC-SHA256
-du jeton aléatoire de 256 bits déjà scellé par les deux secrets du coffre.
+des deux phrases secrètes du coffre, avec un sel aléatoire et PBKDF2 via le moteur de coffre existant. Le jeton réseau ne permet pas de déchiffrer les clés TLS.
 Aucun fichier PEM de clé privée n'est créé par ce mode. Le mode refuse les
 anciens PEM de transport ; pas de migration destructive ni rotation implicite.
 Les certificats et CA restent publics. Le contrôleur Ed25519 reste ACL-only.
 
-Lors de l'import les deux secrets déverrouillent le jeton, puis les clés
+Lors de l'import les deux secrets déverrouillent séparément le jeton et les clés
 scellées. La configuration est écrite sans clé privée en clair. Le fichier
 desktop.json est toujours écrit en dernier. Dans le broker vivant, les
 clés TLS sont déchiffrées uniquement dans Go ; aucun secret TLS n'est

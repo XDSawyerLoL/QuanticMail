@@ -22,8 +22,8 @@ type nativeCheckpointResult struct{
  Bundle json.RawMessage `json:"bundle"`
  Attestation json.RawMessage `json:"attestation"`
 }
-func winLoadSealedQuorum(dir,digest string,token []byte)(*quorumAnchor,error){
- _,key,e:=readLocalTransportKey(dir,"anchor",digest,token,false);if e!=nil{return nil,e};defer clear(key)
+func winLoadSealedQuorum(dir,digest string,secret []byte)(*quorumAnchor,error){
+ _,key,e:=readLocalTransportKey(dir,"anchor",digest,secret,false);if e!=nil{return nil,e};defer clear(key)
  raw,e:=winReadPrivate(filepath.Join(dir,"quorum.json"),65536);if e!=nil{return nil,e}
  return parseQuorumAnchor(bytes.NewReader(raw),func(c anchorConfig)(*remoteAnchor,error){
   if c.ServerCA!=filepath.Join(dir,"peer-anchor-ca.pem")||c.ClientCert!=filepath.Join(dir,"peer-anchor-cert.pem")||c.ClientKey!=filepath.Join(dir,"peer-anchor-key.vault"){return nil,portableRefusal}
@@ -34,8 +34,8 @@ func winLoadSealedQuorum(dir,digest string,token []byte)(*quorumAnchor,error){
   })
  })
 }
-func winCheckpointTransport(dir,digest,address,device string,token []byte,contacts *senderTrust)(mailboxTransport,func(),error){
- _,key,e:=readLocalTransportKey(dir,"checkpoint",digest,token,false);if e!=nil{return nil,nil,e};defer clear(key)
+func winCheckpointTransport(dir,digest,address,device string,secret []byte,contacts *senderTrust)(mailboxTransport,func(),error){
+ _,key,e:=readLocalTransportKey(dir,"checkpoint",digest,secret,false);if e!=nil{return nil,nil,e};defer clear(key)
  ca,e:=winReadPrivate(filepath.Join(dir,"peer-checkpoint-ca.pem"),16384);if e!=nil{return nil,nil,e}
  cert,e:=winReadPrivate(filepath.Join(dir,"peer-checkpoint-cert.pem"),16384);if e!=nil{return nil,nil,e}
  if !activationTLSValid(activationTLS{ca,cert},key,digest,"checkpoint",time.Now()){return nil,nil,portableRefusal}

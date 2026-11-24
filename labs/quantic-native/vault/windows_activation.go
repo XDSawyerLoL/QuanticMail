@@ -74,7 +74,7 @@ func activationEndpoint(raw,path string)(string,bool){
  if len(raw)>512{return "",false}
  return u.Scheme+"://"+u.Host,true
 }
-func activationPlan(dir,binary,binaryPin string,r enrollmentRequest,b windowsActivationBundle,token []byte,now time.Time)([]activationFile,error){
+func activationPlan(dir,binary,binaryPin string,r enrollmentRequest,b windowsActivationBundle,secret []byte,now time.Time)([]activationFile,error){
  digest,e:=checkEnrollmentApprovals(r,b.Approvals,b.RosterPin,now)
  if e!=nil||digest!=b.RequestDigest||b.Format!="quantic-native-windows-activation-lab/v2"||!b.LabOnly||!hashRE.MatchString(binaryPin){return nil,portableRefusal}
  if _,_,e=winPathParts(dir);e!=nil{return nil,e}
@@ -83,8 +83,8 @@ func activationPlan(dir,binary,binaryPin string,r enrollmentRequest,b windowsAct
  if e!=nil||u.Scheme!="http"||u.Hostname()!="127.0.0.1"||u.User!=nil||u.Path!="/"||u.RawPath!=""||u.RawQuery!=""||u.ForceQuery||u.Fragment!=""||u.Opaque!=""{return nil,portableRefusal}
  port,e:=strconv.Atoi(u.Port());if e!=nil||port<1||port>65535||u.Host!="127.0.0.1:"+strconv.Itoa(port){return nil,portableRefusal}
  if len(b.Anchors)!=4||len(b.Checkpoints)!=4{return nil,portableRefusal}
- ak,anchorKey,e:=readLocalTransportKey(dir,"anchor",digest,token,false);if e!=nil{return nil,e};defer clear(anchorKey)
- ck,checkpointKey,e:=readLocalTransportKey(dir,"checkpoint",digest,token,false);if e!=nil{return nil,e};defer clear(checkpointKey)
+ ak,anchorKey,e:=readLocalTransportKey(dir,"anchor",digest,secret,false);if e!=nil{return nil,e};defer clear(anchorKey)
+ ck,checkpointKey,e:=readLocalTransportKey(dir,"checkpoint",digest,secret,false);if e!=nil{return nil,e};defer clear(checkpointKey)
  if publicPin(&ak.PublicKey)==publicPin(&ck.PublicKey)||!activationTLSValid(b.AnchorTLS,anchorKey,digest,"anchor",now)||!activationTLSValid(b.CheckpointTLS,checkpointKey,digest,"checkpoint",now){return nil,portableRefusal}
  files:=[]activationFile{
   {"peer-anchor-ca.pem",append([]byte(nil),b.AnchorTLS.CA...)},{"peer-anchor-cert.pem",append([]byte(nil),b.AnchorTLS.Cert...)},
@@ -163,7 +163,8 @@ func importWindowsActivation(dir,binary,binaryPin string,b windowsActivationBund
  key,e:=readSyntheticControllerKey(dir,syntheticProfile{ControllerPublic:r.ControllerPublic});if e!=nil{return e};defer clear(key)
  proof,e:=nativeMailboxCredentialProof(token,b.RequestDigest,key)
  if e!=nil||proof!=b.Credential{return portableRefusal}
- files,e:=activationPlan(dir,binary,binaryPin,r,b,token,now);if e!=nil{return e}
+ secret,e:=transportSecret(pw,pqw);if e!=nil{return e};defer clear(secret)
+ files,e:=activationPlan(dir,binary,binaryPin,r,b,secret,now);if e!=nil{return e}
  for _,f:=range files{defer clear(f.raw)}
  if _,e=checkEnrollmentApprovals(r,b.Approvals,b.RosterPin,time.Now());e!=nil{return e}
  hs,e:=winLockDirectory(dir,true);if e!=nil{return e};defer winClose(hs)
