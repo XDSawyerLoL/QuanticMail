@@ -36,7 +36,7 @@ func winProtectedConfigs(dir string,id directIdentity,pin string)(senderContact,
   return senderContact{},[4]directUDPConfig{},[4]directUDPConfig{},portableRefusal
  }
  if !hashRE.MatchString(pin){return fail()}
- raw,e:=winReadPrivate(filepath.Join(dir,"protected-witnesses.json"),16384);if e!=nil{return fail()};defer clear(raw)
+ raw,e:=winReadWitnessSecret(filepath.Join(dir,"protected-witnesses.json"));if e!=nil{return fail()};defer clear(raw)
  var cfg directProtectedDisk
  if directDecode(raw,&cfg)!=nil||cfg.Format!="quantic-protected-witnesses/v1"||cfg.ContactPin!=pin{return fail()}
  card,e:=winReadPrivate(filepath.Join(dir,"contacts.json"),131072);if e!=nil{return fail()};defer clear(card)
@@ -94,6 +94,7 @@ func winProtectedOperation(dir,pin string,op *directOperation,action string,appr
 }
 func replayIDHeader(h []byte)[32]byte{return sha256.Sum256(h)}
 func winProtectedDirectCLI(args []string)(bool,error){
+ if handled,e:=winDirectWitnessCLI(args);handled{return true,e}
  if len(args)<2{return false,nil}
  switch args[1]{
  case "--provision-windows-protected-direct-gui-lab":
