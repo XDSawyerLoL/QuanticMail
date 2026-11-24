@@ -1,0 +1,9 @@
+export type NativeEnrollmentRow={address:string;deviceId:string;rootPin:string;pqRootPin:string;manifestSequence:1;profileSequence:1;manifestDigest:string;profileDigest:string;requestDigest:string;tokenHash:string;createdAt:number};
+export function nativeEnrollmentEntries():NativeEnrollmentRow[];
+export function validateNativeEnrollmentRows(input:unknown):NativeEnrollmentRow[];
+export function restoreNativeEnrollments(input:unknown):void;
+export function isNativeEnrollmentAddress(address:string):boolean;
+export function authenticateNativeEnrollment(address:string,device:string,token:string|null):{canonicalAddress:string;deviceId:string};
+export function prepareNativeEnrollmentPublication(state:unknown,request:unknown,votes:unknown,credential:unknown,options:unknown):{state:unknown;report:unknown};
+export function publicNativeEnrollmentSnapshot(state:unknown):unknown;
+export function makeNativeEnrollmentCredential(request:unknown,votes:unknown,options:unknown,controllerKey:unknown):{token:string;credential:{tokenHash:string;signature:string}};
