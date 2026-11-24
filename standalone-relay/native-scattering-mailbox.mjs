@@ -63,7 +63,10 @@ export async function startScatteringMailboxEndpoint(c,{windowsBootstrap,profile
   if(pending){clearTimeout(pending.timer);pending.reject(Error('Scattering epoch terminated'));pending=null;}
   upstream?.destroy();cells?.stream.destroy();input.fill(0);
   server?.closeAllConnections();server?.close();try{udp.close();}catch{}
-  guard?.close();resolveClosed();
+  guard?.close();
+  // On Windows the private directory guard owns native handles until its
+  // process has actually exited. Never report a closed lane earlier.
+  if(guard)void guard.closed.then(resolveClosed);else resolveClosed();
  }
  if(guard)void guard.closed.then(stop);
  async function sendFrame(frame){
