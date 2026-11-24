@@ -5,6 +5,7 @@ package vaultsession
 
 import (
  "crypto/rand"
+ "crypto/ed25519"
  "crypto/sha256"
  "encoding/base64"
  "encoding/hex"
@@ -40,6 +41,10 @@ type Reply struct {
 type Session struct{
  mu sync.Mutex
  identity Identity
+ machineID string
+ brokerController ed25519.PublicKey
+ revoked bool
+ authorizationUsed bool
  challenge [32]byte
  born time.Time
  consumed bool
@@ -60,7 +65,7 @@ func New(id Identity,machineID string,now time.Time)(*Session,error){
  if _,err:=rand.Read(nonce[:]);err!=nil{return nil,err}
  b:=append([]byte("quantic-sentinel/device-auth/v1\x00"+machineID+"\x00"),nonce[:]...)
  id.DSAPublicDER=append([]byte(nil),id.DSAPublicDER...)
- return &Session{identity:id,challenge:sha256.Sum256(b),born:now},nil
+ return &Session{identity:id,machineID:machineID,challenge:sha256.Sum256(b),born:now},nil
 }
 func(s *Session) Request()Request{
  return Request{Op:"pq-proof-lab",PQChallenge:base64.RawURLEncoding.EncodeToString(s.challenge[:])}
