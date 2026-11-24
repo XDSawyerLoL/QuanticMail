@@ -279,8 +279,15 @@ func residentAgent()error{
  log,err:=auditPath();if err!=nil{return err}
  locks,backupErr:=sentinel.LockBackupSet(m.Backups)
  defer func(){for _,l:=range locks{_ = l.Close()}}()
+ healthEvent,healthErr:=newBackupHealthEvent(m)
+ if healthErr!=nil{cancel();<-done;return healthErr}
+ defer closeWinHandle.Call(healthEvent)
+ healthDone:=make(chan struct{})
+ setBackupHealth(healthEvent,checkHeldBackups(locks,len(m.Backups)))
+ go monitorBackupHealth(ctx,healthEvent,locks,len(m.Backups),healthDone)
  err=sentinel.RunResidentWithBackupReport(ctx,m.Root,log,len(m.Backups),len(locks),backupErr)
  cancel()
+ <-healthDone
  <-done
  return err
 }
