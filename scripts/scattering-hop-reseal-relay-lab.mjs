@@ -9,11 +9,14 @@ import {createScatteringBatchMixer} from '../lib/quantic/scattering-batch-mixer-
 import {openReliable} from '../labs/quantic-native/scattering/scattering-reliable-lab.mjs';
 import {writeSpool} from '../labs/quantic-native/scattering/scattering-cell.mjs';
 
-const [bindA,bindB,queue,secondsRaw,pathA,pathB,pathOut,mixRaw='0',expectedCoverRaw='0']=process.argv.slice(2);
+const [bindA,bindB,queue,secondsRaw,pathA,pathB,pathOut,mixRaw='0',expectedCoverRaw='0',batchSizeRaw='40']=process.argv.slice(2);
 const check=(ok,msg)=>{if(!ok)throw Error(msg);};
 const seconds=Number(secondsRaw);
 check(['0','1'].includes(mixRaw),'unsupported mixing mode');
 const mixEnabled=mixRaw==='1';
+const batchSize=Number(batchSizeRaw);
+check(Number.isSafeInteger(batchSize)&&[8,20,40].includes(batchSize),
+ 'unsupported lab batch size');
 const expectedCover=Number(expectedCoverRaw);
 check(Number.isSafeInteger(expectedCover)&&[0,80].includes(expectedCover),'invalid cover baseline');
 check(bindA==='10.252.41.2:49001'&&bindB==='10.252.42.2:49002'&&
@@ -28,7 +31,7 @@ check(!keys[0].equals(keys[1])&&!keys[1].equals(keys[2])&&!keys[0].equals(keys[2
  'non-independent laboratory keys');
 const stats={ingressA:0,ingressB:0,spooled:0,unauthenticated:0,rejected:0,spoolErrors:0};
 let seq=0;const sockets=[];
-const mixer=mixEnabled?createScatteringBatchMixer({batchSize:40,
+const mixer=mixEnabled?createScatteringBatchMixer({batchSize,
  onBatch(batch){
   const frames=[];
   for(const {packet,source} of batch){
