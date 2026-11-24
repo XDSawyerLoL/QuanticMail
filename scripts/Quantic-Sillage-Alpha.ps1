@@ -166,7 +166,7 @@ if ($SelfTest) {
   if($actions[11].Id -cne "VerifyGui" -or $inputName.Enabled -or $outputName.Enabled -or -not $directory.Enabled){throw "Graphical verification action unavailable"}
   $verifyArgs=New-OperationArguments $actions[11] "C:\Quantic Lab\new-test-vault" "" ""
   if($verifyArgs -notcontains "VerifyGui" -or $verifyArgs -contains "-InputFile"){throw "Graphical verification mapping refused"}
-  foreach($id in @("SendGui","ReceiveGui","ComposeGui","RecoverComposeGui")){
+  foreach($id in @("SendGui","ReceiveGui","ComposeGui","RecoverComposeGui","ImportMailKitGui")){
    $mailAction=@($actions|Where-Object {$_.Id -ceq $id})
    if($mailAction.Count -ne 1){throw "Missing graphical mail operation"}
    $mailArgs=New-OperationArguments $mailAction[0] "C:\Quantic Lab\vault" "" ""
