@@ -106,14 +106,15 @@ func openSyntheticGUIVault(dir string)(syntheticProfile,error){
   return syntheticProfile{},portableRefusal
  }
  pub,e:=b64.DecodeString(p.ControllerPublic);if e!=nil{return syntheticProfile{},e}
- pemBytes,e:=winReadPrivate(filepath.Join(dir,"controller.pem"),4096)
+ pemBytes,e:=winReadLocalSecret(filepath.Join(dir,"controller.pem"))
  if e!=nil{return syntheticProfile{},e}
  block,_:=pem.Decode(pemBytes);clear(pemBytes)
  if block==nil{return syntheticProfile{},portableRefusal}
  pk,e:=x509.ParsePKCS8PrivateKey(block.Bytes);defer clear(block.Bytes)
  if e!=nil{return syntheticProfile{},e}
  private,ok:=pk.(ed25519.PrivateKey)
- if !ok||!bytes.Equal(private.Public().(ed25519.PublicKey),pub){return syntheticProfile{},portableRefusal}
+ if !ok{return syntheticProfile{},portableRefusal};defer clear(private)
+ if !bytes.Equal(private.Public().(ed25519.PublicKey),pub){return syntheticProfile{},portableRefusal}
  binding,e:=pqBinding(p.SigningPin,p.EncryptionPin,hexHash(pub),p.QuorumPin,p.Address,p.DeviceID)
  if e!=nil{return syntheticProfile{},e}
  pqw,e:=winGUIPassphrase("Deverrouiller le coffre post-quantique (secret distinct).",true)

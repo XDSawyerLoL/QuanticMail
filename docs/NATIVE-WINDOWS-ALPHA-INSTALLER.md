@@ -117,3 +117,7 @@ L'étape de distribution suivante doit fournir un flux **version signée → té
 Le chemin Windows natif reste une **Alpha** : pas de véritable enrôlement de compte, pas de migration définitive, pas de continuité de racine installée partout, pas de paiement réel, pas de validation d'indistinguabilité Scattering à deux postes physiques. Les travaux de filiation PQ de la PR #51 et de racine de compte isolée de la PR #52 ne sont pas implicitement inclus dans cette branche. Une revue de sécurité, la signature de l'installateur et la migration avec retour arrière sont encore indispensables.
 
 Le client Web historique reste disponible pour les besoins des **comptes existants** jusqu'à ce que la continuité et la restitution native soient prouvées. L'ancienne enveloppe Electron Web, elle, est explicitement bloquée par la PR #53.
+
+## Protection complémentaire des nouveaux secrets locaux
+
+Le contrôleur Ed25519 et la clé des reçus des nouveaux coffres synthétiques sont désormais protégés au repos par DPAPI utilisateur, avec séparation de domaine et liaison au chemin. Les lecteurs refusent les anciennes clés en clair sans les modifier. La migration explicite des anciens coffres reste à réaliser. Les clés TLS et configurations de transport ne sont pas couvertes par ce changement. Cette protection ne constitue pas une isolation entre processus sous le même utilisateur Windows ; les opérations existantes peuvent encore déchiffrer les secrets dans le processus de confiance. Aucun compte réel ni déploiement autorisé.

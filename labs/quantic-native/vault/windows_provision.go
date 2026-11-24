@@ -46,8 +46,8 @@ func winProvisionVaultLocal(dir,app,quorum,addr string,pw,pqPassword,controller 
  if e=winWritePQ(filepath.Join(dir,"pq.vault"),binding,pqPassword,p);e!=nil{return nil,e}
  if e=winInitReplay(filepath.Join(dir,"journal.log"),s,a,hexHash(pub));e!=nil{return nil,e}
  var receipt [32]byte;if _,e=rand.Read(receipt[:]);e!=nil{return nil,e};defer clear(receipt[:])
- if e=winWritePrivate(filepath.Join(dir,"receipt.key"),receipt[:]);e!=nil{return nil,e}
- if len(controller)>0{if e=winWritePrivate(filepath.Join(dir,"controller.pem"),controller);e!=nil{return nil,e}}
+ if e=winWriteLocalSecret(filepath.Join(dir,"receipt.key"),receipt[:]);e!=nil{return nil,e}
+ if len(controller)>0{if e=winWriteLocalSecret(filepath.Join(dir,"controller.pem"),controller);e!=nil{return nil,e}}
  if e=winWritePrivate(filepath.Join(dir,"lab-provisioned"),[]byte(hexHash(pub)));e!=nil{return nil,e}
  return map[string]string{"backend":"windows-software-pq-storage-lab","address":addr,"deviceId":device,"signingPin":s,"encryptionPin":a,"kemPin":p.kemPin,"dsaPin":p.dsaPin,"signing":b64.EncodeToString(elliptic.Marshal(elliptic.P256(),k.signing.X,k.signing.Y)),"encryption":b64.EncodeToString(point),"kemPublic":b64.EncodeToString(p.kemPub),"dsaPublic":b64.EncodeToString(p.dsaPub),"status":"local-provision-only-not-enrolled"},nil
 }

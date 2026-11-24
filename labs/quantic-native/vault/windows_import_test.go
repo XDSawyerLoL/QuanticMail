@@ -15,7 +15,7 @@ func TestWindowsLabImport(t *testing.T){
  pub,k,e:=ed25519.GenerateKey(rand.Reader);if e!=nil{t.Fatal(e)};defer clear(k)
  dir:=filepath.Join(t.TempDir(),"lab")
  _,e=winProvisionVault(dir,b64.EncodeToString(pub),strings.Repeat("a",64),"alice~"+strings.Repeat("b",32)+"@quantic",[]byte("synthetic classical fixture password"),[]byte("different synthetic PQ fixture password"));if e!=nil{t.Fatal(e)}
- key,e:=winReadPrivate(filepath.Join(dir,"receipt.key"),32);if e!=nil||len(key)!=32||bytes.Equal(key,make([]byte,32)){t.Fatal("receipt key")};clear(key)
+ key,e:=winReadLocalSecret(filepath.Join(dir,"receipt.key"));if e!=nil||len(key)!=32||bytes.Equal(key,make([]byte,32)){t.Fatal("receipt key")};clear(key)
  der,e:=x509.MarshalPKCS8PrivateKey(k);if e!=nil{t.Fatal(e)};defer clear(der)
  b:=pem.EncodeToMemory(&pem.Block{Type:"PRIVATE KEY",Bytes:der});defer clear(b)
  _,wrong,e:=ed25519.GenerateKey(rand.Reader);if e!=nil{t.Fatal(e)};defer clear(wrong)
@@ -38,7 +38,7 @@ func TestWindowsAutoController(t *testing.T){
  q,addr:=strings.Repeat("a",64),"alice~"+strings.Repeat("b",32)+"@quantic"
  pw,pq:=[]byte("synthetic classical fixture password"),[]byte("different synthetic PQ fixture password")
  res,e:=winProvisionAutoController(dir,q,addr,pw,pq);if e!=nil{t.Fatal(e)}
- b,e:=winReadPrivate(filepath.Join(dir,"controller.pem"),4096);if e!=nil{t.Fatal(e)};defer clear(b)
+ b,e:=winReadLocalSecret(filepath.Join(dir,"controller.pem"));if e!=nil{t.Fatal(e)};defer clear(b)
  p,_:=pem.Decode(b);if p==nil{t.Fatal("PEM missing")};defer clear(p.Bytes)
  key,e:=x509.ParsePKCS8PrivateKey(p.Bytes);if e!=nil{t.Fatal(e)}
  priv,ok:=key.(ed25519.PrivateKey);if !ok{t.Fatal("wrong controller type")};defer clear(priv)
