@@ -70,32 +70,13 @@ jobs:
           $pe = [BitConverter]::ToInt32($bytes, 0x3c)
           $subsystem = [BitConverter]::ToInt16($bytes, $pe + 24 + 68)
           if ($subsystem -ne 2) { throw "Sentinel must be a native GUI binary, not a console application" }
-      - name: Real resident startup and uninstall test on isolated Windows runner
+      - name: Actual resident install / alert / uninstall Windows E2E
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $env:QUANTIC_SENTINEL_TEST_BINARY = (Resolve-Path "./quantic-sentinel-alpha.exe").Path
-          go test -v -count=1 -timeout 90s -run '^TestActualResidentBinaryInstallationE2E
-        if: runner.os == 'Windows'
-        uses: actions/upload-artifact@v4
-        with:
-          name: quantic-sentinel-alpha-windows-unsigned
-          path: quantic-control/quantic-sentinel-alpha.exe
-          if-no-files-found: error
-          retention-days: 7
-      - name: Smoke native Windows executable
-        if: runner.os == 'Windows'
-        run: ./quantic-control-alpha.exe status
-      - name: Upload unsigned Windows laboratory binary
-        if: runner.os == 'Windows'
-        uses: actions/upload-artifact@v4
-        with:
-          name: quantic-control-alpha1-windows-unsigned
-          path: quantic-control/quantic-control-alpha.exe
-          if-no-files-found: error
-          retention-days: 7
- ./cmd/quantic-control-sentinel
-      - name: Security 4663 API smoke (reports SKIP when unavailable)
+          go test -v -count=1 -timeout 90s -run TestActualResidentBinaryInstallationE2E ./cmd/quantic-control-sentinel
+      - name: Security 4663 read-only Event Log smoke
         if: runner.os == 'Windows'
         run: go test -v -count=1 -run TestNativeSecurityFileAuditWithoutModification ./sentinel
       - name: Upload Sentinel unsigned Windows lab executable
