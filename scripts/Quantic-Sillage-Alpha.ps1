@@ -27,6 +27,7 @@ $actions=@(
  @{Id="ConfirmReceipt";Title="Confirmer un recu existant";Hint="Verifier le recu conserve et confirmer au relais.";Input="receipt";Scope=$true},
  @{Id="Provision";Title="Creer un coffre de test";Hint="Parametres publics independants requis. Ne cree pas de compte distant.";Scope=$true},
  @{Id="ProvisionPair";Title="Creer deux coffres de test PQ";Hint="Deux identites fictives, deux repertoires neufs. Empreintes de quorum independantes exigees ; aucun compte distant.";Scope=$true},
+ @{Id="DirectMail";Title="Messagerie directe entre deux PC";Hint="Liaison privee preparee, depot chiffre directement chez le correspondant.";Scope=$false},
  @{Id="ScatteringSchedule";Title="Demarrer ma liaison privee";Hint="Liaison de test preparee, renouvellement automatique, sans terminal.";Scope=$false},
  @{Id="StartBridge";Title="Demarrer le pont Scattering";Hint="Dossier de transport distinct deja configure ; pacer et sink separes requis.";Scope=$true},
  @{Id="Providers";Title="Verifier la cryptographie";Hint="Diagnostic du fournisseur cryptographique natif."},
@@ -54,7 +55,7 @@ function Get-AlphaModule([string]$Id) {
   '^(ComposeDraft|SealAndSend|RecoverSealAndSend|Seal|RecoverSeal|Send|Receive|Open|RecoverOpen|RecoverReceive|ConfirmReceipt|MailPreflight|MailAttest)$' { return "QUANTIC MAIL" }
   '^(Provision|ProvisionPair)$' { return "QUANTIC ID" }
   '^Migration' { return "IDENTITY VAULT" }
-  '^(ScatteringSchedule|StartBridge|ProbeLoopback|NetworkCheck)$' { return "SCATTERING" }
+  '^(DirectMail|ScatteringSchedule|StartBridge|ProbeLoopback|NetworkCheck)$' { return "SCATTERING" }
   '^(Pay|StartPayBridge)' { return "QUANTIC PAY - LAB" }
   '^(Providers|GuiCheck)$' { return "DIAGNOSTIC" }
   default { throw "Unknown native operation; fail closed." }
@@ -137,8 +138,8 @@ $choice.Add_SelectedIndexChanged({
  if ($choice.SelectedIndex -lt 0) { return }
  $a=$script:shownActions[$choice.SelectedIndex]
  $hint.Text=$a.Hint
- $run.Text=if($a.Id -eq 'ComposeDraft'){"Rediger mon message"}elseif($a.Id -eq 'GuiCheck'){"Tester les fenetres Windows"}elseif($a.Id -eq 'ScatteringSchedule'){"Demarrer ma liaison"}elseif($a.Id -eq 'NetworkCheck'){"Tester deux PC"}else{"Ouvrir le laboratoire technique"}
- $simple=$a.Id -in @('ComposeDraft','GuiCheck','NetworkCheck','ScatteringSchedule')
+ $run.Text=if($a.Id -eq 'ComposeDraft'){"Rediger mon message"}elseif($a.Id -eq 'GuiCheck'){"Tester les fenetres Windows"}elseif($a.Id -eq 'DirectMail'){"Ouvrir la liaison directe"}elseif($a.Id -eq 'ScatteringSchedule'){"Demarrer ma liaison"}elseif($a.Id -eq 'NetworkCheck'){"Tester deux PC"}else{"Ouvrir le laboratoire technique"}
+ $simple=$a.Id -in @('ComposeDraft','GuiCheck','NetworkCheck','ScatteringSchedule','DirectMail')
  foreach($control in @($directory,$il,$inputName,$ol,$outputName)){$control.Visible=-not $simple}
  $directory.Enabled=[bool]$a.Scope
  $inputName.Enabled=[bool]$a.Input
@@ -157,8 +158,8 @@ $run.Add_Click({
    & (Join-Path $root 'Quantic-Sillage-GUI-Check.ps1') -ExpectedManifestSha256 $ExpectedManifestSha256 -TrustedBinarySha256 $TrustedBinarySha256
    return
   }
-  if($a.Id -eq 'ScatteringSchedule'){
-   $scriptPath=Join-Path $root 'Quantic-Sillage-Scattering.ps1'
+  if($a.Id -in @('ScatteringSchedule','DirectMail')){
+   $scriptPath=Join-Path $root $(if($a.Id -eq 'DirectMail'){'Quantic-Sillage-DirectMail.ps1'}else{'Quantic-Sillage-Scattering.ps1'})
    $psi=New-Object Diagnostics.ProcessStartInfo
    $psi.FileName=$shell
    $psi.Arguments=('-NoProfile -STA -ExecutionPolicy Bypass -WindowStyle Hidden -File "{0}" -ExpectedManifestSha256 {1} -TrustedBinarySha256 {2}' -f $scriptPath,$ExpectedManifestSha256,$TrustedBinarySha256)
@@ -184,7 +185,7 @@ $run.Add_Click({
 $module.SelectedIndex=0
 if ($SelfTest) {
  try {
-  if($actions.Count -ne 33 -or $script:shownActions[0].Id -ne 'ComposeDraft' -or $inputName.Visible -or $outputName.Visible){throw "Dashboard initialization failed"}
+  if($actions.Count -ne 34 -or $script:shownActions[0].Id -ne 'ComposeDraft' -or $inputName.Visible -or $outputName.Visible){throw "Dashboard initialization failed"}
   $choice.SelectedIndex=1
   if(-not $inputName.Enabled -or -not $outputName.Enabled){throw "Advanced input fields missing"}
   $a=New-OperationArguments $actions[1] "C:\Quantic Lab\vault" "draft-test.json" "wire-test.json"
