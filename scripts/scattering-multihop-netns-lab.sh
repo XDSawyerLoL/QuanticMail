@@ -49,6 +49,10 @@ chmod 700 "$WORK/queue" "$WORK/sender-a" "$WORK/sender-b"
 RESEAL="${SCATTERING_MULTIHOP_RESEAL:-0}"
 E2E="${SCATTERING_MULTIHOP_E2E:-0}"
 MIX="${SCATTERING_MULTIHOP_MIX:-0}"
+OFFSET="${SCATTERING_MULTIHOP_SOURCE_OFFSET_MS:-0}"
+if [[ "$OFFSET" != "0" && "$OFFSET" != "25" ]];then
+ echo 'unsupported source offset' >&2; exit 2
+fi
 if [[ "$MIX" == "1" && "$E2E" != "1" ]];then echo 'batch-mix requires E2E lab' >&2;exit 2;fi
 if [[ "$E2E" == "1" && "$RESEAL" != "1" ]]; then
  echo 'E2E test requires independent hop resealing' >&2; exit 2
@@ -92,6 +96,7 @@ fi
 sleep .5
 if [[ "$E2E" == "1" ]]; then
  sudo ip netns exec "$NSA" "$NODE" "$ROOT/scripts/scattering-e2e-sender-lab.mjs" "$PACER" 10.252.41.2 49001 5 "$WORK/a.key" "$WORK/e2e.key" 0 >"$WORK/a.report" 2>"$WORK/a.err" & PID_A="$!"
+ if [[ "$OFFSET" == "25" ]];then sleep .025;fi
  sudo ip netns exec "$NSB" "$NODE" "$ROOT/scripts/scattering-e2e-sender-lab.mjs" "$PACER" 10.252.42.2 49002 5 "$WORK/b.key" "$WORK/e2e.key" 1 >"$WORK/b.report" 2>"$WORK/b.err" & PID_B="$!"
 elif [[ "$RESEAL" == "1" ]]; then
  sudo ip netns exec "$NSA" "$NODE" "$ROOT/scripts/scattering-physical-probe.mjs" send-synthetic "$PACER" 10.252.41.2 49001 5 "$WORK/a.key" 50000 >"$WORK/a.report" 2>"$WORK/a.err" & PID_A="$!"
@@ -116,9 +121,11 @@ import {readFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 const [root,work]=process.argv.slice(2);
-const {assessCrossHopLinkability}=await import(pathToFileURL(resolve(root,'lib/quantic/scattering-multihop-observer.mjs')).href);
+const {assessCrossHopLinkability,parseLabPcap}=await import(pathToFileURL(resolve(root,'lib/quantic/scattering-multihop-observer.mjs')).href);
 const get=n=>readFileSync(resolve(work,n));
 const x=assessCrossHopLinkability(get('a.pcap'),get('b.pcap'),get('out.pcap'));
+const ingressA=parseLabPcap(get('a.pcap')),ingressB=parseLabPcap(get('b.pcap'));
+const measuredFirstSourceOffsetMs=+(ingressB.packets[0].timestampMs-ingressA.packets[0].timestampMs).toFixed(3);
 const relay=JSON.parse(get('relay.json').toString().trim().split('\n').at(-1));
 const sent=get('egress.report').toString();
 const match=/planned=(\d+) sent=(\d+) missed=(\d+)/.exec(sent);
@@ -172,6 +179,8 @@ if(e2e){
 }
 console.log(JSON.stringify({lab:mix?'nested-e2e-40-cell-randomized-mix':e2e?'nested-e2e-inner-under-trusted-hop':reseal?'trusted-hop-reseal-control':'negative-control-2-senders-1-opaque-relay',
  CPUContentionRequested:process.env.SCATTERING_MULTIHOP_CPU_LOAD==='1',
+ sourceOffsetRequestedMs:Number(process.env.SCATTERING_MULTIHOP_SOURCE_OFFSET_MS||0),
+ measuredFirstSourceOffsetMs,
  impairmentRequested:process.env.SCATTERING_MULTIHOP_IMPAIRMENT==='1',
  native,relay,receiver:{received:receiver.received,authenticatedSynthetic:receiver.authenticatedSynthetic??0,
   authenticatedHop:receiver.authenticatedHop??0,authenticatedE2E:receiver.authenticatedE2E??0,
