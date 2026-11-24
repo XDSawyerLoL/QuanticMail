@@ -1,6 +1,7 @@
 // Packaged trusted desktop entry point; no console or session ID in UI.
 import {createHash} from 'node:crypto';
 import {win32} from 'node:path';
+import {validateNativeSessionConfiguration} from '../lib/quantic/native-session-kit.mjs';
 import {createWindowsNativeStorage} from '../desktop/native-windows-storage.mjs';
 import {createWindowsNativeSessionClientLab} from '../desktop/native-session-client.mjs';
 const check=x=>{if(!x)throw Error('Session configuration refused');};
@@ -26,16 +27,22 @@ process.stdin.on('error',()=>{void stop();});
 process.stdin.resume();
 try{
  const [binary,binarySha256,dir,configPin]=process.argv.slice(2);
- check(process.argv.length===6&&hex.test(configPin));
+ check(process.argv.length===6&&(configPin==='approved'||hex.test(configPin)));
  const storage=await createWindowsNativeStorage({binary,binarySha256,dir});
+ let approval=null;
+ if(configPin==='approved'){
+  const a=await storage.read(win32.join(dir,'session-approval.json'));
+  try{approval=JSON.parse(a.toString('utf8'));check(approval&&Object.keys(approval).length===4&&Object.values(approval).every(v=>typeof v==='string'&&hex.test(v)));}finally{a.fill(0);}
+ }
  const raw=await storage.read(win32.join(dir,'session.json'));
- let cfg;try{check(sha(raw)===configPin);cfg=JSON.parse(raw.toString('utf8'));}finally{raw.fill(0);}
+ let cfg;try{check(sha(raw)===(approval?approval['session.json']:configPin));cfg=JSON.parse(raw.toString('utf8'));}finally{raw.fill(0);}
  exact(cfg,['format','labOnly','service','authorities','candidate','expected','enrollmentReceipts','clientPin','tlsFiles']);
  check(cfg.format==='quantic-native-session-config-lab/v1'&&cfg.labOnly===true&&hex.test(cfg.clientPin));
  exact(cfg.tlsFiles,['ca','cert','key']);
- const readPem=async n=>{check(typeof n==='string'&&/^peer-[a-z0-9-]{1,48}\.pem$/.test(n));return storage.read(win32.join(dir,n));};
+ const readPem=async n=>{check(typeof n==='string'&&/^peer-[a-z0-9-]{1,48}\.pem$/.test(n));const b=await storage.read(win32.join(dir,n));if(approval&&sha(b)!==approval[n]){b.fill(0);throw Error('Approved TLS file changed');}return b;};
  const tls={ca:await readPem(cfg.tlsFiles.ca),cert:await readPem(cfg.tlsFiles.cert),key:await readPem(cfg.tlsFiles.key)};
  try{
+  validateNativeSessionConfiguration(cfg,tls);
   if(stopping)throw Error('Cancelled');
   client=await createWindowsNativeSessionClientLab({binary,binarySha256,dir,service:cfg.service,authorities:cfg.authorities,tls,candidate:cfg.candidate,expected:cfg.expected,enrollmentReceipts:cfg.enrollmentReceipts,clientPin:cfg.clientPin,labOnly:true});
   if(stopping){await client.lock();throw Error('Cancelled');}
