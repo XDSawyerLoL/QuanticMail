@@ -2,7 +2,6 @@ package sentinel
 
 import (
     "context"
-    "errors"
     "fmt"
     "sort"
     "time"
@@ -14,6 +13,7 @@ type DefenderNotice struct{
     Event *DefenderCFAEvent
     Err error
     Overflow bool
+    Restored bool
 }
 
 // MonitorDefenderEvents is a read-only, bounded event-log poller. It never
@@ -31,6 +31,7 @@ func MonitorDefenderEvents(ctx context.Context,started time.Time,period time.Dur
     send:=func(item DefenderNotice)bool{
         select{case out<-item:return true;case <-ctx.Done():return false}
     }
+    lastOverflow:=time.Time{}
     poll:=func()bool{
         events,overflow,err:=read(64)
         if err!=nil{
@@ -39,10 +40,13 @@ func MonitorDefenderEvents(ctx context.Context,started time.Time,period time.Dur
             return true
         }
         if hadError{
-            if !send(DefenderNotice{Err:errors.New("Defender CFA journal access restored")}){return false}
+            if !send(DefenderNotice{Restored:true}){return false}
             hadError=false
         }
-        if overflow && !send(DefenderNotice{Overflow:true}){return false}
+        if overflow && (lastOverflow.IsZero() || time.Since(lastOverflow)>time.Minute){
+            if !send(DefenderNotice{Overflow:true}){return false}
+            lastOverflow=time.Now()
+        }
         // EvtQuery returns reverse chronological order. Normalize for a
         // deterministic persisted history and the burst correlation window.
         sort.Slice(events,func(i,j int)bool{
@@ -64,6 +68,7 @@ func MonitorDefenderEvents(ctx context.Context,started time.Time,period time.Dur
         }
         return true
     }
+    if ctx.Err()!=nil{return}
     if !poll(){return}
     for{
         select{
