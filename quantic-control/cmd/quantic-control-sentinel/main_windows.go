@@ -19,7 +19,7 @@ const(
  wsChild=0x40000000;wsVisible=0x10000000;wsOverlappedWindow=0x00CF0000
  wsVScroll=0x00200000;wsBorder=0x00800000;lbsNotify=0x0001
  lbAddString=0x0180;lbSetTopIndex=0x0197;lbResetContent=0x0184
- cmdSelect=201;cmdStop=202;cmdClear=203;cmdInstall=204;cmdUninstall=205;cmdHistory=206
+ cmdSelect=201;cmdStop=202;cmdClear=203;cmdInstall=204;cmdUninstall=205;cmdHistory=206;cmdDefender=207
  colorWindow=5;defaultGuiFont=17
  bifReturnOnlyFSDirs=1;bifEditBox=0x10;bifNewDialogStyle=0x40
 )
@@ -167,6 +167,7 @@ func wndProc(hwnd uintptr,msg uint32,wparam,lparam uintptr)uintptr{
    makeControl(hwnd,"STATIC","Activité et alertes (session courante ou historisées)",22,373,700,28,0)
    activityList=makeControl(hwnd,"LISTBOX","",22,409,722,190,0)
    makeControl(hwnd,"STATIC","Agent volontaire au prochain login. Pas de réseau. Microsoft Defender reste actif.",22,610,730,34,0)
+   makeControl(hwnd,"BUTTON","Protection antirançongiciel Windows",22,650,360,38,cmdDefender)
    return 0
  case wmCommand:
    switch wparam&0xffff{
@@ -199,6 +200,16 @@ func wndProc(hwnd uintptr,msg uint32,wparam,lparam uintptr)uintptr{
      }else{
        addLog("Démarrage automatique supprimé. Agent arrêté et fichiers du programme retirés.")
        setLabel(statusLabel,"AGENT UTILISATEUR DÉSINSTALLÉ — les journaux locaux sont conservés")
+     }
+   case cmdDefender:
+     // Open existing Windows protections; never change antivirus settings
+     // or add any Defender exclusions automatically.
+     target:=u16("windowsdefender://ransomwareprotection/")
+     open:=u16("open")
+     shellResult,_,_:=shell32.NewProc("ShellExecuteW").Call(hwnd,uintptr(unsafe.Pointer(open)),uintptr(unsafe.Pointer(target)),0,0,1)
+     if shellResult<=32{
+       messageBox.Call(hwnd,uintptr(unsafe.Pointer(u16("Ouvrez Sécurité Windows > Protection contre les virus et menaces > Protection contre les rançongiciels.\nVérifiez l'accès contrôlé aux dossiers. L'activation reste votre décision."))),
+         uintptr(unsafe.Pointer(u16("Protection Windows"))),0x40)
      }
    case cmdHistory:
      path,err:=auditPath()
@@ -237,7 +248,7 @@ func main(){
  valid,_,_:=registerClass.Call(uintptr(unsafe.Pointer(&wc)))
  if valid==0{return}
  hwnd,_,_:=createWindow.Call(0,uintptr(unsafe.Pointer(class)),uintptr(unsafe.Pointer(u16("Quantic Sillage — Sentinel Alpha"))),
-   wsOverlappedWindow|wsVisible,180,100,780,735,0,0,instance,0)
+   wsOverlappedWindow|wsVisible,180,100,780,810,0,0,instance,0)
  if hwnd==0{return}
  var msg message
  for{
