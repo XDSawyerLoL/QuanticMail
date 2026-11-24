@@ -86,5 +86,10 @@ func ExchangeBrokerProof(in io.Reader,out io.Writer,s *Session,signer crypto.Sig
  n,err:=out.Write(frame)
  if err!=nil{return err};if n!=len(frame){return io.ErrShortWrite}
  reply,err:=brokerLine(reader);if err!=nil{return err}
- return s.Verify(reply,time.Now())
+ if err:=s.Verify(reply,time.Now());err!=nil{return err}
+ s.mu.Lock()
+ defer s.mu.Unlock()
+ if s.revoked{return errors.New("Vault session revoked")}
+ s.brokerController=append(ed25519.PublicKey(nil),pinnedController...)
+ return nil
 }
