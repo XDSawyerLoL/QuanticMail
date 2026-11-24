@@ -10,7 +10,7 @@ const hex=/^[a-f0-9]{64}$/;
 export function nativeAuthorityRequest(authority,tls,path,body){
  const u=new URL(authority.url);
  check(u.protocol==='https:'&&u.pathname==='/'&&!u.username&&!u.password&&!u.search&&!u.hash&&hex.test(authority.tlsPin));
- check(/^\/native-(enrollment|authentication)\/(begin|finish|readback)$/.test(path));
+ check(/^\/native-(enrollment|authentication)\/(begin|finish|readback)$/.test(path)||/^\/native-session\/(begin|open|whoami|lock|cancel)$/.test(path));
  const bytes=Buffer.from(JSON.stringify(body));check(bytes.length<=32768);
  return new Promise((resolve,reject)=>{
   const req=request(new URL(path,u),{ca:tls.ca,cert:tls.cert,key:tls.key,agent:false,minVersion:'TLSv1.3',rejectUnauthorized:true,
@@ -33,10 +33,12 @@ function validateChallenge(ch,candidate,expected){
  const names=['address','deviceId','signingPin','encryptionPin','kemPin','dsaPin','quorumPin','controllerPublic'];
  check(names.every((k,i)=>a[i+1]===expected[k]));
 }
-export async function runNativeEnrollmentAuthorityClient({authorities,tls,candidate,expected,prove,mode,enrollmentReceipts,clientPin}){
+export async function runNativeEnrollmentAuthorityClient({authorities,tls,candidate,expected,prove,mode,enrollmentReceipts,clientPin,authenticationNonce}){
  check(Array.isArray(authorities)&&authorities.length===4&&new Set(authorities.map(a=>a.pin)).size===4&&new Set(authorities.map(a=>a.tlsPin)).size===4&&new Set(authorities.map(a=>new URL(a.url).origin)).size===4);
  check(typeof prove==='function'&&['enroll','authenticate'].includes(mode)&&hex.test(clientPin));
- const auth=mode==='authenticate',nonce=auth?randomBytes(32).toString('hex'):undefined;
+ const auth=mode==='authenticate';
+ check(authenticationNonce===undefined||(auth&&typeof authenticationNonce==='string'&&hex.test(authenticationNonce)));
+ const nonce=auth?(authenticationNonce??randomBytes(32).toString('hex')):undefined;
  if(auth)verifyNativeEnrollmentReceipts(enrollmentReceipts,authorities,candidate,expected);
  const receipts=[],errors=[],pendingAuth=[];
  for(const a of authorities){
