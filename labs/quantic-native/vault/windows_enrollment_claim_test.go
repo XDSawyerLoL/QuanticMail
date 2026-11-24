@@ -30,5 +30,11 @@ func TestWindowsEnrollmentClaimPrivatePersistence(t *testing.T){
   if _,e=os.Stat(filepath.Join(dir,name));!os.IsNotExist(e){t.Fatalf("unexpected implicit activation: %s",name)}
  }
  if _,e:=readSyntheticGUIProfile(dir);e==nil{t.Fatal("claim confused with former synthetic profile")}
+ pending,e:=readPendingEnrollment(dir)
+ if e!=nil||pending.Claim.Address!=c.Address||pending.Claim.DeviceID!=c.DeviceID{t.Fatal("pending identity discovery failed",e)}
+ if _,e=readPendingEnrollment(parent);e==nil{t.Fatal("non-candidate directory accepted")}
+ if e=windowsAnswerPossessionCLI([]string{"Vault.exe","--gui-answer-enrollment-possession-lab",dir,"untrusted"});e==nil{t.Fatal("bad operator pin accepted")}
+ if e=windowsListEnrollmentCLI([]string{"Vault.exe","--gui-list-enrollment-candidates-lab",parent,"extra"});e==nil{t.Fatal("extra argument accepted")}
+
  if e=windowsPrepareEnrollmentCLI([]string{"Vault.exe","--gui-prepare-enrollment-claim-lab",parent,"testalice"});e==nil{t.Fatal("missing anchor accepted")}
 }
