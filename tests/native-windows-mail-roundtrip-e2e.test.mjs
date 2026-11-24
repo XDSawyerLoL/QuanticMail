@@ -103,6 +103,7 @@ test('Windows actual PQ vaults, durable draft, native UDP relay, decrypt, receip
    execFileSync(vault,['--windows-scattering-create-lab',scope],{windowsHide:true,timeout:15000});
    const queueDir=join(scope,'queue');queues.push(queueDir);
    const ep=await startScatteringMailboxEndpoint({...shared,role,queueDir,stateDir:join(scope,'state'),httpPort:role==='client'?0:directReceive?1:relayPort},{windowsBootstrap:{binary:vault,binarySha256:pin,dir:scope},...(directReceive?{profile:'direct-mail',...(role==='relay'?{directReceive}:{})}:{})});
+   if(directReceive&&role==='relay')assert.equal(ep.httpPort,undefined,'recipient must not expose an HTTP listener');
    pair.push(ep);endpoints.push(ep);
   }
   const ports=[await freeUDP(),await freeUDP()];assert.notEqual(ports[0],ports[1]);
@@ -165,6 +166,10 @@ test('Windows actual PQ vaults, durable draft, native UDP relay, decrypt, receip
   // signed wire is sent over a new domain-separated native UDP carrier
   // directly into the recipient's ACL-protected local vault.
   await stopRelay();restoreNativeMailbox([]);
+  for(const ep of endpoints)ep.close();
+  await Promise.all(endpoints.map(ep=>ep.closed));endpoints.length=0;
+  const oldExits=kids.map(p=>p.exitCode!==null||p.signalCode!==null?Promise.resolve():new Promise(r=>{p.once('close',r);p.once('error',r);}));
+  for(const p of kids)p.kill();await Promise.all(oldExits);kids.length=0;
   const peer=(i)=>({address:peers[i].address,deviceId:peers[i].deviceId});
   const directToken=randomBytes(32).toString('hex');
   const contactPin=async(storage)=>{const bytes=await storage.read(join(storage.dir,'contacts.json'));try{return hex(bytes);}finally{bytes.fill(0);}};
@@ -189,6 +194,10 @@ test('Windows actual PQ vaults, durable draft, native UDP relay, decrypt, receip
   assert.equal(tampered.status,403);
   // Reopen the receiver and use a different session: the exact logical
   // message remains idempotent, and no relay state has reappeared.
+  for(const ep of endpoints)ep.close();
+  await Promise.all(endpoints.map(ep=>ep.closed));endpoints.length=0;
+  const directExits=kids.map(p=>p.exitCode!==null||p.signalCode!==null?Promise.resolve():new Promise(r=>{p.once('close',r);p.once('error',r);}));
+  for(const p of kids)p.kill();await Promise.all(directExits);kids.length=0;
   const reopenedDirect=await transport('direct-2',await makeReceiver());
   await pause(600);
   const repeat=await createDirectSender({endpoint:reopenedDirect,trust:ta}).send(signed);
