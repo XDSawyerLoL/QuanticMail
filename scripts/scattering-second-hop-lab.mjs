@@ -6,9 +6,10 @@ import {isAbsolute} from 'node:path';
 import {openReliable} from '../labs/quantic-native/scattering/scattering-reliable-lab.mjs';
 import {writeSpool} from '../labs/quantic-native/scattering/scattering-cell.mjs';
 import {resealLabHop} from '../lib/quantic/scattering-hop-reseal-lab.mjs';
+import {peelAndResealLab,peelSecondLayer} from '../lib/quantic/scattering-second-layer-lab.mjs';
 import {createScatteringBatchMixer} from '../lib/quantic/scattering-batch-mixer-lab.mjs';
 
-const [queue,inPath,outPath,profile='balanced',mixRaw='1']=process.argv.slice(2);
+const [queue,inPath,outPath,profile='balanced',mixRaw='1',secondPath]=process.argv.slice(2);
 const check=(ok,msg)=>{if(!ok)throw Error(msg)};
 check(queue&&isAbsolute(queue)&&['balanced','skewed','sparse'].includes(profile)&&['0','1'].includes(mixRaw),'isolated lab arguments only');
 const expected={balanced:200,skewed:120,sparse:4}[profile];
@@ -20,7 +21,8 @@ function keyAt(path){
  return readFileSync(path);
 }
 const inputKey=keyAt(inPath),outputKey=keyAt(outPath);
-check(!inputKey.equals(outputKey),'independent hop keys required');
+const secondKey=secondPath?keyAt(secondPath):null;
+check(!inputKey.equals(outputKey)&&(!secondKey||(!secondKey.equals(inputKey)&&!secondKey.equals(outputKey))),'independent hop keys required');
 const stats={received:0,coverOrInvalid:0,authenticated:0,duplicates:0,invalid:0,spooled:0,paddedCover:0,spoolErrors:0,timedFlushes:0};
 const seen=new Set();
 let seq=0,timer;
@@ -29,7 +31,7 @@ function commit(batch){
  const frames=[];let real=0,pads=0;
  for(const {packet,source} of batch){
   if(source===null){frames.push(packet);pads++;continue;}
-  const out=resealLabHop({inputKey,outputKey,packet,hopSeq:seq+real});
+  const out=(secondKey?peelAndResealLab:resealLabHop)({inputKey,secondKey,outputKey,packet,hopSeq:seq+real});
   check(out!==null,'invalid queued cell');
   frames.push(out);real++;
  }
@@ -44,8 +46,11 @@ try{
   if(packet.length!==168){stats.invalid++;return;}
   const opened=openReliable(inputKey,packet);
   if(!opened||opened.seq===null){stats.coverOrInvalid++;return;}
-  const n=opened.seq,len=opened.data.length;opened.data.fill(0);
-  if(len!==92){stats.invalid++;return;}
+  const n=opened.seq,len=opened.data.length;
+  const peeled=secondKey?peelSecondLayer(secondKey,opened.data):null;
+  opened.data.fill(0);
+  if(len!==(secondKey?120:92)||(secondKey&&!peeled)){stats.invalid++;return;}
+  peeled?.fill(0);
   if(seen.has(n)){stats.duplicates++;return;}
   if(seen.size>=expected){stats.invalid++;return;}
   seen.add(n);stats.authenticated++;
@@ -60,8 +65,8 @@ try{
  await new Promise(resolve=>setTimeout(resolve,15000));
  clearInterval(timer);
  if(mixer){try{if(profile==='sparse')mixer.flushPadded();else mixer.drain();}catch{stats.spoolErrors++;}}
- console.log(JSON.stringify({mode:'second-hop-lab',profile,mix,...stats,mixer:mixer?.stats()??null,endpointKeySupplied:false}));
+ console.log(JSON.stringify({mode:'second-hop-lab',profile,mix,...stats,mixer:mixer?.stats()??null,endpointKeySupplied:false,secondLayerEnabled:!!secondKey}));
  check(stats.received===550&&stats.coverOrInvalid===550-expected&&stats.authenticated===expected&&
   stats.spooled===expected&&stats.duplicates===0&&stats.invalid===0&&stats.spoolErrors===0,
   'second hop delivery/accounting failed');
-}finally{clearInterval(timer);sock.close();inputKey.fill(0);outputKey.fill(0);}
+}finally{clearInterval(timer);sock.close();inputKey.fill(0);outputKey.fill(0);secondKey?.fill(0);}
