@@ -275,3 +275,42 @@ de quorum; le test-only fixture ne les remplace pas dans l'installateur.
 Les enveloppes entrantes sont conservees pour ouverture native, pas
 encore integrees a la boite de reception graphique. Les logiciels
 historiques et donnees restent intacts. Pas de deploiement public.
+
+
+## Coffre autonome local — nouvelle identite uniquement
+
+Mode distinct quantic-local-direct-identity/v1 : adresse generee localement
+avec 128 bits aleatoires, racine de liaison locale independante, domaines
+de stockage classique/PQ distincts et marqueur direct-provisioned.
+Aucune migration ni ouverture d'un coffre quorum dans ce mode. Le
+coffre original conserve ses controles distants. Deux phrases secretes
+distinctes sont saisies dans les dialogues Windows natifs.
+
+Le nouveau CLI natif traite seulement les operations seal/open/recover,
+avec carte de contact approuvee hors bande par SHA256, signature hybride,
+liaison exacte des comptes et appareils, expiration des contacts,
+journal NTFS exclusif avec flush avant operation et cache de resultat
+chiffre authentifie pour la recuperation exacte. Pas de reexecution
+automatique. La compromission de l'utilisateur Windows, le clonage ou
+le retour d'un journal valide ancien ne sont PAS empeches ; ce mode
+n'offre pas la garantie anti-rollback distante du mode quorum.
+La carte publique expire au plus tard apres 24h. Import unique sans
+ecrasement : renouvellement/revocation et changement de contact restent
+a implementer. Le profil de transport v2 reconnait l'identite locale
+sans desktop.json ni source d'autorite. Aucune cle privee echangee.
+
+Interface SCATTERING > Mon coffre autonome et mes messages : creation,
+export public, import d'une carte independamment verifiee, preparation
+chiffree locale, lecture/relecture des enveloppes recues. Le menu
+Messagerie directe entre deux PC reste le parcours d'envoi et exige un
+profil v2 prepare hors bande. Aucun annuaire ou NAT automatique ;
+pas de validation physique ou d'anonymat IP. Le test Windows
+TestWindowsDirectLocalVault appelle les nouvelles primitives de
+production avec entrees synthetiques et callbacks de consentement,
+sans simuler l'interface humaine, ni executer un reseau dans ce test.
+Il valide creation distincte, rejet d'ecrasement et de domaine quorum,
+seal/open, refus d'une operation double et recuperation exacte.
+L'essai UDP deja valide utilisait encore les fixtures synthetiques ;
+l'integration E2E du nouveau coffre, du transport et de l'UI reste a
+verifier. La limitation locale anti-rollback interdit de revendiquer
+une equivalence de securite avec le quorum.
