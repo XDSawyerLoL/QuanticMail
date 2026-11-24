@@ -47,3 +47,8 @@ jobs:
       - name: Two isolated Linux network namespaces + independent tcpdump observer
         shell: bash
         run: bash scripts/scattering-netns-observer-lab.sh "$RUNNER_TEMP/Quantic-Pacer"
+      - name: Repeat with controlled packet loss and jitter via tc/netem
+        shell: bash
+        env:
+          SCATTERING_IMPAIRMENT: "1"
+        run: bash scripts/scattering-netns-observer-lab.sh "$RUNNER_TEMP/Quantic-Pacer"
