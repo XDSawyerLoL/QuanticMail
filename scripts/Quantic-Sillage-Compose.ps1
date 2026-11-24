@@ -105,18 +105,25 @@ $send.SetBounds(276,558,208,43)
 $form.Controls.Add($send)
 $cancel.Add_Click({$form.Close()})
 $statusButton.Add_Click({
- try{
-  if(-not $script:privateDirectory){throw 'Selectionnez d abord votre coffre fictif.'}
+ try {
+  if(-not $script:privateDirectory){throw 'Coffre de test non choisi.'}
   $result=Invoke-Composer $script:privateDirectory '' $false $false $true
-  if($result.status -cne 'local-files-only-unverified' -or $result.deliveryVerified -or @($result.items).Count -gt 64){
-   throw 'Inventaire non verifie.'
-  }
-  $lines=@('Fichiers conserves sur cet ordinateur seulement.','AUCUNE preuve de livraison distante.','')
+  if($result.status -cne 'local-files-only-unverified' -or $result.deliveryVerified){throw 'Etat non fiable.'}
   $items=@($result.items)
-  if($items.Count -eq 0){$lines+='Aucun brouillon ou enveloppe de test trouve.'}
-  for($i=0;$i -lt [Math]::Min($items.Count,12);$i++){
+  $lines=@('Lecture locale seulement - aucune livraison distante verifiee.','')
+  if($items.Count -eq 0){$lines+='Aucun essai trouve.'}
+  $n=[Math]::Min($items.Count,10)
+  for($i=0;$i -lt $n;$i++){
    $item=$items[$i]
-   if([string]$item.id -cnotmatch '^[a-f0-9]{32}
+   $desc=if($item.wire){'Enveloppe presente - livraison inconnue'}else{'Brouillon protege - non envoye'}
+   $lines+=('Essai '+($i+1)+' : '+$desc)
+  }
+  if($items.Count -gt $n){$lines+=('Autres essais : '+($items.Count-$n))}
+  [Windows.Forms.MessageBox]::Show(($lines -join [Environment]::NewLine),'Mes essais locaux','OK','Information')|Out-Null
+ }catch{
+  [Windows.Forms.MessageBox]::Show('Etat local indisponible. Aucun fichier supprime ou renvoye.','Mes essais locaux','OK','Warning')|Out-Null
+ }
+})
 $choose.Add_Click({
  $picker=New-Object Windows.Forms.FolderBrowserDialog
  $picker.Description='Selectionnez votre coffre de test existant.'
