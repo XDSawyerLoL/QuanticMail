@@ -18,6 +18,8 @@ on:
       - "lib/quantic/scattering-temporal-correlation-lab.mjs"
       - "lib/quantic/scattering-fifo-timing-observer.mjs"
       - "tests/scattering-fifo-timing-observer.test.mjs"
+      - "lib/quantic/scattering-batch-mixer-lab.mjs"
+      - "tests/scattering-batch-mixer.test.mjs"
       - "scripts/scattering-e2e-sender-lab.mjs"
       - "scripts/scattering-e2e-receiver-lab.mjs"
       - "scripts/scattering-physical-probe.mjs"
@@ -44,26 +46,37 @@ jobs:
             impairment: "0"
             reseal: "0"
             e2e: "0"
+            mix: "0"
           - name: loss-and-jitter
             cpu: "0"
             impairment: "1"
             reseal: "0"
             e2e: "0"
+            mix: "0"
           - name: cpu-contention
             cpu: "1"
             impairment: "0"
             reseal: "0"
             e2e: "0"
+            mix: "0"
           - name: trusted-hop-reseal
             cpu: "0"
             impairment: "0"
             reseal: "1"
             e2e: "0"
+            mix: "0"
           - name: recipient-only-nested-e2e
             cpu: "0"
             impairment: "0"
             reseal: "1"
             e2e: "1"
+            mix: "0"
+          - name: recipient-only-nested-e2e-batch-mix
+            cpu: "0"
+            impairment: "0"
+            reseal: "1"
+            e2e: "1"
+            mix: "1"
     name: "Network observer / ${{ matrix.name }}"
     steps:
       - uses: actions/checkout@v4
@@ -82,7 +95,7 @@ jobs:
       - name: Validate passive PCAP parser and shell syntax
         run: |
           node --test tests/scattering-multihop-observer.test.mjs
-          node --test tests/scattering-hop-reseal.test.mjs tests/scattering-e2e-envelope.test.mjs tests/scattering-temporal-correlation.test.mjs tests/scattering-fifo-timing-observer.test.mjs
+          node --test tests/scattering-hop-reseal.test.mjs tests/scattering-e2e-envelope.test.mjs tests/scattering-temporal-correlation.test.mjs tests/scattering-fifo-timing-observer.test.mjs tests/scattering-batch-mixer.test.mjs
           node --check scripts/scattering-e2e-sender-lab.mjs
           node --check scripts/scattering-e2e-receiver-lab.mjs
           node --check scripts/scattering-hop-reseal-relay-lab.mjs
@@ -97,4 +110,5 @@ jobs:
           SCATTERING_MULTIHOP_IMPAIRMENT: ${{ matrix.impairment }}
           SCATTERING_MULTIHOP_RESEAL: ${{ matrix.reseal }}
           SCATTERING_MULTIHOP_E2E: ${{ matrix.e2e }}
+          SCATTERING_MULTIHOP_MIX: ${{ matrix.mix }}
         run: bash scripts/scattering-multihop-netns-lab.sh "$RUNNER_TEMP/Quantic-Pacer"
