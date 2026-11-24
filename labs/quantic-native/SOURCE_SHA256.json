@@ -106,6 +106,7 @@
   "vault/windows_gui_first_run_test.go": "dc73b12447fe3a6e134a2082a586cfb43ddf8ec7caa29e774c9b0240fc58a8d5",
   "vault/windows_gui_preflight.go": "edb14486127daaf08ef86058071b76b2b1dd071de4c6b0889f0a99b812c1573d",
   "vault/windows_gui_preflight_test.go": "d68c92455518aca346c0ab8f0381e858ff4c937ef2d9a52796a2a4596a0f12c8",
+  "vault/windows_gui_registry.go": "374023206b207ab04891700f614f38e1660075a20f9b921488d06d38e5482f74",
   "vault/windows_import.go": "b16821bcc801f38d6228c762b40317c7e3cadd66ffc95e455810825808d9c35d",
   "vault/windows_import_test.go": "76a73c5ae1e0d6723313a4c236931d201dfac2e8eba8986a336d5668af7b10eb",
   "vault/windows_journal.go": "01ff8e9ef237441024afc71844bebcf4014434aa04d0562a332e23705eaa44c8",
