@@ -146,5 +146,18 @@ func TestWindowsDirectLocalVault(t *testing.T){
  lease,e=winOpenDirectUDPLeaseStore(leaseDir,self,old,config,roster);if e!=nil{t.Fatal(e)}
  defer lease.close()
  if c,e:=lease.active(now+directRenewWindow+1);e!=nil||c.Expires!=renewed.Expires{t.Fatal("native renewal restart",e)}
+ if e=revokeDirectIssuer(issuer,old,own,roster,func()bool{return true});e!=nil{t.Fatal("issuer revoke",e)}
+ // A genuinely fresh signed request after revocation must not produce a proof.
+ later:=renewed.Expires-directRenewLead
+ next,e:=lease.begin(later);if e!=nil{t.Fatal(e)}
+ signed,e:=signDirectRenewRequest(next.req,renewed.Expires,later,softwareSigner{ownKeys.signing},ownPQ);if e!=nil{t.Fatal(e)}
+ if _,e=issueDirectRenew(signed,old,own,later,issuer,roster,allowed,softwareSigner{keys.signing},pq);e==nil{t.Fatal("revoked requester signed")}
+ if e=lease.revoke(func()bool{return true});e!=nil{t.Fatal("receiver revoke",e)}
+ if _,e=lease.active(now);e==nil{t.Fatal("revoked contact active")}
+ if _,e=lease.begin(now);e==nil{t.Fatal("revoked contact can renew")}
+ lease.close()
+ reopened,e:=winOpenDirectUDPLeaseStore(leaseDir,self,old,config,roster);if e!=nil{t.Fatal(e)}
+ defer reopened.close()
+ if _,e=reopened.active(now);e==nil{t.Fatal("revocation lost on restart")}
 }
 
