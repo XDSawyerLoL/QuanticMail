@@ -12,6 +12,10 @@ on:
       - "tests/scattering-hop-reseal.test.mjs"
       - "lib/quantic/scattering-hop-reseal-lab.mjs"
       - "scripts/scattering-hop-reseal-relay-lab.mjs"
+      - "lib/quantic/scattering-e2e-envelope-lab.mjs"
+      - "tests/scattering-e2e-envelope.test.mjs"
+      - "scripts/scattering-e2e-sender-lab.mjs"
+      - "scripts/scattering-e2e-receiver-lab.mjs"
       - "scripts/scattering-physical-probe.mjs"
       - ".github/workflows/scattering-multihop-lab.yml"
   workflow_dispatch:
@@ -35,18 +39,27 @@ jobs:
             cpu: "0"
             impairment: "0"
             reseal: "0"
+            e2e: "0"
           - name: loss-and-jitter
             cpu: "0"
             impairment: "1"
             reseal: "0"
+            e2e: "0"
           - name: cpu-contention
             cpu: "1"
             impairment: "0"
             reseal: "0"
+            e2e: "0"
           - name: trusted-hop-reseal
             cpu: "0"
             impairment: "0"
             reseal: "1"
+            e2e: "0"
+          - name: recipient-only-nested-e2e
+            cpu: "0"
+            impairment: "0"
+            reseal: "1"
+            e2e: "1"
     name: "Network observer / ${{ matrix.name }}"
     steps:
       - uses: actions/checkout@v4
@@ -65,7 +78,9 @@ jobs:
       - name: Validate passive PCAP parser and shell syntax
         run: |
           node --test tests/scattering-multihop-observer.test.mjs
-          node --test tests/scattering-hop-reseal.test.mjs
+          node --test tests/scattering-hop-reseal.test.mjs tests/scattering-e2e-envelope.test.mjs
+          node --check scripts/scattering-e2e-sender-lab.mjs
+          node --check scripts/scattering-e2e-receiver-lab.mjs
           node --check scripts/scattering-hop-reseal-relay-lab.mjs
           node --check scripts/scattering-opaque-relay-lab.mjs
           bash -n scripts/scattering-multihop-netns-lab.sh
@@ -77,4 +92,5 @@ jobs:
           SCATTERING_MULTIHOP_CPU_LOAD: ${{ matrix.cpu }}
           SCATTERING_MULTIHOP_IMPAIRMENT: ${{ matrix.impairment }}
           SCATTERING_MULTIHOP_RESEAL: ${{ matrix.reseal }}
+          SCATTERING_MULTIHOP_E2E: ${{ matrix.e2e }}
         run: bash scripts/scattering-multihop-netns-lab.sh "$RUNNER_TEMP/Quantic-Pacer"
