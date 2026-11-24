@@ -78,6 +78,13 @@ func (a *localAudit) Append(r Record)error{
 // cancelled. No elevated privileges, network connections, or destructive
 // actions are used. Every alert is durably recorded before processing more.
 func RunResident(ctx context.Context,root,logPath string)error{
+ return runResidentWithDefender(ctx,root,logPath,ReadRecentCFA,runtime.GOOS=="windows")
+}
+
+// runResidentWithDefender makes the native event-log source replaceable by a
+// test double, without exposing an API for untrusted code to inject events
+// into the installed agent. Only RunResident is called by the Windows binary.
+func runResidentWithDefender(ctx context.Context,root,logPath string,reader CFAReader,enabled bool)error{
  if ctx==nil{return errors.New("context required")}
  audit,err:=openAudit(logPath)
  if err!=nil{return err}
@@ -96,12 +103,12 @@ func RunResident(ctx context.Context,root,logPath string)error{
  // Only Windows can read the local Defender Operational journal. No remote
  // subscription or privileged Event Log configuration is performed.
  var defenderNotices <-chan DefenderNotice
- if runtime.GOOS=="windows" {
+ if enabled {
   notices:=make(chan DefenderNotice,64)
   defenderNotices=notices
   go func(){
    defer close(notices)
-   MonitorDefenderEvents(watchCtx,time.Now().UTC(),10*time.Second,ReadRecentCFA,notices)
+   MonitorDefenderEvents(watchCtx,time.Now().UTC(),10*time.Second,reader,notices)
   }()
  }
  for{
