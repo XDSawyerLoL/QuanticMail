@@ -1,4 +1,4 @@
-import {startManagedCarrier,startNegotiatedManagedCarrier,validateManagedCarrier} from '../desktop/native-managed-scattering.mjs';
+import {startManagedCarrier,startNegotiatedManagedCarrier,startFencedNegotiatedManagedCarrier,validateManagedCarrier} from '../desktop/native-managed-scattering.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createServer,request} from 'node:http';
@@ -112,5 +112,54 @@ test('negotiated managed carriers activate native UDP on both endpoints without 
   for(const s of sockets)await new Promise(r=>{try{s.close(r);}catch{r();}});
   server.closeAllConnections();await new Promise(r=>server.close(r));
   await rm(root,{recursive:true,force:true,maxRetries:10,retryDelay:200});
+ }
+});
+
+test('two successive fenced native carriers do not resend previous mailbox operations',{skip:!binary||process.platform!=='linux',timeout:90000},async()=>{
+ const {openEpochFence}=await import('../lib/quantic/scattering-epoch-fence-lab.mjs');
+ const root=await realpath(await mkdtemp(join(tmpdir(),'qs-fenced-carrier-')));
+ const ids=Array.from({length:2},()=>{const a=generateKeyPairSync('ec',{namedCurve:'prime256v1'}),b=generateKeyPairSync('ml-dsa-65');return {local:{classical:a.publicKey,pq:b.publicKey},privateKeys:{classical:a.privateKey,pq:b.privateKey}};});
+ const channel=randomBytes(48).toString('hex'),fences=[],carriers=[],sockets=[],hits=[];
+ const server=createServer(async(req,res)=>{
+  const parts=[];for await(const b of req)parts.push(b);
+  hits.push(JSON.parse(Buffer.concat(parts)));const raw=Buffer.from('{"ok":true}');
+  res.writeHead(202,{'Content-Type':'application/json','Content-Length':raw.length});res.end(raw);
+ });
+ const binaryPin=createHash('sha256').update(await readFile(binary)).digest('hex');
+ try{
+  await new Promise((r,j)=>{server.once('error',j);server.listen(0,'127.0.0.1',r);});
+  for(let i=0;i<2;i++)fences.push(openEpochFence({directory:join(root,'fence-'+i),channel,binding:(i?'a':'b').repeat(96),createNew:true}));
+  for(let gen=0;gen<2;gen++){
+   const configs=[],ports=[],boots=[];
+   for(let i=0;i<2;i++){
+    const dir=join(root,'epoch-'+gen+'-'+i),queueDir=join(dir,'queue'),stateDir=join(dir,'state');
+    await mkdir(dir,{mode:0o700});await mkdir(queueDir,{mode:0o700});await mkdir(stateDir,{mode:0o700});
+    configs.push({labOnly:true,role:i?'relay':'client',queueDir,stateDir,recvPort:0,httpPort:i?server.address().port:0});
+    ports.push(await freeUDP());
+    const socket=createSocket('udp4');sockets.push(socket);boots.push(socket);
+    await new Promise((r,j)=>{socket.once('error',j);socket.bind(0,'127.0.0.1',r);});
+   }
+   assert.notEqual(ports[0],ports[1]);
+   const bootPorts=boots.map(s=>s.address().port);
+   await Promise.all(boots.map((s,i)=>new Promise((r,j)=>{s.once('error',j);s.connect(bootPorts[1-i],'127.0.0.1',r);})));
+   const results=await Promise.allSettled(boots.map((socket,i)=>startFencedNegotiatedManagedCarrier({socket,...ids[i],peer:ids[1-i].local,fence:fences[i],binary,binaryPin,config:configs[i],listen:'127.0.0.1:'+ports[i],target:'127.0.0.1:'+ports[1-i]})));
+   for(const o of results)if(o.status==='fulfilled')carriers.push(o.value);
+   for(const o of results)if(o.status==='rejected')throw o.reason;
+   const pair=results.map(o=>o.value);
+   assert.equal(pair[0].generation,gen);assert.equal(pair[1].generation,gen);assert.equal(pair[0].transcript,pair[1].transcript);assert.ok(pair.every(p=>p.peerReady));
+   assert.ok(fences.every(f=>f.status().generation===gen&&!f.status().pending));
+   assert.equal(hits.length,gen);
+   assert.deepEqual(await post(pair[0].httpPort,base+'send',{generation:gen}),{status:202,body:{ok:true}});
+   assert.deepEqual(hits,Array.from({length:gen+1},(_,generation)=>({generation})));
+   await Promise.all(pair.map(c=>c.close()));
+   await assert.rejects(post(pair[0].httpPort,base+'send',{generation:gen,unexpected:true}));
+  }
+  assert.notEqual(carriers[0].transcript,carriers[2].transcript);
+  assert.deepEqual(hits,[{generation:0},{generation:1}]);
+  console.log('FENCED_MANAGED_CARRIER_EVIDENCE '+JSON.stringify({generations:2,physicalHosts:1,syntheticMailbox:true,automaticResends:0,releaseAuthorized:false}));
+ }finally{
+  await Promise.allSettled(carriers.map(c=>c.close()));
+  for(const s of sockets)await new Promise(r=>{try{s.close(r);}catch{r();}});
+  for(const f of fences)f.close();server.closeAllConnections();await new Promise(r=>server.close(r));await rm(root,{recursive:true,force:true,maxRetries:10,retryDelay:200});
  }
 });

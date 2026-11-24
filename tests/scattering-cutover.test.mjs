@@ -20,13 +20,15 @@ test('both UDP endpoints confirm readiness, wrong transcript and missing peer re
  try{
   const options=i=>({socket:ss[i],role:i?'responder':'initiator',context,material:m,timeoutMs:2500});
   await Promise.all(ss.map((_,i)=>confirmScatteringCutover(options(i))));
+  m.transcript='d'.repeat(96);
   const invalid=await Promise.allSettled([confirmScatteringCutover(options(0)),confirmScatteringCutover({...options(1),material:{...m,transcript:'c'.repeat(96)}})]);
   assert.ok(invalid.every(r=>r.status==='rejected'));
+  m.transcript='e'.repeat(96);
   const abort=new AbortController();const waiting=confirmScatteringCutover({...options(0),signal:abort.signal});abort.abort();await assert.rejects(waiting);
   await assert.rejects(confirmScatteringCutover(options(0)),/not confirmed/);
  }finally{for(const s of ss)s.close();m.secret.fill(0);m.epoch.fill(0);}
 });
-test('staged generation cannot reopen or be recycled after a crash',{skip:process.platform!=='linux'},async()=>{
+test('staged generation remains blocked after reopening following a crash',{skip:process.platform!=='linux'},async()=>{
  const root=await realpath(await mkdtemp(join(tmpdir(),'scattering-cutover-'))),cfg={directory:join(root,'fence'),channel:context.channel,binding:'d'.repeat(96)};
  let f;
  try{
