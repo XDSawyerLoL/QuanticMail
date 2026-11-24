@@ -134,6 +134,92 @@ function Invoke-GUIReceive([string]$Directory){
   $p.Dispose()
  }
 }
+function Invoke-GUIRecovery([string]$Directory,$Selected=$null){
+ if($Directory -cnotmatch '^[A-Za-z]:\\[A-Za-z0-9_. -]+(?:\\[A-Za-z0-9_. -]+)*$'){throw 'Coffre de test refuse.'}
+ foreach($part in $Directory.Substring(3).Split('\')){
+  if($part -in @('.','..') -or $part.EndsWith('.') -or $part.EndsWith(' ')){throw 'Dossier ambigu.'}
+ }
+ $psi=New-Object Diagnostics.ProcessStartInfo
+ $helperRecovery=Join-Path $root 'scripts\native-vault-windows-mailbox.mjs'
+ $psi.FileName=$node
+ $psi.Arguments=('"{0}" "{1}" {2} "{3}"' -f $helperRecovery,$vault,$TrustedBinarySha256.ToLowerInvariant(),$Directory)
+ $consent=''
+ if($null -eq $Selected){$psi.Arguments+=' gui-list'}
+ else{
+  if($Selected.name -cnotmatch '^wire-[a-z0-9-]{1,48}\.json$' -or $Selected.digest -cnotmatch '^[a-f0-9]{64}$'){throw 'Selection refusee.'}
+  $psi.Arguments+=(' gui-retry "{0}" {1}' -f ([IO.Path]::Combine($Directory,$Selected.name)),$Selected.digest)
+  $consent='APPROVE '+$Selected.digest
+ }
+ $psi.WorkingDirectory=$root
+ $psi.UseShellExecute=$false;$psi.CreateNoWindow=$true
+ $psi.WindowStyle=[Diagnostics.ProcessWindowStyle]::Hidden
+ $psi.RedirectStandardInput=$true;$psi.RedirectStandardOutput=$true;$psi.RedirectStandardError=$true
+ $psi.StandardInputEncoding=[System.Text.UTF8Encoding]::new($false)
+ $psi.StandardOutputEncoding=[System.Text.UTF8Encoding]::new($false)
+ $psi.StandardErrorEncoding=[System.Text.UTF8Encoding]::new($false)
+ $psi.EnvironmentVariables.Clear()
+ $psi.EnvironmentVariables['SystemRoot']=$env:SystemRoot
+ $psi.EnvironmentVariables['WINDIR']=$env:SystemRoot
+ $psi.EnvironmentVariables['PATH']=(Join-Path $root 'bin')+';'+(Join-Path $env:SystemRoot 'System32')
+ $p=New-Object Diagnostics.Process;$p.StartInfo=$psi
+ try{
+  if(-not $p.Start()){throw 'Reprise indisponible.'}
+  $stdout=$p.StandardOutput.ReadToEndAsync();$stderr=$p.StandardError.ReadToEndAsync()
+  if($consent){$p.StandardInput.WriteLine($consent)}
+  $p.StandardInput.Close()
+  if(-not $p.WaitForExit(120000)){$p.Kill();throw 'Reprise non confirmee.'}
+  $raw=$stdout.GetAwaiter().GetResult();$null=$stderr.GetAwaiter().GetResult()
+  if($raw.Length -gt 65536){throw 'Reponse invalide.'}
+  $lines=@($raw -split '\r?\n'|Where-Object{$_ -cmatch '^QUANTIC_GUI_RESULT '})
+  if($lines.Count -ne 1){throw 'Reprise non confirmee.'}
+  $r=ConvertFrom-Json -InputObject $lines[0].Substring(19)
+  if($p.ExitCode -ne 0 -and $r.status -cne 'deposit-unconfirmed'){throw 'Reprise non confirmee.'}
+  return $r
+ }finally{if(-not $p.HasExited){$p.Kill()};$p.Dispose()}
+}
+function Show-GUIRecovery([string]$Directory){
+ $catalog=Invoke-GUIRecovery $Directory
+ if($catalog.status -cne 'saved-messages'){throw 'Liste indisponible.'}
+ $rows=@($catalog.messages)
+ if($rows.Count -eq 0){
+  [Windows.Forms.MessageBox]::Show('Aucun message signe conserve.','Quantic Mail','OK','Information')|Out-Null
+  return
+ }
+ if($rows.Count -gt 64){throw 'Liste trop longue.'}
+ $picker=New-Object Windows.Forms.Form
+ $picker.Text='Quantic Mail | Messages signes conserves'
+ $picker.StartPosition='CenterParent';$picker.ClientSize=New-Object Drawing.Size(680,320)
+ $label=New-Object Windows.Forms.Label
+ $label.Text='Le statut distant de ces messages n est pas verifie. Choisissez le message a reprendre.'
+ $label.SetBounds(15,15,650,48);$picker.Controls.Add($label)
+ $list=New-Object Windows.Forms.ListBox
+ $list.SetBounds(15,70,650,180);$list.HorizontalScrollbar=$true
+ foreach($row in $rows){
+  if($row.name -cnotmatch '^wire-[a-z0-9-]{1,48}\.json$' -or $row.digest -cnotmatch '^[a-f0-9]{64}$' -or $row.recipient -cnotmatch '^[a-z0-9][a-z0-9._-]{2,31}~[a-f0-9]{32}@quantic$'){throw 'Message interne invalide.'}
+  $ref=([string]$row.reference) -replace '[\x00-\x1f\x7f]',' '
+  $null=$list.Items.Add(($row.recipient+' | '+$ref))
+ }
+ $picker.Controls.Add($list)
+ $ok=New-Object Windows.Forms.Button;$ok.Text='Reprendre';$ok.SetBounds(340,265,155,35)
+ $ok.DialogResult=[Windows.Forms.DialogResult]::OK;$ok.Enabled=$false;$picker.Controls.Add($ok)
+ $cancel=New-Object Windows.Forms.Button;$cancel.Text='Annuler';$cancel.SetBounds(510,265,155,35)
+ $cancel.DialogResult=[Windows.Forms.DialogResult]::Cancel;$picker.Controls.Add($cancel)
+ $picker.AcceptButton=$ok;$picker.CancelButton=$cancel
+ $list.Add_SelectedIndexChanged({$ok.Enabled=$list.SelectedIndex -ge 0})
+ try{
+  if($picker.ShowDialog() -ne [Windows.Forms.DialogResult]::OK -or $list.SelectedIndex -lt 0){return}
+  $selected=$rows[$list.SelectedIndex]
+ }finally{$picker.Dispose()}
+ $question='Reprendre le message original pour '+$selected.recipient+' ? Aucun nouveau chiffrement ni nouvelle signature. Un depot deja enregistre ne cree pas de doublon.'
+ if([Windows.Forms.MessageBox]::Show($question,'Confirmer la reprise','YesNo','Question') -ne [Windows.Forms.DialogResult]::Yes){return}
+ $reply=Invoke-GUIRecovery $Directory $selected
+ if($reply.digest -cne $selected.digest){throw 'Confirmation invalide.'}
+ if($reply.status -ceq 'deposited'){
+  [Windows.Forms.MessageBox]::Show('Depot confirme par le relais LOCAL de test. Le message original reste conserve. Reception distante non prouvee.','Quantic Mail','OK','Information')|Out-Null
+ }else{
+  [Windows.Forms.MessageBox]::Show('Depot non confirme. Le message signe reste conserve. Retablissez le transport avant de reprendre.','Quantic Mail','OK','Warning')|Out-Null
+ }
+}
 function Show-GUIMessage([string]$Contents){
  if([string]::IsNullOrWhiteSpace($Contents) -or $Contents.Length -gt 10000){throw 'Message invalide.'}
  $reader=New-Object Windows.Forms.Form
@@ -152,7 +238,7 @@ function Show-GUIMessage([string]$Contents){
 }
 $form=New-Object Windows.Forms.Form
 $form.Text='Quantic Mail | Nouveau message'
-$form.StartPosition='CenterParent';$form.ClientSize=New-Object Drawing.Size(710,770)
+$form.StartPosition='CenterParent';$form.ClientSize=New-Object Drawing.Size(710,815)
 $form.BackColor=[Drawing.Color]::FromArgb(19,25,35);$form.ForeColor=[Drawing.Color]::WhiteSmoke
 $form.Font=New-Object Drawing.Font('Segoe UI',10)
 function Label-At([string]$Text,[int]$Y){
@@ -180,6 +266,15 @@ $receive=New-Object Windows.Forms.Button;$receive.Text='Recevoir un message chif
 $receive.ForeColor=[Drawing.Color]::Black;$form.Controls.Add($receive)
 $diagnostic=New-Object Windows.Forms.Button;$diagnostic.Text='Tester les fenetres de securite Windows';$diagnostic.SetBounds(24,714,656,35)
 $diagnostic.ForeColor=[Drawing.Color]::Black;$form.Controls.Add($diagnostic)
+$recovery=New-Object Windows.Forms.Button;$recovery.Text='Reprendre un envoi non confirme';$recovery.SetBounds(24,764,656,35)
+$recovery.ForeColor=[Drawing.Color]::Black;$form.Controls.Add($recovery)
+$recovery.Add_Click({
+ try{
+  if(-not $script:privateDirectory){throw 'Coffre de test requis.'}
+  $recovery.Enabled=$false
+  try{Show-GUIRecovery $script:privateDirectory}finally{$recovery.Enabled=$true}
+ }catch{[Windows.Forms.MessageBox]::Show('Reprise non confirmee. Le message original reste conserve.','Quantic Mail','OK','Warning')|Out-Null}
+})
 $cancel.Add_Click({$form.Close()})
 $diagnostic.Add_Click({
  $diagnostic.Enabled=$false
@@ -280,7 +375,7 @@ $send.Add_Click({
    'queued-on-local-relay' { $message='Enveloppe chiffree deposee une fois sur le relais LOCAL de test. Reception distante NON prouvee.' }
    'acknowledged-by-local-relay' { $message='Relais local confirme cette enveloppe. Cela ne prouve PAS une lecture sur un second appareil.' }
    'encrypted-saved-not-sent' { $message='Message chiffre et conserve. Depot refuse ; aucun envoi effectue.' }
-   'delivery-unknown' { $message='RETOUR DU RELAIS INCERTAIN. Conserver les fichiers prives. Ne PAS tenter un second envoi automatique.' }
+   'delivery-unknown' { $message='Depot non confirme. Utilisez Reprendre un envoi non confirme apres retablissement du transport. Ne redigez pas le message une seconde fois.' }
    default { $message='Envoi non confirme. Le brouillon, s il existe, reste dans le coffre de test. Aucune relance automatique.' }
   }
   [Windows.Forms.MessageBox]::Show($message,'Resultat du laboratoire','OK',$(if($result.status -like '*unknown*'){'Warning'}else{'Information'}))|Out-Null
@@ -290,7 +385,7 @@ $send.Add_Click({
  }
 })
 if($SelfTest){
- if($recipient.DropDownStyle -ne 'DropDownList' -or -not $body.Multiline -or -not $chosen.ReadOnly -or $save.Text -notmatch 'brouillon' -or $send.Text -notmatch 'Chiffrer' -or $send.Top -le $save.Top -or $diagnostic.Text -notmatch 'securite Windows' -or $receive.Text -notmatch 'Recevoir'){throw 'Composer self-test failed'}
+ if($recipient.DropDownStyle -ne 'DropDownList' -or -not $body.Multiline -or -not $chosen.ReadOnly -or $save.Text -notmatch 'brouillon' -or $send.Text -notmatch 'Chiffrer' -or $send.Top -le $save.Top -or $diagnostic.Text -notmatch 'securite Windows' -or $receive.Text -notmatch 'Recevoir' -or $recovery.Text -notmatch 'Reprendre un envoi'){throw 'Composer self-test failed'}
  $form.Dispose();Write-Output 'Private GUI composer passed';return
 }
 try{[void]$form.ShowDialog()}finally{$form.Dispose()}
