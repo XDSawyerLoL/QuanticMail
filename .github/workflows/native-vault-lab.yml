@@ -326,6 +326,9 @@ jobs:
           & $ps -NoProfile -NonInteractive -File "$dir\Start-Windows-PQ-Lab.ps1" -Operation ProbeLanReceive -ExpectedManifestSha256 $manifestPin -ProbeAddress $absent
           if ($LASTEXITCODE -eq 0) { throw "Unassigned receiver address accepted" }
           Write-Host "Unauthorized diagnostic targets rejected; no remote traffic required"
+          # Expected native failures leave LASTEXITCODE nonzero. Reset only
+          # after every negative assertion has passed; retain any thrown failure.
+          exit 0
       - name: Verify packaged entry points and cryptography runtime
         shell: pwsh
         run: |
