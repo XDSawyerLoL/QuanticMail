@@ -38,8 +38,9 @@ function response(res,status,body){
  res.writeHead(status,{'Content-Type':'application/json','Content-Length':body.length,'Cache-Control':'no-store',Connection:'close'});res.end(body);
 }
 const errorBody=Buffer.from('{"error":"native mailbox operation not confirmed"}');
-export async function startScatteringMailboxEndpoint(c,{windowsBootstrap,profile='mailbox'}={}){
- check(Object.hasOwn(profiles,profile));
+export async function startScatteringMailboxEndpoint(c,{windowsBootstrap,profile='mailbox',initiallyPaused=false}={}){
+ check(Object.hasOwn(profiles,profile)&&typeof initiallyPaused==='boolean'&&(!initiallyPaused||profile==='mailbox'));
+ let active=!initiallyPaused;
  const BASE=profiles[profile].base,allowed=new Set(profiles[profile].ops),operationLimit=profiles[profile].maxOps??OPS;
  check(c?.labOnly===true&&['client','relay'].includes(c.role)&&/^[a-f0-9]{64}$/.test(c.secretHex)&&/^[a-f0-9]{64}$/.test(c.epochHex)&&!/^0+$/.test(c.secretHex)&&!/^0+$/.test(c.epochHex)&&c.secretHex!==c.epochHex&&port(c.recvPort,true)&&port(c.httpPort,c.role==='client'));
  let guard;
@@ -58,8 +59,10 @@ export async function startScatteringMailboxEndpoint(c,{windowsBootstrap,profile
   if(stopped)return;stopped=true;
   if(pending){clearTimeout(pending.timer);pending.reject(Error('Scattering epoch terminated'));pending=null;}
   upstream?.destroy();cells?.stream.destroy();input.fill(0);
-  server?.closeAllConnections();server?.close();try{udp.close();}catch{}
-  guard?.close();resolveClosed();
+  server?.closeAllConnections();
+  const serverClosed=new Promise(r=>{if(!server)return r();try{server.close(()=>r());}catch{r();}});
+  const udpClosed=new Promise(r=>{try{udp.close(()=>r());}catch{r();}});
+  guard?.close();void Promise.allSettled([serverClosed,udpClosed,guard?.closed]).then(resolveClosed);
  }
  if(guard)void guard.closed.then(stop);
  async function sendFrame(frame){
@@ -79,6 +82,7 @@ export async function startScatteringMailboxEndpoint(c,{windowsBootstrap,profile
   });
  }
  async function onFrame(frame){
+  check(active&&!stopped);
   if(c.role==='relay'){
    check(!stopped&&exact(frame,['kind','seq','op','token','body'])&&frame.kind==='request'&&frame.seq===next&&next<=operationLimit&&allowed.has(frame.op)&&tokenOK(frame.token));
    // The client receives a full response slightly before our last carrier ACK.
@@ -117,7 +121,7 @@ export async function startScatteringMailboxEndpoint(c,{windowsBootstrap,profile
   const auth=req.headers.authorization;
   const len=Number(req.headers['content-length']);
   if(req.method!=='POST'||!allowed.has(op)||typeof auth!=='string'||!auth.startsWith('Bearer ')||!tokenOK(auth.slice(7))||req.headers.origin!==undefined||req.headers['transfer-encoding']!==undefined||req.headers['content-type']!=='application/json'||!Number.isInteger(len)||len<1||len>MAX){response(res,400,errorBody);req.resume();return;}
-  if(stopped||busy||next>operationLimit){response(res,503,errorBody);req.resume();return;}
+  if(stopped||!active||busy||next>operationLimit){response(res,503,errorBody);req.resume();return;}
   busy=true;let transmitted=false,data;
   try{
    data=await readBounded(req);check(data.length===len);
@@ -142,6 +146,6 @@ export async function startScatteringMailboxEndpoint(c,{windowsBootstrap,profile
    server.on('error',stop);
   }
   check(!stopped);
-  return Object.freeze({recvPort:udp.address().port,httpPort:server?.address().port,closed,close:stop});
+  return Object.freeze({recvPort:udp.address().port,httpPort:server?.address().port,closed,close(){stop();return closed;},...(initiallyPaused?{activate(){check(!stopped&&!active);active=true;},freezeIdle(){check(!stopped&&active);active=false;check(!busy&&!pending&&!waitingNext&&input.length===0);}}:{})});
  }catch(e){stop();throw e;}finally{ab.fill(0);ba.fill(0);}
 }

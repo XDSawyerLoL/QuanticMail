@@ -15,6 +15,58 @@ $node=Join-Path $root 'runtime\node.exe'
 $vault=Join-Path $root 'bin\Vault-PQ-lab.exe'
 $helper=Join-Path $root 'scripts\native-windows-compose-draft.mjs'
 $script:privateDirectory=$null
+$script:hybridProfile=$false
+$script:hybridProcess=$null
+$script:hybridAttempted=$false
+function Stop-HybridSession {
+ if($script:hybridProcess){
+  $p=$script:hybridProcess;$script:hybridProcess=$null
+  try{$p.StandardInput.Close();if(-not $p.WaitForExit(15000)){$p.Kill()}}catch{}finally{$p.Dispose()}
+ }
+}
+function Start-HybridSession([string]$Directory){
+ if($script:hybridProcess -and -not $script:hybridProcess.HasExited){return}
+ if($script:hybridAttempted){throw 'Session terminee. Aucun redemarrage automatique.'}
+ $script:hybridAttempted=$true
+ $choose.Enabled=$false
+ $psi=New-Object Diagnostics.ProcessStartInfo
+ $psi.FileName=$node
+ $psi.Arguments=('"{0}" "{1}" {2} "{3}" {4}' -f (Join-Path $root 'scripts\native-windows-hybrid-gui.mjs'),$vault,$TrustedBinarySha256.ToLowerInvariant(),$Directory,$ExpectedManifestSha256.ToLowerInvariant())
+ $psi.WorkingDirectory=$root;$psi.UseShellExecute=$false;$psi.CreateNoWindow=$true
+ $psi.RedirectStandardInput=$true;$psi.RedirectStandardOutput=$true
+ $psi.StandardInputEncoding=[Text.UTF8Encoding]::new($false);$psi.StandardOutputEncoding=[Text.UTF8Encoding]::new($false)
+ $psi.EnvironmentVariables.Clear();$psi.EnvironmentVariables['SystemRoot']=$env:SystemRoot;$psi.EnvironmentVariables['WINDIR']=$env:SystemRoot;$psi.EnvironmentVariables['PATH']=(Join-Path $root 'bin')+';'+(Join-Path $env:SystemRoot 'System32')
+ $p=New-Object Diagnostics.Process;$p.StartInfo=$psi
+ try{
+  if(-not $p.Start()){throw 'Session indisponible.'}
+  $r=Read-GUIReply $p
+  if($r.phase -cne 'session-ready' -or $p.HasExited){throw 'Session hybride non confirmee.'}
+  $script:hybridProcess=$p;$p=$null
+ }finally{if($p){try{$p.StandardInput.Close();if(-not $p.WaitForExit(15000)){$p.Kill()}}catch{};$p.Dispose()}}
+}
+function Invoke-HybridOperation([string]$Directory,[string]$Operation,[string]$Payload=''){
+ Start-HybridSession $Directory
+ $p=$script:hybridProcess
+ try{
+  $cmd=@{op=$Operation}
+  if($Operation -ceq 'send'){$cmd.fields=ConvertFrom-Json $Payload}
+  if($Operation -ceq 'retry'){$cmd.selection=ConvertFrom-Json $Payload}
+  $p.StandardInput.WriteLine((ConvertTo-Json -InputObject $cmd -Compress -Depth 5))
+  $r=Read-GUIReply $p 14000
+  if($r.phase -ceq 'draft-saved'){$r=Read-GUIReply $p 14000}
+  if($r.phase -ceq 'sealed-awaiting-deposit-approval'){
+   $choice=[Windows.Forms.MessageBox]::Show('Message chiffre et conserve. Autoriser un seul depot de test ? La livraison distante reste non prouvee.','Autoriser le depot','YesNo','Warning')
+   $p.StandardInput.WriteLine($(if($choice -eq [Windows.Forms.DialogResult]::Yes){'SEND'}else{'CANCEL'}))
+   $r=Read-GUIReply $p 14000
+  }elseif($r.phase -ceq 'message-awaiting-approval'){
+   $choice=[Windows.Forms.MessageBox]::Show('Ouvrir le message authentifie et enregistrer son recu chiffre ?','Ouvrir le message','YesNo','Warning')
+   $p.StandardInput.WriteLine($(if($choice -eq [Windows.Forms.DialogResult]::Yes){'OPEN'}else{'CANCEL'}))
+   $r=Read-GUIReply $p 14000
+  }
+  if($r.phase -cne 'result' -or $r.remoteDeliveryVerified -ne $false){throw 'Resultat invalide.'}
+  return $r
+ }catch{Stop-HybridSession;throw}
+}
 function Invoke-Composer([string]$Directory,[string]$Payload,[bool]$List){
  if($Directory -cnotmatch '^[A-Za-z]:\\[A-Za-z0-9_. -]+(?:\\[A-Za-z0-9_. -]+)*$'){throw 'Dossier prive non valide.'}
  foreach($part in $Directory.Substring(3).Split('\')){
@@ -50,6 +102,7 @@ function Invoke-Composer([string]$Directory,[string]$Payload,[bool]$List){
 # A two-phase private pipe: the GUI approves sealing up front, then approves
 # depositing the already durable signed wire. No message text in argv or log.
 function Invoke-GUISend([string]$Directory,[string]$Payload) {
+ if($script:hybridProfile){return Invoke-HybridOperation $Directory 'send' $Payload}
  if($Directory -cnotmatch '^[A-Za-z]:\\[A-Za-z0-9_. -]+(?:\\[A-Za-z0-9_. -]+)*$'){throw 'Dossier de test refuse.'}
  foreach($part in $Directory.Substring(3).Split('\')) {
   if($part -in @('.','..') -or $part.EndsWith('.') -or $part.EndsWith(' ')){throw 'Chemin ambigu.'}
@@ -98,6 +151,7 @@ function Read-GUIReply([Diagnostics.Process]$Proc,[int]$Limit=512) {
  return ConvertFrom-Json -InputObject $line
 }
 function Invoke-GUIReceive([string]$Directory){
+ if($script:hybridProfile){return Invoke-HybridOperation $Directory 'receive'}
  if($Directory -cnotmatch '^[A-Za-z]:\\[A-Za-z0-9_. -]+(?:\\[A-Za-z0-9_. -]+)*$'){throw 'Coffre de test refuse.'}
  foreach($part in $Directory.Substring(3).Split('\')){
   if($part -in @('.','..') -or $part.EndsWith('.') -or $part.EndsWith(' ')){throw 'Dossier ambigu.'}
@@ -136,6 +190,7 @@ function Invoke-GUIReceive([string]$Directory){
  }
 }
 function Invoke-GUIRecovery([string]$Directory,$Selected=$null){
+ if($script:hybridProfile -and $null -ne $Selected){return Invoke-HybridOperation $Directory 'retry' (ConvertTo-Json -InputObject @{name=$Selected.name;digest=$Selected.digest} -Compress)}
  if($Directory -cnotmatch '^[A-Za-z]:\\[A-Za-z0-9_. -]+(?:\\[A-Za-z0-9_. -]+)*$'){throw 'Coffre de test refuse.'}
  foreach($part in $Directory.Substring(3).Split('\')){
   if($part -in @('.','..') -or $part.EndsWith('.') -or $part.EndsWith(' ')){throw 'Dossier ambigu.'}
@@ -246,7 +301,7 @@ function Label-At([string]$Text,[int]$Y){
  $l=New-Object Windows.Forms.Label;$l.Text=$Text;$l.SetBounds(24,$Y,660,24);$form.Controls.Add($l)
 }
 Label-At 'NOUVEAU MESSAGE DE TEST' 18
-Label-At 'TEST UNIQUEMENT : le brouillon est en clair dans un dossier prive NTFS. Pas de donnees reelles.' 55
+Label-At 'TEST UNIQUEMENT : stockage natif du brouillon. Ne saisissez aucune donnee reelle.' 55
 Label-At 'Mon coffre de test' 98
 $chosen=New-Object Windows.Forms.TextBox;$chosen.SetBounds(24,128,464,29);$chosen.ReadOnly=$true;$form.Controls.Add($chosen)
 $choose=New-Object Windows.Forms.Button;$choose.Text='Choisir mon coffre';$choose.SetBounds(500,125,180,35);$form.Controls.Add($choose)
@@ -319,12 +374,13 @@ $choose.Add_Click({
   $result=Invoke-Composer $dir '' $true
   if($result.status -cne 'contacts' -or @($result.recipients).Count -lt 1){throw 'Aucun contact.'}
   $script:privateDirectory=$dir
+  $script:hybridProfile=($result.hybrid -eq $true)
   $chosen.Text='Coffre de test selectionne'
   $recipient.Items.Clear()
   foreach($a in @($result.recipients)){[void]$recipient.Items.Add([string]$a)}
   $recipient.SelectedIndex=0
  }catch{
-  $script:privateDirectory=$null;$chosen.Clear();$recipient.Items.Clear()
+  $script:privateDirectory=$null;$script:hybridProfile=$false;$chosen.Clear();$recipient.Items.Clear()
   [Windows.Forms.MessageBox]::Show('Ce coffre ne contient pas de contact de test valide. Aucune modification.','Coffre indisponible','OK','Warning')|Out-Null
  }finally{$picker.Dispose()}
 })
@@ -332,13 +388,13 @@ $save.Add_Click({
  try{
   if(-not $script:privateDirectory -or $recipient.SelectedIndex -lt 0){throw 'Coffre et contact requis.'}
   if([string]::IsNullOrWhiteSpace($subject.Text) -or [string]::IsNullOrWhiteSpace($body.Text)){throw 'Objet et texte requis.'}
-  $informed=[Windows.Forms.MessageBox]::Show('Ce brouillon de test sera stocke en clair dans le coffre prive Windows. Il ne sera ni chiffre ni envoye. Ne saisissez aucune donnee reelle. Continuer ?','Avertissement sur le stockage','YesNo','Warning')
+  $informed=[Windows.Forms.MessageBox]::Show('Le brouillon sera conserve dans le stockage prive du coffre de test, chiffre pour le profil scelle. Aucun envoi. Continuer ?','Avertissement sur le stockage','YesNo','Warning')
   if($informed -ne [Windows.Forms.DialogResult]::Yes){return}
   $fields=@{to=[string]$recipient.SelectedItem;subject=$subject.Text;body=$body.Text}
   $json=ConvertTo-Json -InputObject $fields -Compress -Depth 3
   $result=Invoke-Composer $script:privateDirectory $json $false
   if($result.status -cne 'draft-saved-not-sent' -or $result.remoteDeliveryVerified -or $result.liveAccountEnrollmentAuthorized){throw 'Brouillon non confirme.'}
-  [Windows.Forms.MessageBox]::Show('Brouillon de test conserve en clair dans le dossier prive NTFS. Il n est ni chiffre ni envoye. Le parcours d envoi graphique reste en developpement.','Brouillon enregistre','OK','Information')|Out-Null
+  [Windows.Forms.MessageBox]::Show('Brouillon de test conserve dans le stockage prive. Aucun envoi effectue.','Brouillon enregistre','OK','Information')|Out-Null
   $form.Close()
  }catch{
   [Windows.Forms.MessageBox]::Show('Enregistrement refuse : verifiez le coffre, le contact et la longueur du texte. Aucun message envoye.','Operation non confirmee','OK','Warning')|Out-Null
@@ -366,7 +422,7 @@ $send.Add_Click({
  try{
   if(-not $script:privateDirectory -or $recipient.SelectedIndex -lt 0){throw 'Coffre et destinataire requis.'}
   if([string]::IsNullOrWhiteSpace($subject.Text) -or [string]::IsNullOrWhiteSpace($body.Text)){throw 'Texte requis.'}
-  $consent=[Windows.Forms.MessageBox]::Show('ALPHA DE LABORATOIRE : deux secrets seront demandes par une fenetre Windows native, sans terminal. Le message sera d abord enregistre en clair dans le coffre de test, puis chiffre PQ et conserve. Un relais local doit etre configure. Aucune livraison distante garantie. Ne saisissez aucune donnee reelle. Continuer ?','Essai chiffre uniquement','YesNo','Warning')
+  $consent=[Windows.Forms.MessageBox]::Show('ALPHA DE LABORATOIRE : deux secrets seront demandes par une fenetre Windows native, sans terminal. Le message sera d abord conserve dans le coffre de test, puis chiffre PQ et signe. Un relais local doit etre configure. Aucune livraison distante garantie. Ne saisissez aucune donnee reelle. Continuer ?','Essai chiffre uniquement','YesNo','Warning')
   if($consent -ne [Windows.Forms.DialogResult]::Yes){return}
   $fields=@{to=[string]$recipient.SelectedItem;subject=$subject.Text;body=$body.Text}
   $json=ConvertTo-Json -InputObject $fields -Compress -Depth 3
@@ -380,7 +436,7 @@ $send.Add_Click({
    default { $message='Envoi non confirme. Le brouillon, s il existe, reste dans le coffre de test. Aucune relance automatique.' }
   }
   [Windows.Forms.MessageBox]::Show($message,'Resultat du laboratoire','OK',$(if($result.status -like '*unknown*'){'Warning'}else{'Information'}))|Out-Null
-  if($result.status -in @('queued-on-local-relay','acknowledged-by-local-relay')){$form.Close()}
+  if($result.status -in @('queued-on-local-relay','acknowledged-by-local-relay')){if($script:hybridProfile){$subject.Clear();$body.Clear()}else{$form.Close()}}
  }catch{
   [Windows.Forms.MessageBox]::Show('Operation non confirmee. Un brouillon ou une enveloppe peut avoir ete conserve ; ne pas relancer automatiquement. Aucun compte reel modifie.','Etat du depot inconnu','OK','Warning')|Out-Null
  }
@@ -395,10 +451,10 @@ if($EnrollmentDirectory){
   if($EnrollmentDirectory -cnotmatch ('^'+[Regex]::Escape($parent)+'\\quantic-enroll-[0-9a-f]{16}$')){throw 'Identite refusee.'}
   $result=Invoke-Composer $EnrollmentDirectory '' $true
   if($result.status -cne 'contacts' -or @($result.recipients).Count -lt 1){throw 'Aucun contact.'}
-  $script:privateDirectory=$EnrollmentDirectory;$chosen.Text='Identite de test selectionnee'
+  $script:privateDirectory=$EnrollmentDirectory;$script:hybridProfile=($result.hybrid -eq $true);$chosen.Text='Identite de test selectionnee'
   $recipient.Items.Clear()
   foreach($a in @($result.recipients)){[void]$recipient.Items.Add([string]$a)}
   $recipient.SelectedIndex=0
  }catch{$script:privateDirectory=$null;$chosen.Clear();$recipient.Items.Clear()}
 }
-try{[void]$form.ShowDialog()}finally{$form.Dispose()}
+try{[void]$form.ShowDialog()}finally{Stop-HybridSession;$form.Dispose()}

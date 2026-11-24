@@ -82,8 +82,9 @@ export async function connectNativeVault({binary,binarySha256,vault,journal,quor
   if(storage)await storage.verifyBinary();
   const child=spawn(binary,args,{shell:false,stdio:['pipe','pipe',guiWindowsApproval?'ignore':'inherit'],...(storage?{cwd:win32.dirname(binary),env:storage.env,windowsHide:guiWindowsApproval}:{})});
   let buf=Buffer.alloc(0),waiter=null,closed=false,busy=false,seq=0,nonce,signing;
+  const lifecycle=new AbortController();
   function fail(){
-    if(closed)return;closed=true;child.kill();if(waiter){const w=waiter;waiter=null;clearTimeout(w.timer);w.reject(Error('native vault unavailable'));}
+    if(closed)return;closed=true;lifecycle.abort();child.kill();if(waiter){const w=waiter;waiter=null;clearTimeout(w.timer);w.reject(Error('native vault unavailable'));}
   }
   child.on('error',fail);child.on('exit',fail);child.stdin.on('error',fail);child.stdout.on('error',fail);
   child.stdout.on('data',chunk=>{
@@ -177,6 +178,44 @@ export async function connectNativeVault({binary,binarySha256,vault,journal,quor
       return Object.freeze({
         ...(mailbox?{mailbox,sealReceipt:(item,payload)=>receiptCall('receipt-seal',{id:item.id,digest:item.digest,payload}),openReceipt:record=>receiptCall('receipt-open',record),openDraft:(file,record)=>receiptCall('draft-open',{file,record})}:{}),
         publicKeys:Object.freeze({signing:Object.freeze(signing.jwk),encryption:Object.freeze(enc.jwk)}),
+        ...(sealed?{lifecycleSignal:lifecycle.signal,scatteringSigner(address,deviceId){
+          check(!closed,'native vault unavailable');
+          const matches=contacts.filter(x=>x.address===address&&x.deviceId===deviceId&&x.expires>Date.now());
+          check(matches.length===1&&!(address===pqMode.address&&deviceId===pqMode.deviceId),'unknown contact');
+          const peer=matches[0],pub=(v)=>createPublicKey({key:Buffer.from(v,'base64'),format:'der',type:'spki'});
+          let renewal=false;
+          return Object.freeze({local:Object.freeze({classical:signing.key,pq:pub(ownKeys.mlDsaSigningSpki)}),
+            peer:Object.freeze({classical:pub(peer.classicalSigningSpki),pq:pub(peer.mlDsaSigningSpki)}),
+            authorizeRenewal:(channel,role)=>exclusive(async()=>{
+              check(!renewal&&/^[0-9a-f]{96}$/.test(channel)&&['initiator','responder'].includes(role),'invalid renewal scope');
+              const r=await call({op:'scattering-renewal-grant-lab',mailboxBody:{address,deviceId,channel,role}});
+              const g=r.mailboxResult;check(Number.isSafeInteger(g?.expires)&&g.expires>Date.now()&&g.attempts===4,'invalid renewal grant');renewal=true;return Object.freeze({expires:g.expires,attempts:g.attempts});
+            }),
+            fence:Object.freeze({
+              reserve:()=>exclusive(async()=>{
+                check(renewal,'renewal grant required');
+                const r=await call({op:'scattering-fence-lab',mailboxOp:'reserve',mailboxBody:{}});
+                const v=r.mailboxResult;check(/^[a-f0-9]{64}$/.test(v?.token)&&/^[a-f0-9]{96}$/.test(v.context?.channel)&&Number.isInteger(v.context.generation)&&/^[a-f0-9]{96}$/.test(v.context.previous),'invalid fence reservation');
+                return Object.freeze({token:v.token,context:Object.freeze(v.context)});
+              }),
+              stage:(reservation,material)=>exclusive(async()=>{
+                check(renewal,'renewal grant required');
+                const r=await call({op:'scattering-fence-lab',mailboxOp:'stage',mailboxBody:{token:reservation.token,generation:material.generation,transcript:material.transcript}});
+                return r.mailboxResult;
+              }),
+              finish:(reservation,material)=>exclusive(async()=>{
+                check(renewal,'renewal grant required');
+                const r=await call({op:'scattering-fence-lab',mailboxOp:'finish',mailboxBody:{token:reservation.token,generation:material.generation,transcript:material.transcript}});
+                return r.mailboxResult;
+              })
+            }),
+            signHandshake:(raw,evidence)=>exclusive(async()=>{
+              check(Buffer.isBuffer(raw)&&raw.length<=4096&&peer.expires>Date.now(),'invalid scattering request');
+              const r=await call({op:'scattering-sign-lab',mailboxBody:{address,deviceId,raw:raw.toString('base64url'),...(renewal?{renewal:true}:{}),...(evidence?{evidence}:{})}});
+              const sig=r.mailboxResult;
+              b64(sig?.classical,64,64);b64(sig?.pq,3309,3309);return sig;
+            })});
+        }}:{}),
         // Enrollment is a separate, one-time locally approved native broker
         // operation; it does NOT install a live account or revoke old keys.
         async signEnrollment(challenge){return exclusive(()=>signNativeEnrollment(challenge));},
@@ -203,7 +242,7 @@ export async function connectNativeVault({binary,binarySha256,vault,journal,quor
           // and run its cleanup; a stuck process is forcibly terminated.
           if(closed)return;
           if(busy||waiter){fail();return;}
-          closed=true;child.stdin.end();
+          closed=true;lifecycle.abort();child.stdin.end();
           const timer=setTimeout(()=>child.kill(),2000);timer.unref();
           child.once('exit',()=>clearTimeout(timer));
         }

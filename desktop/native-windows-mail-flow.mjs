@@ -36,12 +36,14 @@ export async function listWindowsSignedMail(config,storage,{listNames=readdir}={
  }
  return rows;
 }
-export async function runWindowsScatteringMail(config,storage,{operation,path,expectedDigest,approve,connect=connectNativeVault,mailboxFactory=createNativeMailboxClient}){
+export async function runWindowsScatteringMail(config,storage,{operation,path,expectedDigest,approve,connect=connectNativeVault,mailboxFactory=createNativeMailboxClient,sessionController}){
  const scope=windowsScatteringScope(config),dir=config.windowsLab.dir;
  check(typeof approve==='function'&&['send','retry-send','receive','recover-receive','confirm-receipt'].includes(operation));
  const sealed=scope.credentialMode==="vault-sealed-v1";
+ check(!sessionController||sealed&&sessionController.lifecycleSignal&&!sessionController.lifecycleSignal.aborted);
+ check(config.managedHybridScattering===undefined||sessionController);
  let session;
- const getClient=async()=>{if(!sealed)return mailboxFactory(scope);session??=await connect({...config,guiWindowsApproval:true});check(session.mailbox);return session.mailbox;};
+ const getClient=async()=>{if(!sealed)return mailboxFactory(scope);session??=sessionController??await connect({...config,guiWindowsApproval:true});check(session.mailbox);return session.mailbox;};
  try{
  const name=windowsLabPath(dir,path);
  const sending=operation==='send'||operation==='retry-send';
@@ -49,6 +51,7 @@ export async function runWindowsScatteringMail(config,storage,{operation,path,ex
  if(sending){
   const wire=normalizeNativeRecord(await readJSON(storage,path));
   check(wire.context.from===scope.address&&wire.context.fromDeviceId===scope.deviceId);
+  if(config.managedHybridScattering!==undefined)check(wire.context.to===config.managedHybridScattering.peerAddress&&wire.context.toDeviceId===config.managedHybridScattering.peerDeviceId);
   const digest=nativeRecordDigest(wire);
   if(operation==='retry-send')check(typeof expectedDigest==='string'&&/^[a-f0-9]{64}$/.test(expectedDigest)&&digest===expectedDigest);
   const saved={digest,wireFile:name};
@@ -82,6 +85,7 @@ export async function runWindowsScatteringMail(config,storage,{operation,path,ex
   }
   const item=await client.pull();
   if(!item)return {status:'empty'};
+  if(config.managedHybridScattering!==undefined)check(item.record?.context?.from===config.managedHybridScattering.peerAddress&&item.record.context.fromDeviceId===config.managedHybridScattering.peerDeviceId);
   if(!await approve('Ouvrir le message authentifié et conserver un reçu chiffré ?'))return {status:'cancelled'};
   // Check account/id/digest and key before consuming the broker journal right.
   await protect(item,{subject:'',body:''});
@@ -97,5 +101,5 @@ export async function runWindowsScatteringMail(config,storage,{operation,path,ex
   await client.ack(item.id,item.digest);
   return {status:'acknowledged',id:item.id,digest:item.digest,display};
  }finally{key?.fill(0);if(!sealed)controller?.close();}
- }finally{session?.close();}
+ }finally{if(!sessionController)session?.close();}
 }

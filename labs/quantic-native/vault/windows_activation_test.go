@@ -73,7 +73,43 @@ func TestWindowsActivationPrivateImport(t *testing.T){
  pt:=peer.agreement.PublicKey().Bytes()
  peerID:="d-"+hexHash([]byte("P-256:"+b64.EncodeToString(pt[1:33])+":"+b64.EncodeToString(pt[33:])))[:32]
  contacts:=[]senderContact{{Address:"testpeer~"+strings.Repeat("a",32)+"@quantic",Device:peerID,ClassicalRoot:sk,PQRoot:dd,Encryption:ek,KEM:kd,Expires:now.Add(time.Hour).UnixMilli()}}
- b:=windowsActivationBundle{"quantic-native-windows-activation-lab/v2",true,digest,roster,approvals,proof,"http://127.0.0.1:45001/",anchors,cps,anchorTLS,checkpointTLS,contacts}
+ b:=windowsActivationBundle{"quantic-native-windows-activation-lab/v2",true,digest,roster,approvals,proof,"http://127.0.0.1:45001/",anchors,cps,anchorTLS,checkpointTLS,contacts,nil,nil}
+ carrier:=filepath.Join(dir,"carrier")
+ if e=winCreateScattering(carrier);e!=nil{t.Fatal(e)}
+ carrierConfig,_:=json.Marshal(map[string]any{"labOnly":true,"role":"client","secretHex":strings.Repeat("a",64),"epochHex":strings.Repeat("b",64),"recvPort":45002,"httpPort":45001,"queueDir":filepath.Join(carrier,"queue"),"stateDir":filepath.Join(carrier,"state")})
+ if e=winWritePrivate(filepath.Join(carrier,"scattering.json"),carrierConfig);e!=nil{t.Fatal(e)}
+ b.ManagedCarrier=&managedCarrierProfile{hexHash(carrierConfig),"127.0.0.1:45003","127.0.0.1:45004"}
+ if e=verifyManagedCarrierProfile(dir,b.Endpoint,b.ManagedCarrier);e!=nil{t.Fatal(e)}
+ wrong:=*b.ManagedCarrier;wrong.ConfigPin=strings.Repeat("e",64)
+ if e=verifyManagedCarrierProfile(dir,b.Endpoint,&wrong);e==nil{t.Fatal("modified carrier accepted")}
+ wrong=*b.ManagedCarrier;wrong.Target="0.0.0.0:45004"
+ if e=verifyManagedCarrierProfile(dir,b.Endpoint,&wrong);e==nil{t.Fatal("wildcard accepted")}
+ // The authenticated profile must be secret-free and tied to a known peer.
+ hybrid:=b;hybrid.ManagedCarrier=nil
+ hybrid.ManagedHybridCarrier=&managedHybridCarrierProfile{1,strings.Repeat("9",96),contacts[0].Address,contacts[0].Device,"127.0.0.1:45005","127.0.0.1:45006","127.0.0.1:45007","127.0.0.1:45008",4}
+ plan,e:=activationPlan(dir,filepath.Join(filepath.Dir(dir),"Vault-PQ-lab.exe"),strings.Repeat("f",64),r,hybrid,storageSecret,now);if e!=nil{t.Fatal("hybrid plan",e)}
+ var hybridConfig map[string]any
+ if e=json.Unmarshal(plan[7].raw,&hybridConfig);e!=nil||hybridConfig["managedHybridScattering"]==nil||hybridConfig["managedScattering"]!=nil||bytes.Contains(plan[7].raw,[]byte("secretHex")){t.Fatal("hybrid configuration not isolated",e)}
+ hybridRaw,e:=json.Marshal(hybrid);if e!=nil{t.Fatal(e)}
+ if _,e=parseWindowsActivation(hybridRaw,hexHash(hybridRaw));e!=nil{t.Fatal("hybrid package refused",e)}
+ var hybridMap map[string]any;if e=json.Unmarshal(hybridRaw,&hybridMap);e!=nil{t.Fatal(e)}
+ hybridMap["managedHybridCarrier"].(map[string]any)["secretHex"]=strings.Repeat("a",64)
+ injectedHybrid,_:=json.Marshal(hybridMap)
+ if _,e=parseWindowsActivation(injectedHybrid,hexHash(injectedHybrid));e==nil{t.Fatal("hybrid PSK accepted")}
+ mixed:=hybrid;mixed.ManagedCarrier=b.ManagedCarrier
+ mixedRaw,_:=json.Marshal(mixed)
+ if _,e=parseWindowsActivation(mixedRaw,hexHash(mixedRaw));e==nil{t.Fatal("mixed profile accepted")}
+ if _,e=activationPlan(dir,filepath.Join(filepath.Dir(dir),"Vault-PQ-lab.exe"),strings.Repeat("f",64),r,mixed,storageSecret,now);e==nil{t.Fatal("mixed profile planned")}
+ for _,change:=range []func(*managedHybridCarrierProfile){
+  func(p *managedHybridCarrierProfile){p.PeerDeviceID=r.Claim.DeviceID},
+  func(p *managedHybridCarrierProfile){p.Epochs=5},
+  func(p *managedHybridCarrierProfile){p.Listen="127.0.0.1:45001"},
+  func(p *managedHybridCarrierProfile){p.Channel=scatteringZero},
+  func(p *managedHybridCarrierProfile){p.BootstrapTarget=p.Target},
+ }{
+  invalid:=*hybrid.ManagedHybridCarrier;change(&invalid);bad:=hybrid;bad.ManagedHybridCarrier=&invalid
+  if _,e=activationPlan(dir,filepath.Join(filepath.Dir(dir),"Vault-PQ-lab.exe"),strings.Repeat("f",64),r,bad,storageSecret,now);e==nil{t.Fatal("invalid hybrid plan accepted")}
+ }
  raw,e:=json.Marshal(b);if e!=nil{t.Fatal(e)}
  if _,e=parseWindowsActivation(raw,strings.Repeat("e",64));e==nil{t.Fatal("wrong package pin accepted")}
  if _,e=parseWindowsActivation(raw,hexHash(raw));e!=nil{t.Fatal(e)}

@@ -6,7 +6,7 @@ import {win32} from 'node:path';
 import {runWindowsScatteringMail,windowsScatteringScope} from './native-windows-mail-flow.mjs';
 
 export async function receiveWindowsLabFromGUI(config,storage,{
- approve,connect,mailboxFactory,
+ approve,connect,mailboxFactory,sessionController,
  receive=runWindowsScatteringMail,makeId=randomUUID
 }={}){
  windowsScatteringScope(config);
@@ -19,7 +19,7 @@ export async function receiveWindowsLabFromGUI(config,storage,{
  }
  const path=win32.join(config.windowsLab.dir,'receipt-'+id.replaceAll('-','')+'.json');
  const result=await receive(config,storage,{
-  operation:'receive',path,approve,connect,mailboxFactory
+  operation:'receive',path,approve,connect,mailboxFactory,sessionController
  });
  if(result?.status==='empty')return Object.freeze({status:'empty',remoteDeliveryVerified:false});
  if(result?.status==='cancelled')return Object.freeze({status:'cancelled',remoteDeliveryVerified:false});

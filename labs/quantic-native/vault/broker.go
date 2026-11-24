@@ -214,6 +214,8 @@ func serveGuardedPQTransport(s signer,key agreementKey,backend string,in io.Read
 	scan.Buffer(make([]byte, 4096), 32768)
 	var pending *authority
 	enrolled := false
+    var scatteringGrant *scatteringRenewalGrant
+    var scatteringGrantIssued bool
 	seen := map[[32]byte]bool{}
 	fail := reply{Error: "refused"}
 	already := func(h [32]byte) bool { return seen[h] || (journal != nil && journal.has(h)) }
@@ -245,7 +247,7 @@ func serveGuardedPQTransport(s signer,key agreementKey,backend string,in io.Read
 			}
 			continue
 		}
-		if pq != nil && q.Op != "public" && q.Op != "pq-public-lab" && q.Op != "pq-proof-lab" && q.Op != "mail-open-hybrid-lab" && q.Op != "mail-seal-hybrid-lab" && q.Op != "close" && !(q.Op=="native-mailbox-lab"&&transport!=nil) {
+		if pq != nil && q.Op != "public" && q.Op != "pq-public-lab" && q.Op != "pq-proof-lab" && q.Op != "mail-open-hybrid-lab" && q.Op != "mail-seal-hybrid-lab" && q.Op != "close" && !(q.Op=="native-mailbox-lab"&&transport!=nil) && !((q.Op=="scattering-sign-lab"||q.Op=="scattering-renewal-grant-lab"||q.Op=="scattering-fence-lab")&&transport!=nil&&backend=="windows-software-pq-quorum-lab") {
 			if e = enc.Encode(fail); e != nil {
 				return e
 			}
@@ -253,6 +255,19 @@ func serveGuardedPQTransport(s signer,key agreementKey,backend string,in io.Read
 		}
 		if q.Recover&&(pq==nil||(q.Op!="mail-seal-hybrid-lab"&&q.Op!="mail-open-hybrid-lab")){if e=enc.Encode(fail);e!=nil{return e};continue}
 		switch q.Op {
+		case "scattering-renewal-grant-lab":
+            if pq==nil||journal==nil||journal.anchor==nil||transport==nil||backend!="windows-software-pq-quorum-lab"||q.MailboxOp!=""||q.Recover||scatteringGrantIssued{break}
+            scatteringGrantIssued=true
+            grant,err:=issueScatteringRenewal(pq,senders,journal,approve,q.MailboxBody)
+            if err==nil{scatteringGrant=grant;result,_:=json.Marshal(map[string]any{"expires":grant.expires,"attempts":scatteringRenewalAttempts});r=reply{OK:true,MailboxResult:result}}
+		case "scattering-fence-lab":
+            if pq==nil||journal==nil||journal.anchor==nil||transport==nil||backend!="windows-software-pq-quorum-lab"||q.Recover||scatteringGrant==nil{break}
+            result,err:=scatteringFenceOperation(scatteringGrant,senders,journal,q.MailboxOp,q.MailboxBody)
+            if err==nil{r=reply{OK:true,MailboxResult:result}}else if journal.failed{return err}
+		case "scattering-sign-lab":
+            if pq==nil||journal==nil||journal.anchor==nil||transport==nil||backend!="windows-software-pq-quorum-lab"||q.MailboxOp!=""||q.Recover{break}
+            result,err:=authorizeScatteringSignature(s,pq,senders,journal,approve,q.MailboxBody,scatteringGrant)
+            if err==nil{r=reply{OK:true,MailboxResult:result}}else if journal.failed{return err}
 		case "native-mailbox-lab":
    if pq==nil||journal==nil||journal.anchor==nil||transport==nil||q.Recover||q.MailboxOp==""||len(q.MailboxBody)==0{break}
    // Recheck the independently anchored local session before transport.

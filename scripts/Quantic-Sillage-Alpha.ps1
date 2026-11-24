@@ -401,6 +401,44 @@ function Invoke-EnrollmentNative([string]$Mode,[string]$Path,[string]$Pin='', [s
  }finally{if($started -and -not $proc.HasExited){$proc.Kill()};$proc.Dispose()}
 }
 $script:configuredEnrollment=$null
+$script:managedCarrier=$null
+$script:managedAttempted=$false
+function Stop-ManagedCarrier {
+ if($script:managedCarrier){
+  $p=$script:managedCarrier;$script:managedCarrier=$null
+  try{$p.StandardInput.Close();if(-not $p.WaitForExit(5000)){$p.Kill()}}catch{}finally{$p.Dispose()}
+ }
+}
+function Start-ManagedCarrier {
+ if($script:managedAttempted){return}
+ $script:managedAttempted=$true
+ $parent=[Environment]::GetFolderPath('LocalApplicationData')
+ if($parent -cnotmatch '^[A-Za-z]:\\[A-Za-z0-9_. -]+(?:\\[A-Za-z0-9_. -]+)*$'){return}
+ $psi=New-Object Diagnostics.ProcessStartInfo
+ $psi.FileName=Join-Path $root 'runtime\node.exe'
+ $psi.Arguments=('"{0}" "{1}" {2} "{3}" {4}' -f (Join-Path $root 'scripts\start-native-managed-scattering.mjs'),(Join-Path $root 'bin\Vault-PQ-lab.exe'),$TrustedBinarySha256.ToLowerInvariant(),$parent,$ExpectedManifestSha256.ToLowerInvariant())
+ $psi.WorkingDirectory=$root;$psi.UseShellExecute=$false;$psi.CreateNoWindow=$true
+ $psi.RedirectStandardInput=$true;$psi.RedirectStandardOutput=$true
+ $psi.EnvironmentVariables.Clear();$psi.EnvironmentVariables['SystemRoot']=$env:SystemRoot;$psi.EnvironmentVariables['WINDIR']=$env:SystemRoot;$psi.EnvironmentVariables['PATH']=(Join-Path $root 'bin')+';'+(Join-Path $env:SystemRoot 'System32')
+ $p=New-Object Diagnostics.Process;$p.StartInfo=$psi
+ try{
+  if(-not $p.Start()){throw 'Transport indisponible'}
+  $read=$p.StandardOutput.ReadLineAsync()
+  if(-not $read.Wait(20000)){throw 'Transport indisponible'}
+  $line=$read.Result;if(-not $line -or $line.Length -gt 1024){throw 'Transport indisponible'}
+  $r=ConvertFrom-Json $line
+  if($r.status -ceq 'local-carrier-ready-not-remote-verified' -and $r.directory -cmatch ('^'+[Regex]::Escape($parent)+'\\quantic-enroll-[0-9a-f]{16}$') -and -not $p.HasExited){
+   $script:configuredEnrollment=[string]$r.directory;$script:managedCarrier=$p;$p=$null
+   $notice.Text='Scattering local demarre | correspondant distant non verifie.'
+  }elseif($r.status -ceq 'hybrid-session-required' -and $r.directory -cmatch ('^'+[Regex]::Escape($parent)+'\\quantic-enroll-[0-9a-f]{16}$')){
+   $script:configuredEnrollment=[string]$r.directory
+   $notice.Text='Profil hybride importe | ouvrir Quantic Mail pour demarrer la session commune.'
+  }elseif($r.status -ceq 'not-configured'){$script:managedAttempted=$false}
+  else{$notice.Text='Transport non disponible | aucune relance automatique.'}
+ }catch{$notice.Text='Transport non disponible | aucune relance automatique.'}
+ finally{if($p){try{$p.StandardInput.Close();if(-not $p.WaitForExit(5000)){$p.Kill()}}catch{};$p.Dispose()}}
+}
+
 function Show-MailboxActivation {
  $parent=[Environment]::GetFolderPath('LocalApplicationData')
  $data=Invoke-EnrollmentNative 'list' $parent
@@ -617,6 +655,7 @@ $run.Add_Click({
   $a=$script:shownActions[$choice.SelectedIndex]
   if($a.Id -eq 'ImportMailboxActivation'){
    Show-MailboxActivation
+   if($script:configuredEnrollment -and -not $script:managedCarrier){Start-ManagedCarrier}
    return
   }
   if($a.Id -eq 'PrepareMailboxCredential'){
@@ -671,6 +710,10 @@ function Quote-AdvancedArg([string]$Value){
  if($Value.Contains('"') -or $Value.Contains([char]10) -or $Value.Contains([char]13)){throw 'Argument advanced non autorise'}
  return '"'+$Value+'"'
 }
+$form.Add_Shown({Start-ManagedCarrier})
+$transportTimer=New-Object Windows.Forms.Timer;$transportTimer.Interval=1000
+$transportTimer.Add_Tick({if($script:managedCarrier -and $script:managedCarrier.HasExited){Stop-ManagedCarrier;$notice.Text='Transport arrete | aucun renvoi automatique.'}})
+$transportTimer.Start()
 try{
  while($true){
   $script:selectedArguments=$null;$script:selectedAction=$null
@@ -694,4 +737,4 @@ try{
   if($null -eq $child){throw 'Le laboratoire technique ne peut pas demarrer'}
   $child.Dispose()
  }
-}finally{$form.Dispose()}
+}finally{$transportTimer.Stop();$transportTimer.Dispose();Stop-ManagedCarrier;$form.Dispose()}

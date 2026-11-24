@@ -60,6 +60,11 @@ export async function listWindowsDraftRecipients({binary,binarySha256,dir},{make
   check(c&&address.test(c.address)&&device.test(c.deviceId)&&Number.isSafeInteger(c.expires)&&c.expires>now&&c.address!==cfg.pqMode.address&&!used.has(c.address));
   used.add(c.address);recipients.push(c.address);
  }
+ if(cfg.managedHybridScattering!==undefined){
+  const {validateHybridMailProfile}=await import('./native-windows-negotiated-session.mjs');
+  const p=validateHybridMailProfile(cfg,contacts);
+  return Object.freeze({status:'contacts',recipients:[p.peerAddress],hybrid:true});
+ }
  return Object.freeze({status:'contacts',recipients});
 }
 export async function saveWindowsDraftFromInput({binary,binarySha256,dir},fields,{makeStorage=createWindowsNativeStorage}={}){
