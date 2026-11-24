@@ -1,6 +1,7 @@
 // Explicit loopback Scattering mailbox mode. Trusted local operator and
 // independently configured bridge/relay. Never falls back to a remote URL.
 import {win32} from 'node:path';
+import {readdir} from 'node:fs/promises';
 import {createNativeMailboxClient} from './native-mailbox-client.mjs';
 import {normalizeNativeRecord,nativeRecordDigest} from '../lib/quantic/native-mailbox.mjs';
 import {sealReceipt,openReceipt} from './native-receipt-store.mjs';
@@ -16,6 +17,23 @@ export function windowsScatteringScope(config){
  check(c?.enabled===true&&p?.enabled===true&&c.address===p.address&&c.deviceId===p.deviceId&&c.receiptKeyFile===win32.join(config.windowsLab.dir,'receipt.key'));
  const u=new URL(c.endpoint);check(u.protocol==='http:'&&u.hostname==='127.0.0.1'&&u.port&&u.pathname==='/'&&!u.username&&!u.password&&!u.search&&!u.hash);
  return c;
+}
+// List only metadata of saved signed messages. This is NOT a pending-only queue:
+// a saved envelope may already have been deposited or acknowledged.
+export async function listWindowsSignedMail(config,storage,{listNames=readdir}={}){
+ const scope=windowsScatteringScope(config),dir=config.windowsLab.dir;
+ const entries=await listNames(dir,{withFileTypes:true});
+ check(Array.isArray(entries)&&entries.length<=2048);
+ const names=entries.filter(e=>e.isFile()&&!e.isSymbolicLink()&&/^wire-[a-z0-9-]{1,48}\.json$/.test(e.name)).map(e=>e.name).sort();
+ check(names.length<=64);
+ const rows=[];
+ for(const name of names){
+  const path=win32.join(dir,name);windowsLabPath(dir,path);
+  const wire=normalizeNativeRecord(await readJSON(storage,path));
+  if(wire.context.from!==scope.address||wire.context.fromDeviceId!==scope.deviceId)continue;
+  rows.push({name,digest:nativeRecordDigest(wire),recipient:wire.context.to,reference:wire.context.clientMessageId});
+ }
+ return rows;
 }
 export async function runWindowsScatteringMail(config,storage,{operation,path,expectedDigest,approve,connect=connectNativeVault,mailboxFactory=createNativeMailboxClient}){
  const scope=windowsScatteringScope(config),dir=config.windowsLab.dir;
