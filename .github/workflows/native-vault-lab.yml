@@ -2,10 +2,10 @@ name: Native Vault laboratory
 on:
   pull_request:
     branches: [main, "feat/**", "fix/**"]
-    paths: ['labs/quantic-native/**', 'cmd/quantic-alpha-launcher/**', 'desktop/**', 'lib/quantic/**', 'scripts/native-vault-windows-local.mjs', 'scripts/package-windows-pq-lab.sh', 'scripts/scattering-physical-probe.mjs', 'scripts/Start-Windows-PQ-Lab.ps1', 'scripts/Test-Windows-PQ-Package.ps1', 'scripts/Quantic-Sillage-Alpha.ps1', 'scripts/Quantic-Sillage-GUI-Check.ps1', 'scripts/Quantic-Sillage-Network-Check.ps1', 'scripts/native-two-host-network-lab.mjs', 'tests/native-two-host-network-lab.test.mjs', 'scripts/Quantic-Sillage-Alpha.nsi', 'scripts/Test-Native-Installer-Signature.ps1', 'scripts/Sign-Native-Lab-Installer.ps1', 'tests/native-windows-desktop.test.mjs', 'tests/native-windows-mail-flow.test.mjs', 'tests/native-scattering-mailbox.test.mjs', 'standalone-relay/native-scattering-mailbox.mjs', 'scripts/serve-native-scattering-windows.mjs', 'scripts/native-vault-windows-mailbox.mjs', 'scripts/verify-migration-local.mjs', '.github/workflows/native-vault-lab.yml']
+    paths: ['labs/quantic-native/**', 'cmd/quantic-alpha-launcher/**', 'desktop/**', 'lib/quantic/**', 'scripts/native-vault-windows-local.mjs', 'scripts/package-windows-pq-lab.sh', 'scripts/scattering-physical-probe.mjs', 'scripts/Start-Windows-PQ-Lab.ps1', 'scripts/Test-Windows-PQ-Package.ps1', 'scripts/Quantic-Sillage-Alpha.ps1', 'scripts/Quantic-Sillage-GUI-Check.ps1', 'scripts/Quantic-Sillage-Network-Check.ps1', 'scripts/native-two-host-network-lab.mjs', 'tests/native-two-host-network-lab.test.mjs', 'tests/native-two-host-cli-e2e.test.mjs', 'scripts/Quantic-Sillage-Alpha.nsi', 'scripts/Test-Native-Installer-Signature.ps1', 'scripts/Sign-Native-Lab-Installer.ps1', 'tests/native-windows-desktop.test.mjs', 'tests/native-windows-mail-flow.test.mjs', 'tests/native-scattering-mailbox.test.mjs', 'standalone-relay/native-scattering-mailbox.mjs', 'scripts/serve-native-scattering-windows.mjs', 'scripts/native-vault-windows-mailbox.mjs', 'scripts/verify-migration-local.mjs', '.github/workflows/native-vault-lab.yml']
   push:
     branches: [main, "feat/**", "fix/**"]
-    paths: ['labs/quantic-native/**', 'cmd/quantic-alpha-launcher/**', 'desktop/**', 'lib/quantic/**', 'scripts/native-vault-windows-local.mjs', 'scripts/package-windows-pq-lab.sh', 'scripts/scattering-physical-probe.mjs', 'scripts/Start-Windows-PQ-Lab.ps1', 'scripts/Test-Windows-PQ-Package.ps1', 'scripts/Quantic-Sillage-Alpha.ps1', 'scripts/Quantic-Sillage-GUI-Check.ps1', 'scripts/Quantic-Sillage-Network-Check.ps1', 'scripts/native-two-host-network-lab.mjs', 'tests/native-two-host-network-lab.test.mjs', 'scripts/Quantic-Sillage-Alpha.nsi', 'scripts/Test-Native-Installer-Signature.ps1', 'scripts/Sign-Native-Lab-Installer.ps1', 'tests/native-windows-desktop.test.mjs', 'tests/native-windows-mail-flow.test.mjs', 'tests/native-scattering-mailbox.test.mjs', 'standalone-relay/native-scattering-mailbox.mjs', 'scripts/serve-native-scattering-windows.mjs', 'scripts/native-vault-windows-mailbox.mjs', 'scripts/verify-migration-local.mjs', '.github/workflows/native-vault-lab.yml']
+    paths: ['labs/quantic-native/**', 'cmd/quantic-alpha-launcher/**', 'desktop/**', 'lib/quantic/**', 'scripts/native-vault-windows-local.mjs', 'scripts/package-windows-pq-lab.sh', 'scripts/scattering-physical-probe.mjs', 'scripts/Start-Windows-PQ-Lab.ps1', 'scripts/Test-Windows-PQ-Package.ps1', 'scripts/Quantic-Sillage-Alpha.ps1', 'scripts/Quantic-Sillage-GUI-Check.ps1', 'scripts/Quantic-Sillage-Network-Check.ps1', 'scripts/native-two-host-network-lab.mjs', 'tests/native-two-host-network-lab.test.mjs', 'tests/native-two-host-cli-e2e.test.mjs', 'scripts/Quantic-Sillage-Alpha.nsi', 'scripts/Test-Native-Installer-Signature.ps1', 'scripts/Sign-Native-Lab-Installer.ps1', 'tests/native-windows-desktop.test.mjs', 'tests/native-windows-mail-flow.test.mjs', 'tests/native-scattering-mailbox.test.mjs', 'standalone-relay/native-scattering-mailbox.mjs', 'scripts/serve-native-scattering-windows.mjs', 'scripts/native-vault-windows-mailbox.mjs', 'scripts/verify-migration-local.mjs', '.github/workflows/native-vault-lab.yml']
 permissions:
   contents: read
 # Keep only the latest feature validation; retain independent main runs.
@@ -112,7 +112,7 @@ jobs:
         with:
           node-version: 24.8.0
       - name: Windows trusted client workflow regressions
-        run: node --test tests/native-windows-desktop.test.mjs tests/native-vault-controller.test.mjs tests/native-windows-mail-flow.test.mjs tests/native-windows-draft.test.mjs tests/native-windows-gui-send.test.mjs tests/native-windows-mail-status.test.mjs tests/native-two-host-network-lab.test.mjs
+        run: node --test tests/native-windows-desktop.test.mjs tests/native-vault-controller.test.mjs tests/native-windows-mail-flow.test.mjs tests/native-windows-draft.test.mjs tests/native-windows-gui-send.test.mjs tests/native-windows-mail-status.test.mjs tests/native-two-host-network-lab.test.mjs tests/native-two-host-cli-e2e.test.mjs
       - name: Windows multi-host mail readiness with four pinned mTLS authorities and Scattering
         shell: pwsh
         run: |
@@ -333,6 +333,13 @@ jobs:
           if ($p.ExitCode -ne 0) { throw "Native installation failed" }
           $installed = Join-Path $env:LOCALAPPDATA "QuanticSillage\Alpha-$build\app"
           & ./scripts/Test-Windows-PQ-Package.ps1 -PackageDirectory $installed -ExpectedManifestSha256 $manifestPin
+          # Full process-level proof using only the actual installed Node runtime
+          # and shipped CLI adapter; no test-only path may replace installed code.
+          $env:QS_ALPHA_PACKAGE = $installed
+          try {
+            & (Join-Path $installed 'runtime\node.exe') --test tests/native-two-host-cli-e2e.test.mjs
+            if($LASTEXITCODE -ne 0){throw "Installed Windows GUI network CLI integration failed"}
+          } finally { Remove-Item Env:\QS_ALPHA_PACKAGE -ErrorAction SilentlyContinue }
           $vaultPin = (Get-FileHash -LiteralPath (Join-Path $installed "bin\Vault-PQ-lab.exe") -Algorithm SHA256).Hash.ToLowerInvariant()
           $menu = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Quantic Sillage\Alpha-$build.lnk"
           $desktop = Join-Path ([Environment]::GetFolderPath('DesktopDirectory')) "Quantic Sillage Alpha-$build.lnk"
