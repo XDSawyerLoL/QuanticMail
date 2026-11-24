@@ -38,7 +38,7 @@ jobs:
           cp "$control/vaultsession/testdata/native_vault_interop_test.go.txt" sentinel_interop_test.go
           go mod edit -require=github.com/XDSawyerLoL/QuanticMail/quantic-control@v0.0.0
           go mod edit -replace=github.com/XDSawyerLoL/QuanticMail/quantic-control="$control"
-          go test -count=1 -tags pqopenssl -v -run TestSentinelVerifiesActualNativeVaultProof .
+          go test -count=1 -tags pqopenssl -v -timeout 90s -run TestSentinel .
   windows-pq:
     runs-on: windows-latest
     timeout-minutes: 15
@@ -76,4 +76,4 @@ jobs:
           cp "$control/vaultsession/testdata/native_vault_interop_test.go.txt" sentinel_interop_test.go
           go mod edit -require=github.com/XDSawyerLoL/QuanticMail/quantic-control@v0.0.0
           go mod edit -replace=github.com/XDSawyerLoL/QuanticMail/quantic-control="$(cygpath -w "$control")"
-          go test -count=1 -tags pqopenssl -v -run TestSentinelVerifiesActualNativeVaultProof .
+          go test -count=1 -tags pqopenssl -v -timeout 90s -run TestSentinel .
