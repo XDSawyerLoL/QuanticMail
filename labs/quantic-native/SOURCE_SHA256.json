@@ -107,7 +107,7 @@
   "vault/tests/isolated-enrollment.test.mjs": "3c90b9b3ce5522877b175176a372508834719a7447a28f342d0296df00d93e7f",
   "vault/tests/native-enrollment.test.mjs": "a07c4711d5a7a18f5ee48f969fcf07b4e81ecab5771e11739c3f93a91c011807",
   "vault/windows_activation.go": "d90394749d7b77e2aae1b6a0b81254a019877d68420aff601455147b7f40c2c2",
-  "vault/windows_activation_test.go": "cca1f83c2b5e96f9fadcfd8f4e90d0ece3d8b2c8eef79e6536dcd6fc0aaa9c79",
+  "vault/windows_activation_test.go": "0e0be6ae0feb382b3932b4cb8ec789991e2dc75f4473bfa3d49e7a1d2e5aebd3",
   "vault/windows_broker.go": "7a3b7b3447fe08a0c5e8323e54d3314a32b001090b5e05561975f170da79b324",
   "vault/windows_checkpoint_transport.go": "cd44140cad309198eace9244405a38e5c74a5fe1897744e2865a252f5f3e6c49",
   "vault/windows_client_io.go": "2fd1c84eade007a2a9d824be1d9692d027b65443a89ff80edcf37e59250585ae",
