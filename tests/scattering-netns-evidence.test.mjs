@@ -8,10 +8,10 @@ const cap = (gap=0.02, port=49001) => [
   (1763982000+gap*2).toFixed(6)+' IP 10.250.31.1.55001 > 10.250.31.2.'+port+': UDP, length 168',
 ].join('\n');
 const snd = mode => JSON.stringify({mode,report:'QS V7.1 NATIVE | planned=3 sent=3 missed=0 (0.000%)'})+'\n';
-const rx = () => JSON.stringify({mode:'physical-cover-receive',received:3,malformed:0})+'\n';
+const rx = (synthetic=false) => JSON.stringify({mode:synthetic?'physical-synthetic-receive':'physical-cover-receive',received:3,malformed:0,authenticatedPayloadProven:synthetic,authenticatedSynthetic:synthetic?3:0,replays:0})+'\n';
 const input = () => ({
   cover:{capture:cap(),sender:snd('physical-cover-send'),receiver:rx()},
-  synthetic:{capture:cap(.021),sender:snd('physical-synthetic-send'),receiver:rx()},
+  synthetic:{capture:cap(.021),sender:snd('physical-synthetic-send'),receiver:rx(true)},
 });
 test('extract passive UDP packet timestamps without exposing address fields',()=>{
   const r=parseTcpdumpLines(cap());
@@ -37,6 +37,11 @@ test('refuse missing frames, truncated counters and invalid packet lengths',()=>
   assert.throws(()=>analyzeNamespacePair(x));
 });
 test('refuse receiver count above native sender count',()=>{
-  const x=input();x.synthetic.receiver=JSON.stringify({mode:'physical-cover-receive',received:4,malformed:0});
+  const x=input();x.synthetic.receiver=JSON.stringify({mode:'physical-synthetic-receive',received:4,malformed:0,authenticatedPayloadProven:true,authenticatedSynthetic:4,replays:0});
   assert.throws(()=>analyzeNamespacePair(x));
+});
+
+test('refuse unauthenticated synthetic reception evidence',()=>{
+ const x=input();x.synthetic.receiver=rx();
+ assert.throws(()=>analyzeNamespacePair(x));
 });
