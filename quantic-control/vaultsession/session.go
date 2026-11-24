@@ -43,6 +43,7 @@ type Session struct{
  challenge [32]byte
  born time.Time
  consumed bool
+ exchangeStarted bool
 }
 func New(id Identity,machineID string,now time.Time)(*Session,error){
  if !addressPattern.MatchString(id.Address)||!devicePattern.MatchString(id.Device)||
