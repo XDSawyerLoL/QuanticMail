@@ -161,8 +161,8 @@ test('integrated native relay with four real mTLS authorities, hybrid ciphertext
   const t=contextText(c),salt=createHash('sha256').update('quantic-hybrid-kdf-salt-v1\n'+t).digest();
   return Buffer.from(hkdfSync('sha256',Buffer.concat([z,pq]),salt,Buffer.from(t),32));
  }
- function makeRecord(){
-  const context={clientMessageId:'native-durable-0001',from:a.checkpoint.address,fromDeviceId:a.checkpoint.deviceId,to:b.checkpoint.address,toDeviceId:b.checkpoint.deviceId};
+ function makeRecord(clientMessageId='native-durable-0001'){
+  const context={clientMessageId,from:a.checkpoint.address,fromDeviceId:a.checkpoint.deviceId,to:b.checkpoint.address,toDeviceId:b.checkpoint.deviceId};
   const eph=ec(),z=diffieHellman({privateKey:eph.privateKey,publicKey:b.enc.publicKey}),kem=encapsulate(b.kem.publicKey),key=symmetric(context,z,kem.sharedKey),iv=randomBytes(12);
   const g=createCipheriv('aes-256-gcm',key,iv);g.setAAD(Buffer.from(contextText(context)+'\nquantic-aes-gcm-aad-v1'));
   const ciphertext=Buffer.concat([g.update(plaintext),g.final(),g.getAuthTag()]);
@@ -207,6 +207,81 @@ test('integrated native relay with four real mTLS authorities, hybrid ciphertext
   assert.deepEqual((await post('recover',ack,b))[1].item.record,r);
   const [lastCode,last]=await post('send',r,a);assert.equal(lastCode,202);assert.equal(last.status,'acknowledged');assert.equal(last.id,saved.id);
   assert.equal((await post('send',changed,a))[0],409);
+  if(impairedScattering){
+   // Crash boundary: the real relay accepts a NEW signed record, but the
+   // return receipt is deliberately withheld by a fixture-local HTTP gate.
+   // Kill the entire carrier before allowing a fresh, independently keyed epoch.
+   const interrupted=makeRecord('native-durable-interrupted-0002');
+   const original=links.get(a);
+   await original.close();
+   const {createServer}=await import('node:http');
+   let resolveCommit,rejectCommit,deadline,blocked;
+   const committed=new Promise((resolve,reject)=>{resolveCommit=resolve;rejectCommit=reject;});
+   const gate=createServer(async(req,res)=>{
+    try{
+     assert.equal(req.method,'POST');
+     assert.equal(req.url,'/api/quantic/native/v1/send');
+     assert.equal(req.headers.authorization,'Bearer '+authToken(a));
+     const parts=[];let bytes=0;
+     for await(const part of req){bytes+=part.length;assert.ok(bytes<=32768);parts.push(part);}
+     const body=Buffer.concat(parts);
+     assert.deepEqual(JSON.parse(body),interrupted);
+     const upstream=await fetch(new URL(req.url,relay.url),{method:'POST',
+      headers:{'Content-Type':'application/json',Authorization:req.headers.authorization},
+      body,signal:AbortSignal.timeout(10000)});
+     assert.equal(upstream.status,202);
+     const receipt=await upstream.json();
+     assert.equal(receipt.digest,nativeRecordDigest(interrupted));
+     assert.equal(receipt.duplicate,false);
+     resolveCommit(receipt);
+     // No response bytes to the UDP endpoint. The request socket is closed
+     // when the carrier is terminated. Never fabricate a successful receipt.
+    }catch(e){rejectCommit(e);res.destroy();}
+   });
+   let receipt,failedEpoch;
+   try{
+    await new Promise((resolve,reject)=>{gate.once('error',reject);gate.listen(0,'127.0.0.1',resolve);});
+    blocked=await startNativeScatteringLink({dir:join(dir,'interrupted-carrier'),binary:scatteringBinary,
+     relayPort:gate.address().port,impaired:true});
+    links.set(a,blocked);
+    failedEpoch=blocked.epochId;
+    const interruptedClient=createNativeMailboxClient({endpoint:blocked.url,address:a.checkpoint.address,deviceId:a.checkpoint.deviceId,token:authToken(a)});
+    const outcome=interruptedClient.send(interrupted).then(()=>({confirmed:true}),()=>({confirmed:false}));
+    deadline=setTimeout(()=>rejectCommit(Error('durable commit not observed')),15000);
+    receipt=await committed;
+    await blocked.close();
+    assert.equal((await outcome).confirmed,false,'interrupted carrier must not report successful deposit');
+    await assert.rejects(interruptedClient.send(interrupted));
+   }finally{
+    clearTimeout(deadline);
+    await blocked?.close();
+    gate.closeAllConnections();
+    if(gate.listening)await new Promise(resolve=>gate.close(resolve));
+   }
+   await relay.close();relay=undefined;relay=await start();
+   const restored=await startNativeScatteringLink({dir:join(dir,'restored-carrier'),binary:scatteringBinary,
+    relayPort,impaired:true});
+   links.set(a,restored);
+   assert.notEqual(restored.epochId,failedEpoch);
+   assert.notEqual(restored.epochId,original.epochId);
+   const restoredClient=createNativeMailboxClient({endpoint:restored.url,address:a.checkpoint.address,deviceId:a.checkpoint.deviceId,token:authToken(a)});
+   const exact=await restoredClient.send(interrupted);
+   assert.equal(exact.id,receipt.id);
+   assert.equal(exact.digest,receipt.digest);
+   assert.equal(exact.duplicate,true);
+   assert.equal(exact.status,'queued');
+   const receiver=createNativeMailboxClient({endpoint:endpoint(b),address:b.checkpoint.address,deviceId:b.checkpoint.deviceId,token:authToken(b)});
+   const item=await receiver.pull();
+   assert.equal(item.id,receipt.id);assert.deepEqual(item.record,interrupted);
+   assert.deepEqual(decryptRecord(item.record),plaintext);
+   assert.equal((await receiver.ack(item.id,item.digest)).status,'acknowledged');
+   assert.equal(await receiver.pull(),null);
+   assert.deepEqual((await receiver.recover(item.id,item.digest)).record,interrupted);
+   console.log('NATIVE_MAIL_INTERRUPTED_RECEIPT '+JSON.stringify({committedBeforeCut:true,
+    successReceiptWithheld:true,interruptedClientConfirmed:false,freshEpoch:true,
+    relayRestart:true,exactSignedRetry:true,sameDurableId:true,
+    decryptedExactly:true,noDuplicateDelivery:true,authenticatedAck:true,releaseAuthorized:false}));
+  }
   policy[1].active=false;
   assert.notEqual((await post('send',r,a))[0],202);
   assert.notEqual((await post('pull',target(b),b))[0],200);
