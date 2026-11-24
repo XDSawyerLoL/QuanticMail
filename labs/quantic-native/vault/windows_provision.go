@@ -29,6 +29,9 @@ func winProvisionAutoController(dir,quorum,addr string,pw,pqPassword []byte)(map
  return result,nil
 }
 func winProvisionVaultLocal(dir,app,quorum,addr string,pw,pqPassword,controller []byte)(map[string]string,error){
+ return winProvisionVaultMode(dir,app,quorum,addr,pw,pqPassword,controller,false)
+}
+func winProvisionVaultMode(dir,app,quorum,addr string,pw,pqPassword,controller []byte,direct bool)(map[string]string,error){
  if !hashRE.MatchString(quorum)||!strongAddr.MatchString(addr)||!validPortablePassword(pw)||!validPortablePassword(pqPassword)||equalSecret(pw,pqPassword){return nil,portableRefusal}
  pub,e:=appPublic(app);if e!=nil{return nil,e}
  if _,_,e=winPathParts(dir);e!=nil{return nil,e}
@@ -37,21 +40,30 @@ func winProvisionVaultLocal(dir,app,quorum,addr string,pw,pqPassword,controller 
  k,e:=freshPortable();if e!=nil{return nil,e}
  s,a:=portablePins(k);point:=k.agreement.PublicKey().Bytes()
  device:="d-"+hexHash([]byte("P-256:"+b64.EncodeToString(point[1:33])+":"+b64.EncodeToString(point[33:])))[:32]
- binding,e:=pqBinding(s,a,hexHash(pub),quorum,addr,device);if e!=nil{return nil,e}
+ bindingPin:=quorum
+ magic:=anchoredMagic+"compact-manifest-quorum:"+quorum+"\x00"
+ if direct{
+  bindingPin=hexHash([]byte("quantic-direct-local-vault/v1\x00"+quorum))
+  magic=anchoredMagic+"direct-local-only:"+bindingPin+"\x00"
+ }
+ binding,e:=pqBinding(s,a,hexHash(pub),bindingPin,addr,device);if e!=nil{return nil,e}
  kem,e:=pqGenerate("ML-KEM-768");if e!=nil{return nil,e};defer kem.close()
  dsa,e:=pqGenerate("ML-DSA-65");if e!=nil{return nil,e};defer dsa.close()
  p,e:=pqMake(kem,dsa,addr,device);if e!=nil{return nil,e}
  if e=winCreatePrivateDirectory(dir);e!=nil{return nil,e}
- if e=winWriteClassical(filepath.Join(dir,"classical.vault"),anchoredMagic+"compact-manifest-quorum:"+quorum+"\x00",pw,k);e!=nil{return nil,e}
+ if e=winWriteClassical(filepath.Join(dir,"classical.vault"),magic,pw,k);e!=nil{return nil,e}
  if e=winWritePQ(filepath.Join(dir,"pq.vault"),binding,pqPassword,p);e!=nil{return nil,e}
  if e=winInitReplay(filepath.Join(dir,"journal.log"),s,a,hexHash(pub));e!=nil{return nil,e}
  var receipt [32]byte;if _,e=rand.Read(receipt[:]);e!=nil{return nil,e};defer clear(receipt[:])
  if e=winWritePrivate(filepath.Join(dir,"receipt.key"),receipt[:]);e!=nil{return nil,e}
  if len(controller)>0{if e=winWritePrivate(filepath.Join(dir,"controller.pem"),controller);e!=nil{return nil,e}}
- if e=winWritePrivate(filepath.Join(dir,"lab-provisioned"),[]byte(hexHash(pub)));e!=nil{return nil,e}
+ marker:="lab-provisioned"
+ if direct{marker="direct-provisioned"}
+ if e=winWritePrivate(filepath.Join(dir,marker),[]byte(hexHash(pub)));e!=nil{return nil,e}
  return map[string]string{"backend":"windows-software-pq-storage-lab","address":addr,"deviceId":device,"signingPin":s,"encryptionPin":a,"kemPin":p.kemPin,"dsaPin":p.dsaPin,"signing":b64.EncodeToString(elliptic.Marshal(elliptic.P256(),k.signing.X,k.signing.Y)),"encryption":b64.EncodeToString(point),"kemPublic":b64.EncodeToString(p.kemPub),"dsaPublic":b64.EncodeToString(p.dsaPub),"status":"local-provision-only-not-enrolled"},nil
 }
 func windowsVaultCLI(args []string)(bool,error){
+ if handled,e:=winDirectVaultCLI(args);handled{return true,e}
  if handled,e:=winMigrationIO(args);handled{return true,e}
  if handled,e:=windowsPayCLI(args);handled{return true,e}
  if len(args)>1&&args[1]=="--windows-import-lab-file"{return true,winImportCLI(args)}
