@@ -19,7 +19,17 @@ test('staged payload accepts native modules and rejects legacy Web paths and dep
   writeFileSync(file,"import './durable-web-relay-route.mjs';");
   assert.throws(()=>verifyNativePayload(root),/Legacy Web route reference refused/);
   writeFileSync(file,'export const native=true;');
-  mkdirSync(join(root,'app'));
+  for(const endpoint of ['https://quanticmail.onrender.com','https://QUANTICMAIL-NETWORK-RELAY.ONRENDER.COM','https://quantic-network-relay-backup-production.up.railway.app','https://quantic-hostinger-relay.invalid']){
+   writeFileSync(file,JSON.stringify({endpoint}));
+   assert.throws(()=>verifyNativePayload(root),/Legacy hosted endpoint refused/);
+  }
+  writeFileSync(file,"export const endpoint='http://127.0.0.1:8787';");
+  assert.equal(verifyNativePayload(root),true);
+  const shortcut=join(root,'legacy.URL');
+  writeFileSync(shortcut,'[InternetShortcut]');
+  assert.throws(()=>verifyNativePayload(root),/Legacy Web payload refused/);
+  rmSync(shortcut);
+  mkdirSync(join(root,'lib','APP'));
   assert.throws(()=>verifyNativePayload(root),/Legacy Web payload refused/);
  }finally{rmSync(root,{recursive:true,force:true});}
 });

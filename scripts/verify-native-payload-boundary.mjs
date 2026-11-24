@@ -1,22 +1,32 @@
 import {readdirSync,readFileSync,lstatSync} from 'node:fs';
-import {join,relative,resolve,basename} from 'node:path';
+import {join,relative,resolve,basename,sep} from 'node:path';
 import {pathToFileURL} from 'node:url';
 
 const forbiddenNames=new Set(['durable-web-relay-route.mjs','main.cjs','hostinger-main.ts','next.config.ts','proxy.ts']);
-const forbiddenRoot=new Set(['app','components','public','node_modules','.next','out']);
-const oldAdapter=/(?:^|[\/'"\s])durable-web-relay-route\.mjs(?:['"\s]|$)/m;
+const forbiddenDirs=new Set(['app','components','public','node_modules','.next','out']);
+const oldAdapter=/(?:^|[\/'"\s])durable-web-relay-route\.mjs(?:['"\s]|$)/im;
+const oldEndpoint=/(?:quanticmail(?:-network-relay)?\.onrender\.com|quantic-network-relay-backup-production\.up\.railway\.app|quantic-hostinger-relay\.invalid)/i;
 
 export function verifyNativePayload(root){
  root=resolve(root);
+ const rootInfo=lstatSync(root);
+ if(rootInfo.isSymbolicLink()||!rootInfo.isDirectory())throw Error('Expected real installer payload directory');
  const walk=(dir)=>{
   for(const entry of readdirSync(dir,{withFileTypes:true})){
    const full=join(dir,entry.name);
-   const path=relative(root,full).replaceAll('\\','/');
+   const path=relative(root,full).split(sep).join('/');
    const base=basename(full).toLowerCase();
-   if(entry.isSymbolicLink()||lstatSync(full).isSymbolicLink())throw Error('Unexpected link in installer payload: '+path);
-   if(forbiddenRoot.has(path.split('/')[0].toLowerCase())||forbiddenNames.has(base))throw Error('Legacy Web payload refused: '+path);
-   if(entry.isDirectory())walk(full);
-   else if(entry.isFile()&&/\.(?:mjs|cjs|js|ts|ps1)$/i.test(base)&&oldAdapter.test(readFileSync(full,'utf8')))throw Error('Legacy Web route reference refused: '+path);
+   const info=lstatSync(full);
+   if(entry.isSymbolicLink()||info.isSymbolicLink())throw Error('Unexpected link in installer payload: '+path);
+   if(forbiddenNames.has(base)||(info.isDirectory()&&forbiddenDirs.has(base))||/\.url$/i.test(base))throw Error('Legacy Web payload refused: '+path);
+   if(info.isDirectory())walk(full);
+   else if(info.isFile()){
+    if(/\.(?:mjs|cjs|js|ts|ps1|json|ini|cfg|conf|xml|html|htm)$/i.test(base)){
+     const source=readFileSync(full,'utf8');
+     if(oldAdapter.test(source))throw Error('Legacy Web route reference refused: '+path);
+     if(oldEndpoint.test(source))throw Error('Legacy hosted endpoint refused: '+path);
+    }
+   }else throw Error('Unexpected entry in installer payload: '+path);
   }
  };
  walk(root);
