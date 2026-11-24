@@ -31,6 +31,7 @@ $actions=@(
  @{Id="Providers";Title="Verifier la cryptographie";Hint="Diagnostic du fournisseur cryptographique natif."},
  @{Id="GuiCheck";Title="Tester les fenetres de securite Windows";Hint="Code ephemere, saisie masquee et consentement OUI puis refus NON. Aucun compte reel.";Scope=$false},
  @{Id="ProbeLoopback";Title="Tester le transport local";Hint="Diagnostic UDP local, sans compte ni reseau distant."},
+ @{Id="NetworkCheck";Title="Tester la liaison entre deux PC";Hint="Echange UDP synthetique avec code de test, accusé authentifie dans les deux sens. Aucun courrier reel."},
  @{Id="MigrationCheck";Title="Verifier une sauvegarde de migration";Hint="Controle hors ligne des anciennes cles. Aucun transfert ou effacement."},
  @{Id="MigrationHistory";Title="Relire les messages historiques";Hint="Lecture locale de la sauvegarde verifiee. Aucun compte reactive."},
  @{Id="PayLab";Title="Quantic Pay - laboratoire";Hint="Portefeuille et paiements strictement fictifs. Aucune valeur monetaire."},
@@ -52,7 +53,7 @@ function Get-AlphaModule([string]$Id) {
   '^(ComposeDraft|SealAndSend|RecoverSealAndSend|Seal|RecoverSeal|Send|Receive|Open|RecoverOpen|RecoverReceive|ConfirmReceipt|MailPreflight|MailAttest)$' { return "QUANTIC MAIL" }
   '^(Provision|ProvisionPair)$' { return "QUANTIC ID" }
   '^Migration' { return "IDENTITY VAULT" }
-  '^(StartBridge|ProbeLoopback)$' { return "SCATTERING" }
+  '^(StartBridge|ProbeLoopback|NetworkCheck)$' { return "SCATTERING" }
   '^(Pay|StartPayBridge)' { return "QUANTIC PAY - LAB" }
   '^(Providers|GuiCheck)$' { return "DIAGNOSTIC" }
   default { throw "Unknown native operation; fail closed." }
@@ -135,8 +136,8 @@ $choice.Add_SelectedIndexChanged({
  if ($choice.SelectedIndex -lt 0) { return }
  $a=$script:shownActions[$choice.SelectedIndex]
  $hint.Text=$a.Hint
- $run.Text=if($a.Id -eq 'ComposeDraft'){"Rediger mon message"}elseif($a.Id -eq 'GuiCheck'){"Tester les fenetres Windows"}else{"Ouvrir le laboratoire technique"}
- $simple=$a.Id -in @('ComposeDraft','GuiCheck')
+ $run.Text=if($a.Id -eq 'ComposeDraft'){"Rediger mon message"}elseif($a.Id -eq 'GuiCheck'){"Tester les fenetres Windows"}elseif($a.Id -eq 'NetworkCheck'){"Tester deux PC"}else{"Ouvrir le laboratoire technique"}
+ $simple=$a.Id -in @('ComposeDraft','GuiCheck','NetworkCheck')
  foreach($control in @($directory,$il,$inputName,$ol,$outputName)){$control.Visible=-not $simple}
  $directory.Enabled=[bool]$a.Scope
  $inputName.Enabled=[bool]$a.Input
@@ -155,6 +156,10 @@ $run.Add_Click({
    & (Join-Path $root 'Quantic-Sillage-GUI-Check.ps1') -ExpectedManifestSha256 $ExpectedManifestSha256 -TrustedBinarySha256 $TrustedBinarySha256
    return
   }
+  if($a.Id -eq 'NetworkCheck'){
+   & (Join-Path $root 'Quantic-Sillage-Network-Check.ps1') -ExpectedManifestSha256 $ExpectedManifestSha256 -TrustedBinarySha256 $TrustedBinarySha256
+   return
+  }
   $warn=[Windows.Forms.MessageBox]::Show('Ceci est une operation de laboratoire reservee aux tests. Elle ouvrira volontairement un terminal technique. Continuer ?','Mode technique','YesNo','Warning')
   if($warn -ne [Windows.Forms.DialogResult]::Yes){return}
   $script:selectedArguments=New-OperationArguments $a $directory.Text $inputName.Text $outputName.Text
@@ -167,7 +172,7 @@ $run.Add_Click({
 $module.SelectedIndex=0
 if ($SelfTest) {
  try {
-  if($actions.Count -ne 31 -or $script:shownActions[0].Id -ne 'ComposeDraft' -or $inputName.Visible -or $outputName.Visible){throw "Dashboard initialization failed"}
+  if($actions.Count -ne 32 -or $script:shownActions[0].Id -ne 'ComposeDraft' -or $inputName.Visible -or $outputName.Visible){throw "Dashboard initialization failed"}
   $choice.SelectedIndex=1
   if(-not $inputName.Enabled -or -not $outputName.Enabled){throw "Advanced input fields missing"}
   $a=New-OperationArguments $actions[1] "C:\Quantic Lab\vault" "draft-test.json" "wire-test.json"
