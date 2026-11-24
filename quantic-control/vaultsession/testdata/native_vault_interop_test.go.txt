@@ -7,6 +7,8 @@ import(
  "crypto/ed25519"
  "crypto/rand"
  "io"
+ "os"
+ "path/filepath"
  "encoding/base64"
  "encoding/json"
  "strings"
@@ -34,6 +36,7 @@ func TestSentinelVerifiesActualNativeVaultProof(t *testing.T){
  raw,err:=json.Marshal(vaultsession.Reply{OK:true,PQProof:base64.RawURLEncoding.EncodeToString(sig)})
  if err!=nil{t.Fatal(err)}
  if err:=s.Verify(raw,time.Now());err!=nil{t.Fatal(err)}
+ if _,e:=s.AuthorizationClaims("alerts.read",time.Now());e==nil{t.Fatal("raw proof alone granted broker authorization")}
  if s.Verify(raw,time.Now())==nil{t.Fatal("replay accepted")}
  another,err:=vaultsession.New(id,"different-machine",time.Now())
  if err!=nil{t.Fatal(err)}
@@ -110,8 +113,12 @@ func TestSentinelAuthenticatedNativeBroker(t *testing.T){
      if e:=s.AuthorizeRead(req,"alerts.read",time.Now());e==nil{t.Fatal("revoked session authorized")}
      return
     }
-    if e:=s.AuthorizeRead(req,"alerts.read",time.Now());e!=nil{t.Fatal(e)}
-    if e:=s.AuthorizeRead(req,"alerts.read",time.Now());e==nil{t.Fatal("authorization replay")}
+    log:=filepath.Join(t.TempDir(),"events.jsonl")
+    if e:=os.WriteFile(log,[]byte("{\"type\":\"alert\",\"message\":\"synthetic diagnostic record\"}\n"),0600);e!=nil{t.Fatal(e)}
+    if _,e:=s.ReadAuthorizedAlerts(forged,log,10);e==nil{t.Fatal("forged request read local history")}
+    records,e:=s.ReadAuthorizedAlerts(req,log,10)
+    if e!=nil||len(records)!=1||records[0].Message!="synthetic diagnostic record"{t.Fatalf("authorized history read failed: %v %v",records,e)}
+    if _,e:=s.ReadAuthorizedAlerts(req,log,10);e==nil{t.Fatal("authorization replay read history")}
 
    }else{
     if result==nil{t.Fatalf("%s unexpectedly authenticated",mode)}
