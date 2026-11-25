@@ -1244,7 +1244,9 @@ function Initialize-Desktop {
  $form.AutoScaleMode=[Windows.Forms.AutoScaleMode]::None
  $form.Font=New-Object Drawing.Font('Segoe UI',13,[Drawing.FontStyle]::Regular,[Drawing.GraphicsUnit]::Pixel)
  $form.MinimumSize=New-Object Drawing.Size(1000,680)
- $form.ClientSize=New-Object Drawing.Size(1160,810)
+ $work=[Windows.Forms.Screen]::PrimaryScreen.WorkingArea
+ $form.MinimumSize=New-Object Drawing.Size(900,620)
+ $form.Size=New-Object Drawing.Size(([Math]::Min(1180,$work.Width)),([Math]::Min(850,$work.Height)))
  $form.BackColor=$script:desktopColors.Canvas
  $form.ForeColor=$script:desktopColors.Ink
  $sidebar=New-Object Windows.Forms.Panel
@@ -1271,7 +1273,7 @@ function Initialize-Desktop {
  try{$logoShape.AddEllipse(0,0,40,40);$logoView.Region=New-Object Drawing.Region($logoShape)}finally{$logoShape.Dispose()}
  $sidebar.Controls.Add($logoView)
  $form.Add_Disposed(({$logoView.Image.Dispose()}).GetNewClosure())
- $brand=Desktop-Label $sidebar 'Quantic Sillage' 67 28 154 30 13 $true
+ $brand=Desktop-Label $sidebar 'Quantic Sillage' 65 30 135 27 11.5 $true
  $brand.ForeColor=[Drawing.Color]::White
  $tagline=Desktop-Label $sidebar 'Votre espace numérique' 20 77 196 24 9
  $tagline.ForeColor=[Drawing.Color]::FromArgb(170,192,214)
@@ -1351,11 +1353,12 @@ function Update-DesktopLayout {
  if($script:desktopLayoutBusy -or -not $script:desktopBody -or -not $script:desktopScroll){return}
  $script:desktopLayoutBusy=$true
  try{
-  $fw=$form.ClientSize.Width;$fh=$form.ClientSize.Height
+  $fw=[Math]::Min($form.ClientSize.Width,$form.Width-16);$fh=[Math]::Min($form.ClientSize.Height,$form.Height-39)
   if($fw -lt 300 -or $fh -lt 180){return}
-  $side=224;$ww=$fw-$side
+  $side=if($fw -lt 1100){204}else{224};$ww=$fw-$side
   $script:desktopLayout.SetBounds(0,0,$fw,$fh)
   $script:desktopSidebar.SetBounds(0,0,$side,$fh)
+  foreach($b in $script:desktopNav){$b.Width=$side-24}
   $script:desktopWorkspace.SetBounds($side,0,$ww,$fh)
   $script:desktopHeader.SetBounds(0,0,$ww,94)
   $script:desktopFooter.SetBounds(0,$fh-40,$ww,40)
@@ -1369,7 +1372,7 @@ function Update-DesktopLayout {
   $scroll.AutoScrollMinSize=New-Object Drawing.Size(0,$contentHeight)
   $position=$scroll.AutoScrollPosition
   $script:desktopBody.SetBounds($x,(20+$position.Y),$width,650)
-  $script:desktopAdvanced.SetBounds($x,(20+$position.Y),760,870)
+  $script:desktopAdvanced.SetBounds(16,(20+$position.Y),760,870)
   if($script:desktopPageBounds){Resize-DesktopPage $script:desktopBody ($width/824.0)}
   $hx=[Math]::Max(4,$ww-308)
   $script:desktopSessionLabel.Left=$hx;$script:desktopSessionOpen.Left=$hx;$script:desktopSessionLock.Left=$hx+135
@@ -1416,7 +1419,8 @@ if ($SelfTest) {
     if($script:desktopSessionLock.Right -gt $script:desktopHeader.ClientSize.Width){throw 'Header controls clipped'}
     if($script:desktopBody.Left -lt 0 -or $script:desktopBody.Right -gt $script:desktopScroll.ClientSize.Width){throw 'Body outside visible width'}
    }
-   $form.ClientSize=New-Object Drawing.Size(1160,810)
+   $area=[Windows.Forms.Screen]::PrimaryScreen.WorkingArea
+   $form.Size=New-Object Drawing.Size(([Math]::Min(1160,$area.Width)),([Math]::Min(810,$area.Height)))
    $form.PerformLayout();[Windows.Forms.Application]::DoEvents()
    Update-DesktopLayout
    $form.Refresh()
@@ -1428,9 +1432,10 @@ if ($SelfTest) {
      Show-DesktopPage $page
      [Windows.Forms.Application]::DoEvents()
      $form.Refresh()
-     $bmp=New-Object Drawing.Bitmap($form.Width,$form.Height)
+     Update-DesktopLayout
+     $bmp=New-Object Drawing.Bitmap($script:desktopLayout.Width,$script:desktopLayout.Height)
      try{
-      $form.DrawToBitmap($bmp,(New-Object Drawing.Rectangle(0,0,$bmp.Width,$bmp.Height)))
+      $script:desktopLayout.DrawToBitmap($bmp,(New-Object Drawing.Rectangle(0,0,$bmp.Width,$bmp.Height)))
       $bmp.Save((Join-Path $capture ('{0:D2}.png' -f $index)),[Drawing.Imaging.ImageFormat]::Png)
      }finally{$bmp.Dispose()}
      $index++
