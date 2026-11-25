@@ -840,6 +840,7 @@ function Desktop-HomeCard($parent,[string]$title,[string]$description,[string]$b
  })
  $action=Desktop-Button $panel ($button+'  '+[char]0x2192) $tag 12 108 236 26 $false
  $action.TextAlign='MiddleLeft';$action.ForeColor=$script:desktopColors.Blue;$action.FlatAppearance.BorderSize=0;$action.BackColor=$panel.BackColor
+ $action.Font=New-Object Drawing.Font('Segoe UI Semibold',13,[Drawing.FontStyle]::Regular,[Drawing.GraphicsUnit]::Pixel)
 }
 function Invoke-DesktopNativeAction([string]$id){
  $match=@($actions|Where-Object {$_.Id -ceq $id})
@@ -1358,7 +1359,8 @@ function Show-DesktopPage([string]$name){
  if($name -notin $script:desktopPages){throw 'Page inconnue'}
  $script:desktopCurrent=$name
  foreach($b in $script:desktopNav){
-  $b.BackColor=if($b.Tag -eq $name){[Drawing.Color]::FromArgb(21,73,129)}else{$script:desktopColors.Navy}
+  $b.BackColor=if($b.Tag -eq $name){[Drawing.Color]::FromArgb(15,76,139)}else{[Drawing.Color]::FromArgb(15,37,61)}
+  $b.Invalidate()
  }
  $script:desktopAdvanced.Visible=$false
  $script:desktopBody.Visible=$true
@@ -1373,47 +1375,63 @@ function Show-DesktopPage([string]$name){
    $hello=Desktop-Label $body 'Bienvenue dans Quantic Sillage' 0 0 812 36 18 $true
    $subtitle=Desktop-Label $body 'Votre espace numérique unifié · Édition de laboratoire.' 0 39 812 24 10
    $subtitle.ForeColor=$script:desktopColors.Muted
-   $hero.BackColor=[Drawing.Color]::FromArgb(14,43,76);Set-DesktopRoundedCard $hero;$hero.SetBounds(0,75,812,142);$body.Controls.Add($hero)
+   $hero.BackColor=[Drawing.Color]::FromArgb(14,43,76);Set-DesktopRoundedCard $hero;$hero.SetBounds(0,75,812,154);$body.Controls.Add($hero)
    $hero.Add_Paint({param($sender,$e)
-    $rect=New-Object Drawing.Rectangle(0,0,$sender.Width,$sender.Height)
-    $brush=New-Object Drawing.SolidBrush([Drawing.Color]::FromArgb(14,43,76))
-    try{$e.Graphics.FillRectangle($brush,$rect)}finally{$brush.Dispose()}
-    # Original approved artwork, upper-left Earth crop (222x150).
-    # The left edge is pre-blended into the banner's final color.
-    $stream=New-Object IO.MemoryStream(,([Convert]::FromBase64String('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')))
+    $width=$sender.ClientSize.Width;$height=$sender.ClientSize.Height
+    if($width -lt 20 -or $height -lt 20){return}
+    $g=$e.Graphics
+    $g.SmoothingMode=[Drawing.Drawing2D.SmoothingMode]::AntiAlias
+    $g.InterpolationMode=[Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+    $g.PixelOffsetMode=[Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+    $g.CompositingQuality=[Drawing.Drawing2D.CompositingQuality]::HighQuality
+    $rect=New-Object Drawing.Rectangle(0,0,$width,$height)
+    $left=[Drawing.Color]::FromArgb(10,30,54);$right=[Drawing.Color]::FromArgb(23,66,107)
+    $base=New-Object Drawing.Drawing2D.LinearGradientBrush($rect,$left,$right,[Drawing.Drawing2D.LinearGradientMode]::Horizontal)
+    $stream=$null;$earth=$null;$art=$null;$ag=$null;$mask=$null;$overlay=$null;$pen=$null
     try{
+     $g.FillRectangle($base,$rect)
+     # Compose the approved crop into an integrated, full-height banner.
+     # No remote assets, no invented high-resolution source.
+     $stream=New-Object IO.MemoryStream(,([Convert]::FromBase64String('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')))
      $earth=[Drawing.Image]::FromStream($stream)
-     try{
-      $e.Graphics.InterpolationMode=[Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
-      $e.Graphics.PixelOffsetMode=[Drawing.Drawing2D.PixelOffsetMode]::HighQuality
-      $e.Graphics.CompositingQuality=[Drawing.Drawing2D.CompositingQuality]::HighQuality
-      $w=[int][Math]::Min($sender.Width*0.42,$sender.Height*$earth.Width/[double]$earth.Height);$x=$sender.Width-$w
-      $e.Graphics.DrawImage($earth,(New-Object Drawing.Rectangle($x,0,$w,$sender.Height)))
-      # Seam blend over the already premultiplied edge, using the exact
-      # banner background as the opaque start.
-      $fadeWidth=[Math]::Max(8,[int]($w*0.48))
-      $fadeRect=New-Object Drawing.Rectangle($x,0,$fadeWidth,$sender.Height)
-      $fade=New-Object Drawing.Drawing2D.LinearGradientBrush($fadeRect,[Drawing.Color]::FromArgb(255,14,43,76),[Drawing.Color]::FromArgb(0,14,43,76),[Drawing.Drawing2D.LinearGradientMode]::Horizontal)
-      try{
-       $blend=New-Object Drawing.Drawing2D.Blend(5)
-       $blend.Positions=[single[]]@(0,0.25,0.5,0.75,1)
-       $blend.Factors=[single[]]@(0,0.15625,0.5,0.84375,1)
-       $fade.Blend=$blend
-       $e.Graphics.FillRectangle($fade,$fadeRect)
-      }finally{$fade.Dispose()}
-     }finally{$earth.Dispose()}
-    }finally{$stream.Dispose()}
+     $artWidth=[Math]::Max(32,[int]($width*0.46));$start=$width-$artWidth
+     $art=New-Object Drawing.Bitmap($artWidth,$height)
+     $ag=[Drawing.Graphics]::FromImage($art)
+     $ag.InterpolationMode=[Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+     $ag.PixelOffsetMode=[Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+     $scale=[Math]::Max($artWidth/[double]$earth.Width,$height/[double]$earth.Height)
+     $drawWidth=[int][Math]::Ceiling($earth.Width*$scale);$drawHeight=[int][Math]::Ceiling($earth.Height*$scale)
+     $ag.DrawImage($earth,(New-Object Drawing.Rectangle(($artWidth-$drawWidth),([int](($height-$drawHeight)/2)),$drawWidth,$drawHeight)))
+     $ag.Dispose();$ag=$null
+     $g.DrawImageUnscaled($art,$start,0)
+     # Full-height feather, covering the complete left seam with the same navy palette.
+     $fadeRect=New-Object Drawing.Rectangle($start,0,([Math]::Max(2,[int]($artWidth*0.80))),$height)
+     $mask=New-Object Drawing.Drawing2D.LinearGradientBrush($fadeRect,[Drawing.Color]::FromArgb(255,17,50,83),[Drawing.Color]::FromArgb(0,17,50,83),[Drawing.Drawing2D.LinearGradientMode]::Horizontal)
+     $blend=New-Object Drawing.Drawing2D.Blend(5)
+     $blend.Positions=[single[]]@(0,0.20,0.50,0.80,1);$blend.Factors=[single[]]@(0,0.04,0.50,0.96,1)
+     $mask.Blend=$blend;$g.FillRectangle($mask,$fadeRect)
+     $overlay=New-Object Drawing.Drawing2D.LinearGradientBrush($rect,[Drawing.Color]::FromArgb(65,8,24,47),[Drawing.Color]::FromArgb(0,8,24,47),[Drawing.Drawing2D.LinearGradientMode]::Vertical)
+     $g.FillRectangle($overlay,$rect)
+     # Subtle orbital linework on the left, outside the bright Earth area.
+     $pen=New-Object Drawing.Pen([Drawing.Color]::FromArgb(22,157,195,239),1)
+     foreach($n in @(0,1,2)){
+      $radius=125+$n*35
+      $g.DrawEllipse($pen,(-$radius-40),($height-25-$radius),($radius*2),($radius*2))
+     }
+    }finally{
+     foreach($resource in @($pen,$overlay,$mask,$ag,$art,$earth,$stream,$base)){if($resource){$resource.Dispose()}}
+    }
    })
-   $headline=Desktop-Label $hero ('Votre identité, vos échanges,'+[Environment]::NewLine+'vos paiements et vos données,') 30 22 505 58 16 $true
+   $headline=Desktop-Label $hero ('Votre identité, vos échanges,'+[Environment]::NewLine+'vos paiements et vos données,') 30 19 430 68 17 $true
    $headline.BackColor=[Drawing.Color]::Transparent;$headline.ForeColor=[Drawing.Color]::White
-   $detail=Desktop-Label $hero 'dans un espace numérique sous votre contrôle.' 32 88 505 40 11
+   $detail=Desktop-Label $hero 'dans un espace numérique sous votre contrôle.' 31 94 440 42 10.5
    $detail.BackColor=[Drawing.Color]::Transparent;$detail.ForeColor=[Drawing.Color]::FromArgb(212,226,241)
-   Desktop-HomeCard $body 'Identité' 'Votre identité numérique locale.' 'Mon identité' 'Identité' 0xE77B 0 233
-   Desktop-HomeCard $body 'Messagerie' 'Vos échanges et vos contacts.' 'Mes messages' 'Messagerie' 0xE715 276 233
-   Desktop-HomeCard $body 'Paiements' 'Simulation sans argent réel.' 'Mes paiements' 'Paiements' 0xE8C7 552 233
-   Desktop-HomeCard $body 'Coffre-fort' 'Vos documents chiffrés de test.' 'Mon coffre' 'Coffre-fort' 0xE72E 0 387
-   Desktop-HomeCard $body 'Protection' 'Surveillance des sauvegardes.' 'Ma protection' 'Protection' 0xEA18 276 387
-   Desktop-HomeCard $body 'État de l’espace' 'Consulter les signaux locaux.' 'Voir la protection' 'Protection' 0xE9D9 552 387
+   Desktop-HomeCard $body 'Identité' 'Votre identité numérique locale.' 'Mon identité' 'Identité' 0xE77B 0 245
+   Desktop-HomeCard $body 'Messagerie' 'Vos échanges et vos contacts.' 'Mes messages' 'Messagerie' 0xE715 276 245
+   Desktop-HomeCard $body 'Paiements' 'Simulation sans argent réel.' 'Mes paiements' 'Paiements' 0xE8C7 552 245
+   Desktop-HomeCard $body 'Coffre-fort' 'Vos documents chiffrés de test.' 'Mon coffre' 'Coffre-fort' 0xE72E 0 399
+   Desktop-HomeCard $body 'Protection' 'Surveillance des sauvegardes.' 'Ma protection' 'Protection' 0xEA18 276 399
+   Desktop-HomeCard $body 'État de l’espace' 'Consulter les signaux locaux.' 'Voir la protection' 'Protection' 0xE9D9 552 399
   }
   'Identité' {
    $null=Desktop-Label $body 'Identité numérique' 0 0 810 36 19 $true
@@ -1659,6 +1677,12 @@ function Initialize-Desktop {
  $layout=New-Object Windows.Forms.Panel
  $layout.Margin=New-Object Windows.Forms.Padding(0)
  $sidebar.Dock='None'
+ $sidebar.Add_Paint({param($sender,$e)
+  if($sender.Width -lt 2 -or $sender.Height -lt 2){return}
+  $r=New-Object Drawing.Rectangle(0,0,$sender.Width,$sender.Height)
+  $brush=New-Object Drawing.Drawing2D.LinearGradientBrush($r,[Drawing.Color]::FromArgb(10,28,49),[Drawing.Color]::FromArgb(16,43,71),[Drawing.Drawing2D.LinearGradientMode]::Vertical)
+  try{$e.Graphics.FillRectangle($brush,$r)}finally{$brush.Dispose()}
+ })
  $workspace=New-Object Windows.Forms.Panel
  $workspace.BackColor=$script:desktopColors.Canvas
  $form.Controls.Add($layout);$layout.Controls.Add($sidebar);$layout.Controls.Add($workspace)
@@ -1707,7 +1731,7 @@ function Initialize-Desktop {
  $state.ForeColor=$script:desktopColors.Muted
  $script:desktopSessionLabel=Desktop-Label $header 'Espace privé fermé' 460 3 280 21 9
  $script:desktopSessionLabel.TextAlign='MiddleRight'
- $script:desktopSessionOpen=Desktop-Button $header 'Ouvrir l’espace' 'session-open' 460 27 125 29 $true
+ $script:desktopSessionOpen=Desktop-Button $header 'Ouvrir' 'session-open' 460 27 125 29 $true
  $script:desktopSessionLock=Desktop-Button $header 'Verrouiller' 'session-lock' 595 27 145 29 $false
  $script:desktopState=$state
  $header.Add_SizeChanged({
