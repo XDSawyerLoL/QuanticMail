@@ -770,13 +770,22 @@ function Set-DesktopRoundedCard($panel){
   }finally{$path.Dispose();$pen.Dispose()}
  })
 }
+# Shared icon tile: native glyph, consistent optical alignment and rounded background.
+function Set-DesktopIconTile($label,[int]$pixels){
+ $label.Font=New-Object Drawing.Font('Segoe MDL2 Assets',$pixels,[Drawing.FontStyle]::Regular,[Drawing.GraphicsUnit]::Pixel)
+ $label.TextAlign='MiddleCenter'
+ $label.ForeColor=$script:desktopColors.Blue
+ $label.BackColor=[Drawing.Color]::FromArgb(235,243,252)
+ $label.AccessibleRole=[Windows.Forms.AccessibleRole]::Graphic
+ $label.Add_SizeChanged({param($sender,$e) Set-DesktopButtonRegion $sender})
+ Set-DesktopButtonRegion $label
+}
 function Desktop-HomeCard($parent,[string]$title,[string]$description,[string]$button,[string]$tag,[int]$glyph,[int]$x,[int]$y){
  $panel=New-Object Windows.Forms.Panel
  $panel.BackColor=$script:desktopColors.White;Set-DesktopRoundedCard $panel
  $panel.SetBounds($x,$y,260,140);$parent.Controls.Add($panel)
  $icon=Desktop-Label $panel ([string][char]$glyph) 18 13 36 35 17
- $icon.Font=New-Object Drawing.Font('Segoe MDL2 Assets',23,[Drawing.FontStyle]::Regular,[Drawing.GraphicsUnit]::Pixel)
- $icon.TextAlign='MiddleCenter';$icon.BackColor=[Drawing.Color]::FromArgb(235,243,252);$icon.ForeColor=$script:desktopColors.Blue
+ Set-DesktopIconTile $icon 23
  $null=Desktop-Label $panel $title 18 52 224 26 13 $true
  $desc=Desktop-Label $panel $description 18 77 224 33 9
  $desc.ForeColor=$script:desktopColors.Muted
@@ -1221,8 +1230,7 @@ function Desktop-Section($parent,[int]$x,[int]$y,[int]$w,[int]$h){
 function Desktop-SettingRow($parent,[string]$title,[string]$detail,[int]$glyph,[int]$y,[string]$action='',[string]$tag=''){
  $p=Desktop-Section $parent 0 $y 812 68
  $i=Desktop-Label $p ([string][char]$glyph) 14 13 39 39 17
- $i.Font=New-Object Drawing.Font('Segoe MDL2 Assets',22,[Drawing.FontStyle]::Regular,[Drawing.GraphicsUnit]::Pixel)
- $i.TextAlign='MiddleCenter';$i.ForeColor=$script:desktopColors.Blue;$i.BackColor=[Drawing.Color]::FromArgb(235,243,252)
+ Set-DesktopIconTile $i 22
  $null=Desktop-Label $p $title 66 10 515 22 12 $true
  $d=Desktop-Label $p $detail 66 33 515 28 9
  $d.ForeColor=$script:desktopColors.Muted
@@ -1232,8 +1240,7 @@ function Desktop-SettingRow($parent,[string]$title,[string]$detail,[int]$glyph,[
 function Desktop-IdentityAction($parent,[string]$title,[string]$detail,[int]$glyph,[string]$tag,[int]$y){
  $p=Desktop-Section $parent 516 $y 296 56
  $i=Desktop-Label $p ([string][char]$glyph) 9 10 36 36 16
- $i.Font=New-Object Drawing.Font('Segoe MDL2 Assets',21,[Drawing.FontStyle]::Regular,[Drawing.GraphicsUnit]::Pixel)
- $i.TextAlign='MiddleCenter';$i.ForeColor=$script:desktopColors.Blue;$i.BackColor=[Drawing.Color]::FromArgb(235,243,252)
+ Set-DesktopIconTile $i 21
  $button=Desktop-Button $p $title $tag 51 3 235 26 $false
  $button.TextAlign='MiddleLeft';$button.FlatAppearance.BorderSize=0;$button.ForeColor=$script:desktopColors.Ink
  $d=Desktop-Label $p $detail 57 32 224 20 9
@@ -1301,8 +1308,8 @@ function Show-DesktopPage([string]$name){
    $idCard.Add_Paint({param($sender,$e) $r=New-Object Drawing.Rectangle(0,0,$sender.Width,$sender.Height);$g=New-Object Drawing.Drawing2D.LinearGradientBrush($r,[Drawing.Color]::FromArgb(239,247,255),[Drawing.Color]::FromArgb(180,211,245),25);try{$e.Graphics.FillRectangle($g,$r)}finally{$g.Dispose()}})
    $idCard.SetBounds(0,88,500,248);$body.Controls.Add($idCard)
    $mark=Desktop-Label $idCard ([string][char]0xE77B) 24 85 88 88 19
-   $mark.Font=New-Object Drawing.Font('Segoe MDL2 Assets',56,[Drawing.FontStyle]::Regular,[Drawing.GraphicsUnit]::Pixel)
-   $mark.TextAlign='MiddleCenter';$mark.BackColor=[Drawing.Color]::FromArgb(214,230,248);$mark.ForeColor=$script:desktopColors.Blue
+   Set-DesktopIconTile $mark 48
+   $mark.BackColor=[Drawing.Color]::FromArgb(214,230,248)
    $null=Desktop-Label $idCard 'Quantic Sillage' 24 19 446 26 14 $true
    $null=Desktop-Label $idCard 'IDENTITÉ NUMÉRIQUE DE LABORATOIRE' 24 49 446 25 9
    $null=Desktop-Label $idCard 'Mon identité locale' 130 87 342 31 16 $true
@@ -1514,6 +1521,7 @@ function Initialize-Desktop {
   $b=Desktop-Button $sidebar $page $page 12 $y 176 43 $false
   $b.TextAlign='MiddleLeft';$b.Padding=New-Object Windows.Forms.Padding(43,0,0,0)
   $b.AccessibleName=$page
+   $b.AccessibleDescription='Afficher la page '+$page
   $b.Add_Paint({param($sender,$e) $g=@{Accueil=0xE80F;'Identité'=0xE77B;Messagerie=0xE715;Paiements=0xE8C7;'Coffre-fort'=0xE72E;Protection=0xEA18;'Paramètres'=0xE713};$font=New-Object Drawing.Font('Segoe MDL2 Assets',17,[Drawing.FontStyle]::Regular,[Drawing.GraphicsUnit]::Pixel);try{[Windows.Forms.TextRenderer]::DrawText($e.Graphics,([string][char]$g[[string]$sender.Tag]),$font,(New-Object Drawing.Rectangle(13,0,24,$sender.Height)),[Drawing.Color]::White,([Windows.Forms.TextFormatFlags]::HorizontalCenter -bor [Windows.Forms.TextFormatFlags]::VerticalCenter))}finally{$font.Dispose()}})
   $b.FlatAppearance.BorderSize=0;$b.ForeColor=[Drawing.Color]::White
   $b.FlatAppearance.MouseOverBackColor=[Drawing.Color]::FromArgb(28,66,105);$b.FlatAppearance.MouseDownBackColor=[Drawing.Color]::FromArgb(35,77,118)
