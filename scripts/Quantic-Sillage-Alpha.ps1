@@ -1431,7 +1431,7 @@ function Show-DesktopPage([string]$name){
    Desktop-HomeCard $body 'Paiements' 'Simulation sans argent réel.' 'Mes paiements' 'Paiements' 0xE8C7 552 245
    Desktop-HomeCard $body 'Coffre-fort' 'Vos documents chiffrés de test.' 'Mon coffre' 'Coffre-fort' 0xE72E 0 399
    Desktop-HomeCard $body 'Protection' 'Surveillance des sauvegardes.' 'Ma protection' 'Protection' 0xEA18 276 399
-   Desktop-HomeCard $body 'État de l’espace' 'Consulter les signaux locaux.' 'Voir la protection' 'Protection' 0xE9D9 552 399
+   Desktop-HomeCard $body 'État de l''espace' 'Consulter les signaux locaux.' 'Voir la protection' 'Protection' 0xE9D9 552 399
   }
   'Identité' {
    $null=Desktop-Label $body 'Identité numérique' 0 0 810 36 19 $true
