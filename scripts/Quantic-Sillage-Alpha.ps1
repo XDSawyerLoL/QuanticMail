@@ -746,6 +746,8 @@ function Invoke-DesktopAction([string]$tag){
   'proof' {Invoke-DesktopNativeAction 'AnswerEnrollment';return}
   'credential' {Invoke-DesktopNativeAction 'PrepareMailboxCredential';return}
   'activation' {Invoke-DesktopNativeAction 'ImportMailboxActivation';return}
+  'session-lock' {Close-DesktopDocumentSession;return}
+  'session-open' {try{$null=Open-DesktopDocumentSession}catch{[Windows.Forms.MessageBox]::Show('Ouverture non confirmée. Préparez une identité de laboratoire dans Identité.','Quantic Sillage','OK','Warning')|Out-Null};return}
   'doc-import' {Start-DesktopDocument 'import';return}
   'doc-list' {Start-DesktopDocument 'list';return}
   'doc-export' {Start-DesktopDocument 'export';return}
@@ -983,15 +985,41 @@ function Start-DesktopPayDemo {
 }
 
 
-function Invoke-DesktopDocument([string]$mode,[string]$path='', [string]$id='', [string[]]$paths=@()){
- $dir=$script:configuredEnrollment
- if(-not $dir -or $dir -cnotmatch '^[A-Za-z]:\\[A-Za-z0-9_. -]+(?:\\[A-Za-z0-9_. -]+)*$'){throw 'Configurez votre identité de laboratoire au préalable.'}
- $op=switch($mode){
-  'list' {'--gui-document-list-lab'}
-  'import' {'--gui-document-import-lab'}
-  'export' {'--gui-document-export-lab'}
-  default {throw 'Action inconnue'}
+
+$script:desktopDocumentProcess=$null
+function Close-DesktopDocumentSession {
+ $p=$script:desktopDocumentProcess;$script:desktopDocumentProcess=$null
+ if($p){try{$p.StandardInput.Close();if(-not $p.WaitForExit(2000)){$p.Kill()}}catch{}finally{$p.Dispose()}}
+ if($script:desktopDocuments -and -not $script:desktopDocuments.IsDisposed){$script:desktopDocuments.Items.Clear()}
+ $script:desktopDocumentIDs=@()
+ if($script:desktopDocumentStatus -and -not $script:desktopDocumentStatus.IsDisposed){$script:desktopDocumentStatus.Text='Coffre documentaire verrouillé.'}
+ if($script:desktopSessionLabel -and -not $script:desktopSessionLabel.IsDisposed){$script:desktopSessionLabel.Text='Coffre documentaire fermé'}
+}
+function Choose-DesktopEnrollment {
+ $parent=[Environment]::GetFolderPath('LocalApplicationData')
+ $r=Invoke-EnrollmentNative 'list' $parent
+ if($r.status -cne 'pending-enrollment-candidates-only' -or $r.candidates.Count -gt 32){throw 'Registre non reconnu'}
+ $items=@($r.candidates)
+ if($items.Count -eq 0){throw 'Préparez une identité de laboratoire dans Identité.'}
+ foreach($item in $items){
+  if($item.directory -cnotmatch ('^'+[Regex]::Escape($parent)+'\\quantic-enroll-[0-9a-f]{16}$') -or $item.address -cnotmatch '^[a-z0-9][a-z0-9._-]{2,31}~[0-9a-f]{32}@quantic$'){throw 'Identité non reconnue'}
  }
+ $dlg=New-Object Windows.Forms.Form
+ $dlg.Text='Ouvrir mon espace documentaire';$dlg.StartPosition='CenterParent';$dlg.ClientSize=New-Object Drawing.Size(560,180)
+ $null=Desktop-Label $dlg 'Sélectionnez une identité locale de laboratoire.' 20 15 520 36 11
+ $list=New-Object Windows.Forms.ComboBox;$list.DropDownStyle='DropDownList';$list.SetBounds(20,57,520,35)
+ foreach($item in $items){$null=$list.Items.Add([string]$item.address)}
+ $list.SelectedIndex=0;$dlg.Controls.Add($list)
+ $ok=New-Object Windows.Forms.Button;$ok.Text='Continuer';$ok.SetBounds(260,115,135,40);$ok.DialogResult='OK';$dlg.Controls.Add($ok);$dlg.AcceptButton=$ok
+ $cancel=New-Object Windows.Forms.Button;$cancel.Text='Annuler';$cancel.SetBounds(405,115,135,40);$cancel.DialogResult='Cancel';$dlg.Controls.Add($cancel);$dlg.CancelButton=$cancel
+ try{if($dlg.ShowDialog($form) -ne 'OK'){return $null};return $items[$list.SelectedIndex]}finally{$dlg.Dispose()}
+}
+function Open-DesktopDocumentSession {
+ if($script:desktopDocumentProcess -and -not $script:desktopDocumentProcess.HasExited){return $true}
+ Close-DesktopDocumentSession
+ $chosen=Choose-DesktopEnrollment
+ if(-not $chosen){return $false}
+ $dir=[string]$chosen.directory
  $vault=Join-Path $root 'bin\Vault-PQ-lab.exe'
  $manifest=Join-Path $root 'SHA256SUMS.txt'
  if((Get-FileHash -LiteralPath $manifest -Algorithm SHA256).Hash -ine $ExpectedManifestSha256){throw 'Inventaire modifié'}
@@ -1001,30 +1029,46 @@ function Invoke-DesktopDocument([string]$mode,[string]$path='', [string]$id='', 
  & $verifier -PackageDirectory $root -ExpectedManifestSha256 $ExpectedManifestSha256 | Out-Null
  if((Get-FileHash -LiteralPath $vault -Algorithm SHA256).Hash -ine $TrustedBinarySha256){throw 'Coffre non vérifié'}
  $psi=New-Object Diagnostics.ProcessStartInfo
- $psi.FileName=$vault;$psi.Arguments=('{0} "{1}"' -f $op,$dir);$psi.WorkingDirectory=(Join-Path $root 'bin')
+ $psi.FileName=$vault;$psi.Arguments=('--gui-document-session-lab "{0}"' -f $dir);$psi.WorkingDirectory=(Join-Path $root 'bin')
  $psi.UseShellExecute=$false;$psi.CreateNoWindow=$true
  $psi.RedirectStandardInput=$true;$psi.RedirectStandardOutput=$true;$psi.RedirectStandardError=$true
+ $psi.StandardOutputEncoding=[Text.Encoding]::UTF8
  $psi.EnvironmentVariables.Clear()
  $psi.EnvironmentVariables['SystemRoot']=$env:SystemRoot
  $psi.EnvironmentVariables['WINDIR']=$env:SystemRoot
  $psi.EnvironmentVariables['PATH']=(Join-Path $root 'bin')+';'+(Join-Path $env:SystemRoot 'System32')
+
  $child=[Diagnostics.Process]::Start($psi)
  try{
-  $out=$child.StandardOutput.ReadToEndAsync();$err=$child.StandardError.ReadToEndAsync()
-  $bytes=[Text.Encoding]::UTF8.GetBytes((@{path=$path;id=$id;paths=@($paths)}|ConvertTo-Json -Compress))
-  if($bytes.Length -gt 4096){throw 'Sélection trop longue'}
-  $child.StandardInput.BaseStream.Write($bytes,0,$bytes.Length);$child.StandardInput.Close()
-  if(-not $child.WaitForExit(240000)){throw 'Opération interrompue'}
-  if($child.ExitCode -ne 0 -or $out.Result.Length -gt 16384){throw 'Accès refusé ou opération non confirmée'}
-  $r=$out.Result|ConvertFrom-Json
-  $expected=switch($mode){'list'{'listed'};'import'{'imported'};'export'{'exported'}}
-  if($r.labOnly -ne $true -or ($r.status -cne $expected -and -not ($mode -eq 'import' -and $r.status -ceq 'partial'))){throw 'Résultat non reconnu'}
-  return $r
- }finally{if(-not $child.HasExited){$child.Kill()};$child.Dispose()}
+  $err=$child.StandardError.ReadToEndAsync()
+  $line=$child.StandardOutput.ReadLineAsync()
+  if(-not $line.Wait(240000) -or -not $line.Result -or $line.Result.Length -gt 2048){throw 'Session non confirmée'}
+  $r=$line.Result|ConvertFrom-Json
+  if($r.labOnly -ne $true -or $r.status -cne 'document-session-ready' -or $r.address -cne $chosen.address -or $child.HasExited){throw 'Session non reconnue'}
+  $script:desktopDocumentProcess=$child;$child=$null
+  $script:desktopSessionLabel.Text='Documents ouverts · 5 min max.'
+  return $true
+ }finally{if($child){try{$child.StandardInput.Close();if(-not $child.WaitForExit(1000)){$child.Kill()}}catch{};$child.Dispose()}}
 }
+function Invoke-DesktopDocument([string]$mode,[string]$path='', [string]$id='', [string[]]$paths=@()){
+ if(-not (Open-DesktopDocumentSession)){throw 'Ouverture annulée'}
+ $p=$script:desktopDocumentProcess
+ try{
+  $json=@{operation=$mode;request=@{path=$path;id=$id;paths=@($paths)}}|ConvertTo-Json -Depth 4 -Compress
+  $bytes=[Text.Encoding]::UTF8.GetBytes($json+[Environment]::NewLine)
+  if($bytes.Length -gt 4096){throw 'Sélection trop longue'}
+  $p.StandardInput.BaseStream.Write($bytes,0,$bytes.Length);$p.StandardInput.BaseStream.Flush()
+  $line=$p.StandardOutput.ReadLineAsync()
+  if(-not $line.Wait(240000) -or -not $line.Result -or $line.Result.Length -gt 16384){throw 'Session interrompue'}
+  $r=$line.Result|ConvertFrom-Json
+  $expected=switch($mode){'list'{'listed'};'import'{'imported'};'export'{'exported'}}
+  if($r.labOnly -ne $true -or ($r.status -cne $expected -and -not ($mode -eq 'import' -and $r.status -ceq 'partial'))){throw 'Opération non confirmée'}
+  return $r
+ }catch{Close-DesktopDocumentSession;throw}
+}
+
 function Start-DesktopDocument([string]$mode){
  try{
-  if(-not $script:configuredEnrollment){throw 'Configurez vos accès de laboratoire dans Messagerie avant de déposer des documents.'}
   switch($mode){
    'import' {
     $picker=New-Object Windows.Forms.OpenFileDialog
@@ -1047,7 +1091,7 @@ function Start-DesktopDocument([string]$mode){
      $script:desktopDocumentIDs+= [string]$d.id
     }
     if($script:desktopDocumentIDs.Count -gt 0){$script:desktopDocuments.SelectedIndex=0}
-    $script:desktopDocumentStatus.Text=('{0} document(s) vérifié(s). Les secrets sont refermés.' -f $script:desktopDocumentIDs.Count)
+    $script:desktopDocumentStatus.Text=('{0} document(s) vérifié(s). Session documentaire temporaire.' -f $script:desktopDocumentIDs.Count)
    }
    'export' {
     $i=$script:desktopDocuments.SelectedIndex
@@ -1124,7 +1168,7 @@ function Show-DesktopPage([string]$name){
   }
   'Coffre-fort' {
    $null=Desktop-Label $body 'Vos données et vos clés' 0 0 810 38 19 $true
-   $null=Desktop-Card $body 'Coffre documentaire de test' 'Fichiers locaux chiffrés. Identité de laboratoire configurée requise. 32 documents de 8 Mio maximum.' '' '' 0 58 812 118
+   $null=Desktop-Card $body 'Coffre documentaire de test' 'Fichiers locaux chiffrés. Identité locale de laboratoire requise. 32 documents de 8 Mio maximum.' '' '' 0 58 812 118
    $panel=New-Object Windows.Forms.Panel
    $panel.BackColor=$script:desktopColors.White;$panel.SetBounds(0,192,812,370);$body.Controls.Add($panel)
    $null=Desktop-Button $panel 'Ajouter un document' 'doc-import' 20 18 250 42 $true
@@ -1204,6 +1248,9 @@ function Initialize-Desktop {
  $script:desktopTitle=Desktop-Label $header 'Accueil' 28 19 600 44 24 $true
  $state=Desktop-Label $header 'Espace local  •  Test uniquement' 30 65 700 22 10
  $state.ForeColor=$script:desktopColors.Muted
+ $script:desktopSessionLabel=Desktop-Label $header 'Coffre documentaire fermé' 600 18 290 25 10
+ $null=Desktop-Button $header 'Ouvrir' 'session-open' 600 48 125 32 $false
+ $null=Desktop-Button $header 'Verrouiller' 'session-lock' 735 48 145 32 $false
  # Preserve status of the existing managed carrier, without claiming the
  # transport is connected to a remote correspondent.
  $notice.Parent=$workspace;$notice.Dock='Bottom';$notice.Height=40
@@ -1265,7 +1312,7 @@ $transportTimer=New-Object Windows.Forms.Timer;$transportTimer.Interval=1000
 $transportTimer.Add_Tick({if($script:managedCarrier -and $script:managedCarrier.HasExited){Stop-ManagedCarrier;$notice.Text='Transport arrete | aucun renvoi automatique.'}})
 $transportTimer.Start()
 $protectionTimer=New-Object Windows.Forms.Timer;$protectionTimer.Interval=2000
-$protectionTimer.Add_Tick({Refresh-DesktopProtection});$protectionTimer.Start()
+$protectionTimer.Add_Tick({Refresh-DesktopProtection;if($script:desktopDocumentProcess -and $script:desktopDocumentProcess.HasExited){Close-DesktopDocumentSession}});$protectionTimer.Start()
 try{
  while($true){
   $script:selectedArguments=$null;$script:selectedAction=$null
@@ -1289,4 +1336,4 @@ try{
   if($null -eq $child){throw 'Le laboratoire technique ne peut pas demarrer'}
   $child.Dispose()
  }
-}finally{$protectionTimer.Stop();$protectionTimer.Dispose();$transportTimer.Stop();$transportTimer.Dispose();Stop-ManagedCarrier;$form.Dispose()}
+}finally{Close-DesktopDocumentSession;$protectionTimer.Stop();$protectionTimer.Dispose();$transportTimer.Stop();$transportTimer.Dispose();Stop-ManagedCarrier;$form.Dispose()}
