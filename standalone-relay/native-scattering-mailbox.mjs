@@ -8,6 +8,7 @@ import {createServer,request} from 'node:http';
 import {cellKey} from '../labs/quantic-native/scattering/scattering-cell.mjs';
 import {reliableCellStream} from '../labs/quantic-native/scattering/scattering-reliable-lab.mjs';
 const MAX=32768,FRAME=65536,OPS=16;
+const RENEW_MAX=8192;
 const RENEW_TOKEN='quantic-native-direct-renewal-carrier-v1';
 const profiles=Object.freeze({'direct-renewal':Object.freeze({base:'/unused/',ops:Object.freeze(['renew'])}),'direct-mail':Object.freeze({base:'/api/quantic/direct/v1/',ops:Object.freeze(['send'])}),mailbox:Object.freeze({base:'/api/quantic/native/v1/',ops:Object.freeze(['send','pull','ack','recover'])}), 'pay-lab':Object.freeze({base:'/api/quantic/pay-lab/v1/',ops:Object.freeze(['checkpoint','submit'])}), 'pay-round-lab':Object.freeze({base:'/api/quantic/pay-round-lab/v1/',ops:Object.freeze(['status','prepare','change-view','commit','learn','upload-begin','upload-chunk','upload-finish'])}), 'pay-replica-lab':Object.freeze({base:'/api/quantic/pay-replica-lab/v1/',ops:Object.freeze(['status','admission-report','vote-admission','admit','prepare','change-view','commit','learn','upload-begin','upload-chunk','upload-finish','record-begin','record-chunk'])}), 'pay-committee-recovery-lab':Object.freeze({base:'/api/quantic/pay-committee-recovery-lab/v1/',ops:Object.freeze(['status','learn','upload-begin','upload-chunk','upload-finish','record-begin','record-chunk']),maxOps:48}), 'pay-committee-vote-lab':Object.freeze({base:'/api/quantic/pay-committee-vote-lab/v1/',ops:Object.freeze(['status','admission-prepare','admission-change','admission-commit','admit','prepare','change-view','commit','upload-begin','upload-chunk','upload-finish','result-chunk']),maxOps:48})});
 const check=x=>{if(!x)throw Error('Scattering mailbox lab refused');};
@@ -102,14 +103,16 @@ export async function startScatteringMailboxEndpoint(c,{windowsBootstrap,profile
     check(!stopped&&!busy&&frame.seq===next);
    }
    if(renewal)check(frame.token===RENEW_TOKEN);
-   const data=decode(frame.body,1);busy=true;next++;
+   const data=decode(frame.body,1);
+   if(renewal&&data.length>RENEW_MAX){data.fill(0);throw Error('Renewal request bound');}
+   busy=true;next++;
    try{
     let result;
     try{
      // Direct mode has NO upstream HTTP or mailbox relay. The remote
      // recipient writes its own local ciphertext before returning success.
      result=!admissionOpen()?{status:503,body:errorBody}:renewal?await directRenew(data):profile==='direct-mail'?await directReceive(data,frame.token):await forward(frame,data);
-     check(result&&Number.isInteger(result.status)&&result.status>=200&&result.status<=599&&Buffer.isBuffer(result.body)&&result.body.length<=MAX);
+     check(result&&Number.isInteger(result.status)&&result.status>=200&&result.status<=599&&Buffer.isBuffer(result.body)&&result.body.length<=MAX&&(!renewal||result.status!==200||(result.body.length>0&&result.body.length<=RENEW_MAX)));
     }catch{result={status:502,body:errorBody};}
     // The upstream response, not a volatile carrier ACK, is returned to the client.
     relayResponse=sendFrame({kind:'response',seq:frame.seq,status:result.status,body:result.body.toString('base64url')});
@@ -117,7 +120,9 @@ export async function startScatteringMailboxEndpoint(c,{windowsBootstrap,profile
    }finally{data.fill(0);relayResponse=undefined;busy=false;}
   }else{
    check(pending&&exact(frame,['kind','seq','status','body'])&&frame.kind==='response'&&frame.seq===pending.seq&&Number.isInteger(frame.status)&&frame.status>=200&&frame.status<=599);
-   const body=decode(frame.body);const p=pending;pending=null;clearTimeout(p.timer);p.resolve({status:frame.status,body});
+   const body=decode(frame.body);
+   if(renewal&&frame.status===200&&(body.length===0||body.length>RENEW_MAX)){body.fill(0);throw Error('Renewal response bound');}
+   const p=pending;pending=null;clearTimeout(p.timer);p.resolve({status:frame.status,body});
   }
  }
  function consume(chunk){
@@ -134,7 +139,7 @@ export async function startScatteringMailboxEndpoint(c,{windowsBootstrap,profile
  // The receiver callback MUST authenticate the hybrid signed request before
  // returning a proof; the requester verifies the proof in its native vault.
  async function requestRenewal(data){
-  check(renewal&&c.role==='client'&&!stopped&&!busy&&next<=operationLimit&&admissionOpen()&&Buffer.isBuffer(data)&&data.length>0&&data.length<=MAX);
+  check(renewal&&c.role==='client'&&!stopped&&!busy&&next<=operationLimit&&admissionOpen()&&Buffer.isBuffer(data)&&data.length>0&&data.length<=RENEW_MAX);
   busy=true;
   try{
    const seq=next++;

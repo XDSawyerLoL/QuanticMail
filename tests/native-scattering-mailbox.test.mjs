@@ -7,6 +7,7 @@ import {randomBytes,createHash} from 'node:crypto';
 import {mkdtemp,mkdir,rm,readFile,realpath} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
+import {startDirectRenewalCarrier} from '../desktop/native-direct-renewal-carrier.mjs';
 import {startScatteringMailboxEndpoint} from '../standalone-relay/native-scattering-mailbox.mjs';
 const binary=process.env.QUANTIC_SCATTERING_NATIVE_TEST?resolve(process.env.QUANTIC_SCATTERING_NATIVE_TEST):undefined;
 const windows=process.platform==='win32',vault=process.env.QUANTIC_WINDOWS_VAULT_TEST?resolve(process.env.QUANTIC_WINDOWS_VAULT_TEST):undefined;
@@ -54,5 +55,53 @@ test('native Scattering pacers and sinks carry bounded mailbox HTTP operations o
   for(const e of endpoints)e.close();for(const p of kids)p.kill();
   await Promise.all(kids.map(p=>p.exitCode!==null?Promise.resolve():new Promise(r=>{p.once('exit',r);p.once('error',r);})));
   server.closeAllConnections();await new Promise(r=>server.close(r));await rm(dir,{recursive:true,force:true,maxRetries:10,retryDelay:200});
+ }
+});
+
+test('renewal adapter retires uncertain epoch, never repeats native exchange',async()=>{
+ let requests=0,closes=0;
+ const carrier=await startDirectRenewalCarrier({carrier:{role:'client'}},{startHost:async()=>({
+  authenticatedPeerSeen:()=>true,requestRenewal:async()=>{requests++;return {status:502,body:Buffer.from('uncertain')};},
+  close:async()=>{closes++;}
+ })});
+ await assert.rejects(carrier.exchange(Buffer.alloc(8193)));
+ assert.equal(requests,0);
+ await assert.rejects(carrier.exchange(Buffer.from('synthetic request')),/not confirmed/);
+ await assert.rejects(carrier.exchange(Buffer.from('another request')));
+ assert.equal(requests,1);assert.equal(closes,1);
+});
+test('native renewal lane transfers bounded synthetic request and proof over real UDP without HTTP',{skip:!binary||(windows&&!vault),timeout:90000},async()=>{
+ const parent=windows?(process.env.QUANTIC_WINDOWS_TEST_ROOT??await realpath(tmpdir())):tmpdir();
+ const dir=await realpath(await mkdtemp(join(parent,'qs-renewal-'))),kids=[],endpoints=[],queues=[];
+ const requestBytes=randomBytes(8192),proofBytes=randomBytes(8192);
+ let hits=0;
+ try{
+  const shared={labOnly:true,secretHex:randomBytes(32).toString('hex'),epochHex:randomBytes(32).toString('hex'),recvPort:0};
+  for(const role of ['client','relay']){
+   const scope=join(dir,role),queueDir=windows?join(scope,'queue'):join(dir,role+'-queue'),stateDir=windows?join(scope,'state'):join(dir,role+'-state');
+   let opts={};if(windows){execFileSync(vault,['--windows-scattering-create-lab',scope]);opts={windowsBootstrap:{binary:vault,binarySha256:createHash('sha256').update(await readFile(vault)).digest('hex'),dir:scope}};}else{await mkdir(queueDir,{mode:0o700});await mkdir(stateDir,{mode:0o700});}
+   queues.push(queueDir);
+   const c={...shared,role,queueDir,stateDir,httpPort:role==='client'?0:1};
+   endpoints.push(await startScatteringMailboxEndpoint(c,{...opts,profile:'direct-renewal',...(role==='relay'?{directRenew:async raw=>{
+    hits++;assert.deepEqual(raw,requestBytes);return {status:200,body:proofBytes};
+   }}:{})}));
+  }
+  assert.equal(endpoints[0].httpPort,undefined);assert.equal(endpoints[1].httpPort,undefined);
+  assert.equal(typeof endpoints[1].requestRenewal,'undefined');
+  await assert.rejects(endpoints[0].requestRenewal(Buffer.alloc(8193)));
+  assert.equal(hits,0);
+  const ports=[await freeUDP(),await freeUDP()];assert.notEqual(ports[0],ports[1]);
+  for(let i=0;i<2;i++){
+   kids.push(spawn(binary,['-mode','sink','-listen','127.0.0.1:'+ports[i],'-forward','127.0.0.1:'+endpoints[i].recvPort],{stdio:'ignore'}));
+   kids.push(spawn(binary,['-target','127.0.0.1:'+ports[1-i],'-queue-dir',queues[i],'-period-us','5000','-poll','10ms','-wait-mode','native'],{stdio:'ignore'}));
+  }
+  await new Promise(r=>setTimeout(r,400));assert.ok(kids.every(p=>p.exitCode===null));
+  const result=await endpoints[0].requestRenewal(requestBytes);
+  assert.equal(result.status,200);assert.deepEqual(result.body,proofBytes);assert.equal(hits,1);
+ }finally{
+  for(const e of endpoints)e.close();for(const p of kids)p.kill();
+  await Promise.all(kids.map(p=>p.exitCode!==null||p.signalCode!==null?Promise.resolve():new Promise(r=>{p.once('exit',r);p.once('error',r);})));
+  await Promise.all(endpoints.map(e=>e.closed));
+  await rm(dir,{recursive:true,force:true,maxRetries:10,retryDelay:200});
  }
 });

@@ -17,12 +17,22 @@ export async function startDirectRenewalCarrier(plan,{windowsBootstrap,issueNati
   }:undefined})});
  try{
   check(host.httpPort===undefined&&(issuer||typeof host.requestRenewal==='function'));
+  let failed=false,busy=false;
   return Object.freeze({role:issuer?'issuer':'requester',closed:host.closed,close:host.close,authenticatedPeerSeen:host.authenticatedPeerSeen,
    ...(!issuer?{async exchange(raw){
-    check(Buffer.isBuffer(raw)&&raw.length>0&&raw.length<=MAX&&host.authenticatedPeerSeen());
-    const response=await host.requestRenewal(raw);
-    check(response?.status===200&&Buffer.isBuffer(response.body)&&response.body.length>0&&response.body.length<=MAX);
-    return response.body;
+    check(!failed&&!busy&&Buffer.isBuffer(raw)&&raw.length>0&&raw.length<=MAX&&host.authenticatedPeerSeen());
+    busy=true;
+    try{
+     const response=await host.requestRenewal(raw);
+     check(response?.status===200&&Buffer.isBuffer(response.body)&&response.body.length>0&&response.body.length<=MAX);
+     return response.body;
+    }catch(e){
+     // A missing or rejected proof may follow a committed issuer operation.
+     // Retire this lane; never issue another request on an uncertain epoch.
+     failed=true;
+     try{await host.close();}catch{}
+     throw Error('Native renewal result not confirmed');
+    }finally{busy=false;}
    }}:{})});
  }catch(e){await host.close();throw e;}
 }
