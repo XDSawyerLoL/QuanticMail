@@ -1616,9 +1616,23 @@ if ($SelfTest) {
   Close-DesktopDocumentSession
   if($script:desktopIdentityAddress.Text -eq 'synthetic test address'){throw 'Private identity remains after lock'}
   Show-DesktopPage 'Accueil'
+  # Report effective DPI of the actual window, not fabricated scale values.
+  Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class QuanticVisualDpi { [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr hwnd); }'
+  function Test-DesktopControlBounds($parent,[string]$page){
+   foreach($control in $parent.Controls){
+    if(-not $control.Visible){continue}
+    if($control.Left -lt 0 -or $control.Top -lt 0 -or $control.Right -gt ($parent.ClientSize.Width+1) -or $control.Bottom -gt ($parent.ClientSize.Height+1)){
+     throw ("Control outside parent: "+$page+" / "+$control.GetType().Name+" / "+$control.Text)
+    }
+    if($control -is [Windows.Forms.Panel]){Test-DesktopControlBounds $control $page}
+   }
+  }
   # Exercise rendered geometry, not just existence of controls.
   $form.Show()
   try{
+   $actualDpi=[QuanticVisualDpi]::GetDpiForWindow($form.Handle)
+   if($actualDpi -eq 0){throw 'Unable to measure effective window DPI'}
+   Write-Output ("Actual Windows window DPI: {0}; effective scale: {1:N0}% (not a multi-DPI proof)" -f $actualDpi,($actualDpi/96.0*100))
    foreach($size in @(@(1160,810),@(1000,680),@(1440,900))){
     $form.ClientSize=New-Object Drawing.Size($size[0],$size[1])
     $form.PerformLayout();$script:desktopLayout.PerformLayout();$script:desktopWorkspace.PerformLayout()
@@ -1632,6 +1646,13 @@ if ($SelfTest) {
     if($script:desktopTitle.Right -gt $script:desktopSessionLabel.Left){throw 'Header labels overlap'}
     if($script:desktopSessionLock.Right -gt $script:desktopHeader.ClientSize.Width){throw 'Header controls clipped'}
     if($script:desktopBody.Left -lt 0 -or $script:desktopBody.Right -gt $script:desktopScroll.ClientSize.Width){throw 'Body outside visible width'}
+    foreach($page in $script:desktopPages){
+     Show-DesktopPage $page
+     [Windows.Forms.Application]::DoEvents()
+     Update-DesktopLayout
+     Test-DesktopControlBounds $script:desktopBody $page
+    }
+    Show-DesktopPage 'Accueil'
    }
    $area=[Windows.Forms.Screen]::PrimaryScreen.WorkingArea
    $form.Size=New-Object Drawing.Size(([Math]::Min(1160,$area.Width)),([Math]::Min(810,$area.Height)))
