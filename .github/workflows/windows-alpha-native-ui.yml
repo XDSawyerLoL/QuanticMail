@@ -60,8 +60,52 @@ jobs:
           if ($errors.Count -gt 0) { throw ("Invalid Windows Alpha UI: "+($errors -join "; ")) }
           $runner = Join-Path $env:SystemRoot "System32/WindowsPowerShell/v1.0/powershell.exe"
           $env:QUANTIC_UI_TEST_CAPTURE='1'
+          $env:QUANTIC_UI_EXPECT_DPI='96'
           & $runner -NoProfile -STA -NonInteractive -File $path -ExpectedManifestSha256 ("a"*64) -TrustedBinarySha256 ("b"*64) -SelfTest
           if ($LASTEXITCODE -ne 0) { throw "Native Alpha UI modules or field constraints rejected" }
+          $captureDir=Join-Path $env:RUNNER_TEMP 'quantic-ui-captures'
+          $manifestPath=Join-Path $captureDir 'capture-manifest.json'
+          $manifest=@(Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json)
+          if($manifest.Count -ne 35){throw 'Expected 35 capture manifest entries'}
+          $pngs=@(Get-ChildItem -LiteralPath $captureDir -File -Filter '*.png')
+          if($pngs.Count -ne 35){throw 'Expected 35 PNG captures'}
+          Add-Type -AssemblyName System.Drawing
+          foreach($record in $manifest){
+            if($record.file -cnotmatch '^(?:size-[0-9]+x[0-9]+-page-)?0[0-6]\.png -ExpectedManifestSha256 ("a"*64) -TrustedBinarySha256 ("b"*64) -SelfTest
+          if($LASTEXITCODE -ne 0){throw "Native composer self-test failed"}
+          & $runner -NoProfile -STA -NonInteractive -File ./scripts/Quantic-Sillage-Advanced.ps1 -ExpectedManifestSha256 ("a"*64) -TrustedBinarySha256 ("b"*64) -SelfTest
+          if($LASTEXITCODE -ne 0){throw "Explicit advanced contract failed"}
+          node --test tests/native-windows-draft.test.mjs tests/native-windows-gui-approval.test.mjs tests/native-windows-gui-receive.test.mjs
+          if($LASTEXITCODE -ne 0){throw "Draft validation failed"}
+          node --check scripts/native-windows-compose-send.mjs
+          node --check scripts/native-windows-gui-receive.mjs
+          if($LASTEXITCODE -ne 0){throw "GUI receive helper syntax rejected"}
+          if($LASTEXITCODE -ne 0){throw "GUI PQ send helper syntax rejected"}
+          $helper = Get-Content -LiteralPath ./scripts/native-windows-compose-send.mjs -Raw
+          $approval = Get-Content -LiteralPath ./desktop/native-windows-gui-approval.mjs -Raw
+          if($helper -notmatch "guiWindowsApproval:true" -or $helper -notmatch "makeGuiDepositApproval" -or $helper -notmatch "lines.next" -or $helper -notmatch "'delivery-unknown'" -or $approval -notmatch "sealed-awaiting-deposit-approval" -or $approval -notmatch "==='SEND'") { throw "GUI send two-step native consent contract missing" }
+          $receiveSource = Get-Content -LiteralPath ./scripts/native-windows-gui-receive.mjs -Raw
+          if($receiveSource -notmatch "message-awaiting-approval" -or $receiveSource -notmatch "guiWindowsApproval:true" -or $receiveSource -notmatch "receiveWindowsLabFromGUI" -or $receiveSource -notmatch "answer==='OPEN'") { throw "GUI receive consent or native decrypt contract missing" }
+          $ui = Get-Content -LiteralPath ./scripts/Quantic-Sillage-Compose.ps1 -Raw
+          if($ui -notmatch "Chiffrer et deposer" -or $ui -notmatch "Read-GUIReply" -or $ui -match '(?i)WebBrowser|WebView2|onrender.com') { throw "Native GUI send control missing or remote renderer found" }
+          $source = Get-Content -LiteralPath $path -Raw
+          if ($source -match "(?i)WebBrowser|WebView2|loadURL|onrender\.com") { throw "Remote renderer reintroduced" }
+          if($source -notmatch 'Choose-SyntheticDirectory' -or $source -notmatch 'gui-list-synthetic-identities-lab' -or $source -notmatch 'gui-share-synthetic-contact-card-lab' -or $source -notmatch 'gui-add-synthetic-contact-candidate-lab') { throw "Synthetic GUI contact and persistent identity controls missing" }
+          if($source -notmatch 'contact-candidate-not-trusted' -or $source -notmatch 'mailAuthorized' -or $source -notmatch 'invitation' -and $source -notmatch 'code de test') { throw "Synthetic contact trust boundary missing" }
+
+      - name: Publish rendered Windows interface captures
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: Quantic-Sillage-UI-captures
+          path: |
+            ${{ runner.temp }}/quantic-ui-captures/*.png
+            ${{ runner.temp }}/quantic-ui-captures/capture-manifest.json
+          if-no-files-found: error
+ -or $record.dpi -ne 96){throw 'Invalid capture metadata'}
+            $image=[Drawing.Image]::FromFile((Join-Path $captureDir $record.file))
+            try{if($image.Width -ne $record.actualWidth -or $image.Height -ne $record.actualHeight){throw 'Image dimensions differ from capture manifest'}}finally{$image.Dispose()}
+          }
           & $runner -NoProfile -STA -NonInteractive -File ./scripts/Quantic-Sillage-Compose.ps1 -ExpectedManifestSha256 ("a"*64) -TrustedBinarySha256 ("b"*64) -SelfTest
           if($LASTEXITCODE -ne 0){throw "Native composer self-test failed"}
           & $runner -NoProfile -STA -NonInteractive -File ./scripts/Quantic-Sillage-Advanced.ps1 -ExpectedManifestSha256 ("a"*64) -TrustedBinarySha256 ("b"*64) -SelfTest
