@@ -1134,7 +1134,7 @@ function Show-DesktopPage([string]$name){
  $script:desktopAdvanced.Visible=$false
  $script:desktopBody.Visible=$true
  $script:desktopTitle.Text=$name
- Update-DesktopLayout
+ $script:desktopPageBounds=@{}
  while($script:desktopBody.Controls.Count -gt 0){$old=$script:desktopBody.Controls[0];$script:desktopBody.Controls.RemoveAt(0);$old.Dispose()}
  $body=$script:desktopBody
  $w=396;$right=416
@@ -1232,6 +1232,8 @@ function Show-DesktopPage([string]$name){
    $null=Desktop-Card $body 'Outils avancés' 'Opérations de laboratoire, diagnostics et simulations. Certaines actions ouvrent explicitement un terminal.' 'Ouvrir les outils avancés' 'advanced' 0 248 812 172
   }
  }
+ Save-DesktopPageBounds $script:desktopBody
+ Update-DesktopLayout
 }
 function Initialize-Desktop {
  $form.SuspendLayout()
@@ -1247,20 +1249,12 @@ function Initialize-Desktop {
  $form.ForeColor=$script:desktopColors.Ink
  $sidebar=New-Object Windows.Forms.Panel
  $sidebar.Dock='Fill';$sidebar.Margin=New-Object Windows.Forms.Padding(0);$sidebar.BackColor=$script:desktopColors.Navy
- $layout=New-Object Windows.Forms.TableLayoutPanel
- $layout.Dock='Fill';$layout.Margin=New-Object Windows.Forms.Padding(0);$layout.Padding=New-Object Windows.Forms.Padding(0)
- $layout.ColumnCount=2;$layout.RowCount=1
- $null=$layout.ColumnStyles.Add((New-Object Windows.Forms.ColumnStyle([Windows.Forms.SizeType]::Absolute,224)))
- $null=$layout.ColumnStyles.Add((New-Object Windows.Forms.ColumnStyle([Windows.Forms.SizeType]::Percent,100)))
- $null=$layout.RowStyles.Add((New-Object Windows.Forms.RowStyle([Windows.Forms.SizeType]::Percent,100)))
- $workspace=New-Object Windows.Forms.TableLayoutPanel
- $workspace.Dock='Fill';$workspace.Margin=New-Object Windows.Forms.Padding(0);$workspace.BackColor=$script:desktopColors.Canvas
- $workspace.ColumnCount=1;$workspace.RowCount=3
- $null=$workspace.ColumnStyles.Add((New-Object Windows.Forms.ColumnStyle([Windows.Forms.SizeType]::Percent,100)))
- $null=$workspace.RowStyles.Add((New-Object Windows.Forms.RowStyle([Windows.Forms.SizeType]::Absolute,94)))
- $null=$workspace.RowStyles.Add((New-Object Windows.Forms.RowStyle([Windows.Forms.SizeType]::Percent,100)))
- $null=$workspace.RowStyles.Add((New-Object Windows.Forms.RowStyle([Windows.Forms.SizeType]::Absolute,40)))
- $form.Controls.Add($layout);$layout.Controls.Add($sidebar,0,0);$layout.Controls.Add($workspace,1,0)
+ $layout=New-Object Windows.Forms.Panel
+ $layout.Margin=New-Object Windows.Forms.Padding(0)
+ $sidebar.Dock='None'
+ $workspace=New-Object Windows.Forms.Panel
+ $workspace.BackColor=$script:desktopColors.Canvas
+ $form.Controls.Add($layout);$layout.Controls.Add($sidebar);$layout.Controls.Add($workspace)
  $script:desktopLayout=$layout;$script:desktopSidebar=$sidebar;$script:desktopWorkspace=$workspace
  # Brand mark cropped from the supplied original Quantic Sillage banner.
  # It is embedded in the existing inventory-pinned script, not downloaded.
@@ -1273,6 +1267,8 @@ function Initialize-Desktop {
  $logoView=New-Object Windows.Forms.PictureBox
  $logoView.Image=$logoBitmap;$logoView.SizeMode='Zoom';$logoView.SetBounds(18,24,40,40)
  $logoView.BackColor=[Drawing.Color]::White
+ $logoShape=New-Object Drawing.Drawing2D.GraphicsPath
+ try{$logoShape.AddEllipse(0,0,40,40);$logoView.Region=New-Object Drawing.Region($logoShape)}finally{$logoShape.Dispose()}
  $sidebar.Controls.Add($logoView)
  $form.Add_Disposed(({$logoView.Image.Dispose()}).GetNewClosure())
  $brand=Desktop-Label $sidebar 'Quantic Sillage' 67 28 154 30 13 $true
@@ -1292,8 +1288,8 @@ function Initialize-Desktop {
  $alpha=Desktop-Label $sidebar 'ÉDITION ALPHA PRIVÉE' 23 526 185 44 9
  $alpha.ForeColor=[Drawing.Color]::FromArgb(170,192,214)
  $header=New-Object Windows.Forms.Panel
- $header.Dock='Fill';$header.Margin=New-Object Windows.Forms.Padding(0);$header.BackColor=$script:desktopColors.White
- $workspace.Controls.Add($header,0,0)
+ $header.Dock='None';$header.Margin=New-Object Windows.Forms.Padding(0);$header.BackColor=$script:desktopColors.White
+ $workspace.Controls.Add($header)
  $script:desktopHeader=$header
  $script:desktopTitle=Desktop-Label $header 'Accueil' 28 15 400 42 24 $true
  $state=Desktop-Label $header 'Espace local  •  Édition de test' 30 60 400 24 10
@@ -1310,19 +1306,20 @@ function Initialize-Desktop {
  })
  # Preserve status of the existing managed carrier, without claiming the
  # transport is connected to a remote correspondent.
- $workspace.Controls.Add($notice,0,2);$notice.Dock='Fill';$notice.Margin=New-Object Windows.Forms.Padding(0);$notice.Height=40
+ $workspace.Controls.Add($notice);$notice.Dock='None';$notice.Margin=New-Object Windows.Forms.Padding(0);$notice.Height=40
+ $script:desktopFooter=$notice
  $notice.Text='Identités de test uniquement. Aucun compte réel ni migration.'
  $notice.ForeColor=$script:desktopColors.Muted;$notice.BackColor=$script:desktopColors.White
  $notice.Padding=New-Object Windows.Forms.Padding(28,9,12,0)
  $scroll=New-Object Windows.Forms.Panel
- $scroll.Dock='Fill';$scroll.Margin=New-Object Windows.Forms.Padding(0);$scroll.AutoScroll=$true;$workspace.Controls.Add($scroll,0,1)
+ $scroll.Dock='None';$scroll.Margin=New-Object Windows.Forms.Padding(0);$scroll.AutoScroll=$true;$workspace.Controls.Add($scroll)
  $script:desktopScroll=$scroll
  $script:desktopBody=New-Object Windows.Forms.Panel
  $script:desktopBody.SetBounds(28,20,824,650);$scroll.Controls.Add($script:desktopBody)
  $script:desktopAdvanced=New-Object Windows.Forms.Panel
  $script:desktopAdvanced.SetBounds(28,20,760,870);$script:desktopAdvanced.Visible=$false
  $scroll.Controls.Add($script:desktopAdvanced)
- $scroll.Add_SizeChanged({Update-DesktopLayout})
+ $form.Add_ClientSizeChanged({Update-DesktopLayout})
  foreach($c in $old){
   if($c -eq $notice){continue}
   $c.Parent=$script:desktopAdvanced
@@ -1335,14 +1332,49 @@ function Initialize-Desktop {
  $layout.PerformLayout();$workspace.PerformLayout()
  Update-DesktopLayout
 }
+function Save-DesktopPageBounds($parent){
+ foreach($c in $parent.Controls){
+  $script:desktopPageBounds[$c]=$c.Bounds
+  if($c.Controls.Count -gt 0){Save-DesktopPageBounds $c}
+ }
+}
+function Resize-DesktopPage($parent,[double]$scale){
+ foreach($c in $parent.Controls){
+  $r=$script:desktopPageBounds[$c]
+  if($null -ne $r){
+   $c.SetBounds([int]($r.X*$scale),$r.Y,[Math]::Max(1,[int]($r.Width*$scale)),$r.Height)
+   if($c.Controls.Count -gt 0){Resize-DesktopPage $c $scale}
+  }
+ }
+}
 function Update-DesktopLayout {
- if(-not $script:desktopBody -or -not $script:desktopScroll){return}
- $scroll=$script:desktopScroll
- $x=[Math]::Max(16,[int](($scroll.ClientSize.Width-824)/2))
- $script:desktopBody.Location=New-Object Drawing.Point($x,20)
- $script:desktopAdvanced.Location=New-Object Drawing.Point($x,20)
- $contentHeight=if($script:desktopCurrent -eq 'Paramètres' -and $script:desktopAdvanced.Visible){910}else{670}
- $scroll.AutoScrollMinSize=New-Object Drawing.Size(856,$contentHeight)
+ if($script:desktopLayoutBusy -or -not $script:desktopBody -or -not $script:desktopScroll){return}
+ $script:desktopLayoutBusy=$true
+ try{
+  $fw=$form.ClientSize.Width;$fh=$form.ClientSize.Height
+  if($fw -lt 300 -or $fh -lt 180){return}
+  $side=224;$ww=$fw-$side
+  $script:desktopLayout.SetBounds(0,0,$fw,$fh)
+  $script:desktopSidebar.SetBounds(0,0,$side,$fh)
+  $script:desktopWorkspace.SetBounds($side,0,$ww,$fh)
+  $script:desktopHeader.SetBounds(0,0,$ww,94)
+  $script:desktopFooter.SetBounds(0,$fh-40,$ww,40)
+  $scroll=$script:desktopScroll
+  $scroll.SetBounds(0,94,$ww,$fh-134)
+  # Fit the complete page into the actual client width, including room
+  # for a vertical scrollbar. Never infer layout from requested window size.
+  $width=[Math]::Min(824,[Math]::Max(540,$ww-52))
+  $x=[Math]::Max(16,[int](($ww-$width-16)/2))
+  $contentHeight=if($script:desktopCurrent -eq 'Paramètres' -and $script:desktopAdvanced.Visible){910}else{670}
+  $scroll.AutoScrollMinSize=New-Object Drawing.Size(0,$contentHeight)
+  $position=$scroll.AutoScrollPosition
+  $script:desktopBody.SetBounds($x,(20+$position.Y),$width,650)
+  $script:desktopAdvanced.SetBounds($x,(20+$position.Y),760,870)
+  if($script:desktopPageBounds){Resize-DesktopPage $script:desktopBody ($width/824.0)}
+  $hx=[Math]::Max(4,$ww-308)
+  $script:desktopSessionLabel.Left=$hx;$script:desktopSessionOpen.Left=$hx;$script:desktopSessionLock.Left=$hx+135
+  $script:desktopTitle.Width=[Math]::Max(1,$hx-46);$script:desktopState.Width=[Math]::Max(1,$hx-46)
+ }finally{$script:desktopLayoutBusy=$false}
 }
 $module.SelectedIndex=0
 if ($SelfTest) {
@@ -1375,16 +1407,19 @@ if ($SelfTest) {
     $form.PerformLayout();$script:desktopLayout.PerformLayout();$script:desktopWorkspace.PerformLayout()
     [Windows.Forms.Application]::DoEvents()
     Update-DesktopLayout
+    if($script:desktopLayout.Right -gt $form.ClientSize.Width -or $script:desktopLayout.Bottom -gt $form.ClientSize.Height){throw 'Root outside real client area'}
+    if($script:desktopWorkspace.Right -gt $script:desktopLayout.ClientSize.Width){throw 'Workspace clipped'}
     if($script:desktopWorkspace.Left -lt $script:desktopSidebar.Right){throw 'Navigation overlays workspace'}
     if($script:desktopScroll.Top -lt $script:desktopHeader.Bottom){throw 'Header overlays content'}
     if($notice.Top -lt $script:desktopScroll.Bottom){throw 'Footer overlays content'}
     if($script:desktopTitle.Right -gt $script:desktopSessionLabel.Left){throw 'Header labels overlap'}
     if($script:desktopSessionLock.Right -gt $script:desktopHeader.ClientSize.Width){throw 'Header controls clipped'}
-    if($script:desktopBody.Left -lt 0 -or $script:desktopBody.Top -lt 0){throw 'Body outside scroll origin'}
+    if($script:desktopBody.Left -lt 0 -or $script:desktopBody.Right -gt $script:desktopScroll.ClientSize.Width){throw 'Body outside visible width'}
    }
    $form.ClientSize=New-Object Drawing.Size(1160,810)
    $form.PerformLayout();[Windows.Forms.Application]::DoEvents()
    Update-DesktopLayout
+   $form.Refresh()
    if($env:QUANTIC_UI_TEST_CAPTURE -and $env:RUNNER_TEMP){
     $capture=Join-Path $env:RUNNER_TEMP 'quantic-ui-captures'
     [void][IO.Directory]::CreateDirectory($capture)
