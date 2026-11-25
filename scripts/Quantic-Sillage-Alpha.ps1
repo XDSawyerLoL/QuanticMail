@@ -747,6 +747,8 @@ function Invoke-DesktopAction([string]$tag){
   'credential' {Invoke-DesktopNativeAction 'PrepareMailboxCredential';return}
   'activation' {Invoke-DesktopNativeAction 'ImportMailboxActivation';return}
   'refresh-protection' {Refresh-DesktopProtection;return}
+  'sentinel-enable' {Set-DesktopSentinelProtection $true;return}
+  'sentinel-disable' {Set-DesktopSentinelProtection $false;return}
   'advanced' {Show-DesktopPage 'Paramètres';$script:desktopAdvanced.Visible=$true;$script:desktopBody.Visible=$false;return}
   default {Show-DesktopPage $tag}
  }
@@ -819,6 +821,80 @@ function Read-DesktopSentinelState {
  }catch{return @{State='unknown';Count=0}}
  finally{if($stream){$stream.Dispose()};if($sha){$sha.Dispose()}}
 }
+
+# Start only the package-pinned engine, retaining a deny-write/delete handle
+# until it exits. Private file selections are sent over stdin, never argv.
+function Invoke-DesktopSentinelEngine([string]$operation,[string]$payload=''){
+ if($operation -notin @('--desktop-install','--desktop-uninstall')){throw 'Unknown action'}
+ $manifest=Join-Path $root 'SHA256SUMS.txt'
+ $engine=Join-Path $root 'bin\Quantic-Sentinel-Engine.exe'
+ $manifestFile=$null;$engineFile=$null;$hash=$null;$child=$null
+ try{
+  foreach($path in @($root,(Join-Path $root 'bin'),$manifest,$engine)){
+   if(([IO.File]::GetAttributes($path) -band [IO.FileAttributes]::ReparsePoint) -ne 0){throw 'Reparse path'}
+  }
+  $manifestFile=[IO.File]::Open($manifest,'Open','Read','Read')
+  if($manifestFile.Length -lt 1 -or $manifestFile.Length -gt 262144){throw 'Manifest size'}
+  $hash=[Security.Cryptography.SHA256]::Create()
+  $digest=[BitConverter]::ToString($hash.ComputeHash($manifestFile)).Replace('-','')
+  if($digest -ine $ExpectedManifestSha256){throw 'Manifest mismatch'}
+  $manifestFile.Position=0
+  $reader=New-Object IO.StreamReader($manifestFile)
+  $entries=@($reader.ReadToEnd() -split '\r?\n'|Where-Object {$_ -match '^[a-f0-9]{64} \*\./bin/Quantic-Sentinel-Engine\.exe$'})
+  if($entries.Count -ne 1){throw 'Engine not inventoried'}
+  $pin=$entries[0].Substring(0,64)
+  $engineFile=[IO.File]::Open($engine,'Open','Read','Read')
+  if($engineFile.Length -lt 1 -or $engineFile.Length -gt 33554432){throw 'Engine size'}
+  $digest=[BitConverter]::ToString($hash.ComputeHash($engineFile)).Replace('-','')
+  if($digest -ine $pin){throw 'Engine mismatch'}
+  $psi=New-Object Diagnostics.ProcessStartInfo
+  $psi.FileName=$engine;$psi.Arguments=$operation;$psi.WorkingDirectory=Split-Path -Parent $engine
+  $psi.UseShellExecute=$false;$psi.CreateNoWindow=$true;$psi.RedirectStandardInput=$true
+  $child=[Diagnostics.Process]::Start($psi)
+  if(-not $child){throw 'Engine launch failed'}
+  try{
+   $bytes=[Text.Encoding]::UTF8.GetBytes($payload)
+   $child.StandardInput.BaseStream.Write($bytes,0,$bytes.Length)
+   $child.StandardInput.BaseStream.Flush()
+  }finally{$child.StandardInput.Close()}
+  if(-not $child.WaitForExit(15000)){throw 'Action non confirmée. Vérifiez son état avant toute nouvelle tentative.'}
+  if($child.ExitCode -ne 0){throw 'Action native refusée'}
+ }finally{
+  if($child){$child.Dispose()}
+  if($engineFile){$engineFile.Dispose()}
+  if($manifestFile){$manifestFile.Dispose()}
+  if($hash){$hash.Dispose()}
+ }
+}
+function Set-DesktopSentinelProtection([bool]$enable){
+ try{
+  if($enable){
+   $folder=New-Object Windows.Forms.FolderBrowserDialog
+   $folder.Description='Choisissez le dossier à surveiller'
+   try{if($folder.ShowDialog($form) -ne 'OK'){return};$selected=$folder.SelectedPath}finally{$folder.Dispose()}
+   $files=New-Object Windows.Forms.OpenFileDialog
+   $files.Title='Choisissez les copies de sauvegarde inactives à protéger'
+   $files.Filter='Sauvegardes|*.bak;*.backup;*.zip;*.7z;*.qvb'
+   $files.Multiselect=$true;$files.CheckFileExists=$true
+   try{if($files.ShowDialog($form) -ne 'OK'){return};$backups=@($files.FileNames)}finally{$files.Dispose()}
+   if($backups.Count -lt 1 -or $backups.Count -gt 16){throw 'Sélectionnez entre 1 et 16 copies.'}
+   $consent=[Windows.Forms.MessageBox]::Show($form,('Activer Sentinel au démarrage de votre session Windows et verrouiller '+$backups.Count+' copie(s) en lecture seule ? Les autres logiciels ne pourront plus modifier ces copies pendant le verrouillage.'),'Activer la protection','YesNo','Question','Button2')
+   if($consent -ne 'Yes'){return}
+   $request=@{root=$selected;backups=$backups}|ConvertTo-Json -Compress
+   Invoke-DesktopSentinelEngine '--desktop-install' $request
+   $message='Installation de l''agent acceptée. Attendez la confirmation des verrous dans cette page.'
+  }else{
+   $consent=[Windows.Forms.MessageBox]::Show($form,'Arrêter Sentinel et retirer son démarrage automatique ? Les verrous seront libérés. Les journaux et les sauvegardes seront conservés.','Désactiver la protection','YesNo','Warning','Button2')
+   if($consent -ne 'Yes'){return}
+   Invoke-DesktopSentinelEngine '--desktop-uninstall'
+   $message='Agent désinstallé. Les sauvegardes et journaux sont conservés.'
+  }
+  [Windows.Forms.MessageBox]::Show($form,$message,'Quantic Sillage','OK','Information')|Out-Null
+ }catch{
+  [Windows.Forms.MessageBox]::Show($form,'Action non confirmée. Vérifiez l''installation et l''état de l''agent avant de réessayer. Une ancienne version installée doit être retirée volontairement.','Quantic Sillage','OK','Warning')|Out-Null
+ }finally{Refresh-DesktopProtection}
+}
+
 function Refresh-DesktopProtection {
  if($script:desktopCurrent -ne 'Protection' -or -not $script:desktopProtectionTitle -or $script:desktopProtectionTitle.IsDisposed){return}
  $r=Read-DesktopSentinelState
@@ -904,7 +980,9 @@ function Show-DesktopPage([string]$name){
    $script:desktopProtectionDetail=Desktop-Label $panel '' 20 128 766 40 10
    $script:desktopProtectionTime=Desktop-Label $panel '' 20 181 420 24 10
    $null=Desktop-Button $panel 'Actualiser' 'refresh-protection' 580 173 210 35 $false
-   $null=Desktop-Card $body 'Protection Windows' 'Sentinel ne remplace pas un antivirus. Aucun diagnostic complet de votre appareil n''est affirmé.' '' '' 0 302 812 150
+   $null=Desktop-Button $body 'Activer Sentinel' 'sentinel-enable' 0 300 396 46 $true
+   $null=Desktop-Button $body 'Désactiver Sentinel' 'sentinel-disable' 416 300 396 46 $false
+   $null=Desktop-Card $body 'Protection Windows' 'Sentinel ne remplace pas un antivirus. Aucun diagnostic complet de votre appareil n''est affirmé.' '' '' 0 366 812 150
    Refresh-DesktopProtection
   }
   'Paramètres' {
