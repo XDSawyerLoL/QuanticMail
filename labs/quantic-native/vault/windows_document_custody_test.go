@@ -41,8 +41,41 @@ func TestWindowsDocumentPrivateImportExport(t *testing.T){
  if _,e=readDocumentSource(source);e==nil{t.Fatal("hardlink accepted")}
  if e=os.Remove(link);e!=nil{t.Fatal(e)}
  dir,e:=exportDocument(parent,strings.Repeat("1",32),p);if e!=nil{t.Fatal(e)}
- got,e:=winReadPrivate(filepath.Join(dir,p.Name),documentMax)
+ got,e:=readDocumentBytes(filepath.Join(dir,p.Name),documentMax)
  if e!=nil||!bytes.Equal(got,data){t.Fatal("private export",e)}
  if _,e=exportDocument(parent,strings.Repeat("1",32),p);e==nil{t.Fatal("export overwrote existing folder")}
  original,e:=os.ReadFile(source);if e!=nil||!bytes.Equal(original,data){t.Fatal("original changed",e)}
+}
+
+
+func TestWindowsDocumentEnrollmentRoundTrip(t *testing.T){
+ parent:=t.TempDir()
+ pw:=[]byte("synthetic device classical password")
+ pq:=[]byte("synthetic device postquantum password")
+ owner:=[]byte("synthetic independent owner password")
+ _,dir,e:=prepareWindowsEnrollmentVault(parent,"testdocs",strings.Repeat("c",64),pw,pq,owner)
+ if e!=nil{t.Fatal(e)}
+ r,e:=readPendingEnrollment(dir);if e!=nil{t.Fatal(e)}
+ draft,e:=readLocalCustody(dir,"draft",r,pw,pq);if e!=nil{t.Fatal(e)};defer clear(draft)
+ key,e:=documentKey(draft,r);if e!=nil{t.Fatal(e)};defer clear(key)
+ if bytes.Equal(key,draft){t.Fatal("domain separation failed")}
+ data:=bytes.Repeat([]byte("synthetic file 0123456789"),350000)
+ data=data[:documentMax]
+ source:=filepath.Join(parent,"large-test.pdf")
+ if e=os.WriteFile(source,data,0600);e!=nil{t.Fatal(e)}
+ p,e:=readDocumentSource(source);if e!=nil{t.Fatal(e)};defer clear(p.Data)
+ entry,e:=addDocument(dir,key,r,p);if e!=nil{t.Fatal(e)}
+ clear(key);clear(draft)
+ // Close and re-open the existing encrypted enrollment custody.
+ r,e=readPendingEnrollment(dir);if e!=nil{t.Fatal(e)}
+ next,e:=readLocalCustody(dir,"draft",r,pw,pq);if e!=nil{t.Fatal(e)};defer clear(next)
+ reopened,e:=documentKey(next,r);if e!=nil{t.Fatal(e)};defer clear(reopened)
+ ids,e:=documentIDs(dir);if e!=nil||len(ids)!=1||ids[0]!=entry.ID{t.Fatal("inventory",e)}
+ actual,e:=readDocument(dir,entry.ID,reopened,r);if e!=nil{t.Fatal(e)};defer clear(actual.Data)
+ if actual.Name!=p.Name||!bytes.Equal(actual.Data,data){t.Fatal("reopened document differs")}
+ if _,e=readDocument(dir,entry.ID,next,r);e==nil{t.Fatal("raw draft key accepted")}
+ out,e:=exportDocument(parent,entry.ID,actual);if e!=nil{t.Fatal(e)}
+ exported,e:=readDocumentBytes(filepath.Join(out,p.Name),documentMax);if e!=nil||!bytes.Equal(exported,data){t.Fatal("export changed",e)}
+ original,e:=os.ReadFile(source);if e!=nil||!bytes.Equal(original,data){t.Fatal("original changed",e)}
+ if _,e=winReadPrivate(documentFile(dir,entry.ID),documentRecordMax);e==nil{t.Fatal("general storage limit weakened")}
 }
