@@ -52,6 +52,8 @@ func winProvisionVaultLocal(dir,app,quorum,addr string,pw,pqPassword,controller 
  return map[string]string{"backend":"windows-software-pq-storage-lab","address":addr,"deviceId":device,"signingPin":s,"encryptionPin":a,"kemPin":p.kemPin,"dsaPin":p.dsaPin,"signing":b64.EncodeToString(elliptic.Marshal(elliptic.P256(),k.signing.X,k.signing.Y)),"encryption":b64.EncodeToString(point),"kemPublic":b64.EncodeToString(p.kemPub),"dsaPublic":b64.EncodeToString(p.dsaPub),"status":"local-provision-only-not-enrolled"},nil
 }
 func windowsVaultCLI(args []string)(bool,error){
+ if len(args)>1&&args[1]=="--gui-document-session-lab"{return true,windowsDocumentSessionCLI(args)}
+ if len(args)>1&&(args[1]=="--gui-document-list-lab"||args[1]=="--gui-document-import-lab"||args[1]=="--gui-document-export-lab"){return true,windowsDocumentCLI(args)}
  if len(args)>1&&args[1]=="--gui-save-encrypted-draft-lab"{return true,windowsSaveEncryptedDraftCLI(args)}
  if len(args)>1&&args[1]=="--gui-import-mailbox-activation-lab"{return true,windowsActivationCLI(args)}
  if len(args)>1&&args[1]=="--gui-prepare-mailbox-credential-lab"{return true,windowsMailboxCredentialCLI(args)}

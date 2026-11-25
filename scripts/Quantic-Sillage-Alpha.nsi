@@ -61,6 +61,16 @@ Section "Uninstall"
  SetErrorLevel 2
  Abort "The expected build uninstaller does not exist. No files removed."
  found:
+ ; A separately installed resident agent retains its own executable,
+ ; locks and audit log. Never silently remove the UI while it is registered.
+ ClearErrors
+ ReadRegStr $2 HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "QuanticSentinelUserAgent"
+ IfErrors noagent
+ StrCmp $2 "" noagent
+ MessageBox MB_OK|MB_ICONEXCLAMATION "Desactivez d'abord Sentinel dans Protection. Aucun fichier de cette version n'a ete supprime." /SD IDOK
+ SetErrorLevel 3
+ Quit
+ noagent:
  ; Compiler-generated explicit inventory: checks all junctions first,
  ; then deletes known build files only, and removes only empty folders.
  !include "${UNINSTALL_NSH}"

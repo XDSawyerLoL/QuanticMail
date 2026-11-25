@@ -99,6 +99,11 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 5a15cb0b3fe9688116df092a5a8a56396e9ccf7c
+          path: sentinel-engine-source
+          persist-credentials: false
       - uses: msys2/setup-msys2@3c51bf698df1e37b2261f53cb67797b97761185c
         with:
           msystem: UCRT64
@@ -120,7 +125,7 @@ jobs:
           openssl version
           openssl list -kem-algorithms | grep -qi ML-KEM-768
           openssl list -signature-algorithms | grep -qi ML-DSA-65
-          go test -count=1 -tags pqopenssl -run '^(TestPQProviderRoundTrip|TestScatteringNativeSigningInput|TestScatteringRenewalScope|TestScatteringNativeFenceJournal|TestWindowsPrivateStorage|TestWindowsPQStorageReopen|TestWindowsProvisionJournalRestart|TestWindowsConsoleParsing|TestWindowsCredentialDiagnosticRefusal|TestSyntheticFirstRunMetadataNeverBecomesEnrollment|TestSyntheticGUICommandsRejectUnexpectedArgumentsWithoutDialogs|TestSyntheticContactCardSignedButNeverAuthorized|TestNativeSyntheticRegistryAndContactCommandsFailClosed|TestNativeEnrollmentClaimInterop|TestWindowsEnrollmentClaimPrivatePersistence|TestWindowsActivationPrivateImport|TestNativeMailboxCredentialSeal|TestNativeMailboxTransportNoExport|TestWindowsRecoveryExactResult|TestWindowsQuorumConfigRefusal|TestWindowsScatteringEpochGuard|TestWindowsLabImport|TestWindowsAutoController|TestWindowsPayLab|TestWindowsAnchoredPayLab|TestNativeFinancialPermitVerification|TestWindowsPayQuorumImportBinding)$' -v .
+          go test -count=1 -tags pqopenssl -run '^(TestPQProviderRoundTrip|TestScatteringNativeSigningInput|TestScatteringRenewalScope|TestScatteringNativeFenceJournal|TestWindowsPrivateStorage|TestWindowsPQStorageReopen|TestWindowsDocumentCustody|TestWindowsDocumentPrivateImportExport|TestWindowsDocumentEnrollmentRoundTrip|TestWindowsDocumentSession|TestWindowsProvisionJournalRestart|TestWindowsConsoleParsing|TestWindowsCredentialDiagnosticRefusal|TestSyntheticFirstRunMetadataNeverBecomesEnrollment|TestSyntheticGUICommandsRejectUnexpectedArgumentsWithoutDialogs|TestSyntheticContactCardSignedButNeverAuthorized|TestNativeSyntheticRegistryAndContactCommandsFailClosed|TestNativeEnrollmentClaimInterop|TestWindowsEnrollmentClaimPrivatePersistence|TestWindowsActivationPrivateImport|TestNativeMailboxCredentialSeal|TestNativeMailboxTransportNoExport|TestWindowsRecoveryExactResult|TestWindowsQuorumConfigRefusal|TestWindowsScatteringEpochGuard|TestWindowsLabImport|TestWindowsAutoController|TestWindowsPayLab|TestWindowsAnchoredPayLab|TestNativeFinancialPermitVerification|TestWindowsPayQuorumImportBinding)$' -v .
           go build -trimpath -tags pqopenssl -o "$RUNNER_TEMP/Vault-PQ-provider-lab.exe" .
           cd ../scattering/native
           CGO_ENABLED=0 go build -trimpath -o "$RUNNER_TEMP/Scattering-Pacer.exe" .
@@ -178,11 +183,88 @@ jobs:
           set -euo pipefail
           CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-H windowsgui" -o "$RUNNER_TEMP/Quantic-Sillage-Launcher.exe" cmd/quantic-alpha-launcher/main.go
           test -s "$RUNNER_TEMP/Quantic-Sillage-Launcher.exe"
+      - name: Build pinned autonomous Sentinel engine for unified desktop
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          cd sentinel-engine-source/quantic-control
+          export CC=gcc PKG_CONFIG=pkg-config
+          go test -count=1 ./...
+          go build -trimpath -tags 'pqopenssl pqstatic' -ldflags="-H windowsgui -linkmode external -extldflags=-static" -o "$RUNNER_TEMP/Quantic-Sentinel-Engine.exe" ./cmd/quantic-control-sentinel
+          objdump -p "$RUNNER_TEMP/Quantic-Sentinel-Engine.exe" | awk '/DLL Name:/ {print $3}' | tr -d '\r' > sentinel-imports.txt
+          while IFS= read -r dll; do
+            lower="$(printf '%s' "$dll" | tr A-Z a-z)"
+            case "$lower" in api-ms-win-*|ext-ms-win-*) continue ;; esac
+            test -f "/c/Windows/System32/$dll"
+          done < sentinel-imports.txt
       - name: Stage isolated portable Windows laboratory
         shell: msys2 {0}
         run: |
           set -euo pipefail
-          bash scripts/package-windows-pq-lab.sh "$RUNNER_TEMP/Vault-PQ-provider-lab.exe" "$RUNNER_TEMP/QuanticMail-Windows-PQ-Lab" "$RUNNER_TEMP/Scattering-Pacer.exe" "$(cygpath -w "$(command -v node.exe)")" "$RUNNER_TEMP/Quantic-Sillage-Launcher.exe"
+          bash scripts/package-windows-pq-lab.sh "$RUNNER_TEMP/Vault-PQ-provider-lab.exe" "$RUNNER_TEMP/QuanticMail-Windows-PQ-Lab" "$RUNNER_TEMP/Scattering-Pacer.exe" "$(cygpath -w "$(command -v node.exe)")" "$RUNNER_TEMP/Quantic-Sillage-Launcher.exe" "$RUNNER_TEMP/Quantic-Sentinel-Engine.exe"
+      - name: Verify graphical Pay adapter using packaged Node runtime
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP 'QuanticMail-Windows-PQ-Lab'
+          $node = Join-Path $dir 'runtime\node.exe'
+          & $node --test tests/quantic-pay-desktop.test.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Pay adapter tests failed' }
+          $request = '{"amount":"12.50","payee":"demo-bob","consent":true,"witnesses":3}'
+          $response = $request | & $node (Join-Path $dir 'scripts\quantic-pay-desktop.mjs')
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged Pay adapter failed' }
+          $r = $response | ConvertFrom-Json
+          if ($r.status -ne 'confirmed' -or $r.balanceCents -ne 8750 -or $r.realPaymentAuthorized -ne $false) { throw 'Unexpected demo result' }
+      - name: Exercise packaged Sentinel desktop commands on synthetic files
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $engine = Join-Path $env:RUNNER_TEMP 'QuanticMail-Windows-PQ-Lab\bin\Quantic-Sentinel-Engine.exe'
+          $fixture = Join-Path $env:RUNNER_TEMP ('sentinel-desktop-' + [Guid]::NewGuid().ToString('N'))
+          New-Item -ItemType Directory -Path $fixture | Out-Null
+          $a = Join-Path $fixture 'test-one.bak'
+          $b = Join-Path $fixture 'test-two.zip'
+          [IO.File]::WriteAllText($a,'synthetic one')
+          [IO.File]::WriteAllText($b,'synthetic two')
+          function Invoke-Engine($operation,$payload) {
+            $psi = [Diagnostics.ProcessStartInfo]::new($engine,$operation)
+            $psi.UseShellExecute = $false
+            $psi.CreateNoWindow = $true
+            $psi.RedirectStandardInput = $true
+            $child = [Diagnostics.Process]::Start($psi)
+            try {
+              $bytes = [Text.Encoding]::UTF8.GetBytes($payload)
+              $child.StandardInput.BaseStream.Write($bytes,0,$bytes.Length)
+              $child.StandardInput.Close()
+              if (-not $child.WaitForExit(15000)) { throw 'Native command timed out' }
+              return $child.ExitCode
+            } finally { $child.Dispose() }
+          }
+          $installed = $false
+          try {
+            $request = @{root=$fixture;backups=@($a,$b)} | ConvertTo-Json -Compress
+            if ((Invoke-Engine '--desktop-install' '{}') -eq 0) { throw 'Invalid command accepted' }
+            if ((Invoke-Engine '--desktop-install' $request) -ne 0) { throw 'Desktop install failed' }
+            $installed = $true
+            $locked = $false
+            $until = [DateTime]::UtcNow.AddSeconds(10)
+            do {
+              $denied = 0
+              foreach($file in @($a,$b)){
+                try { $h = [IO.File]::Open($file,'Open','Write','ReadWrite'); $h.Dispose() }
+                catch [IO.IOException] { if (($_.Exception.HResult -band 0xffff) -ne 32) { throw }; $denied++ }
+              }
+              if ($denied -eq 2) { $locked = $true; break }
+              Start-Sleep -Milliseconds 250
+            } while ([DateTime]::UtcNow -lt $until)
+            if (-not $locked) { throw 'Resident did not retain both locks' }
+            if ((Invoke-Engine '--desktop-uninstall' '') -ne 0) { throw 'Desktop uninstall failed' }
+            $installed = $false
+            foreach($file in @($a,$b)){ $h=[IO.File]::Open($file,'Open','Write','ReadWrite');$h.Dispose() }
+            if ([IO.File]::ReadAllText($a) -ne 'synthetic one' -or [IO.File]::ReadAllText($b) -ne 'synthetic two') { throw 'Fixture changed' }
+            Write-Host 'Packaged Sentinel desktop install, resident locking, uninstall and file preservation passed'
+          } finally {
+            if ($installed) { $null = Invoke-Engine '--desktop-uninstall' '' }
+          }
       - name: Verify complete package and detect tampering before execution
         shell: pwsh
         run: |
