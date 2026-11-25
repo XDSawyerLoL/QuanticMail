@@ -213,8 +213,10 @@ type documentSessionRequest struct {
  Operation string `json:"operation"`
  Request documentRequest `json:"request"`
 }
-func serveDocumentSession(dir string,r enrollmentRequest,key []byte,in io.Reader,out io.Writer,lifetime time.Duration,approve func()bool)error{
- if len(key)!=32||lifetime<=0{return portableRefusal}
+func serveDocumentSession(dir string,r enrollmentRequest,key []byte,in io.Reader,out io.Writer,lifetime time.Duration,approve func()bool,receiptKeys ...[]byte)error{
+ if len(key)!=32||lifetime<=0||len(receiptKeys)>1{return portableRefusal}
+ var receiptKey []byte
+ if len(receiptKeys)==1{receiptKey=receiptKeys[0];if len(receiptKey)!=32{return portableRefusal}}
  deadline:=time.Now().Add(lifetime)
  timer:=time.NewTimer(lifetime);defer timer.Stop()
  done:=make(chan struct{});defer close(done)
@@ -237,6 +239,12 @@ func serveDocumentSession(dir string,r enrollmentRequest,key []byte,in io.Reader
    var q documentSessionRequest
    if len(raw)>4096||exactReceiptDecode(raw,&q)!=nil{return portableRefusal}
    if q.Operation=="lock"{return nil}
+   if q.Operation=="mail-list"||q.Operation=="mail-open"{
+    if len(receiptKey)!=32{return portableRefusal}
+    if e:=executeDesktopReceipt(q.Operation,dir,r,receiptKey,q.Request,out);e!=nil{
+     if e=enc.Encode(map[string]any{"labOnly":true,"status":"refused"});e!=nil{return e}
+    };continue
+   }
    op:=""
    switch q.Operation{case "list":op="--gui-document-list-lab";case "import":op="--gui-document-import-lab";case "export":op="--gui-document-export-lab";default:return portableRefusal}
    if e:=validateDocumentRequest(op,&q.Request);e!=nil{return e}
@@ -251,12 +259,13 @@ func windowsDocumentSessionCLI(args []string)error{
  if len(args)!=3{return portableRefusal}
  dir:=args[2]
  r,e:=readPendingEnrollment(dir);if e!=nil{return e}
- if !winGUIApprove("Ouvrir le coffre documentaire local de test pour cinq minutes ? Aucune session distante ni autorisation de paiement."){return portableRefusal}
+ if !winGUIApprove("Ouvrir les documents et messages conserves localement pour cinq minutes ? Aucun envoi, connexion distante ni paiement autorise."){return portableRefusal}
  pw,e:=winGUIPassphrase("Secret classique de l'appareil",true);if e!=nil{return e};defer clear(pw)
  pqw,e:=winGUIPassphrase("Secret post-quantique de l'appareil",true);if e!=nil{return e};defer clear(pqw)
- draft,e:=readLocalCustody(dir,"draft",r,pw,pqw);clear(pw);clear(pqw);if e!=nil{return e};defer clear(draft)
+ draft,e:=readLocalCustody(dir,"draft",r,pw,pqw);if e!=nil{return e};defer clear(draft)
+ receipt,e:=readLocalCustody(dir,"receipt",r,pw,pqw);clear(pw);clear(pqw);if e!=nil{return e};defer clear(receipt)
  key,e:=documentKey(draft,r);clear(draft);if e!=nil{return e};defer clear(key)
  return serveDocumentSession(dir,r,key,os.Stdin,os.Stdout,5*time.Minute,func()bool{
   return winGUIApprove("Exporter une copie DECHIFFREE vers un dossier prive neuf ?")
- })
+ },receipt)
 }
