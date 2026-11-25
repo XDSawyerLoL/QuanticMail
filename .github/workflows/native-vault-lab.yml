@@ -202,6 +202,57 @@ jobs:
         run: |
           set -euo pipefail
           bash scripts/package-windows-pq-lab.sh "$RUNNER_TEMP/Vault-PQ-provider-lab.exe" "$RUNNER_TEMP/QuanticMail-Windows-PQ-Lab" "$RUNNER_TEMP/Scattering-Pacer.exe" "$(cygpath -w "$(command -v node.exe)")" "$RUNNER_TEMP/Quantic-Sillage-Launcher.exe" "$RUNNER_TEMP/Quantic-Sentinel-Engine.exe"
+      - name: Exercise packaged Sentinel desktop commands on synthetic files
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $engine = Join-Path $env:RUNNER_TEMP 'QuanticMail-Windows-PQ-Lab\bin\Quantic-Sentinel-Engine.exe'
+          $fixture = Join-Path $env:RUNNER_TEMP ('sentinel-desktop-' + [Guid]::NewGuid().ToString('N'))
+          New-Item -ItemType Directory -Path $fixture | Out-Null
+          $a = Join-Path $fixture 'test-one.bak'
+          $b = Join-Path $fixture 'test-two.zip'
+          [IO.File]::WriteAllText($a,'synthetic one')
+          [IO.File]::WriteAllText($b,'synthetic two')
+          function Invoke-Engine($operation,$payload) {
+            $psi = [Diagnostics.ProcessStartInfo]::new($engine,$operation)
+            $psi.UseShellExecute = $false
+            $psi.CreateNoWindow = $true
+            $psi.RedirectStandardInput = $true
+            $child = [Diagnostics.Process]::Start($psi)
+            try {
+              $bytes = [Text.Encoding]::UTF8.GetBytes($payload)
+              $child.StandardInput.BaseStream.Write($bytes,0,$bytes.Length)
+              $child.StandardInput.Close()
+              if (-not $child.WaitForExit(15000)) { throw 'Native command timed out' }
+              return $child.ExitCode
+            } finally { $child.Dispose() }
+          }
+          $installed = $false
+          try {
+            $request = @{root=$fixture;backups=@($a,$b)} | ConvertTo-Json -Compress
+            if ((Invoke-Engine '--desktop-install' '{}') -eq 0) { throw 'Invalid command accepted' }
+            if ((Invoke-Engine '--desktop-install' $request) -ne 0) { throw 'Desktop install failed' }
+            $installed = $true
+            $locked = $false
+            $until = [DateTime]::UtcNow.AddSeconds(10)
+            do {
+              $denied = 0
+              foreach($file in @($a,$b)){
+                try { $h = [IO.File]::Open($file,'Open','Write','ReadWrite'); $h.Dispose() }
+                catch [IO.IOException] { if (($_.Exception.HResult -band 0xffff) -ne 32) { throw }; $denied++ }
+              }
+              if ($denied -eq 2) { $locked = $true; break }
+              Start-Sleep -Milliseconds 250
+            } while ([DateTime]::UtcNow -lt $until)
+            if (-not $locked) { throw 'Resident did not retain both locks' }
+            if ((Invoke-Engine '--desktop-uninstall' '') -ne 0) { throw 'Desktop uninstall failed' }
+            $installed = $false
+            foreach($file in @($a,$b)){ $h=[IO.File]::Open($file,'Open','Write','ReadWrite');$h.Dispose() }
+            if ([IO.File]::ReadAllText($a) -ne 'synthetic one' -or [IO.File]::ReadAllText($b) -ne 'synthetic two') { throw 'Fixture changed' }
+            Write-Host 'Packaged Sentinel desktop install, resident locking, uninstall and file preservation passed'
+          } finally {
+            if ($installed) { $null = Invoke-Engine '--desktop-uninstall' '' }
+          }
       - name: Verify complete package and detect tampering before execution
         shell: pwsh
         run: |
