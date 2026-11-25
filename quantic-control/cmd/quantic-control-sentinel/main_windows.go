@@ -293,6 +293,7 @@ func wndProc(hwnd uintptr,msg uint32,wparam,lparam uintptr)uintptr{
  return ret
 }
 func main(){
+ if desktopCommand(){return}
  if len(os.Args)==2&&os.Args[1]=="--selftest-pq-provider"{
   if !vaultsession.GraphicalProviderAvailable(){os.Exit(1)}
   return
