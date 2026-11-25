@@ -746,10 +746,111 @@ function Invoke-DesktopAction([string]$tag){
   'proof' {Invoke-DesktopNativeAction 'AnswerEnrollment';return}
   'credential' {Invoke-DesktopNativeAction 'PrepareMailboxCredential';return}
   'activation' {Invoke-DesktopNativeAction 'ImportMailboxActivation';return}
+  'refresh-protection' {Refresh-DesktopProtection;return}
   'advanced' {Show-DesktopPage 'Paramètres';$script:desktopAdvanced.Visible=$true;$script:desktopBody.Visible=$false;return}
   default {Show-DesktopPage $tag}
  }
 }
+
+# Read only the existing local Sentinel telemetry; never launch the installed
+# agent or change registry/security settings. Named events are advisory and
+# can be spoofed by the same Windows user. Never infer device-wide safety.
+function Read-DesktopSentinelEvent([string]$name){
+ $handle=$null
+ try{
+  $handle=[Threading.EventWaitHandle]::OpenExisting($name,[Security.AccessControl.EventWaitHandleRights]::Synchronize)
+  if($handle.WaitOne(0)){return 'signaled'}
+  return 'unset'
+ }catch [Threading.WaitHandleCannotBeOpenedException]{return 'absent'}
+ catch{return 'unknown'}
+ finally{if($handle){$handle.Dispose()}}
+}
+function Read-DesktopSentinelSignal([string]$name,[uint64]$bucket,[int]$count){
+ $signal=Read-DesktopSentinelEvent $name
+ if($signal -eq 'absent'){return 'absent'}
+ if($signal -eq 'unknown'){return 'unknown'}
+ if($count -eq 0){return 'none'}
+ if($signal -ne 'signaled'){return 'unconfirmed'}
+ for($i=0;$i -le 1 -and $i -le $bucket;$i++){
+  $pulse=$name+'-pulse-'+($bucket-[uint64]$i).ToString('x16')
+  if((Read-DesktopSentinelEvent $pulse) -eq 'signaled'){return 'fresh'}
+ }
+ return 'unconfirmed'
+}
+function Read-DesktopSentinelState {
+ $stream=$null;$sha=$null
+ try{
+  $base=[Environment]::GetFolderPath('LocalApplicationData')
+  $parent=Join-Path $base 'QuanticSillage'
+  $dir=Join-Path $parent 'Sentinel'
+  $path=Join-Path $dir 'installed.json'
+  foreach($item in @($base,$parent,$dir)){
+   if(-not [IO.Directory]::Exists($item)){return @{State='absent';Count=0}}
+   if(([IO.File]::GetAttributes($item) -band [IO.FileAttributes]::ReparsePoint) -ne 0){throw 'Reparse path refused'}
+  }
+  if(-not [IO.File]::Exists($path)){return @{State='absent';Count=0}}
+  if(([IO.File]::GetAttributes($path) -band [IO.FileAttributes]::ReparsePoint) -ne 0){throw 'Reparse file refused'}
+  $stream=[IO.File]::Open($path,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::ReadWrite)
+  if($stream.Length -lt 1 -or $stream.Length -gt 65536){throw 'Invalid manifest size'}
+  $raw=New-Object byte[] ([int]$stream.Length)
+  $offset=0
+  while($offset -lt $raw.Length){
+   $n=$stream.Read($raw,$offset,$raw.Length-$offset)
+   if($n -le 0){throw 'Incomplete manifest'}
+   $offset+=$n
+  }
+  if($stream.ReadByte() -ne -1){throw 'Manifest changed'}
+  $metadata=([Text.Encoding]::UTF8.GetString($raw)|ConvertFrom-Json -ErrorAction Stop)
+  if($metadata.version -ne 1 -or $metadata.exe_sha256 -cnotmatch '^[a-f0-9]{64}$'){throw 'Unknown manifest version'}
+  $count=0
+  if($null -ne $metadata.backups){$count=@($metadata.backups).Count}
+  if($count -gt 16){throw 'Invalid backup count'}
+  $exe=Join-Path $dir 'quantic-sentinel.exe'
+  if(-not [IO.File]::Exists($exe)){return @{State='unknown';Count=$count}}
+  if(([IO.File]::GetAttributes($exe) -band [IO.FileAttributes]::ReparsePoint) -ne 0){throw 'Reparse executable refused'}
+  $sha=[Security.Cryptography.SHA256]::Create()
+  $digest=[BitConverter]::ToString($sha.ComputeHash($raw)).Replace('-','').ToLowerInvariant()
+  if(-not ('QuanticDesktopUptime' -as [type])){
+   Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class QuanticDesktopUptime { [DllImport("kernel32.dll")] public static extern ulong GetTickCount64(); }'
+  }
+  $bucket=[uint64][Math]::Floor([QuanticDesktopUptime]::GetTickCount64()/4000.0)
+  $state=Read-DesktopSentinelSignal ('Local\QuanticSentinelBackupHealthV3-'+$digest) $bucket $count
+  return @{State=$state;Count=$count}
+ }catch{return @{State='unknown';Count=0}}
+ finally{if($stream){$stream.Dispose()};if($sha){$sha.Dispose()}}
+}
+function Refresh-DesktopProtection {
+ if($script:desktopCurrent -ne 'Protection' -or -not $script:desktopProtectionTitle -or $script:desktopProtectionTitle.IsDisposed){return}
+ $r=Read-DesktopSentinelState
+ $script:desktopProtectionTitle.Text=switch($r.State){
+  'fresh' {'Verrous signalés actifs'}
+  'none' {'Aucune sauvegarde configurée'}
+  'absent' {'Agent absent ou état non disponible'}
+  'unconfirmed' {'Protection non confirmée'}
+  default {'État indéterminé'}
+ }
+ $script:desktopProtectionDetail.Text=if($r.State -eq 'fresh'){
+  ('{0} sauvegarde(s) signalée(s) par Sentinel. Signal récent, non authentifié.' -f $r.Count)
+ }else{'Aucune garantie de protection ne peut être déduite de cet état.'}
+ $script:desktopProtectionTime.Text='Dernière lecture locale : '+[DateTime]::Now.ToString('HH:mm:ss')
+}
+function Test-DesktopSentinelReadOnly {
+ $name='Local\QuanticDesktop-CI-'+[Guid]::NewGuid().ToString('N')
+ $status=$null;$pulse=$null
+ try{
+  if((Read-DesktopSentinelSignal $name 20 2) -ne 'absent'){throw 'Missing signal accepted'}
+  $status=New-Object Threading.EventWaitHandle($true,[Threading.EventResetMode]::ManualReset,$name)
+  if((Read-DesktopSentinelSignal $name 20 2) -ne 'unconfirmed'){throw 'Positive event alone accepted'}
+  $pulse=New-Object Threading.EventWaitHandle($true,[Threading.EventResetMode]::ManualReset,($name+'-pulse-'+([uint64]20).ToString('x16')))
+  if((Read-DesktopSentinelSignal $name 20 2) -ne 'fresh'){throw 'Fresh pulse rejected'}
+  if((Read-DesktopSentinelSignal $name 21 2) -ne 'fresh'){throw 'Previous bucket rejected'}
+  if((Read-DesktopSentinelSignal $name 22 2) -ne 'unconfirmed'){throw 'Stale positive signal accepted'}
+  if((Read-DesktopSentinelSignal $name 20 0) -ne 'none'){throw 'Empty selection accepted'}
+  $null=$status.Reset()
+  if((Read-DesktopSentinelSignal $name 20 2) -ne 'unconfirmed'){throw 'Reset status ignored'}
+ }finally{if($pulse){$pulse.Dispose()};if($status){$status.Dispose()}}
+}
+
 function Show-DesktopPage([string]$name){
  if($name -notin $script:desktopPages){throw 'Page inconnue'}
  $script:desktopCurrent=$name
@@ -769,7 +870,7 @@ function Show-DesktopPage([string]$name){
    $null=Desktop-Card $body 'Messagerie' 'Rédiger un message chiffré et configurer vos accès de test.' 'Mes messages' 'Messagerie' $right 56
    $null=Desktop-Card $body 'Paiements' 'Simulation uniquement. Aucun solde réel disponible.' 'Mes paiements' 'Paiements' 0 246
    $null=Desktop-Card $body 'Coffre-fort' 'Vérifier les clés du coffre local, sans export.' 'Mon coffre' 'Coffre-fort' $right 246
-   $null=Desktop-Card $body 'Protection' 'État de Sentinel non raccordé dans cette édition.' 'Ma protection' 'Protection' 0 436
+   $null=Desktop-Card $body 'Protection' 'Consulter le signal local de vos sauvegardes Sentinel.' 'Ma protection' 'Protection' 0 436
    $null=Desktop-Card $body 'Mon espace' 'Version Alpha privée. Les opérations de test sont explicitement distinguées.' 'Paramètres' 'Paramètres' $right 436
   }
   'Identité' {
@@ -798,8 +899,13 @@ function Show-DesktopPage([string]$name){
   }
   'Protection' {
    $null=Desktop-Label $body 'Protection de votre appareil' 0 0 810 38 19 $true
-   $null=Desktop-Card $body 'État non vérifié' 'Sentinel est développé séparément. Son état réel et ses verrous ne sont pas encore raccordés à ce tableau de bord.' '' '' 0 58 812 172
-   $null=Desktop-Card $body 'Diagnostics' 'Les outils existants restent accessibles dans les paramètres avancés.' 'Ouvrir les diagnostics' 'advanced' 0 248 812 172
+   $panel=Desktop-Card $body 'État des sauvegardes' 'Lecture locale des signaux de Sentinel.' '' '' 0 58 812 224
+   $script:desktopProtectionTitle=Desktop-Label $panel 'État indéterminé' 20 91 766 32 17 $true
+   $script:desktopProtectionDetail=Desktop-Label $panel '' 20 128 766 40 10
+   $script:desktopProtectionTime=Desktop-Label $panel '' 20 181 420 24 10
+   $null=Desktop-Button $panel 'Actualiser' 'refresh-protection' 580 173 210 35 $false
+   $null=Desktop-Card $body 'Protection Windows' 'Sentinel ne remplace pas un antivirus. Aucun diagnostic complet de votre appareil n''est affirmé.' '' '' 0 302 812 150
+   Refresh-DesktopProtection
   }
   'Paramètres' {
    $null=Desktop-Label $body 'Préférences et informations' 0 0 810 38 19 $true
@@ -900,6 +1006,7 @@ if ($SelfTest) {
    if ($script:shownActions.Count -lt 1) { throw "Missing module: $m" }
   }
   $module.SelectedItem="QUANTIC MAIL"
+  Test-DesktopSentinelReadOnly
   Initialize-Desktop
   foreach($page in $script:desktopPages){Show-DesktopPage $page;if($script:desktopTitle.Text -ne $page -or $script:desktopBody.Controls.Count -lt 2){throw "Desktop page incomplete: $page"}}
   Show-DesktopPage "Accueil"
@@ -916,6 +1023,8 @@ $form.Add_Shown({Start-ManagedCarrier})
 $transportTimer=New-Object Windows.Forms.Timer;$transportTimer.Interval=1000
 $transportTimer.Add_Tick({if($script:managedCarrier -and $script:managedCarrier.HasExited){Stop-ManagedCarrier;$notice.Text='Transport arrete | aucun renvoi automatique.'}})
 $transportTimer.Start()
+$protectionTimer=New-Object Windows.Forms.Timer;$protectionTimer.Interval=2000
+$protectionTimer.Add_Tick({Refresh-DesktopProtection});$protectionTimer.Start()
 try{
  while($true){
   $script:selectedArguments=$null;$script:selectedAction=$null
@@ -939,4 +1048,4 @@ try{
   if($null -eq $child){throw 'Le laboratoire technique ne peut pas demarrer'}
   $child.Dispose()
  }
-}finally{$transportTimer.Stop();$transportTimer.Dispose();Stop-ManagedCarrier;$form.Dispose()}
+}finally{$protectionTimer.Stop();$protectionTimer.Dispose();$transportTimer.Stop();$transportTimer.Dispose();Stop-ManagedCarrier;$form.Dispose()}
