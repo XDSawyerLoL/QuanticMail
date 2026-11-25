@@ -1517,6 +1517,17 @@ if ($SelfTest) {
   Initialize-Desktop
   foreach($page in $script:desktopPages){Show-DesktopPage $page;if($script:desktopTitle.Text -ne $page -or $script:desktopBody.Controls.Count -lt 2){throw "Desktop page incomplete: $page"}}
   Show-DesktopPage "Accueil"
+  Show-DesktopPage 'Messagerie'
+  $null=$script:desktopMailList.Items.Add('synthetic test subject')
+  $script:desktopMailBody.Text='synthetic test body'
+  $script:desktopMailIDs=@('synthetic')
+  Close-DesktopDocumentSession
+  if($script:desktopMailList.Items.Count -ne 0 -or $script:desktopMailBody.Text -ne '' -or $script:desktopMailIDs.Count -ne 0){throw 'Private receipt content remains after lock'}
+  Show-DesktopPage 'Identité'
+  $script:desktopIdentityAddress.Text='synthetic test address'
+  Close-DesktopDocumentSession
+  if($script:desktopIdentityAddress.Text -eq 'synthetic test address'){throw 'Private identity remains after lock'}
+  Show-DesktopPage 'Accueil'
   # Exercise rendered geometry, not just existence of controls.
   $form.Show()
   try{
