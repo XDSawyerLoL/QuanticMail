@@ -12,7 +12,13 @@ export function simulateDesktopPay(req){
  const cents=parseDemoAmount(req.amount);
  const session=createCirculationSession();
  session.setAvailability(Array.from({length:req.witnesses},(_,i)=>i));
- if(req.witnesses<3)return {mode:'simulation',status:'refused',realPaymentAuthorized:false,witnesses:req.witnesses,cents,balanceCents:session.snapshot().balances['demo-alice']};
+ if(req.witnesses<3){
+  let rejected=false;
+  try{session.prepare({payer:'demo-alice',payee:req.payee,cents});}catch{rejected=true;}
+  const state=session.snapshot();
+  if(!rejected||state.sequence!==0||state.pending!==null||state.balances['demo-alice']!==10000)throw Error('Quorum invariant failed');
+  return {mode:'simulation',status:'refused',realPaymentAuthorized:false,witnesses:req.witnesses,cents,balanceCents:state.balances['demo-alice']};
+ }
  const intent=session.prepare({payer:'demo-alice',payee:req.payee,cents});
  const result=session.confirm({nonce:intent.nonce,explicitConsent:true});
  if(result.realPaymentAuthorized!==false||result.simulationOnly!==true||result.settlementVerified!==false)throw Error('Unexpected payment result');
