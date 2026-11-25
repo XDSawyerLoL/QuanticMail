@@ -786,6 +786,8 @@ function Invoke-DesktopAction([string]$tag){
   'open' {& $script:desktopOpenAction;return}
   'contacts' {& $script:desktopContactAction;return}
   'compose' {Invoke-DesktopNativeAction 'ComposeDraft';return}
+  'mail-list' {Start-DesktopReceipt 'list';return}
+  'mail-open' {Start-DesktopReceipt 'open';return}
   'enroll' {Invoke-DesktopNativeAction 'PrepareEnrollment';return}
   'proof' {Invoke-DesktopNativeAction 'AnswerEnrollment';return}
   'credential' {Invoke-DesktopNativeAction 'PrepareMailboxCredential';return}
@@ -1031,13 +1033,20 @@ function Start-DesktopPayDemo {
 
 
 $script:desktopDocumentProcess=$null
+$script:desktopActiveAddress=$null
 function Close-DesktopDocumentSession {
- $p=$script:desktopDocumentProcess;$script:desktopDocumentProcess=$null
+ $p=$script:desktopDocumentProcess;$script:desktopDocumentProcess=$null;$script:desktopActiveAddress=$null
  if($p){try{$p.StandardInput.Close();if(-not $p.WaitForExit(2000)){$p.Kill()}}catch{}finally{$p.Dispose()}}
  if($script:desktopDocuments -and -not $script:desktopDocuments.IsDisposed){$script:desktopDocuments.Items.Clear()}
  $script:desktopDocumentIDs=@()
+ if($script:desktopMailList -and -not $script:desktopMailList.IsDisposed){$script:desktopMailList.Items.Clear()}
+ $script:desktopMailIDs=@()
+ if($script:desktopMailBody -and -not $script:desktopMailBody.IsDisposed){$script:desktopMailBody.Clear()}
+ if($script:desktopMailStatus -and -not $script:desktopMailStatus.IsDisposed){$script:desktopMailStatus.Text='Historique local verrouillé.'}
+ if($script:desktopIdentityAddress -and -not $script:desktopIdentityAddress.IsDisposed){$script:desktopIdentityAddress.Text='Aucune identité locale ouverte.'}
+ if($script:desktopIdentityStatus -and -not $script:desktopIdentityStatus.IsDisposed){$script:desktopIdentityStatus.Text='Espace privé fermé · aucune certification officielle'}
  if($script:desktopDocumentStatus -and -not $script:desktopDocumentStatus.IsDisposed){$script:desktopDocumentStatus.Text='Coffre documentaire verrouillé.'}
- if($script:desktopSessionLabel -and -not $script:desktopSessionLabel.IsDisposed){$script:desktopSessionLabel.Text='Coffre documentaire fermé'}
+ if($script:desktopSessionLabel -and -not $script:desktopSessionLabel.IsDisposed){$script:desktopSessionLabel.Text='Espace privé fermé'}
 }
 function Choose-DesktopEnrollment {
  $parent=[Environment]::GetFolderPath('LocalApplicationData')
@@ -1089,8 +1098,10 @@ function Open-DesktopDocumentSession {
   if(-not $line.Wait(240000) -or -not $line.Result -or $line.Result.Length -gt 2048){throw 'Session non confirmée'}
   $r=$line.Result|ConvertFrom-Json
   if($r.labOnly -ne $true -or $r.status -cne 'document-session-ready' -or $r.address -cne $chosen.address -or $child.HasExited){throw 'Session non reconnue'}
-  $script:desktopDocumentProcess=$child;$child=$null
-  $script:desktopSessionLabel.Text='Documents ouverts · 5 min max.'
+  $script:desktopDocumentProcess=$child;$child=$null;$script:desktopActiveAddress=[string]$r.address
+  if($script:desktopIdentityAddress -and -not $script:desktopIdentityAddress.IsDisposed){$script:desktopIdentityAddress.Text=$script:desktopActiveAddress}
+  if($script:desktopIdentityStatus -and -not $script:desktopIdentityStatus.IsDisposed){$script:desktopIdentityStatus.Text='Coffres locaux ouverts · aucune certification officielle'}
+  $script:desktopSessionLabel.Text='Espace privé ouvert · 5 min max.'
   return $true
  }finally{if($child){try{$child.StandardInput.Close();if(-not $child.WaitForExit(1000)){$child.Kill()}}catch{};$child.Dispose()}}
 }
@@ -1103,9 +1114,9 @@ function Invoke-DesktopDocument([string]$mode,[string]$path='', [string]$id='', 
   if($bytes.Length -gt 4096){throw 'Sélection trop longue'}
   $p.StandardInput.BaseStream.Write($bytes,0,$bytes.Length);$p.StandardInput.BaseStream.Flush()
   $line=$p.StandardOutput.ReadLineAsync()
-  if(-not $line.Wait(240000) -or -not $line.Result -or $line.Result.Length -gt 16384){throw 'Session interrompue'}
+  if(-not $line.Wait(240000) -or -not $line.Result -or $line.Result.Length -gt 65536){throw 'Session interrompue'}
   $r=$line.Result|ConvertFrom-Json
-  $expected=switch($mode){'list'{'listed'};'import'{'imported'};'export'{'exported'}}
+  $expected=switch($mode){'list'{'listed'};'import'{'imported'};'export'{'exported'};'mail-list'{'mail-listed'};'mail-open'{'mail-opened'}}
   if($r.labOnly -ne $true -or ($r.status -cne $expected -and -not ($mode -eq 'import' -and $r.status -ceq 'partial'))){throw 'Opération non confirmée'}
   return $r
  }catch{Close-DesktopDocumentSession;throw}
@@ -1151,6 +1162,33 @@ function Start-DesktopDocument([string]$mode){
  }catch{$script:desktopDocumentStatus.Text='Action non confirmée : accès, chemin ou limites du laboratoire. Aucun écrasement demandé.'}
 }
 
+function Start-DesktopReceipt([string]$mode){
+ try{
+  if($mode -eq 'list'){
+   $r=Invoke-DesktopDocument 'mail-list'
+   $script:desktopMailList.Items.Clear();$script:desktopMailBody.Clear();$script:desktopMailIDs=@()
+   foreach($m in @($r.messages)){
+    if($m.id -cnotmatch '^[a-f0-9]{32}$' -or ([string]$m.subject).Length -gt 240 -or $script:desktopMailIDs.Count -ge 64){throw 'Historique invalide'}
+    $subject=if([string]::IsNullOrWhiteSpace([string]$m.subject)){'(Sans objet)'}else{[string]$m.subject}
+    $null=$script:desktopMailList.Items.Add($subject);$script:desktopMailIDs+=[string]$m.id
+   }
+   $status=('{0} reçu(s) local(aux) authentifié(s).' -f $script:desktopMailIDs.Count)
+   if($r.unverified -gt 0){$status+=(' {0} non vérifié(s).' -f $r.unverified)}
+   if($r.truncated -eq $true){$status+=' Liste limitée à 64.'}
+   $script:desktopMailStatus.Text=$status
+  }elseif($mode -eq 'open'){
+   if(-not $script:desktopDocumentProcess -or $script:desktopDocumentProcess.HasExited){Close-DesktopDocumentSession;return}
+   $i=$script:desktopMailList.SelectedIndex
+   if($i -lt 0 -or $i -ge $script:desktopMailIDs.Count){return}
+   $id=$script:desktopMailIDs[$i];$r=Invoke-DesktopDocument 'mail-open' '' $id
+   if($r.message.id -cne $id -or ([string]$r.message.body).Length -gt 8192){throw 'Reçu non reconnu'}
+   $script:desktopMailBody.Text=([string]$r.message.subject+[Environment]::NewLine+[Environment]::NewLine+[string]$r.message.body)
+  }
+ }catch{
+  Close-DesktopDocumentSession
+  $script:desktopMailStatus.Text='Historique non confirmé. Aucun message envoyé ou acquitté.'
+ }
+}
 function Show-DesktopPage([string]$name){
  if($name -notin $script:desktopPages){throw 'Page inconnue'}
  $script:desktopCurrent=$name
@@ -1203,14 +1241,16 @@ function Show-DesktopPage([string]$name){
    $null=Desktop-Label $idCard 'Quantic Sillage' 24 19 446 26 14 $true
    $null=Desktop-Label $idCard 'IDENTITÉ NUMÉRIQUE DE LABORATOIRE' 24 49 446 25 9
    $null=Desktop-Label $idCard 'Mon identité locale' 130 87 342 31 16 $true
-   $hint=Desktop-Label $idCard 'Aucune identité vérifiée dans cet écran.' 130 125 342 48 11
-   $hint.ForeColor=$script:desktopColors.Muted
-   $status=Desktop-Label $idCard 'Aucune certification officielle' 24 204 446 27 10
-   $status.ForeColor=$script:desktopColors.Muted
+   $address=if($script:desktopActiveAddress){$script:desktopActiveAddress}else{'Aucune identité locale ouverte.'}
+   $script:desktopIdentityAddress=Desktop-Label $idCard $address 130 125 342 65 10
+   $script:desktopIdentityAddress.ForeColor=$script:desktopColors.Muted
+   $status=if($script:desktopActiveAddress){'Coffres locaux ouverts · aucune certification officielle'}else{'Espace privé fermé · aucune certification officielle'}
+   $script:desktopIdentityStatus=Desktop-Label $idCard $status 24 204 446 27 9
+   $script:desktopIdentityStatus.ForeColor=$script:desktopColors.Muted
    $actionPanel=New-Object Windows.Forms.Panel;$actionPanel.BackColor=$script:desktopColors.White
    Set-DesktopRoundedCard $actionPanel;$actionPanel.SetBounds(516,88,296,248);$body.Controls.Add($actionPanel)
    $null=Desktop-Label $actionPanel 'Actions' 17 17 262 29 14 $true
-   $null=Desktop-Button $actionPanel 'Vérifier mon identité' 'open' 17 59 262 39 $true
+   $null=Desktop-Button $actionPanel 'Ouvrir mon espace' 'session-open' 17 59 262 39 $true
    $null=Desktop-Button $actionPanel 'Créer une identité' 'create' 17 109 262 39 $false
    $null=Desktop-Button $actionPanel 'Préparer mon inscription' 'enroll' 17 159 262 39 $false
    $null=Desktop-Card $body 'Preuve de possession' 'Répondre au défi signé fourni par votre opérateur indépendant.' 'Prouver mon identité' 'proof' 0 352 812 148
@@ -1225,6 +1265,7 @@ function Show-DesktopPage([string]$name){
    $null=Desktop-Label $nav 'Messagerie' 16 18 198 28 12 $true
    $null=Desktop-Button $nav 'Nouveau message' 'compose' 13 62 204 38 $false
    $null=Desktop-Button $nav 'Contacts' 'contacts' 13 108 204 38 $false
+   $null=Desktop-Button $nav 'Recevoir / envoyer' 'compose' 13 304 204 38 $false
    $null=Desktop-Label $nav 'Configuration' 16 174 198 28 12 $true
    $null=Desktop-Button $nav 'Configurer mes accès' 'activation' 13 214 204 38 $false
    $null=Desktop-Button $nav 'Préparer mes accès' 'credential' 13 260 204 38 $false
@@ -1232,14 +1273,20 @@ function Show-DesktopPage([string]$name){
    Set-DesktopRoundedCard $mail;$mail.SetBounds(246,90,566,390);$body.Controls.Add($mail)
    $null=Desktop-Label $mail 'Boîte de réception' 22 20 522 32 15 $true
    $rule=New-Object Windows.Forms.Panel;$rule.BackColor=$script:desktopColors.Border;$rule.SetBounds(20,62,526,1);$mail.Controls.Add($rule)
-   $mailIcon=Desktop-Label $mail ([string][char]0xE715) 0 110 566 62 20
-   $mailIcon.Font=New-Object Drawing.Font('Segoe MDL2 Assets',42,[Drawing.FontStyle]::Regular,[Drawing.GraphicsUnit]::Pixel)
-   $mailIcon.TextAlign='MiddleCenter';$mailIcon.ForeColor=$script:desktopColors.Muted
-   $empty=Desktop-Label $mail 'Messages non chargés' 20 184 526 32 14 $true
-   $empty.TextAlign='MiddleCenter'
-   $note=Desktop-Label $mail 'La liste des messages n''est pas encore raccordée à cette page. Vous pouvez rédiger un message ou configurer votre messagerie.' 35 224 496 70 10
-   $note.ForeColor=$script:desktopColors.Muted;$note.TextAlign='MiddleCenter'
-   $null=Desktop-Button $mail 'Configurer ma messagerie' 'activation' 145 315 276 38 $true
+   $null=Desktop-Button $mail 'Actualiser mes reçus' 'mail-list' 22 78 255 36 $true
+   $null=Desktop-Button $mail 'Lire le message' 'mail-open' 289 78 255 36 $false
+   $script:desktopMailList=New-Object Windows.Forms.ListBox
+   $script:desktopMailList.Font=New-Object Drawing.Font('Segoe UI',13,[Drawing.FontStyle]::Regular,[Drawing.GraphicsUnit]::Pixel)
+   $script:desktopMailList.SetBounds(22,126,522,94);$mail.Controls.Add($script:desktopMailList)
+   $script:desktopMailIDs=@()
+   $script:desktopMailBody=New-Object Windows.Forms.TextBox
+   $script:desktopMailBody.Multiline=$true;$script:desktopMailBody.ReadOnly=$true
+   $script:desktopMailBody.ScrollBars='Vertical';$script:desktopMailBody.BackColor=$script:desktopColors.White
+   $script:desktopMailBody.Font=New-Object Drawing.Font('Segoe UI',13,[Drawing.FontStyle]::Regular,[Drawing.GraphicsUnit]::Pixel)
+   $script:desktopMailBody.SetBounds(22,232,522,103);$mail.Controls.Add($script:desktopMailBody)
+   $script:desktopMailStatus=Desktop-Label $mail 'Reçus locaux uniquement · aucune preuve de livraison distante.' 22 347 522 36 9
+   $script:desktopMailStatus.ForeColor=$script:desktopColors.Muted
+
   }
   'Paiements' {
    $null=Desktop-Label $body 'Votre portefeuille' 0 0 810 38 19 $true
@@ -1362,7 +1409,7 @@ function Initialize-Desktop {
  $script:desktopTitle=Desktop-Label $header 'Accueil' 28 15 400 42 24 $true
  $state=Desktop-Label $header 'Espace local  •  Édition de test' 30 60 400 24 10
  $state.ForeColor=$script:desktopColors.Muted
- $script:desktopSessionLabel=Desktop-Label $header 'Coffre documentaire fermé' 460 13 280 25 10
+ $script:desktopSessionLabel=Desktop-Label $header 'Espace privé fermé' 460 13 280 25 10
  $script:desktopSessionLabel.TextAlign='MiddleRight'
  $script:desktopSessionOpen=Desktop-Button $header 'Ouvrir' 'session-open' 460 43 125 34 $true
  $script:desktopSessionLock=Desktop-Button $header 'Verrouiller' 'session-lock' 595 43 145 34 $false
