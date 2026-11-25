@@ -761,15 +761,15 @@ function Set-DesktopRoundedCard($panel){
 function Desktop-HomeCard($parent,[string]$title,[string]$description,[string]$button,[string]$tag,[int]$glyph,[int]$x,[int]$y){
  $panel=New-Object Windows.Forms.Panel
  $panel.BackColor=[Drawing.Color]::FromArgb(248,250,253);Set-DesktopRoundedCard $panel
- $panel.SetBounds($x,$y,260,154);$parent.Controls.Add($panel)
+ $panel.SetBounds($x,$y,260,140);$parent.Controls.Add($panel)
  $icon=Desktop-Label $panel ([string][char]$glyph) 18 13 36 35 17
  $icon.Font=New-Object Drawing.Font('Segoe MDL2 Assets',23,[Drawing.FontStyle]::Regular,[Drawing.GraphicsUnit]::Pixel)
- $icon.TextAlign='MiddleCenter';$icon.BackColor=$script:desktopColors.White;$icon.ForeColor=$script:desktopColors.Blue
+ $icon.TextAlign='MiddleCenter';$icon.BackColor=$panel.BackColor;$icon.ForeColor=$script:desktopColors.Blue
  $null=Desktop-Label $panel $title 18 55 224 26 14 $true
- $desc=Desktop-Label $panel $description 18 82 224 38 9.5
+ $desc=Desktop-Label $panel $description 18 80 224 30 9.5
  $desc.ForeColor=$script:desktopColors.Muted
- $action=Desktop-Button $panel ($button+'  '+[char]0x2192) $tag 12 123 236 26 $false
- $action.TextAlign='MiddleLeft';$action.ForeColor=$script:desktopColors.Blue;$action.FlatAppearance.BorderSize=0
+ $action=Desktop-Button $panel ($button+'  '+[char]0x2192) $tag 12 110 236 24 $false
+ $action.TextAlign='MiddleLeft';$action.ForeColor=$script:desktopColors.Blue;$action.FlatAppearance.BorderSize=0;$action.BackColor=$panel.BackColor
 }
 function Invoke-DesktopNativeAction([string]$id){
  $match=@($actions|Where-Object {$_.Id -ceq $id})
@@ -1039,6 +1039,8 @@ function Close-DesktopDocumentSession {
  if($p){try{$p.StandardInput.Close();if(-not $p.WaitForExit(2000)){$p.Kill()}}catch{}finally{$p.Dispose()}}
  if($script:desktopDocuments -and -not $script:desktopDocuments.IsDisposed){$script:desktopDocuments.Items.Clear()}
  $script:desktopDocumentIDs=@()
+ if($script:desktopStorageText -and -not $script:desktopStorageText.IsDisposed){$script:desktopStorageText.Text='Inventaire non ouvert'}
+ if($script:desktopStorageRing -and -not $script:desktopStorageRing.IsDisposed){$script:desktopStorageRing.Tag=-1;$script:desktopStorageRing.Invalidate()}
  if($script:desktopMailList -and -not $script:desktopMailList.IsDisposed){$script:desktopMailList.Items.Clear()}
  $script:desktopMailIDs=@()
  if($script:desktopMailBody -and -not $script:desktopMailBody.IsDisposed){$script:desktopMailBody.Clear()}
@@ -1142,14 +1144,19 @@ function Start-DesktopDocument([string]$mode){
     $script:desktopDocuments.Items.Clear();$script:desktopDocumentIDs=@()
     foreach($d in @($r.documents)){
      if($d.id -cnotmatch '^[a-f0-9]{32}$' -or $d.size -lt 1 -or $d.size -gt 8388608){throw 'Inventaire invalide'}
-     $null=$script:desktopDocuments.Items.Add(('{0}  ({1} octets)' -f $d.name,$d.size))
+     $item=New-Object Windows.Forms.ListViewItem([string]$d.name)
+     $null=$item.SubItems.Add(('{0:N1} Kio' -f ($d.size/1024.0)))
+     $null=$script:desktopDocuments.Items.Add($item)
      $script:desktopDocumentIDs+= [string]$d.id
     }
-    if($script:desktopDocumentIDs.Count -gt 0){$script:desktopDocuments.SelectedIndex=0}
+    if($script:desktopDocumentIDs.Count -gt 0){$script:desktopDocuments.Items[0].Selected=$true}
+    $sum=0;foreach($d in @($r.documents)){$sum+=[int64]$d.size}
+    $script:desktopStorageText.Text=('{0:N2} Mio / 256 Mio' -f ($sum/1048576.0))
+    $script:desktopStorageRing.Tag=[int][Math]::Min(100,[Math]::Ceiling($sum/268435456.0*100));$script:desktopStorageRing.Invalidate()
     $script:desktopDocumentStatus.Text=('{0} document(s) vérifié(s). Session documentaire temporaire.' -f $script:desktopDocumentIDs.Count)
    }
    'export' {
-    $i=$script:desktopDocuments.SelectedIndex
+    $i=if($script:desktopDocuments.SelectedIndices.Count -eq 1){$script:desktopDocuments.SelectedIndices[0]}else{-1}
     if($i -lt 0 -or $i -ge $script:desktopDocumentIDs.Count){throw 'Consultez et sélectionnez un document avant de le récupérer.'}
     $id=$script:desktopDocumentIDs[$i]
     $picker=New-Object Windows.Forms.FolderBrowserDialog
@@ -1189,6 +1196,24 @@ function Start-DesktopReceipt([string]$mode){
   $script:desktopMailStatus.Text='Historique non confirmé. Aucun message envoyé ou acquitté.'
  }
 }
+
+function Desktop-Section($parent,[int]$x,[int]$y,[int]$w,[int]$h){
+ $p=New-Object Windows.Forms.Panel
+ $p.BackColor=$script:desktopColors.White
+ Set-DesktopRoundedCard $p;$p.SetBounds($x,$y,$w,$h);$parent.Controls.Add($p)
+ return $p
+}
+function Desktop-SettingRow($parent,[string]$title,[string]$detail,[int]$glyph,[int]$y,[string]$action='',[string]$tag=''){
+ $p=Desktop-Section $parent 0 $y 812 68
+ $i=Desktop-Label $p ([string][char]$glyph) 14 13 39 39 17
+ $i.Font=New-Object Drawing.Font('Segoe MDL2 Assets',22,[Drawing.FontStyle]::Regular,[Drawing.GraphicsUnit]::Pixel)
+ $i.TextAlign='MiddleCenter';$i.ForeColor=$script:desktopColors.Blue;$i.BackColor=[Drawing.Color]::FromArgb(237,244,252)
+ $null=Desktop-Label $p $title 66 10 515 22 12 $true
+ $d=Desktop-Label $p $detail 66 33 515 28 9
+ $d.ForeColor=$script:desktopColors.Muted
+ if($action){$b=Desktop-Button $p ($action+'  '+[char]0x203A) $tag 608 17 186 34 $false;$b.FlatAppearance.BorderSize=0;$b.ForeColor=$script:desktopColors.Blue}
+}
+
 function Show-DesktopPage([string]$name){
  if($name -notin $script:desktopPages){throw 'Page inconnue'}
  $script:desktopCurrent=$name
@@ -1235,9 +1260,9 @@ function Show-DesktopPage([string]$name){
    Desktop-HomeCard $body 'Identité' 'Votre identité numérique locale.' 'Mon identité' 'Identité' 0xE77B 0 233
    Desktop-HomeCard $body 'Messagerie' 'Vos échanges et vos contacts.' 'Mes messages' 'Messagerie' 0xE715 276 233
    Desktop-HomeCard $body 'Paiements' 'Simulation sans valeur monétaire.' 'Mes paiements' 'Paiements' 0xE8C7 552 233
-   Desktop-HomeCard $body 'Coffre-fort' 'Vos documents chiffrés de test.' 'Mon coffre' 'Coffre-fort' 0xE72E 0 403
-   Desktop-HomeCard $body 'Protection' 'Surveillance locale des sauvegardes.' 'Ma protection' 'Protection' 0xEA18 276 403
-   Desktop-HomeCard $body 'État de votre espace' 'Consulter les signaux locaux disponibles.' 'Voir la protection' 'Protection' 0xE9D9 552 403
+   Desktop-HomeCard $body 'Coffre-fort' 'Vos documents chiffrés de test.' 'Mon coffre' 'Coffre-fort' 0xE72E 0 387
+   Desktop-HomeCard $body 'Protection' 'Surveillance locale des sauvegardes.' 'Ma protection' 'Protection' 0xEA18 276 387
+   Desktop-HomeCard $body 'État de votre espace' 'Consulter les signaux locaux disponibles.' 'Voir la protection' 'Protection' 0xE9D9 552 387
   }
   'Identité' {
    $null=Desktop-Label $body 'Identité numérique' 0 0 810 36 19 $true
@@ -1259,6 +1284,7 @@ function Show-DesktopPage([string]$name){
    $status=if($script:desktopActiveAddress){'Coffres locaux ouverts · aucune certification officielle'}else{'Espace privé fermé · aucune certification officielle'}
    $script:desktopIdentityStatus=Desktop-Label $idCard $status 24 204 446 27 9
    $script:desktopIdentityStatus.ForeColor=$script:desktopColors.Muted
+   foreach($control in $idCard.Controls){if($control -is [Windows.Forms.Label] -and $control -ne $mark){$control.BackColor=[Drawing.Color]::Transparent}}
    $actionPanel=New-Object Windows.Forms.Panel;$actionPanel.BackColor=$script:desktopColors.White
    Set-DesktopRoundedCard $actionPanel;$actionPanel.SetBounds(516,88,296,248);$body.Controls.Add($actionPanel)
    $null=Desktop-Label $actionPanel 'Actions' 17 17 262 29 14 $true
@@ -1301,58 +1327,99 @@ function Show-DesktopPage([string]$name){
 
   }
   'Paiements' {
-   $null=Desktop-Label $body 'Votre portefeuille' 0 0 810 38 19 $true
-   $null=Desktop-Card $body 'Paiements réels indisponibles' 'Aucun compte financier actif. Le formulaire ci-dessous est une simulation locale, sans valeur monétaire.' '' '' 0 58 812 118
-   $panel=New-Object Windows.Forms.Panel
-   $panel.BackColor=$script:desktopColors.White;$panel.SetBounds(0,192,812,390);$body.Controls.Add($panel)
-   $null=Desktop-Label $panel 'Essayer un paiement fictif' 20 18 770 34 15 $true
-   $null=Desktop-Label $panel 'Chaque essai commence avec 100 unités fictives. Aucun historique permanent.' 20 56 770 40 10
-   $null=Desktop-Label $panel 'Destinataire de test' 20 102 330 24 10
+   $lead=Desktop-Label $body 'Payer et recevoir · simulation de laboratoire sans argent réel.' 0 0 812 30 10
+   $lead.ForeColor=$script:desktopColors.Muted
+   $wallet=Desktop-Section $body 0 44 396 236
+   $null=Desktop-Label $wallet 'Solde du portefeuille' 18 16 358 27 12 $true
+   $null=Desktop-Label $wallet 'Non disponible' 18 50 358 43 23 $true
+   $d=Desktop-Label $wallet 'Aucun compte financier actif' 18 100 358 28 10
+   $d.ForeColor=$script:desktopColors.Muted
+   $null=Desktop-Label $wallet 'SIMULATION LOCALE' 18 151 358 25 10 $true
+   $null=Desktop-Label $wallet '100 unités fictives au début de chaque essai.' 18 181 358 39 10
+   $panel=Desktop-Section $body 412 44 400 236
+   $null=Desktop-Label $panel 'Effectuer un paiement fictif' 18 12 364 28 14 $true
+   $null=Desktop-Label $panel 'Destinataire' 18 44 364 20 9
    $script:desktopPayee=New-Object Windows.Forms.ComboBox
-   $script:desktopPayee.DropDownStyle='DropDownList';$script:desktopPayee.SetBounds(20,127,365,32)
+   $script:desktopPayee.DropDownStyle='DropDownList';$script:desktopPayee.SetBounds(18,66,364,28)
    $null=$script:desktopPayee.Items.Add('Particulier de démonstration');$null=$script:desktopPayee.Items.Add('Commerce de démonstration')
    $script:desktopPayee.SelectedIndex=0;$panel.Controls.Add($script:desktopPayee)
-   $null=Desktop-Label $panel 'Montant fictif' 413 102 350 24 10
+   $null=Desktop-Label $panel 'Montant fictif' 18 103 174 22 9
    $script:desktopPayAmount=New-Object Windows.Forms.TextBox
-   $script:desktopPayAmount.SetBounds(413,127,365,32);$script:desktopPayAmount.MaxLength=6;$panel.Controls.Add($script:desktopPayAmount)
-   $null=Desktop-Label $panel 'Témoins simulés disponibles' 20 177 365 24 10
+   $script:desktopPayAmount.SetBounds(18,127,174,28);$script:desktopPayAmount.MaxLength=6;$panel.Controls.Add($script:desktopPayAmount)
+   $null=Desktop-Label $panel 'Témoins disponibles' 206 103 176 22 9
    $script:desktopPayWitnesses=New-Object Windows.Forms.ComboBox
-   $script:desktopPayWitnesses.DropDownStyle='DropDownList';$script:desktopPayWitnesses.SetBounds(20,202,365,32)
+   $script:desktopPayWitnesses.DropDownStyle='DropDownList';$script:desktopPayWitnesses.SetBounds(206,127,176,28)
    foreach($n in @('2 sur 4','3 sur 4','4 sur 4')){$null=$script:desktopPayWitnesses.Items.Add($n)}
    $script:desktopPayWitnesses.SelectedIndex=2;$panel.Controls.Add($script:desktopPayWitnesses)
-   $script:desktopPayButton=Desktop-Button $panel 'Simuler le paiement' 'pay-demo' 413 197 365 42 $true
-   $script:desktopPayResult=Desktop-Label $panel 'En attente de simulation.' 20 263 758 100 11
+   $script:desktopPayButton=Desktop-Button $panel 'Simuler le paiement' 'pay-demo' 18 178 364 38 $true
+   $null=Desktop-Label $body 'Dernières transactions' 0 299 812 32 15 $true
+   $history=Desktop-Section $body 0 339 812 144
+   $null=Desktop-Label $history 'Résultat du dernier essai' 18 13 776 25 11 $true
+   $script:desktopPayResult=Desktop-Label $history 'Aucune simulation effectuée dans cette page. Aucun historique bancaire réel.' 18 47 776 81 11
+   $script:desktopPayResult.ForeColor=$script:desktopColors.Muted
   }
   'Coffre-fort' {
-   $null=Desktop-Label $body 'Vos données et vos clés' 0 0 810 38 19 $true
-   $null=Desktop-Card $body 'Coffre documentaire de test' 'Fichiers locaux chiffrés. Identité locale de laboratoire requise. 32 documents de 8 Mio maximum.' '' '' 0 58 812 118
-   $panel=New-Object Windows.Forms.Panel
-   $panel.BackColor=$script:desktopColors.White;$panel.SetBounds(0,192,812,370);$body.Controls.Add($panel)
-   $null=Desktop-Button $panel 'Ajouter un document' 'doc-import' 20 18 250 42 $true
-   $null=Desktop-Button $panel 'Consulter mes documents' 'doc-list' 284 18 250 42 $false
-   $null=Desktop-Button $panel 'Récupérer la copie' 'doc-export' 548 18 244 42 $false
-   $script:desktopDocuments=New-Object Windows.Forms.ListBox
-   $script:desktopDocuments.SetBounds(20,78,772,170);$panel.Controls.Add($script:desktopDocuments)
+   $lead=Desktop-Label $body 'Vos documents de test, chiffrés et sous votre contrôle.' 0 0 812 30 10
+   $lead.ForeColor=$script:desktopColors.Muted
+   $storage=Desktop-Section $body 0 44 812 135
+   $script:desktopStorageRing=New-Object Windows.Forms.Panel
+   $script:desktopStorageRing.SetBounds(18,17,100,100);$script:desktopStorageRing.Tag=-1
+   $storage.Controls.Add($script:desktopStorageRing)
+   $script:desktopStorageRing.Add_Paint({param($sender,$e)
+    $e.Graphics.SmoothingMode=[Drawing.Drawing2D.SmoothingMode]::AntiAlias
+    $rect=New-Object Drawing.Rectangle(9,9,80,80)
+    $track=New-Object Drawing.Pen([Drawing.Color]::FromArgb(226,233,242),7)
+    $used=New-Object Drawing.Pen([Drawing.Color]::FromArgb(15,139,121),7)
+    try{
+     $e.Graphics.DrawEllipse($track,$rect)
+     if([int]$sender.Tag -gt 0){$e.Graphics.DrawArc($used,$rect,-90,[float]([Math]::Min(360,[int]$sender.Tag*3.6)))}
+     $value=if([int]$sender.Tag -lt 0){'—'}else{([string]$sender.Tag+'%')}
+     [Windows.Forms.TextRenderer]::DrawText($e.Graphics,$value,$sender.Font,$rect,$script:desktopColors.Ink,([Windows.Forms.TextFormatFlags]::HorizontalCenter -bor [Windows.Forms.TextFormatFlags]::VerticalCenter))
+    }finally{$track.Dispose();$used.Dispose()}
+   })
+   $null=Desktop-Label $storage 'Espace de stockage' 134 20 365 28 14 $true
+   $script:desktopStorageText=Desktop-Label $storage 'Inventaire non ouvert' 134 53 365 27 12
+   $null=Desktop-Label $storage 'Limite : 32 documents · 8 Mio par fichier' 134 83 365 32 9
+   $null=Desktop-Button $storage '+ Ajouter des fichiers' 'doc-import' 548 46 244 40 $true
+   $null=Desktop-Label $body 'Mes documents' 0 199 812 30 15 $true
+   $panel=Desktop-Section $body 0 238 812 265
+   $null=Desktop-Label $panel 'Nom du document' 20 13 480 24 10 $true
+   $null=Desktop-Label $panel 'Taille' 570 13 220 24 10 $true
+   $script:desktopDocuments=New-Object Windows.Forms.ListView
+   $script:desktopDocuments.View='Details';$script:desktopDocuments.FullRowSelect=$true;$script:desktopDocuments.MultiSelect=$false
+   $script:desktopDocuments.HeaderStyle='Nonclickable'
+   $script:desktopDocuments.SetBounds(18,41,776,124);$panel.Controls.Add($script:desktopDocuments)
+   $null=$script:desktopDocuments.Columns.Add('Nom',500);$null=$script:desktopDocuments.Columns.Add('Taille',200)
    $script:desktopDocumentIDs=@()
-   $script:desktopDocumentStatus=Desktop-Label $panel 'Coffre fermé. Consultez vos documents pour vérifier leur contenu.' 20 266 772 85 11
-   $null=Desktop-Button $body 'Vérifier mon coffre d''identité de test' 'open' 0 576 812 44 $false
+   $null=Desktop-Button $panel 'Actualiser' 'doc-list' 18 180 370 35 $false
+   $null=Desktop-Button $panel 'Récupérer la copie' 'doc-export' 404 180 390 35 $false
+   $script:desktopDocumentStatus=Desktop-Label $panel 'Coffre fermé. Ouvrez votre espace pour consulter les documents.' 18 224 776 32 9
   }
   'Protection' {
-   $null=Desktop-Label $body 'Protection de votre appareil' 0 0 810 38 19 $true
-   $panel=Desktop-Card $body 'État des sauvegardes' 'Lecture locale des signaux de Sentinel.' '' '' 0 58 812 224
-   $script:desktopProtectionTitle=Desktop-Label $panel 'État indéterminé' 20 91 766 32 17 $true
-   $script:desktopProtectionDetail=Desktop-Label $panel '' 20 128 766 40 10
-   $script:desktopProtectionTime=Desktop-Label $panel '' 20 181 420 24 10
-   $null=Desktop-Button $panel 'Actualiser' 'refresh-protection' 580 173 210 35 $false
-   $null=Desktop-Button $body 'Activer Sentinel' 'sentinel-enable' 0 300 396 46 $true
-   $null=Desktop-Button $body 'Désactiver Sentinel' 'sentinel-disable' 416 300 396 46 $false
-   $null=Desktop-Card $body 'Protection Windows' 'Sentinel ne remplace pas un antivirus. Aucun diagnostic complet de votre appareil n''est affirmé.' '' '' 0 366 812 150
+   $lead=Desktop-Label $body 'Sécurité, confidentialité et maîtrise de vos données.' 0 0 812 30 10
+   $lead.ForeColor=$script:desktopColors.Muted
+   $panel=Desktop-Section $body 0 44 812 140
+   $null=Desktop-Label $panel 'État des sauvegardes' 20 11 770 23 10 $true
+   $script:desktopProtectionTitle=Desktop-Label $panel 'État indéterminé' 20 38 770 30 16 $true
+   $script:desktopProtectionDetail=Desktop-Label $panel '' 20 73 770 33 10
+   $script:desktopProtectionTime=Desktop-Label $panel '' 20 108 520 23 9
+   $null=Desktop-Button $panel 'Actualiser' 'refresh-protection' 622 103 170 27 $false
+   Desktop-SettingRow $body 'Sécurité de l''appareil' 'Diagnostic antivirus complet non disponible.' 0xE83D 200
+   Desktop-SettingRow $body 'Confidentialité' 'Coffre documentaire local chiffré · édition de test.' 0xE72E 278 'Mon coffre' 'Coffre-fort'
+   Desktop-SettingRow $body 'Conformité européenne' 'Aucune certification officielle à ce stade.' 0xEA18 356
+   Desktop-SettingRow $body 'Protection des accès' 'Ouverture temporaire du coffre local par deux secrets.' 0xE72E 434 'Verrouiller' 'session-lock'
+   $null=Desktop-Button $body 'Activer Sentinel' 'sentinel-enable' 0 516 396 37 $true
+   $null=Desktop-Button $body 'Désactiver Sentinel' 'sentinel-disable' 416 516 396 37 $false
    Refresh-DesktopProtection
   }
   'Paramètres' {
-   $null=Desktop-Label $body 'Préférences et informations' 0 0 810 38 19 $true
-   $null=Desktop-Card $body 'À propos' 'Quantic Sillage Desktop — version Alpha privée. Aucune certification ou conformité officielle affirmée.' '' '' 0 58 812 172
-   $null=Desktop-Card $body 'Outils avancés' 'Opérations de laboratoire, diagnostics et simulations. Certaines actions ouvrent explicitement un terminal.' 'Ouvrir les outils avancés' 'advanced' 0 248 812 172
+   $null=Desktop-Label $body 'Paramètres' 0 0 812 36 19 $true
+   Desktop-SettingRow $body 'Mon compte' 'Identité locale et accès à votre espace privé.' 0xE77B 55 'Mon identité' 'Identité'
+   Desktop-SettingRow $body 'Préférences' 'Options d''interface avancées non disponibles.' 0xE713 133
+   Desktop-SettingRow $body 'Confidentialité' 'Verrouiller les documents et les reçus ouverts.' 0xE72E 211 'Verrouiller' 'session-lock'
+   Desktop-SettingRow $body 'Appareils' 'État de la protection locale · pas de registre distant.' 0xE7F4 289 'Protection' 'Protection'
+   Desktop-SettingRow $body 'À propos' 'Quantic Sillage Desktop · Alpha privée non certifiée.' 0xE946 367
+   Desktop-SettingRow $body 'Outils avancés' 'Diagnostics de laboratoire · terminal possible.' 0xE90F 445 'Diagnostics' 'advanced'
   }
  }
  Save-DesktopPageBounds $script:desktopBody
@@ -1383,7 +1450,7 @@ function Initialize-Desktop {
  $script:desktopLayout=$layout;$script:desktopSidebar=$sidebar;$script:desktopWorkspace=$workspace
  # Brand mark cropped from the supplied original Quantic Sillage banner.
  # It is embedded in the existing inventory-pinned script, not downloaded.
- $logoBytes=[Convert]::FromBase64String('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')
+ $logoBytes=[Convert]::FromBase64String('iVBORw0KGgoAAAANSUhEUgAAADAAAAAwCAMAAABg3Am1AAAAkFBMVEVaoNoqkdyp2PCJst7a6frM7vogZrcWadfE8P5ZxOtRdrfs7v4NPJNOgr+ms9i92/Hw9f0NZ9ImtvUSiOoap/QVmPAPdNgNeOQNVbnm9/4MWsYctPUlqe/Y9/3d9v0twfdwx+tLh80NSqoteMzh9/7J5vuNye2z5/kvabdRuOt1p9dtuOiP1/Gs1vLS9v7j7fwNjfcsAAAAMHRSTlP///H/VZ7//9X//w///6+5Av//////////LP///25R//////9Hrv/6///////+jzEKCDpDAAADQ0lEQVR42n2ViZKqMBBFOyCoM29hUSAYFEQ2Bfz/v3vdSQiozOuaGouqe9ILnQs8n5vzjXvL4Nm42+2c8eatBCDwoufVUOddB9B1j3pwPoEznv9t1E7/AMGYOBwORwzGoHc+AHM+3/UgSKviKINBPb4Ck/7mWHshgsMbEIYh9IuageODfN7tA4pXOenDkN2dBaDLsR5Sf1oDQgaVAb4phccbUHoEdBuzHCMqrAlQP1YXXDQhxDSjWU9EswScvdZL4PAGxGEchxE4M5DlweUiiZPuWqo1EUsiimACOLdQH2iA5EIABmNMAXEUx0QMUwZnf9EJiBAs75sxOztNDYzORqkk/IJroKfTL6qgQHRNNo0wGyAyQBT5lgLG/STG/yLPlotws8sokoDvRzIFeLzX5Z+IyvnbdkrC97c+xUAAjkgPlPTnj32++7E/BRCA72wCAmbxD2AsjT4tbwQEJkTPV+6YnWj9Nm3/ItDL03GcIhDN2qXctCaFa3lwy01BohvXAF6kfqqAxPbA9CxwpKvX3rsnfpoilPrJHYHupGrClcj5KmAnqYoXgHYo937IYABAYH+aLtrxhwxwTdNEQpThnB8C7RTHLltv+op6SVDTPD+cJm/5YaxuoiJNaaxej2p1yQ7HerXnq1TTX+sg0LDZJdjuU1+1iQaSpKBdGgGPnoDHx/JxuKoMSFxtud45CrULHVl9WysoVURbyQvUsBkIWf2W4+sXElvZwRWU82UPrQ/JJSIYXmdkQ3tVVbmOvtMNW7pQVN7rHZpA1tjaijYWYOMpdaCA8yM0JqcMpSyKwm3d1niwY39dv7gxsh2bPTGWjqLCXpb2Z7OwyoEtE1AOYth5bbHUsB+Rqt8EJdDvfbSqlw/KRCjHWugLuYqZXZQMrDeAY+Ol9MPY6HGVSQ8uPZf1+xfI43Xpz+1SyFMfvvK9choYyI+0/Ao1gCer06Wp0CJmbCsnEJuJQSYB5b1W4ZKFaoA+axXVud1Gvns3n93n0nstKPG6SJdrJVDG21j6qgGeuiDzTi0oSpL83siefaXfThsGmyfn/PXy386bqqrUix1arD9Cu+Az8HzydbeQwxsKF8M21wQ2GP8BaFftupof/wG9MK5EVFuMbQAAAABJRU5ErkJggg==')
  $stream=New-Object IO.MemoryStream(,$logoBytes)
  try{
   $image=[Drawing.Image]::FromStream($stream)
@@ -1391,9 +1458,7 @@ function Initialize-Desktop {
  }finally{$stream.Dispose()}
  $logoView=New-Object Windows.Forms.PictureBox
  $logoView.Image=$logoBitmap;$logoView.SizeMode='Zoom';$logoView.SetBounds(18,24,40,40)
- $logoView.BackColor=[Drawing.Color]::White
- $logoShape=New-Object Drawing.Drawing2D.GraphicsPath
- try{$logoShape.AddEllipse(0,0,40,40);$logoView.Region=New-Object Drawing.Region($logoShape)}finally{$logoShape.Dispose()}
+ $logoView.BackColor=$script:desktopColors.Navy
  $sidebar.Controls.Add($logoView)
  $form.Add_Disposed(({$logoView.Image.Dispose()}).GetNewClosure())
  $brand=Desktop-Label $sidebar ('Quantic'+[Environment]::NewLine+'Sillage') 66 17 108 48 13 $true
@@ -1472,6 +1537,7 @@ function Resize-DesktopPage($parent,[double]$scale){
   $r=$script:desktopPageBounds[$c]
   if($null -ne $r){
    $c.SetBounds([int]($r.X*$scale),$r.Y,[Math]::Max(1,[int]($r.Width*$scale)),$r.Height)
+   if($c -is [Windows.Forms.ListView] -and $c.Columns.Count -eq 2){$c.Columns[0].Width=[int]($c.ClientSize.Width*0.72);$c.Columns[1].Width=[Math]::Max(40,$c.ClientSize.Width-$c.Columns[0].Width-4)}
    if($c.Controls.Count -gt 0){Resize-DesktopPage $c $scale}
   }
  }
