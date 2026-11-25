@@ -802,11 +802,39 @@ function Invoke-DesktopNativeAction([string]$id){
  }
  throw 'Action locale non trouvee'
 }
+# Cosmetic preference only. Never read identity, keys or security settings here.
+function Convert-DesktopShadowPreference($value){
+ if($value -is [int] -and $value -eq 0){return $false}
+ return $true
+}
+function Read-DesktopShadowPreference {
+ $key=$null
+ try{
+  $key=[Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Software\QuanticSillage\DesktopAppearance',$false)
+  if($key){return (Convert-DesktopShadowPreference ($key.GetValue('Shadows',$null)))}
+  return $true
+ }catch{return $true}
+ finally{if($key){$key.Dispose()}}
+}
+function Save-DesktopShadowPreference([bool]$enabled){
+ $key=$null
+ try{
+  $key=[Microsoft.Win32.Registry]::CurrentUser.CreateSubKey('Software\QuanticSillage\DesktopAppearance')
+  if(-not $key){return $false}
+  $key.SetValue('Shadows',[int]$enabled,[Microsoft.Win32.RegistryValueKind]::DWord)
+  return $true
+ }catch{return $false}
+ finally{if($key){$key.Dispose()}}
+}
 function Set-DesktopShadows([bool]$enabled){
  $script:desktopShadows=$enabled
+ if(-not $SelfTest){$script:desktopAppearanceSaved=Save-DesktopShadowPreference $enabled}
  if($script:desktopBody -and -not $script:desktopBody.IsDisposed){
   foreach($section in $script:desktopBody.Controls){
    foreach($control in $section.Controls){
+    if($control -is [Windows.Forms.Label] -and $control.Name -ceq 'AppearancePersistence'){
+     $control.Text=if($script:desktopAppearanceSaved){'Ombres des cartes · préférence locale enregistrée.'}else{'Ombres des cartes · préférence de session uniquement.'}
+    }
     if($control -is [Windows.Forms.Button] -and $control.Tag -ceq 'appearance-shadows'){
      $control.Text=if($enabled){'Désactiver'}else{'Activer'}
      $control.AccessibleDescription=if($enabled){'Désactiver les ombres des cartes'}else{'Activer les ombres des cartes'}
@@ -1265,6 +1293,7 @@ function Desktop-SettingRow($parent,[string]$title,[string]$detail,[int]$glyph,[
  $null=Desktop-Label $p $title 66 10 515 22 12 $true
  $d=Desktop-Label $p $detail 66 33 515 28 9
  $d.ForeColor=$script:desktopColors.Muted
+ if($tag -ceq 'appearance-shadows'){$d.Name='AppearancePersistence'}
  if($action){$b=Desktop-Button $p ($action+'  '+[char]0x203A) $tag 608 17 186 34 $false;$b.FlatAppearance.BorderSize=0;$b.ForeColor=$script:desktopColors.Blue}
 }
 
@@ -1308,6 +1337,8 @@ function Show-DesktopPage([string]$name){
      $earth=[Drawing.Image]::FromStream($stream)
      try{
       $e.Graphics.InterpolationMode=[Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+      $e.Graphics.PixelOffsetMode=[Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+      $e.Graphics.CompositingQuality=[Drawing.Drawing2D.CompositingQuality]::HighQuality
       $w=[int][Math]::Min($sender.Width*0.42,$sender.Height*$earth.Width/[double]$earth.Height);$x=$sender.Width-$w
       $e.Graphics.DrawImage($earth,(New-Object Drawing.Rectangle($x,0,$w,$sender.Height)))
       # Seam blend over the already premultiplied edge, using the exact
@@ -1315,7 +1346,13 @@ function Show-DesktopPage([string]$name){
       $fadeWidth=[Math]::Max(8,[int]($w*0.48))
       $fadeRect=New-Object Drawing.Rectangle($x,0,$fadeWidth,$sender.Height)
       $fade=New-Object Drawing.Drawing2D.LinearGradientBrush($fadeRect,[Drawing.Color]::FromArgb(255,14,43,76),[Drawing.Color]::FromArgb(0,14,43,76),[Drawing.Drawing2D.LinearGradientMode]::Horizontal)
-      try{$e.Graphics.FillRectangle($fade,$fadeRect)}finally{$fade.Dispose()}
+      try{
+       $blend=New-Object Drawing.Drawing2D.Blend(5)
+       $blend.Positions=[single[]]@(0,0.25,0.5,0.75,1)
+       $blend.Factors=[single[]]@(0,0.15625,0.5,0.84375,1)
+       $fade.Blend=$blend
+       $e.Graphics.FillRectangle($fade,$fadeRect)
+      }finally{$fade.Dispose()}
      }finally{$earth.Dispose()}
     }finally{$stream.Dispose()}
    })
@@ -1506,7 +1543,7 @@ function Show-DesktopPage([string]$name){
    $lead=Desktop-Label $body 'Gérez votre espace local et vos préférences.' 0 0 812 36 10
    $lead.ForeColor=$script:desktopColors.Muted
    Desktop-SettingRow $body 'Mon compte' 'Identité locale et accès à votre espace privé.' 0xE77B 55 'Mon identité' 'Identité'
-   Desktop-SettingRow $body 'Apparence' 'Ombres des cartes · réglage pour cette session.' 0xE713 133 $(if($script:desktopShadows){'Désactiver'}else{'Activer'}) 'appearance-shadows'
+   Desktop-SettingRow $body 'Apparence' $(if($script:desktopAppearanceSaved){'Ombres des cartes · préférence locale enregistrée.'}else{'Ombres des cartes · préférence de session uniquement.'}) 0xE713 133 $(if($script:desktopShadows){'Désactiver'}else{'Activer'}) 'appearance-shadows'
    Desktop-SettingRow $body 'Confidentialité' 'Verrouiller les documents et les reçus ouverts.' 0xE72E 211 'Verrouiller' 'session-lock'
    Desktop-SettingRow $body 'Appareils' 'État de la protection locale · pas de registre distant.' 0xE7F4 289 'Protection' 'Protection'
    Desktop-SettingRow $body 'À propos' 'Quantic Sillage Desktop · Alpha privée non certifiée.' 0xE946 367
@@ -1517,6 +1554,8 @@ function Show-DesktopPage([string]$name){
  Update-DesktopLayout
 }
 function Initialize-Desktop {
+ $script:desktopAppearanceSaved=$false
+ if(-not $SelfTest){$script:desktopShadows=Read-DesktopShadowPreference}
  $form.SuspendLayout()
  $old=@($form.Controls)
  $form.AcceptButton=$null
@@ -1712,6 +1751,7 @@ if ($SelfTest) {
   Test-DesktopSentinelReadOnly
   Initialize-Desktop
   foreach($page in $script:desktopPages){Show-DesktopPage $page;if($script:desktopTitle.Text -ne $page -or $script:desktopBody.Controls.Count -lt 2){throw "Desktop page incomplete: $page"}}
+  if((Convert-DesktopShadowPreference 0) -or -not (Convert-DesktopShadowPreference 1) -or -not (Convert-DesktopShadowPreference '0') -or -not (Convert-DesktopShadowPreference $null)){throw 'Invalid cosmetic preference decoding'}
   Show-DesktopPage 'Paramètres'
   Invoke-DesktopAction 'appearance-shadows'
   if($script:desktopShadows){throw 'Appearance toggle failed to disable shadows'}
