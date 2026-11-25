@@ -832,16 +832,21 @@ function Desktop-HomeCard($parent,[string]$title,[string]$description,[string]$b
  $panel=New-Object Windows.Forms.Panel
  $panel.BackColor=$script:desktopColors.White;Set-DesktopRoundedCard $panel
  $panel.SetBounds($x,$y,260,140);$parent.Controls.Add($panel)
- $icon=Desktop-Label $panel ([string][char]$glyph) 16 14 40 40 17
+ $panel.Name='HomeServiceCard'
+ $icon=Desktop-Label $panel ([string][char]$glyph) 16 14 42 42 17
  Set-DesktopIconTile $icon 23
- $name=Desktop-Label $panel $title 65 15 184 39 12 $true
+ $name=Desktop-Label $panel $title 68 15 180 39 12 $true
  $name.TextAlign='MiddleLeft'
  $name.Font=New-Object Drawing.Font('Segoe UI Semibold',16,[Drawing.FontStyle]::Regular,[Drawing.GraphicsUnit]::Pixel)
  $desc=Desktop-Label $panel $description 17 64 226 36 10
  $desc.ForeColor=$script:desktopColors.Muted
  $panel.Add_Paint({param($sender,$e)
   $pen=New-Object Drawing.Pen($script:desktopColors.Border)
-  try{$e.Graphics.DrawLine($pen,14,103,($sender.Width-14),103)}finally{$pen.Dispose()}
+  $accent=New-Object Drawing.SolidBrush([Drawing.Color]::FromArgb(44,116,189))
+  try{
+   $e.Graphics.DrawLine($pen,16,103,($sender.Width-16),103)
+   $e.Graphics.FillRectangle($accent,16,8,20,2)
+  }finally{$pen.Dispose();$accent.Dispose()}
  })
  $action=Desktop-Button $panel ($button+'  '+[char]0x2192) $tag 12 108 236 26 $false
  $action.TextAlign='MiddleLeft';$action.ForeColor=$script:desktopColors.Blue;$action.FlatAppearance.BorderSize=0;$action.BackColor=$panel.BackColor
@@ -1413,7 +1418,9 @@ function Show-DesktopPage([string]$name){
      $g.DrawImageUnscaled($art,$start,0)
      # Full-height feather, covering the complete left seam with the same navy palette.
      $fadeRect=New-Object Drawing.Rectangle($start,0,([Math]::Max(2,[int]($artWidth*0.80))),$height)
-     $mask=New-Object Drawing.Drawing2D.LinearGradientBrush($fadeRect,[Drawing.Color]::FromArgb(255,17,50,83),[Drawing.Color]::FromArgb(0,17,50,83),[Drawing.Drawing2D.LinearGradientMode]::Horizontal)
+     $ratio=$start/[double]$width
+     $seam=[Drawing.Color]::FromArgb(255,[int]($left.R+($right.R-$left.R)*$ratio),[int]($left.G+($right.G-$left.G)*$ratio),[int]($left.B+($right.B-$left.B)*$ratio))
+     $mask=New-Object Drawing.Drawing2D.LinearGradientBrush($fadeRect,$seam,[Drawing.Color]::FromArgb(0,$seam.R,$seam.G,$seam.B),[Drawing.Drawing2D.LinearGradientMode]::Horizontal)
      $blend=New-Object Drawing.Drawing2D.Blend(5)
      $blend.Positions=[single[]]@(0,0.20,0.50,0.80,1);$blend.Factors=[single[]]@(0,0.04,0.50,0.96,1)
      $mask.Blend=$blend;$g.FillRectangle($mask,$fadeRect)
@@ -1768,11 +1775,12 @@ function Initialize-Desktop {
   if(-not $script:desktopShadows){return}
   foreach($card in $sender.Controls){
    if($card -isnot [Windows.Forms.Panel] -or -not $card.Visible -or -not $card.Region -or $card.Width -lt 24 -or $card.Height -lt 24){continue}
-   foreach($layer in @(3,2,1)){
+   foreach($layer in @(6,4,2,1)){
     $p=New-Object Drawing.Drawing2D.GraphicsPath
-    $brush=New-Object Drawing.SolidBrush([Drawing.Color]::FromArgb(3,25,49,80))
+    $opacity=switch($layer){6{3};4{5};2{8};1{10}}
+    $brush=New-Object Drawing.SolidBrush([Drawing.Color]::FromArgb($opacity,25,49,80))
     try{
-     $x=$card.Left-$layer;$y=$card.Top+1;$w=$card.Width+2*$layer;$h=$card.Height+$layer;$d=16+2*$layer
+     $x=$card.Left-[int]($layer/2);$y=$card.Top+1;$w=$card.Width+$layer;$h=$card.Height+$layer;$d=16+$layer
      $p.AddArc($x,$y,$d,$d,180,90)
      $p.AddArc(($x+$w-$d),$y,$d,$d,270,90)
      $p.AddArc(($x+$w-$d),($y+$h-$d),$d,$d,0,90)
@@ -1840,7 +1848,7 @@ function Update-DesktopLayout {
   $contentHeight=if($script:desktopCurrent -eq 'Paramètres' -and $script:desktopAdvanced.Visible){910}else{[Math]::Max(100,$pageHeight+40)}
   $scroll.AutoScrollMinSize=New-Object Drawing.Size(0,$contentHeight)
   $position=$scroll.AutoScrollPosition
-  $script:desktopBody.SetBounds($x,(20+$position.Y),$width,([Math]::Max(80,$pageHeight+9)))
+  $script:desktopBody.SetBounds($x,(20+$position.Y),$width,([Math]::Max(80,$pageHeight+12)))
   $script:desktopAdvanced.SetBounds(16,(20+$position.Y),760,870)
   if($script:desktopPageBounds){Resize-DesktopPage $script:desktopBody ($width/824.0)}
   $script:desktopBody.Invalidate()
