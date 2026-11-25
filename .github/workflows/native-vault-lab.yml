@@ -202,6 +202,18 @@ jobs:
         run: |
           set -euo pipefail
           bash scripts/package-windows-pq-lab.sh "$RUNNER_TEMP/Vault-PQ-provider-lab.exe" "$RUNNER_TEMP/QuanticMail-Windows-PQ-Lab" "$RUNNER_TEMP/Scattering-Pacer.exe" "$(cygpath -w "$(command -v node.exe)")" "$RUNNER_TEMP/Quantic-Sillage-Launcher.exe" "$RUNNER_TEMP/Quantic-Sentinel-Engine.exe"
+      - name: Verify graphical Pay adapter using packaged Node runtime
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP 'QuanticMail-Windows-PQ-Lab'
+          $node = Join-Path $dir 'runtime\node.exe'
+          & $node --test tests/quantic-pay-desktop.test.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Pay adapter tests failed' }
+          $request = '{"amount":"12.50","payee":"demo-bob","consent":true,"witnesses":3}'
+          $response = $request | & $node (Join-Path $dir 'scripts\quantic-pay-desktop.mjs')
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged Pay adapter failed' }
+          $r = $response | ConvertFrom-Json
+          if ($r.status -ne 'confirmed' -or $r.balanceCents -ne 8750 -or $r.realPaymentAuthorized -ne $false) { throw 'Unexpected demo result' }
       - name: Exercise packaged Sentinel desktop commands on synthetic files
         shell: pwsh
         run: |
