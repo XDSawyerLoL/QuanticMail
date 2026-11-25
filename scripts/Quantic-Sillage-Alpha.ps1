@@ -1297,7 +1297,7 @@ function Show-DesktopPage([string]$name){
       $e.Graphics.DrawImage($earth,(New-Object Drawing.Rectangle($x,0,$w,$sender.Height)))
       # Seam blend over the already premultiplied edge, using the exact
       # banner background as the opaque start.
-      $fadeWidth=[Math]::Max(8,[int]($w*0.35))
+      $fadeWidth=[Math]::Max(8,[int]($w*0.48))
       $fadeRect=New-Object Drawing.Rectangle($x,0,$fadeWidth,$sender.Height)
       $fade=New-Object Drawing.Drawing2D.LinearGradientBrush($fadeRect,[Drawing.Color]::FromArgb(255,14,43,76),[Drawing.Color]::FromArgb(0,14,43,76),[Drawing.Drawing2D.LinearGradientMode]::Horizontal)
       try{$e.Graphics.FillRectangle($fade,$fadeRect)}finally{$fade.Dispose()}
@@ -1360,7 +1360,7 @@ function Show-DesktopPage([string]$name){
    $inbox.BackColor=[Drawing.Color]::FromArgb(230,240,253);$inbox.ForeColor=$script:desktopColors.Blue;$inbox.FlatAppearance.BorderSize=0
    foreach($folder in @(@('Envoyés',84),@('Brouillons',121),@('Archives',158),@('Indésirables',195))){
     $inactive=Desktop-Label $nav $folder[0] 20 $folder[1] 170 30 10
-    $inactive.ForeColor=$script:desktopColors.Muted;$inactive.Text=$folder[0]+' · indisponible';$inactive.AccessibleDescription='Dossier non raccordé dans cette édition'
+    $inactive.ForeColor=$script:desktopColors.Muted;$inactive.Text=$folder[0]+' (inactif)';$inactive.AccessibleDescription='Dossier non raccordé dans cette édition';$inactive.Font=New-Object Drawing.Font('Segoe UI',11,[Drawing.FontStyle]::Regular,[Drawing.GraphicsUnit]::Pixel)
    }
    $rule=New-Object Windows.Forms.Panel;$rule.BackColor=$script:desktopColors.Border;$rule.SetBounds(14,231,182,1);$nav.Controls.Add($rule)
    $null=Desktop-Label $nav 'Contacts et accès' 15 244 180 24 11 $true
@@ -1462,18 +1462,18 @@ function Show-DesktopPage([string]$name){
   'Protection' {
    $lead=Desktop-Label $body 'Sécurité, confidentialité et maîtrise de vos données.' 0 0 812 30 10
    $lead.ForeColor=$script:desktopColors.Muted
-   $panel=Desktop-Section $body 0 44 812 140
+   $panel=Desktop-Section $body 0 38 812 134
    $null=Desktop-Label $panel 'État des sauvegardes' 20 11 770 23 10 $true
    $script:desktopProtectionTitle=Desktop-Label $panel 'État indéterminé' 20 38 770 30 16 $true
    $script:desktopProtectionDetail=Desktop-Label $panel '' 20 73 770 33 10
    $script:desktopProtectionTime=Desktop-Label $panel '' 20 108 520 23 9
    $null=Desktop-Button $panel 'Actualiser' 'refresh-protection' 622 103 170 27 $false
-   Desktop-SettingRow $body 'Sécurité de l''appareil' 'Diagnostic antivirus complet non disponible.' 0xE83D 200
-   Desktop-SettingRow $body 'Confidentialité' 'Coffre documentaire local chiffré · édition de test.' 0xE72E 278 'Mon coffre' 'Coffre-fort'
-   Desktop-SettingRow $body 'Conformité européenne' 'Aucune certification officielle à ce stade.' 0xEA18 356
-   Desktop-SettingRow $body 'Protection des accès' 'Ouverture temporaire du coffre local par deux secrets.' 0xE72E 434 'Verrouiller' 'session-lock'
-   $null=Desktop-Button $body 'Activer Sentinel' 'sentinel-enable' 0 516 396 37 $true
-   $null=Desktop-Button $body 'Désactiver Sentinel' 'sentinel-disable' 416 516 396 37 $false
+   Desktop-SettingRow $body 'Sécurité de l''appareil' 'Diagnostic antivirus complet non disponible.' 0xE83D 182
+   Desktop-SettingRow $body 'Confidentialité' 'Coffre documentaire local chiffré · édition de test.' 0xE72E 256 'Mon coffre' 'Coffre-fort'
+   Desktop-SettingRow $body 'Conformité européenne' 'Aucune certification officielle à ce stade.' 0xEA18 330
+   Desktop-SettingRow $body 'Protection des accès' 'Ouverture temporaire du coffre local par deux secrets.' 0xE72E 404 'Verrouiller' 'session-lock'
+   $null=Desktop-Button $body 'Activer Sentinel' 'sentinel-enable' 0 482 396 34 $true
+   $null=Desktop-Button $body 'Désactiver Sentinel' 'sentinel-disable' 416 482 396 34 $false
    Refresh-DesktopProtection
   }
   'Paramètres' {
@@ -1583,11 +1583,11 @@ function Initialize-Desktop {
   if(-not $script:desktopShadows){return}
   foreach($card in $sender.Controls){
    if($card -isnot [Windows.Forms.Panel] -or -not $card.Visible -or -not $card.Region -or $card.Width -lt 24 -or $card.Height -lt 24){continue}
-   foreach($layer in @(4,3,2,1)){
+   foreach($layer in @(3,2,1)){
     $p=New-Object Drawing.Drawing2D.GraphicsPath
-    $brush=New-Object Drawing.SolidBrush([Drawing.Color]::FromArgb(5,25,49,80))
+    $brush=New-Object Drawing.SolidBrush([Drawing.Color]::FromArgb(3,25,49,80))
     try{
-     $x=$card.Left-$layer;$y=$card.Top+2;$w=$card.Width+2*$layer;$h=$card.Height+$layer;$d=16+2*$layer
+     $x=$card.Left-$layer;$y=$card.Top+1;$w=$card.Width+2*$layer;$h=$card.Height+$layer;$d=16+2*$layer
      $p.AddArc($x,$y,$d,$d,180,90)
      $p.AddArc(($x+$w-$d),$y,$d,$d,270,90)
      $p.AddArc(($x+$w-$d),($y+$h-$d),$d,$d,0,90)
