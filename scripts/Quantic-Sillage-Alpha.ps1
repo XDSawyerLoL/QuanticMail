@@ -1391,11 +1391,11 @@ function Show-DesktopPage([string]$name){
    $script:desktopMailList.HeaderStyle='Nonclickable';$script:desktopMailList.BorderStyle='None';$script:desktopMailList.HideSelection=$false
    $script:desktopMailList.Font=New-Object Drawing.Font('Segoe UI',13,[Drawing.FontStyle]::Regular,[Drawing.GraphicsUnit]::Pixel)
    $script:desktopMailList.ForeColor=$script:desktopColors.Ink
-   $script:desktopMailList.SetBounds(16,95,556,151);$mail.Controls.Add($script:desktopMailList)
+   $script:desktopMailList.SetBounds(16,124,556,122);$mail.Controls.Add($script:desktopMailList)
    $null=$script:desktopMailList.Columns.Add('Objet',400);$null=$script:desktopMailList.Columns.Add('État local',140)
    $script:desktopMailList.Add_DoubleClick({Start-DesktopReceipt 'open'})
-   $script:desktopMailEmpty=Desktop-Label $mail 'Actualisez vos reçus locaux pour les consulter.' 24 137 540 72 11
-   $script:desktopMailEmpty.TextAlign='MiddleCenter';$script:desktopMailEmpty.BackColor=$script:desktopColors.White
+   $script:desktopMailEmpty=Desktop-Label $mail 'Actualisez vos reçus locaux pour les consulter.' 16 90 556 28 10
+   $script:desktopMailEmpty.TextAlign='MiddleLeft';$script:desktopMailEmpty.BackColor=$script:desktopColors.White
    $script:desktopMailEmpty.ForeColor=$script:desktopColors.Muted
    $script:desktopMailEmpty.BringToFront()
    $script:desktopMailIDs=@()
@@ -1474,10 +1474,10 @@ function Show-DesktopPage([string]$name){
    $script:desktopDocuments.HeaderStyle='Nonclickable';$script:desktopDocuments.BorderStyle='None';$script:desktopDocuments.HideSelection=$false
    $script:desktopDocuments.Font=New-Object Drawing.Font('Segoe UI',13,[Drawing.FontStyle]::Regular,[Drawing.GraphicsUnit]::Pixel)
    $script:desktopDocuments.ForeColor=$script:desktopColors.Ink
-   $script:desktopDocuments.SetBounds(18,16,776,149);$panel.Controls.Add($script:desktopDocuments)
+   $script:desktopDocuments.SetBounds(18,47,776,118);$panel.Controls.Add($script:desktopDocuments)
    $null=$script:desktopDocuments.Columns.Add('Nom',500);$null=$script:desktopDocuments.Columns.Add('Taille',200)
-   $script:desktopDocumentEmpty=Desktop-Label $panel 'Actualisez votre inventaire local pour le consulter.' 26 57 760 72 11
-   $script:desktopDocumentEmpty.TextAlign='MiddleCenter';$script:desktopDocumentEmpty.BackColor=$script:desktopColors.White
+   $script:desktopDocumentEmpty=Desktop-Label $panel 'Actualisez votre inventaire local pour le consulter.' 18 12 776 28 10
+   $script:desktopDocumentEmpty.TextAlign='MiddleLeft';$script:desktopDocumentEmpty.BackColor=$script:desktopColors.White
    $script:desktopDocumentEmpty.ForeColor=$script:desktopColors.Muted
    $script:desktopDocumentEmpty.BringToFront()
    $script:desktopDocumentIDs=@()
@@ -1818,7 +1818,9 @@ if ($SelfTest) {
     $unique=@($captureRecords | Select-Object -ExpandProperty file -Unique)
     if($unique.Count -ne 35){throw 'Duplicate capture filenames'}
     foreach($record in $captureRecords){if(-not [IO.File]::Exists((Join-Path $capture $record.file))){throw 'Missing capture file'}}
-    $captureRecords | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $capture 'capture-manifest.json') -Encoding UTF8
+    $manifestJson=ConvertTo-Json -InputObject @($captureRecords.ToArray()) -Depth 4 -Compress
+    $manifestJson | Set-Content -LiteralPath (Join-Path $capture 'capture-manifest.json') -Encoding UTF8
+    Write-Output ('Capture manifest: '+$manifestJson)
     Write-Output ('Capture matrix: '+$captureRecords.Count+' actual renders; effective DPI '+$actualDpi)
    }
   }finally{$form.Hide()}
