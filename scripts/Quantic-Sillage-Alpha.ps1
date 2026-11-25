@@ -830,7 +830,7 @@ function Desktop-HomeCard($parent,[string]$title,[string]$description,[string]$b
  $panel.SetBounds($x,$y,260,140);$parent.Controls.Add($panel)
  $icon=Desktop-Label $panel ([string][char]$glyph) 16 14 40 40 17
  Set-DesktopIconTile $icon 23
- $name=Desktop-Label $panel $title 67 15 179 39 13 $true
+ $name=Desktop-Label $panel $title 65 15 184 39 12 $true
  $name.TextAlign='MiddleLeft'
  $desc=Desktop-Label $panel $description 17 64 226 36 10
  $desc.ForeColor=$script:desktopColors.Muted
@@ -1410,10 +1410,10 @@ function Show-DesktopPage([string]$name){
    $detail.BackColor=[Drawing.Color]::Transparent;$detail.ForeColor=[Drawing.Color]::FromArgb(212,226,241)
    Desktop-HomeCard $body 'Identité' 'Votre identité numérique locale.' 'Mon identité' 'Identité' 0xE77B 0 233
    Desktop-HomeCard $body 'Messagerie' 'Vos échanges et vos contacts.' 'Mes messages' 'Messagerie' 0xE715 276 233
-   Desktop-HomeCard $body 'Paiements' 'Simulation sans valeur monétaire.' 'Mes paiements' 'Paiements' 0xE8C7 552 233
+   Desktop-HomeCard $body 'Paiements' 'Simulation sans argent réel.' 'Mes paiements' 'Paiements' 0xE8C7 552 233
    Desktop-HomeCard $body 'Coffre-fort' 'Vos documents chiffrés de test.' 'Mon coffre' 'Coffre-fort' 0xE72E 0 387
    Desktop-HomeCard $body 'Protection' 'Surveillance des sauvegardes.' 'Ma protection' 'Protection' 0xEA18 276 387
-   Desktop-HomeCard $body 'État de votre espace' 'Consulter les signaux locaux.' 'Voir la protection' 'Protection' 0xE9D9 552 387
+   Desktop-HomeCard $body 'État de l’espace' 'Consulter les signaux locaux.' 'Voir la protection' 'Protection' 0xE9D9 552 387
   }
   'Identité' {
    $null=Desktop-Label $body 'Identité numérique' 0 0 810 36 19 $true
@@ -1707,7 +1707,7 @@ function Initialize-Desktop {
  $state.ForeColor=$script:desktopColors.Muted
  $script:desktopSessionLabel=Desktop-Label $header 'Espace privé fermé' 460 3 280 21 9
  $script:desktopSessionLabel.TextAlign='MiddleRight'
- $script:desktopSessionOpen=Desktop-Button $header 'Ouvrir mon espace' 'session-open' 460 27 125 29 $true
+ $script:desktopSessionOpen=Desktop-Button $header 'Ouvrir l’espace' 'session-open' 460 27 125 29 $true
  $script:desktopSessionLock=Desktop-Button $header 'Verrouiller' 'session-lock' 595 27 145 29 $false
  $script:desktopState=$state
  $header.Add_SizeChanged({
