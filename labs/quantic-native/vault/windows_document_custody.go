@@ -17,8 +17,8 @@ import (
  "syscall"
 )
 
-const documentMax=65536
-const documentRecordMax=100000
+const documentMax=8*1024*1024
+const documentRecordMax=12*1024*1024
 const documentLimit=32
 const documentMagic="QSDOC1"
 var documentID=regexp.MustCompile("^[0-9a-f]{32}$")
@@ -34,6 +34,7 @@ type documentEntry struct {
 type documentRequest struct {
  Path string `json:"path"`
  ID string `json:"id"`
+ Paths []string `json:"paths,omitempty"`
 }
 func documentNameOK(name string)bool{
  if len(name)<1||len(name)>100||filepath.Base(name)!=name{return false}
@@ -85,6 +86,23 @@ func readDocumentSource(path string)(documentPayload,error){
  raw,e:=io.ReadAll(io.LimitReader(f,documentMax+1));if e!=nil||len(raw)!=int(info.FileSizeLow){clear(raw);return p,portableRefusal}
  return documentPayload{filepath.Base(path),raw},nil
 }
+// Keep the general-purpose private storage limit unchanged. Only this
+// document-specific path accepts larger bounded records, using the same
+// native ACL, NTFS and exclusive-create primitives.
+func writeDocumentBytes(path string,data []byte,max int)error{
+ if max<1||max>documentRecordMax||len(data)<1||len(data)>max{return portableRefusal}
+ f,hs,e:=winOpenPrivate(path,true);if e!=nil{return e};defer winClose(hs)
+ n,e:=f.Write(data);if e==nil&&n!=len(data){e=io.ErrShortWrite}
+ if e==nil{e=f.Sync()};ce:=f.Close();if e==nil{e=ce};return e
+}
+func readDocumentBytes(path string,max int)([]byte,error){
+ if max<1||max>documentRecordMax{return nil,portableRefusal}
+ f,hs,e:=winOpenPrivate(path,false);if e!=nil{return nil,e};defer winClose(hs);defer f.Close()
+ st,e:=f.Stat();if e!=nil||!st.Mode().IsRegular()||st.Size()<1||st.Size()>int64(max){return nil,portableRefusal}
+ raw,e:=io.ReadAll(io.LimitReader(f,int64(max)+1))
+ if e!=nil||int64(len(raw))!=st.Size(){clear(raw);return nil,portableRefusal}
+ return raw,nil
+}
 func documentFile(dir,id string)string{return filepath.Join(dir,"document-"+id+".qdoc")}
 func documentIDs(dir string)([]string,error){
  entries,e:=os.ReadDir(dir);if e!=nil{return nil,e}
@@ -100,14 +118,14 @@ func documentIDs(dir string)([]string,error){
 }
 func readDocument(dir,id string,key []byte,r enrollmentRequest)(documentPayload,error){
  if !documentID.MatchString(id){return documentPayload{},portableRefusal}
- raw,e:=winReadPrivate(documentFile(dir,id),documentRecordMax);if e!=nil{return documentPayload{},e}
+ raw,e:=readDocumentBytes(documentFile(dir,id),documentRecordMax);if e!=nil{return documentPayload{},e}
  return openDocument(key,r.Claim.Address,r.Claim.DeviceID,id,raw)
 }
 func addDocument(dir string,key []byte,r enrollmentRequest,p documentPayload)(documentEntry,error){
  ids,e:=documentIDs(dir);if e!=nil||len(ids)>=documentLimit{return documentEntry{},portableRefusal}
  var token [16]byte;if _,e=rand.Read(token[:]);e!=nil{return documentEntry{},e};id:=hex.EncodeToString(token[:])
  record,e:=sealDocument(key,r.Claim.Address,r.Claim.DeviceID,id,p);if e!=nil{return documentEntry{},e}
- if e=winWritePrivate(documentFile(dir,id),record);e!=nil{return documentEntry{},e}
+ if e=writeDocumentBytes(documentFile(dir,id),record,documentRecordMax);e!=nil{return documentEntry{},e}
  check,e:=readDocument(dir,id,key,r);if e!=nil{return documentEntry{},e};defer clear(check.Data)
  if check.Name!=p.Name||!bytes.Equal(check.Data,p.Data){return documentEntry{},portableRefusal}
  return documentEntry{id,p.Name,len(p.Data)},nil
@@ -118,8 +136,8 @@ func exportDocument(parent,id string,p documentPayload)(string,error){
  dir:=filepath.Join(parent,"quantic-export-"+id[:16])
  if e:=winCreatePrivateDirectory(dir);e!=nil{return "",e}
  dest:=filepath.Join(dir,p.Name)
- if e:=winWritePrivate(dest,p.Data);e!=nil{return "",e}
- raw,e:=winReadPrivate(dest,documentMax);if e!=nil{return "",e};defer clear(raw)
+ if e:=writeDocumentBytes(dest,p.Data,documentMax);e!=nil{return "",e}
+ raw,e:=readDocumentBytes(dest,documentMax);if e!=nil{return "",e};defer clear(raw)
  if !bytes.Equal(raw,p.Data){return "",portableRefusal}
  return dir,nil
 }
@@ -132,9 +150,13 @@ func windowsDocumentCLI(args []string)error{
  var req documentRequest
  if e=exactReceiptDecode(raw,&req);e!=nil{return e}
  switch op{
- case "--gui-document-list-lab":if req.Path!=""||req.ID!=""{return portableRefusal}
- case "--gui-document-import-lab":if req.Path==""||req.ID!=""{return portableRefusal}
- case "--gui-document-export-lab":if req.Path==""||!documentID.MatchString(req.ID){return portableRefusal}
+ case "--gui-document-list-lab":if req.Path!=""||req.ID!=""||len(req.Paths)!=0{return portableRefusal}
+ case "--gui-document-import-lab":
+  if req.ID!=""{return portableRefusal}
+  if req.Path!=""{if len(req.Paths)!=0{return portableRefusal};req.Paths=[]string{req.Path}}
+  if len(req.Paths)<1||len(req.Paths)>8{return portableRefusal}
+  for i,p:=range req.Paths{if _,_,e:=winPathParts(p);e!=nil{return e};for _,q:=range req.Paths[:i]{if strings.EqualFold(p,q){return portableRefusal}}}
+ case "--gui-document-export-lab":if req.Path==""||len(req.Paths)!=0||!documentID.MatchString(req.ID){return portableRefusal}
  }
  if !winGUIApprove("Coffre documentaire de laboratoire. Autoriser cette operation locale ? Aucun transfert reseau."){return portableRefusal}
  pw,e:=winGUIPassphrase("Secret classique de l'appareil",true);if e!=nil{return e};defer clear(pw)
@@ -144,9 +166,18 @@ func windowsDocumentCLI(args []string)error{
  hs,e:=winLockDirectory(dir,true);if e!=nil{return e};defer winClose(hs)
  switch op{
  case "--gui-document-import-lab":
-  p,e:=readDocumentSource(req.Path);if e!=nil{return e};defer clear(p.Data)
-  entry,e:=addDocument(dir,key,r,p);if e!=nil{return e}
-  return json.NewEncoder(os.Stdout).Encode(map[string]any{"labOnly":true,"status":"imported","document":entry})
+  ids,e:=documentIDs(dir);if e!=nil||len(ids)+len(req.Paths)>documentLimit{return portableRefusal}
+  entries:=[]documentEntry{}
+  // Sequential, bounded allocations. A failed later file does not roll
+  // back already committed records or delete any original.
+  for _,path:=range req.Paths{
+   p,e:=readDocumentSource(path)
+   if e!=nil{return json.NewEncoder(os.Stdout).Encode(map[string]any{"labOnly":true,"status":"partial","documents":entries})}
+   entry,e:=addDocument(dir,key,r,p);clear(p.Data)
+   if e!=nil{return json.NewEncoder(os.Stdout).Encode(map[string]any{"labOnly":true,"status":"partial","documents":entries})}
+   entries=append(entries,entry)
+  }
+  return json.NewEncoder(os.Stdout).Encode(map[string]any{"labOnly":true,"status":"imported","documents":entries})
  case "--gui-document-list-lab":
   ids,e:=documentIDs(dir);if e!=nil{return e};entries:=[]documentEntry{}
   for _,id:=range ids{
