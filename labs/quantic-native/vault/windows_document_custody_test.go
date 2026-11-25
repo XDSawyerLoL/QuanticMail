@@ -8,6 +8,8 @@ import (
  "path/filepath"
  "strings"
  "testing"
+ "time"
+ "io"
 )
 
 func TestWindowsDocumentCustody(t *testing.T){
@@ -78,4 +80,24 @@ func TestWindowsDocumentEnrollmentRoundTrip(t *testing.T){
  exported,e:=readDocumentBytes(filepath.Join(out,p.Name),documentMax);if e!=nil||!bytes.Equal(exported,data){t.Fatal("export changed",e)}
  original,e:=os.ReadFile(source);if e!=nil||!bytes.Equal(original,data){t.Fatal("original changed",e)}
  if _,e=winReadPrivate(documentFile(dir,entry.ID),documentRecordMax);e==nil{t.Fatal("general storage limit weakened")}
+}
+
+
+func TestWindowsDocumentSession(t *testing.T){
+ dir:=filepath.Join(t.TempDir(),"private")
+ if e:=winCreatePrivateDirectory(dir);e!=nil{t.Fatal(e)}
+ key:=bytes.Repeat([]byte{7},32)
+ var r enrollmentRequest
+ input:="{\"operation\":\"list\",\"request\":{}}\n{\"operation\":\"list\",\"request\":{}}\n{\"operation\":\"lock\",\"request\":{}}\n"
+ var out bytes.Buffer
+ if e:=serveDocumentSession(dir,r,key,strings.NewReader(input),&out,time.Second,func()bool{return false});e!=nil{t.Fatal(e)}
+ if strings.Count(out.String(),"\"status\":\"listed\"")!=2||strings.Count(out.String(),"document-session-ready")!=1{t.Fatal("unexpected session responses",out.String())}
+ out.Reset()
+ if e:=serveDocumentSession(dir,r,key,strings.NewReader("{\"operation\":\"send\",\"request\":{}}\n"),&out,time.Second,func()bool{return false});e==nil{t.Fatal("out of scope operation accepted")}
+ pipe,w:=io.Pipe();defer pipe.Close();defer w.Close()
+ out.Reset()
+ finished:=make(chan error,1)
+ go func(){finished<-serveDocumentSession(dir,r,key,pipe,&out,20*time.Millisecond,func()bool{return false})}()
+ select{case e:=<-finished:if e!=nil{t.Fatal(e)};case <-time.After(time.Second):t.Fatal("expired session kept waiting")}
+ if strings.Contains(out.String(),"\"status\":\"listed\""){t.Fatal("unexpected operation")}
 }
