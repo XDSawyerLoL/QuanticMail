@@ -1071,15 +1071,24 @@ function Start-DesktopPayDemo {
 
 $script:desktopDocumentProcess=$null
 $script:desktopActiveAddress=$null
+function Set-DesktopEmptyState($label,[string]$message,[bool]$show){
+ if($label -and -not $label.IsDisposed){
+  $label.Text=$message
+  $label.Visible=$show
+  if($show){$label.BringToFront()}
+ }
+}
 function Close-DesktopDocumentSession {
  $p=$script:desktopDocumentProcess;$script:desktopDocumentProcess=$null;$script:desktopActiveAddress=$null
  if($p){try{$p.StandardInput.Close();if(-not $p.WaitForExit(2000)){$p.Kill()}}catch{}finally{$p.Dispose()}}
  if($script:desktopDocuments -and -not $script:desktopDocuments.IsDisposed){$script:desktopDocuments.Items.Clear()}
  $script:desktopDocumentIDs=@()
+ Set-DesktopEmptyState $script:desktopDocumentEmpty 'Inventaire verrouillé' $true
  if($script:desktopStorageText -and -not $script:desktopStorageText.IsDisposed){$script:desktopStorageText.Text='Inventaire non ouvert'}
  if($script:desktopStorageRing -and -not $script:desktopStorageRing.IsDisposed){$script:desktopStorageRing.Tag=-1;$script:desktopStorageRing.Invalidate()}
  if($script:desktopMailList -and -not $script:desktopMailList.IsDisposed){$script:desktopMailList.Items.Clear()}
  $script:desktopMailIDs=@()
+ Set-DesktopEmptyState $script:desktopMailEmpty 'Historique verrouillé' $true
  if($script:desktopMailBody -and -not $script:desktopMailBody.IsDisposed){$script:desktopMailBody.Clear()}
  if($script:desktopMailStatus -and -not $script:desktopMailStatus.IsDisposed){$script:desktopMailStatus.Text='Historique local verrouillé.'}
  if($script:desktopIdentityAddress -and -not $script:desktopIdentityAddress.IsDisposed){$script:desktopIdentityAddress.Text='Aucune identité locale ouverte.'}
@@ -1188,6 +1197,7 @@ function Start-DesktopDocument([string]$mode){
      $null=$script:desktopDocuments.Items.Add($item)
      $script:desktopDocumentIDs+= [string]$d.id
     }
+    Set-DesktopEmptyState $script:desktopDocumentEmpty 'Aucun document dans cet inventaire' ($script:desktopDocumentIDs.Count -eq 0)
     if($script:desktopDocumentIDs.Count -gt 0){$script:desktopDocuments.Items[0].Selected=$true}
     $sum=0;foreach($d in @($r.documents)){$sum+=[int64]$d.size}
     $script:desktopStorageText.Text=('{0:N2} Mio / 256 Mio' -f ($sum/1048576.0))
@@ -1205,7 +1215,10 @@ function Start-DesktopDocument([string]$mode){
     $script:desktopDocumentStatus.Text='Copie déchiffrée récupérée dans un dossier privé neuf. Le coffre conserve sa copie chiffrée.'
    }
   }
- }catch{$script:desktopDocumentStatus.Text='Action non confirmée : accès, chemin ou limites du laboratoire. Aucun écrasement demandé.'}
+ }catch{
+  if($mode -eq 'list'){Close-DesktopDocumentSession;Set-DesktopEmptyState $script:desktopDocumentEmpty 'Inventaire non confirmé' $true}
+  $script:desktopDocumentStatus.Text='Action non confirmée : accès, chemin ou limites du laboratoire. Aucun écrasement demandé.'
+ }
 }
 
 function Start-DesktopReceipt([string]$mode){
@@ -1219,6 +1232,7 @@ function Start-DesktopReceipt([string]$mode){
     $item=New-Object Windows.Forms.ListViewItem($subject)
     $null=$item.SubItems.Add('Authentifié');$null=$script:desktopMailList.Items.Add($item);$script:desktopMailIDs+=[string]$m.id
    }
+   Set-DesktopEmptyState $script:desktopMailEmpty 'Aucun reçu local authentifié' ($script:desktopMailIDs.Count -eq 0)
    $status=('{0} reçu(s) local(aux) authentifié(s).' -f $script:desktopMailIDs.Count)
    if($r.unverified -gt 0){$status+=(' {0} non vérifié(s).' -f $r.unverified)}
    if($r.truncated -eq $true){$status+=' Liste limitée à 64.'}
@@ -1233,6 +1247,7 @@ function Start-DesktopReceipt([string]$mode){
   }
  }catch{
   Close-DesktopDocumentSession
+  Set-DesktopEmptyState $script:desktopMailEmpty 'Historique non confirmé' $true
   $script:desktopMailStatus.Text='Historique non confirmé. Aucun message envoyé ou acquitté.'
  }
 }
@@ -1266,7 +1281,7 @@ function Show-DesktopPage([string]$name){
  if($name -notin $script:desktopPages){throw 'Page inconnue'}
  $script:desktopCurrent=$name
  foreach($b in $script:desktopNav){
-  $b.BackColor=if($b.Tag -eq $name){[Drawing.Color]::FromArgb(28,66,105)}else{$script:desktopColors.Navy}
+  $b.BackColor=if($b.Tag -eq $name){[Drawing.Color]::FromArgb(21,73,129)}else{$script:desktopColors.Navy}
  }
  $script:desktopAdvanced.Visible=$false
  $script:desktopBody.Visible=$true
@@ -1379,6 +1394,10 @@ function Show-DesktopPage([string]$name){
    $script:desktopMailList.SetBounds(16,95,556,151);$mail.Controls.Add($script:desktopMailList)
    $null=$script:desktopMailList.Columns.Add('Objet',400);$null=$script:desktopMailList.Columns.Add('État local',140)
    $script:desktopMailList.Add_DoubleClick({Start-DesktopReceipt 'open'})
+   $script:desktopMailEmpty=Desktop-Label $mail 'Actualisez vos reçus locaux pour les consulter.' 24 137 540 72 11
+   $script:desktopMailEmpty.TextAlign='MiddleCenter';$script:desktopMailEmpty.BackColor=$script:desktopColors.White
+   $script:desktopMailEmpty.ForeColor=$script:desktopColors.Muted
+   $script:desktopMailEmpty.BringToFront()
    $script:desktopMailIDs=@()
    $divider=New-Object Windows.Forms.Panel;$divider.BackColor=$script:desktopColors.Border;$divider.SetBounds(16,253,556,1);$mail.Controls.Add($divider)
    $null=Desktop-Label $mail 'Aperçu du message' 16 260 556 22 10 $true
@@ -1454,6 +1473,10 @@ function Show-DesktopPage([string]$name){
    $script:desktopDocuments.ForeColor=$script:desktopColors.Ink
    $script:desktopDocuments.SetBounds(18,16,776,149);$panel.Controls.Add($script:desktopDocuments)
    $null=$script:desktopDocuments.Columns.Add('Nom',500);$null=$script:desktopDocuments.Columns.Add('Taille',200)
+   $script:desktopDocumentEmpty=Desktop-Label $panel 'Actualisez votre inventaire local pour le consulter.' 26 57 760 72 11
+   $script:desktopDocumentEmpty.TextAlign='MiddleCenter';$script:desktopDocumentEmpty.BackColor=$script:desktopColors.White
+   $script:desktopDocumentEmpty.ForeColor=$script:desktopColors.Muted
+   $script:desktopDocumentEmpty.BringToFront()
    $script:desktopDocumentIDs=@()
    $null=Desktop-Button $panel 'Actualiser' 'doc-list' 18 180 370 35 $false
    $null=Desktop-Button $panel 'Récupérer la copie' 'doc-export' 404 180 390 35 $false
@@ -1701,6 +1724,12 @@ if ($SelfTest) {
   $script:desktopMailIDs=@('synthetic')
   Close-DesktopDocumentSession
   if($script:desktopMailList.Items.Count -ne 0 -or $script:desktopMailBody.Text -ne '' -or $script:desktopMailIDs.Count -ne 0){throw 'Private receipt content remains after lock'}
+  if($script:desktopMailEmpty.Text -cne 'Historique verrouillé'){throw 'Receipt empty state not reset'}
+  Show-DesktopPage 'Coffre-fort'
+  $null=$script:desktopDocuments.Items.Add('synthetic test document')
+  $script:desktopDocumentIDs=@('synthetic')
+  Close-DesktopDocumentSession
+  if($script:desktopDocuments.Items.Count -ne 0 -or $script:desktopDocumentIDs.Count -ne 0 -or $script:desktopDocumentEmpty.Text -cne 'Inventaire verrouillé'){throw 'Document empty state not reset'}
   Show-DesktopPage 'Identité'
   $script:desktopIdentityAddress.Text='synthetic test address'
   Close-DesktopDocumentSession
