@@ -1302,12 +1302,12 @@ function Initialize-Desktop {
  $script:desktopSessionLabel.TextAlign='MiddleRight'
  $script:desktopSessionOpen=Desktop-Button $header 'Ouvrir' 'session-open' 460 43 125 34 $true
  $script:desktopSessionLock=Desktop-Button $header 'Verrouiller' 'session-lock' 595 43 145 34 $false
+ $script:desktopState=$state
  $header.Add_SizeChanged({
   $x=[Math]::Max(4,$script:desktopHeader.ClientSize.Width-308)
   $script:desktopSessionLabel.Left=$x;$script:desktopSessionOpen.Left=$x;$script:desktopSessionLock.Left=$x+135
   $script:desktopTitle.Width=[Math]::Max(1,$x-46);$script:desktopState.Width=[Math]::Max(1,$x-46)
  })
- $script:desktopState=$state
  # Preserve status of the existing managed carrier, without claiming the
  # transport is connected to a remote correspondent.
  $workspace.Controls.Add($notice,0,2);$notice.Dock='Fill';$notice.Margin=New-Object Windows.Forms.Padding(0);$notice.Height=40
@@ -1341,7 +1341,8 @@ function Update-DesktopLayout {
  $x=[Math]::Max(16,[int](($scroll.ClientSize.Width-824)/2))
  $script:desktopBody.Location=New-Object Drawing.Point($x,20)
  $script:desktopAdvanced.Location=New-Object Drawing.Point($x,20)
- $scroll.AutoScrollMinSize=New-Object Drawing.Size(856,([int]$(if($script:desktopAdvanced.Visible){910}else{670})))
+ $contentHeight=if($script:desktopCurrent -eq 'Paramètres' -and $script:desktopAdvanced.Visible){910}else{670}
+ $scroll.AutoScrollMinSize=New-Object Drawing.Size(856,$contentHeight)
 }
 $module.SelectedIndex=0
 if ($SelfTest) {
@@ -1366,7 +1367,42 @@ if ($SelfTest) {
   Initialize-Desktop
   foreach($page in $script:desktopPages){Show-DesktopPage $page;if($script:desktopTitle.Text -ne $page -or $script:desktopBody.Controls.Count -lt 2){throw "Desktop page incomplete: $page"}}
   Show-DesktopPage "Accueil"
-  Write-Output "Unified desktop: seven native pages and existing operation mapping verified"
+  # Exercise rendered geometry, not just existence of controls.
+  $form.Show()
+  try{
+   foreach($size in @(@(1160,810),@(1000,680),@(1440,900))){
+    $form.ClientSize=New-Object Drawing.Size($size[0],$size[1])
+    $form.PerformLayout();$script:desktopLayout.PerformLayout();$script:desktopWorkspace.PerformLayout()
+    [Windows.Forms.Application]::DoEvents()
+    Update-DesktopLayout
+    if($script:desktopWorkspace.Left -lt $script:desktopSidebar.Right){throw 'Navigation overlays workspace'}
+    if($script:desktopScroll.Top -lt $script:desktopHeader.Bottom){throw 'Header overlays content'}
+    if($notice.Top -lt $script:desktopScroll.Bottom){throw 'Footer overlays content'}
+    if($script:desktopTitle.Right -gt $script:desktopSessionLabel.Left){throw 'Header labels overlap'}
+    if($script:desktopSessionLock.Right -gt $script:desktopHeader.ClientSize.Width){throw 'Header controls clipped'}
+    if($script:desktopBody.Left -lt 0 -or $script:desktopBody.Top -lt 0){throw 'Body outside scroll origin'}
+   }
+   $form.ClientSize=New-Object Drawing.Size(1160,810)
+   $form.PerformLayout();[Windows.Forms.Application]::DoEvents()
+   Update-DesktopLayout
+   if($env:QUANTIC_UI_TEST_CAPTURE -and $env:RUNNER_TEMP){
+    $capture=Join-Path $env:RUNNER_TEMP 'quantic-ui-captures'
+    [void][IO.Directory]::CreateDirectory($capture)
+    $index=0
+    foreach($page in $script:desktopPages){
+     Show-DesktopPage $page
+     [Windows.Forms.Application]::DoEvents()
+     $form.Refresh()
+     $bmp=New-Object Drawing.Bitmap($form.Width,$form.Height)
+     try{
+      $form.DrawToBitmap($bmp,(New-Object Drawing.Rectangle(0,0,$bmp.Width,$bmp.Height)))
+      $bmp.Save((Join-Path $capture ('{0:D2}.png' -f $index)),[Drawing.Imaging.ImageFormat]::Png)
+     }finally{$bmp.Dispose()}
+     $index++
+    }
+   }
+  }finally{$form.Hide()}
+  Write-Output "Unified desktop: seven native pages, non-overlapping geometry at three sizes and existing operation mapping verified"
  }finally{$form.Dispose()}
  exit 0
 }
