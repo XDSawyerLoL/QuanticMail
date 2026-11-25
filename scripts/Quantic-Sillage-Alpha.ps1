@@ -1352,6 +1352,7 @@ function Show-DesktopPage([string]$name){
    $script:desktopMailList.View='Details';$script:desktopMailList.FullRowSelect=$true;$script:desktopMailList.MultiSelect=$false
    $script:desktopMailList.HeaderStyle='Nonclickable';$script:desktopMailList.BorderStyle='None';$script:desktopMailList.HideSelection=$false
    $script:desktopMailList.Font=New-Object Drawing.Font('Segoe UI',13,[Drawing.FontStyle]::Regular,[Drawing.GraphicsUnit]::Pixel)
+   $script:desktopMailList.ForeColor=$script:desktopColors.Ink
    $script:desktopMailList.SetBounds(16,95,556,151);$mail.Controls.Add($script:desktopMailList)
    $null=$script:desktopMailList.Columns.Add('Objet',400);$null=$script:desktopMailList.Columns.Add('État local',140)
    $script:desktopMailList.Add_DoubleClick({Start-DesktopReceipt 'open'})
@@ -1427,6 +1428,7 @@ function Show-DesktopPage([string]$name){
    $script:desktopDocuments.View='Details';$script:desktopDocuments.FullRowSelect=$true;$script:desktopDocuments.MultiSelect=$false
    $script:desktopDocuments.HeaderStyle='Nonclickable';$script:desktopDocuments.BorderStyle='None';$script:desktopDocuments.HideSelection=$false
    $script:desktopDocuments.Font=New-Object Drawing.Font('Segoe UI',13,[Drawing.FontStyle]::Regular,[Drawing.GraphicsUnit]::Pixel)
+   $script:desktopDocuments.ForeColor=$script:desktopColors.Ink
    $script:desktopDocuments.SetBounds(18,16,776,149);$panel.Controls.Add($script:desktopDocuments)
    $null=$script:desktopDocuments.Columns.Add('Nom',500);$null=$script:desktopDocuments.Columns.Add('Taille',200)
    $script:desktopDocumentIDs=@()
@@ -1525,6 +1527,7 @@ function Initialize-Desktop {
  $header.Dock='None';$header.Margin=New-Object Windows.Forms.Padding(0);$header.BackColor=$script:desktopColors.White
  $workspace.Controls.Add($header)
  $script:desktopHeader=$header
+ $header.Add_Paint({param($sender,$e) $pen=New-Object Drawing.Pen($script:desktopColors.Border);try{$e.Graphics.DrawLine($pen,0,($sender.Height-1),$sender.Width,($sender.Height-1))}finally{$pen.Dispose()}})
  $script:desktopTitle=Desktop-Label $header 'Accueil' 28 9 400 30 15 $true
  $state=Desktop-Label $header 'Espace local · Édition de test' 29 39 400 21 9
  $state.ForeColor=$script:desktopColors.Muted
@@ -1549,6 +1552,26 @@ function Initialize-Desktop {
  $scroll.Dock='None';$scroll.Margin=New-Object Windows.Forms.Padding(0);$scroll.AutoScroll=$true;$workspace.Controls.Add($scroll)
  $script:desktopScroll=$scroll
  $script:desktopBody=New-Object Windows.Forms.Panel
+ # Draw elevation behind actual card controls, without adding interactive overlays.
+ $script:desktopBody.Add_Paint({
+  param($sender,$e)
+  $e.Graphics.SmoothingMode=[Drawing.Drawing2D.SmoothingMode]::AntiAlias
+  foreach($card in $sender.Controls){
+   if($card -isnot [Windows.Forms.Panel] -or -not $card.Visible -or -not $card.Region -or $card.Width -lt 24 -or $card.Height -lt 24){continue}
+   foreach($layer in @(4,3,2,1)){
+    $p=New-Object Drawing.Drawing2D.GraphicsPath
+    $brush=New-Object Drawing.SolidBrush([Drawing.Color]::FromArgb(5,25,49,80))
+    try{
+     $x=$card.Left-$layer;$y=$card.Top+2;$w=$card.Width+2*$layer;$h=$card.Height+$layer;$d=16+2*$layer
+     $p.AddArc($x,$y,$d,$d,180,90)
+     $p.AddArc(($x+$w-$d),$y,$d,$d,270,90)
+     $p.AddArc(($x+$w-$d),($y+$h-$d),$d,$d,0,90)
+     $p.AddArc($x,($y+$h-$d),$d,$d,90,90)
+     $p.CloseFigure();$e.Graphics.FillPath($brush,$p)
+    }finally{$brush.Dispose();$p.Dispose()}
+   }
+  }
+ })
  $script:desktopBody.SetBounds(28,20,824,650);$scroll.Controls.Add($script:desktopBody)
  $script:desktopAdvanced=New-Object Windows.Forms.Panel
  $script:desktopAdvanced.SetBounds(28,20,760,870);$script:desktopAdvanced.Visible=$false
@@ -1607,9 +1630,10 @@ function Update-DesktopLayout {
   $contentHeight=if($script:desktopCurrent -eq 'Paramètres' -and $script:desktopAdvanced.Visible){910}else{[Math]::Max(100,$pageHeight+40)}
   $scroll.AutoScrollMinSize=New-Object Drawing.Size(0,$contentHeight)
   $position=$scroll.AutoScrollPosition
-  $script:desktopBody.SetBounds($x,(20+$position.Y),$width,([Math]::Max(80,$pageHeight+2)))
+  $script:desktopBody.SetBounds($x,(20+$position.Y),$width,([Math]::Max(80,$pageHeight+9)))
   $script:desktopAdvanced.SetBounds(16,(20+$position.Y),760,870)
   if($script:desktopPageBounds){Resize-DesktopPage $script:desktopBody ($width/824.0)}
+  $script:desktopBody.Invalidate()
   $hx=[Math]::Max(4,$ww-308)
   $script:desktopSessionLabel.Left=$hx;$script:desktopSessionOpen.Left=$hx;$script:desktopSessionLock.Left=$hx+135
   $script:desktopTitle.Width=[Math]::Max(1,$hx-46);$script:desktopState.Width=[Math]::Max(1,$hx-46)
