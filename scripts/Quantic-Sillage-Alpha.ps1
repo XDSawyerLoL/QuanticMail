@@ -1699,7 +1699,7 @@ function Update-DesktopLayout {
  if($script:desktopLayoutBusy -or -not $script:desktopBody -or -not $script:desktopScroll){return}
  $script:desktopLayoutBusy=$true
  try{
-  $fw=[Math]::Min($form.ClientSize.Width,$form.Width-16);$fh=[Math]::Min($form.ClientSize.Height,$form.Height-39)
+  $fw=$form.ClientSize.Width;$fh=$form.ClientSize.Height
   if($fw -lt 300 -or $fh -lt 180){return}
   $side=if($fw -lt 1100){184}else{206};$ww=$fw-$side
   $script:desktopLayout.SetBounds(0,0,$fw,$fh)
@@ -1794,9 +1794,17 @@ if ($SelfTest) {
   try{
    $actualDpi=[QuanticVisualDpi]::GetDpiForWindow($form.Handle)
    if($actualDpi -eq 0){throw 'Unable to measure effective window DPI'}
+   # Strict validation must use the requested Windows DPI, not simulate it.
+   $expectedDpi=$env:QUANTIC_UI_EXPECT_DPI
+   if($expectedDpi){
+    if($expectedDpi -cnotmatch '^(96|120|144)$'){throw 'Expected DPI must be 96, 120 or 144'}
+    if($actualDpi -ne [int]$expectedDpi){throw ('Wrong effective Windows DPI: expected '+$expectedDpi+' measured '+$actualDpi)}
+   }
    Write-Output ("Actual Windows window DPI: {0}; effective scale: {1:N0}% (not a multi-DPI proof)" -f $actualDpi,($actualDpi/96.0*100))
    $captureEnabled=([bool]$env:QUANTIC_UI_TEST_CAPTURE -and [bool]$env:RUNNER_TEMP)
    $captureRecords=New-Object 'System.Collections.Generic.List[object]'
+   $screen=[Windows.Forms.Screen]::FromHandle($form.Handle)
+   Write-Output ('Monitor bounds: '+$screen.Bounds.Width+'x'+$screen.Bounds.Height+'; working area: '+$screen.WorkingArea.Width+'x'+$screen.WorkingArea.Height)
    if($captureEnabled){
     $capture=Join-Path $env:RUNNER_TEMP 'quantic-ui-captures'
     [void][IO.Directory]::CreateDirectory($capture)
@@ -1819,6 +1827,8 @@ if ($SelfTest) {
      [Windows.Forms.Application]::DoEvents()
      Update-DesktopLayout
      Test-DesktopControlBounds $script:desktopBody $page
+     if($expectedDpi -and [QuanticVisualDpi]::GetDpiForWindow($form.Handle) -ne [int]$expectedDpi){throw 'Effective Windows DPI changed during page test'}
+     if($script:desktopLayout.Width -ne $form.ClientSize.Width -or $script:desktopLayout.Height -ne $form.ClientSize.Height){throw 'Root does not fill measured client area'}
      if($captureEnabled){
       $index=[array]::IndexOf($script:desktopPages,$page)
       $bitmap=New-Object Drawing.Bitmap($script:desktopLayout.Width,$script:desktopLayout.Height)
@@ -1862,6 +1872,7 @@ if ($SelfTest) {
     $manifestJson | Set-Content -LiteralPath (Join-Path $capture 'capture-manifest.json') -Encoding UTF8
     Write-Output ('Capture manifest: '+$manifestJson)
     Write-Output ('Capture matrix: '+$captureRecords.Count+' actual renders; effective DPI '+$actualDpi)
+    if($expectedDpi){Write-Output ('Strict effective DPI validation passed: '+$expectedDpi)}
    }
   }finally{$form.Hide()}
   Write-Output "Unified desktop: seven native pages, non-overlapping geometry at four requested sizes and existing operation mapping verified"
