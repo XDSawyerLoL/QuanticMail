@@ -828,12 +828,17 @@ function Desktop-HomeCard($parent,[string]$title,[string]$description,[string]$b
  $panel=New-Object Windows.Forms.Panel
  $panel.BackColor=$script:desktopColors.White;Set-DesktopRoundedCard $panel
  $panel.SetBounds($x,$y,260,140);$parent.Controls.Add($panel)
- $icon=Desktop-Label $panel ([string][char]$glyph) 18 13 36 35 17
+ $icon=Desktop-Label $panel ([string][char]$glyph) 16 14 40 40 17
  Set-DesktopIconTile $icon 23
- $null=Desktop-Label $panel $title 18 52 224 26 13 $true
- $desc=Desktop-Label $panel $description 18 77 224 33 9
+ $name=Desktop-Label $panel $title 67 15 179 39 13 $true
+ $name.TextAlign='MiddleLeft'
+ $desc=Desktop-Label $panel $description 17 64 226 36 10
  $desc.ForeColor=$script:desktopColors.Muted
- $action=Desktop-Button $panel ($button+'  '+[char]0x2192) $tag 12 110 236 24 $false
+ $panel.Add_Paint({param($sender,$e)
+  $pen=New-Object Drawing.Pen($script:desktopColors.Border)
+  try{$e.Graphics.DrawLine($pen,14,103,($sender.Width-14),103)}finally{$pen.Dispose()}
+ })
+ $action=Desktop-Button $panel ($button+'  '+[char]0x2192) $tag 12 108 236 26 $false
  $action.TextAlign='MiddleLeft';$action.ForeColor=$script:desktopColors.Blue;$action.FlatAppearance.BorderSize=0;$action.BackColor=$panel.BackColor
 }
 function Invoke-DesktopNativeAction([string]$id){
@@ -1333,8 +1338,8 @@ function Desktop-SettingRow($parent,[string]$title,[string]$detail,[int]$glyph,[
  $p=Desktop-Section $parent 0 $y 812 68
  $i=Desktop-Label $p ([string][char]$glyph) 14 13 39 39 17
  Set-DesktopIconTile $i 22
- $null=Desktop-Label $p $title 66 10 515 22 12 $true
- $d=Desktop-Label $p $detail 66 33 515 28 9
+ $null=Desktop-Label $p $title 66 9 515 25 12 $true
+ $d=Desktop-Label $p $detail 66 35 515 27 10
  $d.ForeColor=$script:desktopColors.Muted
  if($tag -ceq 'appearance-shadows'){$d.Name='AppearancePersistence'}
  if($action){$b=Desktop-Button $p ($action+'  '+[char]0x203A) $tag 608 17 186 34 $false;$b.FlatAppearance.BorderSize=0;$b.ForeColor=$script:desktopColors.Blue}
@@ -1416,7 +1421,21 @@ function Show-DesktopPage([string]$name){
    $lead.ForeColor=$script:desktopColors.Muted
    $idCard=New-Object Windows.Forms.Panel
    $idCard.BackColor=[Drawing.Color]::FromArgb(224,237,252);Set-DesktopRoundedCard $idCard
-   $idCard.Add_Paint({param($sender,$e) $r=New-Object Drawing.Rectangle(0,0,$sender.Width,$sender.Height);$g=New-Object Drawing.Drawing2D.LinearGradientBrush($r,[Drawing.Color]::FromArgb(239,247,255),[Drawing.Color]::FromArgb(180,211,245),25);try{$e.Graphics.FillRectangle($g,$r)}finally{$g.Dispose()}})
+   $idCard.Add_Paint({param($sender,$e)
+    if($sender.Width -lt 20 -or $sender.Height -lt 20){return}
+    $r=New-Object Drawing.Rectangle(0,0,$sender.Width,$sender.Height)
+    $g=New-Object Drawing.Drawing2D.LinearGradientBrush($r,[Drawing.Color]::FromArgb(242,248,255),[Drawing.Color]::FromArgb(188,216,247),35)
+    $pen=New-Object Drawing.Pen([Drawing.Color]::FromArgb(38,68,126,193),1)
+    try{
+     $e.Graphics.FillRectangle($g,$r)
+     $e.Graphics.SmoothingMode=[Drawing.Drawing2D.SmoothingMode]::AntiAlias
+     foreach($n in @(0,1,2,3,4,5,6)){
+      $radius=90+($n*22)
+      $e.Graphics.DrawEllipse($pen,($sender.Width-55-$radius),(-45-$radius),($radius*2),($radius*2))
+     }
+     $e.Graphics.DrawLine($pen,24,193,($sender.Width-24),193)
+    }finally{$pen.Dispose();$g.Dispose()}
+   })
    $idCard.SetBounds(0,88,500,248);$body.Controls.Add($idCard)
    $mark=Desktop-Label $idCard ([string][char]0xE77B) 24 85 88 88 19
    Set-DesktopIconTile $mark 48
@@ -1493,12 +1512,21 @@ function Show-DesktopPage([string]$name){
    $lead=Desktop-Label $body 'Payer et recevoir · simulation de laboratoire sans argent réel.' 0 0 812 30 10
    $lead.ForeColor=$script:desktopColors.Muted
    $wallet=Desktop-Section $body 0 44 396 236
+   $wallet.BackColor=[Drawing.Color]::FromArgb(241,247,254)
+   $wallet.Add_Paint({param($sender,$e)
+    if($sender.Width -lt 20 -or $sender.Height -lt 20){return}
+    $r=New-Object Drawing.Rectangle(0,0,$sender.Width,$sender.Height)
+    $g=New-Object Drawing.Drawing2D.LinearGradientBrush($r,[Drawing.Color]::FromArgb(249,252,255),[Drawing.Color]::FromArgb(219,234,251),45)
+    $pen=New-Object Drawing.Pen([Drawing.Color]::FromArgb(185,209,238))
+    try{$e.Graphics.FillRectangle($g,$r);$e.Graphics.DrawLine($pen,18,139,($sender.Width-18),139)}finally{$pen.Dispose();$g.Dispose()}
+   })
    $null=Desktop-Label $wallet 'Solde du portefeuille' 18 16 358 27 12 $true
    $null=Desktop-Label $wallet 'Non disponible' 18 50 358 43 23 $true
    $d=Desktop-Label $wallet 'Aucun compte financier actif' 18 100 358 28 10
    $d.ForeColor=$script:desktopColors.Muted
    $null=Desktop-Label $wallet 'SIMULATION LOCALE' 18 151 358 25 10 $true
    $null=Desktop-Label $wallet '100 unités fictives au début de chaque essai.' 18 181 358 39 10
+   foreach($control in $wallet.Controls){if($control -is [Windows.Forms.Label]){$control.BackColor=[Drawing.Color]::Transparent}}
    $panel=Desktop-Section $body 412 44 400 236
    $null=Desktop-Label $panel 'Effectuer un paiement fictif' 18 12 364 28 14 $true
    $null=Desktop-Label $panel 'Destinataire' 18 44 364 20 9
