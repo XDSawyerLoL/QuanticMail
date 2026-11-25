@@ -15,6 +15,9 @@ cp "$src" "$dst/bin/Vault-PQ-lab.exe"
 launcher_src="$(cygpath -u "$5")"
 test -s "$launcher_src"
 cp "$launcher_src" "$dst/bin/Quantic-Sillage-Launcher.exe"
+sentinel_src="$(cygpath -u "$6")"
+test -s "$sentinel_src"
+cp "$sentinel_src" "$dst/bin/Quantic-Sentinel-Engine.exe"
 # Copy Windows non-system DLL imports recursively from the build toolchain.
 for pass in $(seq 1 16); do
   changed=0
