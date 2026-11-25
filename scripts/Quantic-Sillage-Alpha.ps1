@@ -1755,6 +1755,12 @@ if ($SelfTest) {
    $actualDpi=[QuanticVisualDpi]::GetDpiForWindow($form.Handle)
    if($actualDpi -eq 0){throw 'Unable to measure effective window DPI'}
    Write-Output ("Actual Windows window DPI: {0}; effective scale: {1:N0}% (not a multi-DPI proof)" -f $actualDpi,($actualDpi/96.0*100))
+   $captureEnabled=([bool]$env:QUANTIC_UI_TEST_CAPTURE -and [bool]$env:RUNNER_TEMP)
+   $captureRecords=New-Object 'System.Collections.Generic.List[object]'
+   if($captureEnabled){
+    $capture=Join-Path $env:RUNNER_TEMP 'quantic-ui-captures'
+    [void][IO.Directory]::CreateDirectory($capture)
+   }
    foreach($size in @(@(1160,810),@(1000,680),@(900,620),@(1440,900))){
     $form.ClientSize=New-Object Drawing.Size($size[0],$size[1])
     $form.PerformLayout();$script:desktopLayout.PerformLayout();$script:desktopWorkspace.PerformLayout()
@@ -1773,15 +1779,15 @@ if ($SelfTest) {
      [Windows.Forms.Application]::DoEvents()
      Update-DesktopLayout
      Test-DesktopControlBounds $script:desktopBody $page
-     if($env:QUANTIC_UI_TEST_CAPTURE -and $env:RUNNER_TEMP){
-      $folder=Join-Path (Join-Path $env:RUNNER_TEMP 'quantic-ui-captures') ('size-{0}x{1}' -f $size[0],$size[1])
-      [void][IO.Directory]::CreateDirectory($folder)
+     if($captureEnabled){
       $index=[array]::IndexOf($script:desktopPages,$page)
       $bitmap=New-Object Drawing.Bitmap($script:desktopLayout.Width,$script:desktopLayout.Height)
       try{
        $form.Refresh()
        $script:desktopLayout.DrawToBitmap($bitmap,(New-Object Drawing.Rectangle(0,0,$bitmap.Width,$bitmap.Height)))
-       $bitmap.Save((Join-Path $folder ('{0:D2}.png' -f $index)),[Drawing.Imaging.ImageFormat]::Png)
+       $filename='size-{0}x{1}-page-{2:D2}.png' -f $size[0],$size[1],$index
+       $bitmap.Save((Join-Path $capture $filename),[Drawing.Imaging.ImageFormat]::Png)
+       $captureRecords.Add([pscustomobject]@{file=$filename;page=$page;requestedWidth=$size[0];requestedHeight=$size[1];actualWidth=$bitmap.Width;actualHeight=$bitmap.Height;dpi=[QuanticVisualDpi]::GetDpiForWindow($form.Handle)})
       }finally{$bitmap.Dispose()}
      }
     }
@@ -1792,9 +1798,7 @@ if ($SelfTest) {
    $form.PerformLayout();[Windows.Forms.Application]::DoEvents()
    Update-DesktopLayout
    $form.Refresh()
-   if($env:QUANTIC_UI_TEST_CAPTURE -and $env:RUNNER_TEMP){
-    $capture=Join-Path $env:RUNNER_TEMP 'quantic-ui-captures'
-    [void][IO.Directory]::CreateDirectory($capture)
+   if($captureEnabled){
     $index=0
     foreach($page in $script:desktopPages){
      Show-DesktopPage $page
@@ -1804,10 +1808,18 @@ if ($SelfTest) {
      $bmp=New-Object Drawing.Bitmap($script:desktopLayout.Width,$script:desktopLayout.Height)
      try{
       $script:desktopLayout.DrawToBitmap($bmp,(New-Object Drawing.Rectangle(0,0,$bmp.Width,$bmp.Height)))
-      $bmp.Save((Join-Path $capture ('{0:D2}.png' -f $index)),[Drawing.Imaging.ImageFormat]::Png)
+      $filename='{0:D2}.png' -f $index
+      $bmp.Save((Join-Path $capture $filename),[Drawing.Imaging.ImageFormat]::Png)
+      $captureRecords.Add([pscustomobject]@{file=$filename;page=$page;actualWidth=$bmp.Width;actualHeight=$bmp.Height;dpi=[QuanticVisualDpi]::GetDpiForWindow($form.Handle)})
      }finally{$bmp.Dispose()}
      $index++
     }
+    if($captureRecords.Count -ne 35){throw 'Incomplete capture matrix: expected 35 screenshots'}
+    $unique=@($captureRecords | Select-Object -ExpandProperty file -Unique)
+    if($unique.Count -ne 35){throw 'Duplicate capture filenames'}
+    foreach($record in $captureRecords){if(-not [IO.File]::Exists((Join-Path $capture $record.file))){throw 'Missing capture file'}}
+    $captureRecords | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $capture 'capture-manifest.json') -Encoding UTF8
+    Write-Output ('Capture matrix: '+$captureRecords.Count+' actual renders; effective DPI '+$actualDpi)
    }
   }finally{$form.Hide()}
   Write-Output "Unified desktop: seven native pages, non-overlapping geometry at four requested sizes and existing operation mapping verified"
