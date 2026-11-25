@@ -99,6 +99,11 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 5a15cb0b3fe9688116df092a5a8a56396e9ccf7c
+          path: sentinel-engine-source
+          persist-credentials: false
       - uses: msys2/setup-msys2@3c51bf698df1e37b2261f53cb67797b97761185c
         with:
           msystem: UCRT64
@@ -178,11 +183,25 @@ jobs:
           set -euo pipefail
           CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-H windowsgui" -o "$RUNNER_TEMP/Quantic-Sillage-Launcher.exe" cmd/quantic-alpha-launcher/main.go
           test -s "$RUNNER_TEMP/Quantic-Sillage-Launcher.exe"
+      - name: Build pinned autonomous Sentinel engine for unified desktop
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          cd sentinel-engine-source/quantic-control
+          export CC=gcc PKG_CONFIG=pkg-config
+          go test -count=1 ./...
+          go build -trimpath -tags 'pqopenssl pqstatic' -ldflags="-H windowsgui -linkmode external -extldflags=-static" -o "$RUNNER_TEMP/Quantic-Sentinel-Engine.exe" ./cmd/quantic-control-sentinel
+          objdump -p "$RUNNER_TEMP/Quantic-Sentinel-Engine.exe" | awk '/DLL Name:/ {print $3}' | tr -d '\r' > sentinel-imports.txt
+          while IFS= read -r dll; do
+            lower="$(printf '%s' "$dll" | tr A-Z a-z)"
+            case "$lower" in api-ms-win-*|ext-ms-win-*) continue ;; esac
+            test -f "/c/Windows/System32/$dll"
+          done < sentinel-imports.txt
       - name: Stage isolated portable Windows laboratory
         shell: msys2 {0}
         run: |
           set -euo pipefail
-          bash scripts/package-windows-pq-lab.sh "$RUNNER_TEMP/Vault-PQ-provider-lab.exe" "$RUNNER_TEMP/QuanticMail-Windows-PQ-Lab" "$RUNNER_TEMP/Scattering-Pacer.exe" "$(cygpath -w "$(command -v node.exe)")" "$RUNNER_TEMP/Quantic-Sillage-Launcher.exe"
+          bash scripts/package-windows-pq-lab.sh "$RUNNER_TEMP/Vault-PQ-provider-lab.exe" "$RUNNER_TEMP/QuanticMail-Windows-PQ-Lab" "$RUNNER_TEMP/Scattering-Pacer.exe" "$(cygpath -w "$(command -v node.exe)")" "$RUNNER_TEMP/Quantic-Sillage-Launcher.exe" "$RUNNER_TEMP/Quantic-Sentinel-Engine.exe"
       - name: Verify complete package and detect tampering before execution
         shell: pwsh
         run: |
