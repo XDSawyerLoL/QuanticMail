@@ -718,6 +718,42 @@ function Set-DesktopButtonRegion($button){
   $old=$button.Region;$button.Region=New-Object Drawing.Region($p);if($old){$old.Dispose()}
  }finally{$p.Dispose()}
 }
+# Native Button retains its click, keyboard and accessibility behavior.
+# Paint a consistent rounded surface before any optional icon paint handlers.
+function Paint-DesktopButton($sender,$e){
+ $w=$sender.ClientSize.Width-1;$h=$sender.ClientSize.Height-1
+ if($w -lt 12 -or $h -lt 12){return}
+ $e.Graphics.SmoothingMode=[Drawing.Drawing2D.SmoothingMode]::AntiAlias
+ $path=New-Object Drawing.Drawing2D.GraphicsPath
+ $fill=$null;$pen=$null
+ try{
+  $d=8
+  $path.AddArc(0,0,$d,$d,180,90);$path.AddArc($w-$d,0,$d,$d,270,90)
+  $path.AddArc($w-$d,$h-$d,$d,$d,0,90);$path.AddArc(0,$h-$d,$d,$d,90,90);$path.CloseFigure()
+  $bg=$sender.BackColor
+  $hover=$sender.ClientRectangle.Contains($sender.PointToClient([Windows.Forms.Cursor]::Position))
+  if($sender.Enabled -and $hover){
+   $bg=if($sender.Capture -and [Windows.Forms.Control]::MouseButtons -eq [Windows.Forms.MouseButtons]::Left){$sender.FlatAppearance.MouseDownBackColor}else{$sender.FlatAppearance.MouseOverBackColor}
+  }
+  $fill=New-Object Drawing.SolidBrush($bg)
+  $e.Graphics.FillPath($fill,$path)
+  if($sender.FlatAppearance.BorderSize -gt 0){
+   $border=if($sender.ForeColor -eq [Drawing.Color]::White){$bg}else{$sender.FlatAppearance.BorderColor}
+   $pen=New-Object Drawing.Pen($border,1)
+   $e.Graphics.DrawPath($pen,$path)
+  }
+  $flags=[Windows.Forms.TextFormatFlags]::VerticalCenter -bor [Windows.Forms.TextFormatFlags]::SingleLine -bor [Windows.Forms.TextFormatFlags]::EndEllipsis -bor [Windows.Forms.TextFormatFlags]::NoPrefix
+  if($sender.TextAlign -eq [Drawing.ContentAlignment]::MiddleLeft){$flags=$flags -bor [Windows.Forms.TextFormatFlags]::Left}else{$flags=$flags -bor [Windows.Forms.TextFormatFlags]::HorizontalCenter}
+  $left=[Math]::Max(4,$sender.Padding.Left);$right=[Math]::Max(4,$sender.Padding.Right)
+  $rect=New-Object Drawing.Rectangle($left,0,([Math]::Max(1,$w-$left-$right)),($h+1))
+  $ink=if($sender.Enabled){$sender.ForeColor}else{[Drawing.SystemColors]::GrayText}
+  [Windows.Forms.TextRenderer]::DrawText($e.Graphics,$sender.Text,$sender.Font,$rect,$ink,$flags)
+  if($sender.Focused -and $sender.Enabled){
+   $focus=New-Object Drawing.Rectangle(3,3,([Math]::Max(1,$w-6)),([Math]::Max(1,$h-6)))
+   [Windows.Forms.ControlPaint]::DrawFocusRectangle($e.Graphics,$focus,$ink,$bg)
+  }
+ }finally{if($pen){$pen.Dispose()};if($fill){$fill.Dispose()};$path.Dispose()}
+}
 function Desktop-Button($parent,[string]$text,[string]$tag,[int]$x,[int]$y,[int]$w,[int]$h,[bool]$primary=$false){
  $c=New-Object Windows.Forms.Button
  $c.Text=$text;$c.Tag=$tag;$c.FlatStyle='Flat';$c.FlatAppearance.BorderSize=1
@@ -731,6 +767,13 @@ function Desktop-Button($parent,[string]$text,[string]$tag,[int]$x,[int]$y,[int]
  $c.SetBounds($x,$y,$w,$h);$c.Cursor=[Windows.Forms.Cursors]::Hand
  $c.Add_SizeChanged({param($sender,$e) Set-DesktopButtonRegion $sender})
  Set-DesktopButtonRegion $c
+ $c.Add_Paint({param($sender,$e) Paint-DesktopButton $sender $e})
+ $c.Add_MouseEnter({param($sender,$e) $sender.Invalidate()})
+ $c.Add_MouseLeave({param($sender,$e) $sender.Invalidate()})
+ $c.Add_MouseDown({param($sender,$e) $sender.Invalidate()})
+ $c.Add_MouseUp({param($sender,$e) $sender.Invalidate()})
+ $c.Add_GotFocus({param($sender,$e) $sender.Invalidate()})
+ $c.Add_LostFocus({param($sender,$e) $sender.Invalidate()})
  $c.Add_Click({param($sender,$e) Invoke-DesktopAction ([string]$sender.Tag)})
  $parent.Controls.Add($c);return $c
 }
@@ -1622,7 +1665,7 @@ function Initialize-Desktop {
  $state.ForeColor=$script:desktopColors.Muted
  $script:desktopSessionLabel=Desktop-Label $header 'Espace privé fermé' 460 3 280 21 9
  $script:desktopSessionLabel.TextAlign='MiddleRight'
- $script:desktopSessionOpen=Desktop-Button $header 'Ouvrir' 'session-open' 460 27 125 29 $true
+ $script:desktopSessionOpen=Desktop-Button $header 'Ouvrir mon espace' 'session-open' 460 27 125 29 $true
  $script:desktopSessionLock=Desktop-Button $header 'Verrouiller' 'session-lock' 595 27 145 29 $false
  $script:desktopState=$state
  $header.Add_SizeChanged({
