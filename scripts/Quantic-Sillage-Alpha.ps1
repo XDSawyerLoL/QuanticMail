@@ -746,6 +746,7 @@ function Invoke-DesktopAction([string]$tag){
   'proof' {Invoke-DesktopNativeAction 'AnswerEnrollment';return}
   'credential' {Invoke-DesktopNativeAction 'PrepareMailboxCredential';return}
   'activation' {Invoke-DesktopNativeAction 'ImportMailboxActivation';return}
+  'pay-demo' {Start-DesktopPayDemo;return}
   'refresh-protection' {Refresh-DesktopProtection;return}
   'sentinel-enable' {Set-DesktopSentinelProtection $true;return}
   'sentinel-disable' {Set-DesktopSentinelProtection $false;return}
@@ -927,6 +928,57 @@ function Test-DesktopSentinelReadOnly {
  }finally{if($pulse){$pulse.Dispose()};if($status){$status.Dispose()}}
 }
 
+
+function Invoke-DesktopPayDemo([string]$payee,[string]$amount,[int]$witnesses){
+ # Recheck the package pin and the verifier itself before invoking it.
+ $manifest=Join-Path $root 'SHA256SUMS.txt'
+ if((Get-FileHash -LiteralPath $manifest -Algorithm SHA256).Hash -ine $ExpectedManifestSha256){throw 'Package modified'}
+ $line=@(Get-Content -LiteralPath $manifest|Where-Object {$_ -cmatch '^[a-f0-9]{64} \*\./Test-Windows-PQ-Package\.ps1$'})
+ if($line.Count -ne 1){throw 'Verifier not inventoried'}
+ $verifier=Join-Path $root 'Test-Windows-PQ-Package.ps1'
+ if((Get-FileHash -LiteralPath $verifier -Algorithm SHA256).Hash -ine $line[0].Substring(0,64)){throw 'Verifier modified'}
+ & $verifier -PackageDirectory $root -ExpectedManifestSha256 $ExpectedManifestSha256 | Out-Null
+ $scriptPath=Join-Path $root 'scripts\quantic-pay-desktop.mjs'
+ $psi=New-Object Diagnostics.ProcessStartInfo
+ $psi.FileName=Join-Path $root 'runtime\node.exe'
+ $psi.Arguments='"'+$scriptPath+'"'
+ $psi.WorkingDirectory=$root;$psi.UseShellExecute=$false;$psi.CreateNoWindow=$true
+ $psi.RedirectStandardInput=$true;$psi.RedirectStandardOutput=$true;$psi.RedirectStandardError=$true
+ # Do not inherit code injection options from a developer's Node environment.
+ $psi.EnvironmentVariables.Remove('NODE_OPTIONS')
+ $psi.EnvironmentVariables.Remove('NODE_PATH')
+ $child=[Diagnostics.Process]::Start($psi)
+ try{
+  $out=$child.StandardOutput.ReadToEndAsync();$err=$child.StandardError.ReadToEndAsync()
+  $child.StandardInput.Write((@{payee=$payee;amount=$amount;witnesses=$witnesses;consent=$true}|ConvertTo-Json -Compress))
+  $child.StandardInput.Close()
+  if(-not $child.WaitForExit(20000)){try{$child.Kill()}catch{};throw 'Simulation interrompue'}
+  if($child.ExitCode -ne 0 -or $out.Result.Length -gt 4096){throw 'Simulation refusée'}
+  $r=$out.Result|ConvertFrom-Json
+  if($r.mode -ne 'simulation' -or $r.realPaymentAuthorized -ne $false -or $r.status -notin @('confirmed','refused') -or $r.witnesses -ne $witnesses){throw 'Résultat non reconnu'}
+  return $r
+ }finally{$child.Dispose()}
+}
+function Start-DesktopPayDemo {
+ if($script:desktopCurrent -ne 'Paiements'){return}
+ $amount=$script:desktopPayAmount.Text.Trim()
+ if($amount -notmatch '^(0|[1-9][0-9]{0,2})([.,][0-9]{1,2})?$'){ $script:desktopPayResult.Text='Saisissez un montant de 0,01 à 100,00 unités fictives.';return }
+ $payee=if($script:desktopPayee.SelectedIndex -eq 0){'demo-bob'}else{'demo-shop'}
+ $witnesses=2+$script:desktopPayWitnesses.SelectedIndex
+ $answer=[Windows.Forms.MessageBox]::Show($form,('Simuler '+$amount+' unités fictives vers '+$script:desktopPayee.SelectedItem+' ? Aucun argent réel ne sera envoyé.'),'Confirmer la simulation','YesNo','Question','Button2')
+ if($answer -ne 'Yes'){return}
+ $script:desktopPayResult.Text='Vérification cryptographique en cours…'
+ $script:desktopPayButton.Enabled=$false
+ $form.Refresh()
+ try{
+  $r=Invoke-DesktopPayDemo $payee $amount $witnesses
+  if($r.status -eq 'confirmed'){
+   $script:desktopPayResult.Text=('Simulation confirmée par {0}/4 témoins locaux. Reste fictif : {1:N2}. Référence : {2}' -f $r.witnesses,($r.balanceCents/100),$r.reference)
+  }else{$script:desktopPayResult.Text=('Simulation refusée : {0}/4 témoins disponibles. Solde fictif inchangé.' -f $r.witnesses)}
+ }catch{$script:desktopPayResult.Text='Simulation non confirmée. Aucun paiement réel effectué.'}
+ finally{$script:desktopPayButton.Enabled=$true}
+}
+
 function Show-DesktopPage([string]$name){
  if($name -notin $script:desktopPages){throw 'Page inconnue'}
  $script:desktopCurrent=$name
@@ -965,8 +1017,26 @@ function Show-DesktopPage([string]$name){
   }
   'Paiements' {
    $null=Desktop-Label $body 'Votre portefeuille' 0 0 810 38 19 $true
-   $null=Desktop-Card $body 'Solde non disponible' 'Les paiements réels ne sont pas activés. Aucun montant fictif n''est affiché.' '' '' 0 58 812 172
-   $null=Desktop-Card $body 'Laboratoire Quantic Pay' 'Les simulations existantes sont réservées aux diagnostics, sans valeur monétaire.' 'Outils de laboratoire' 'advanced' 0 248 812 172
+   $null=Desktop-Card $body 'Paiements réels indisponibles' 'Aucun compte financier actif. Le formulaire ci-dessous est une simulation locale, sans valeur monétaire.' '' '' 0 58 812 118
+   $panel=New-Object Windows.Forms.Panel
+   $panel.BackColor=$script:desktopColors.White;$panel.SetBounds(0,192,812,390);$body.Controls.Add($panel)
+   $null=Desktop-Label $panel 'Essayer un paiement fictif' 20 18 770 34 15 $true
+   $null=Desktop-Label $panel 'Chaque essai commence avec 100 unités fictives. Aucun historique permanent.' 20 56 770 40 10
+   $null=Desktop-Label $panel 'Destinataire de test' 20 102 330 24 10
+   $script:desktopPayee=New-Object Windows.Forms.ComboBox
+   $script:desktopPayee.DropDownStyle='DropDownList';$script:desktopPayee.SetBounds(20,127,365,32)
+   $null=$script:desktopPayee.Items.Add('Particulier de démonstration');$null=$script:desktopPayee.Items.Add('Commerce de démonstration')
+   $script:desktopPayee.SelectedIndex=0;$panel.Controls.Add($script:desktopPayee)
+   $null=Desktop-Label $panel 'Montant fictif' 413 102 350 24 10
+   $script:desktopPayAmount=New-Object Windows.Forms.TextBox
+   $script:desktopPayAmount.SetBounds(413,127,365,32);$script:desktopPayAmount.MaxLength=6;$panel.Controls.Add($script:desktopPayAmount)
+   $null=Desktop-Label $panel 'Témoins simulés disponibles' 20 177 365 24 10
+   $script:desktopPayWitnesses=New-Object Windows.Forms.ComboBox
+   $script:desktopPayWitnesses.DropDownStyle='DropDownList';$script:desktopPayWitnesses.SetBounds(20,202,365,32)
+   foreach($n in @('2 sur 4','3 sur 4','4 sur 4')){$null=$script:desktopPayWitnesses.Items.Add($n)}
+   $script:desktopPayWitnesses.SelectedIndex=2;$panel.Controls.Add($script:desktopPayWitnesses)
+   $script:desktopPayButton=Desktop-Button $panel 'Simuler le paiement' 'pay-demo' 413 197 365 42 $true
+   $script:desktopPayResult=Desktop-Label $panel 'En attente de simulation.' 20 263 758 100 11
   }
   'Coffre-fort' {
    $null=Desktop-Label $body 'Vos données et vos clés' 0 0 810 38 19 $true
