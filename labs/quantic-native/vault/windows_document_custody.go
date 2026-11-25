@@ -4,6 +4,8 @@ package main
 
 import (
  "bytes"
+ "bufio"
+ "time"
  "crypto/hmac"
  "crypto/rand"
  "crypto/sha256"
@@ -149,6 +151,15 @@ func windowsDocumentCLI(args []string)error{
  raw,e:=io.ReadAll(io.LimitReader(os.Stdin,4097));if e!=nil||len(raw)>4096{return portableRefusal}
  var req documentRequest
  if e=exactReceiptDecode(raw,&req);e!=nil{return e}
+ if e=validateDocumentRequest(op,&req);e!=nil{return e}
+ if !winGUIApprove("Coffre documentaire de laboratoire. Autoriser cette operation locale ? Aucun transfert reseau."){return portableRefusal}
+ pw,e:=winGUIPassphrase("Secret classique de l'appareil",true);if e!=nil{return e};defer clear(pw)
+ pqw,e:=winGUIPassphrase("Secret post-quantique de l'appareil",true);if e!=nil{return e};defer clear(pqw)
+ draft,e:=readLocalCustody(dir,"draft",r,pw,pqw);if e!=nil{return e};defer clear(draft)
+ key,e:=documentKey(draft,r);if e!=nil{return e};defer clear(key)
+ return executeDocument(op,dir,key,r,req,os.Stdout,func()bool{return winGUIApprove("Exporter une copie DECHIFFREE vers un dossier prive neuf ? Le coffre conserve l'original chiffre.")})
+}
+func validateDocumentRequest(op string,req *documentRequest)error{
  switch op{
  case "--gui-document-list-lab":if req.Path!=""||req.ID!=""||len(req.Paths)!=0{return portableRefusal}
  case "--gui-document-import-lab":
@@ -157,12 +168,11 @@ func windowsDocumentCLI(args []string)error{
   if len(req.Paths)<1||len(req.Paths)>8{return portableRefusal}
   for i,p:=range req.Paths{if _,_,e:=winPathParts(p);e!=nil{return e};for _,q:=range req.Paths[:i]{if strings.EqualFold(p,q){return portableRefusal}}}
  case "--gui-document-export-lab":if req.Path==""||len(req.Paths)!=0||!documentID.MatchString(req.ID){return portableRefusal}
+ default:return portableRefusal
  }
- if !winGUIApprove("Coffre documentaire de laboratoire. Autoriser cette operation locale ? Aucun transfert reseau."){return portableRefusal}
- pw,e:=winGUIPassphrase("Secret classique de l'appareil",true);if e!=nil{return e};defer clear(pw)
- pqw,e:=winGUIPassphrase("Secret post-quantique de l'appareil",true);if e!=nil{return e};defer clear(pqw)
- draft,e:=readLocalCustody(dir,"draft",r,pw,pqw);if e!=nil{return e};defer clear(draft)
- key,e:=documentKey(draft,r);if e!=nil{return e};defer clear(key)
+ return nil
+}
+func executeDocument(op,dir string,key []byte,r enrollmentRequest,req documentRequest,out io.Writer,approveExport func()bool)error{
  hs,e:=winLockDirectory(dir,true);if e!=nil{return e};defer winClose(hs)
  switch op{
  case "--gui-document-import-lab":
@@ -172,24 +182,81 @@ func windowsDocumentCLI(args []string)error{
   // back already committed records or delete any original.
   for _,path:=range req.Paths{
    p,e:=readDocumentSource(path)
-   if e!=nil{return json.NewEncoder(os.Stdout).Encode(map[string]any{"labOnly":true,"status":"partial","documents":entries})}
+   if e!=nil{return json.NewEncoder(out).Encode(map[string]any{"labOnly":true,"status":"partial","documents":entries})}
    entry,e:=addDocument(dir,key,r,p);clear(p.Data)
-   if e!=nil{return json.NewEncoder(os.Stdout).Encode(map[string]any{"labOnly":true,"status":"partial","documents":entries})}
+   if e!=nil{return json.NewEncoder(out).Encode(map[string]any{"labOnly":true,"status":"partial","documents":entries})}
    entries=append(entries,entry)
   }
-  return json.NewEncoder(os.Stdout).Encode(map[string]any{"labOnly":true,"status":"imported","documents":entries})
+  return json.NewEncoder(out).Encode(map[string]any{"labOnly":true,"status":"imported","documents":entries})
  case "--gui-document-list-lab":
   ids,e:=documentIDs(dir);if e!=nil{return e};entries:=[]documentEntry{}
   for _,id:=range ids{
    p,e:=readDocument(dir,id,key,r);if e!=nil{return e}
    entries=append(entries,documentEntry{id,p.Name,len(p.Data)});clear(p.Data)
   }
-  return json.NewEncoder(os.Stdout).Encode(map[string]any{"labOnly":true,"status":"listed","documents":entries})
+  return json.NewEncoder(out).Encode(map[string]any{"labOnly":true,"status":"listed","documents":entries})
  case "--gui-document-export-lab":
   p,e:=readDocument(dir,req.ID,key,r);if e!=nil{return e};defer clear(p.Data)
-  if !winGUIApprove("Exporter une copie DECHIFFREE vers un dossier prive neuf ? Le coffre conserve l'original chiffre."){return portableRefusal}
+  if !approveExport(){return portableRefusal}
   if _,e=exportDocument(req.Path,req.ID,p);e!=nil{return e}
-  return json.NewEncoder(os.Stdout).Encode(map[string]any{"labOnly":true,"status":"exported"})
+  return json.NewEncoder(out).Encode(map[string]any{"labOnly":true,"status":"exported"})
  }
  return portableRefusal
+}
+
+
+// Scoped process-local session: never transfer the key or passwords to the
+// desktop. Only its inherited anonymous stdin/stdout may carry requests.
+// No implicit network or financial authorization. Expiry blocks new requests;
+// an operation already in progress can finish its durable write.
+type documentSessionRequest struct {
+ Operation string `json:"operation"`
+ Request documentRequest `json:"request"`
+}
+func serveDocumentSession(dir string,r enrollmentRequest,key []byte,in io.Reader,out io.Writer,lifetime time.Duration,approve func()bool)error{
+ if len(key)!=32||lifetime<=0{return portableRefusal}
+ deadline:=time.Now().Add(lifetime)
+ timer:=time.NewTimer(lifetime);defer timer.Stop()
+ done:=make(chan struct{});defer close(done)
+ lines:=make(chan []byte)
+ go func(){
+  defer close(lines)
+  scan:=bufio.NewScanner(in);scan.Buffer(make([]byte,4096),8192)
+  for scan.Scan(){
+   line:=append([]byte(nil),scan.Bytes()...)
+   select{case lines<-line:case <-done:return}
+  }
+ }()
+ enc:=json.NewEncoder(out)
+ if e:=enc.Encode(map[string]any{"labOnly":true,"status":"document-session-ready","address":r.Claim.Address});e!=nil{return e}
+ for count:=0;count<128;count++{
+  select{
+  case <-timer.C:return nil
+  case raw,ok:=<-lines:
+   if !ok||!time.Now().Before(deadline){return nil}
+   var q documentSessionRequest
+   if len(raw)>4096||exactReceiptDecode(raw,&q)!=nil{return portableRefusal}
+   if q.Operation=="lock"{return nil}
+   op:=""
+   switch q.Operation{case "list":op="--gui-document-list-lab";case "import":op="--gui-document-import-lab";case "export":op="--gui-document-export-lab";default:return portableRefusal}
+   if e:=validateDocumentRequest(op,&q.Request);e!=nil{return e}
+   if e:=executeDocument(op,dir,key,r,q.Request,out,func()bool{return time.Now().Before(deadline)&&approve()&&time.Now().Before(deadline)});e!=nil{
+    if e=enc.Encode(map[string]any{"labOnly":true,"status":"refused"});e!=nil{return e}
+   }
+  }
+ }
+ return nil
+}
+func windowsDocumentSessionCLI(args []string)error{
+ if len(args)!=3{return portableRefusal}
+ dir:=args[2]
+ r,e:=readPendingEnrollment(dir);if e!=nil{return e}
+ if !winGUIApprove("Ouvrir le coffre documentaire local de test pour cinq minutes ? Aucune session distante ni autorisation de paiement."){return portableRefusal}
+ pw,e:=winGUIPassphrase("Secret classique de l'appareil",true);if e!=nil{return e};defer clear(pw)
+ pqw,e:=winGUIPassphrase("Secret post-quantique de l'appareil",true);if e!=nil{return e};defer clear(pqw)
+ draft,e:=readLocalCustody(dir,"draft",r,pw,pqw);clear(pw);clear(pqw);if e!=nil{return e};defer clear(draft)
+ key,e:=documentKey(draft,r);clear(draft);if e!=nil{return e};defer clear(key)
+ return serveDocumentSession(dir,r,key,os.Stdin,os.Stdout,5*time.Minute,func()bool{
+  return winGUIApprove("Exporter une copie DECHIFFREE vers un dossier prive neuf ?")
+ })
 }
