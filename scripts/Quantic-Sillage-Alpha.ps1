@@ -737,6 +737,10 @@ function Paint-DesktopButton($sender,$e){
   }
   $fill=New-Object Drawing.SolidBrush($bg)
   $e.Graphics.FillPath($fill,$path)
+  if($sender.Parent -eq $script:desktopSidebar -and $sender.Tag -ceq $script:desktopCurrent){
+   $indicator=New-Object Drawing.SolidBrush([Drawing.Color]::FromArgb(101,183,255))
+   try{$e.Graphics.FillRectangle($indicator,2,10,3,[Math]::Max(1,$h-19))}finally{$indicator.Dispose()}
+  }
   if($sender.FlatAppearance.BorderSize -gt 0){
    $border=if($sender.ForeColor -eq [Drawing.Color]::White){$bg}else{$sender.FlatAppearance.BorderColor}
    $pen=New-Object Drawing.Pen($border,1)
@@ -832,6 +836,7 @@ function Desktop-HomeCard($parent,[string]$title,[string]$description,[string]$b
  Set-DesktopIconTile $icon 23
  $name=Desktop-Label $panel $title 65 15 184 39 12 $true
  $name.TextAlign='MiddleLeft'
+ $name.Font=New-Object Drawing.Font('Segoe UI Semibold',16,[Drawing.FontStyle]::Regular,[Drawing.GraphicsUnit]::Pixel)
  $desc=Desktop-Label $panel $description 17 64 226 36 10
  $desc.ForeColor=$script:desktopColors.Muted
  $panel.Add_Paint({param($sender,$e)
@@ -841,6 +846,8 @@ function Desktop-HomeCard($parent,[string]$title,[string]$description,[string]$b
  $action=Desktop-Button $panel ($button+'  '+[char]0x2192) $tag 12 108 236 26 $false
  $action.TextAlign='MiddleLeft';$action.ForeColor=$script:desktopColors.Blue;$action.FlatAppearance.BorderSize=0;$action.BackColor=$panel.BackColor
  $action.Font=New-Object Drawing.Font('Segoe UI Semibold',13,[Drawing.FontStyle]::Regular,[Drawing.GraphicsUnit]::Pixel)
+ $action.Padding=New-Object Windows.Forms.Padding(4,0,4,0)
+ $action.FlatAppearance.MouseOverBackColor=[Drawing.Color]::FromArgb(232,242,255)
 }
 function Invoke-DesktopNativeAction([string]$id){
  $match=@($actions|Where-Object {$_.Id -ceq $id})
@@ -1359,7 +1366,7 @@ function Show-DesktopPage([string]$name){
  if($name -notin $script:desktopPages){throw 'Page inconnue'}
  $script:desktopCurrent=$name
  foreach($b in $script:desktopNav){
-  $b.BackColor=if($b.Tag -eq $name){[Drawing.Color]::FromArgb(15,76,139)}else{[Drawing.Color]::FromArgb(15,37,61)}
+  $b.BackColor=if($b.Tag -eq $name){[Drawing.Color]::FromArgb(15,76,139)}else{$script:desktopColors.Navy}
   $b.Invalidate()
  }
  $script:desktopAdvanced.Visible=$false
@@ -1680,7 +1687,7 @@ function Initialize-Desktop {
  $sidebar.Add_Paint({param($sender,$e)
   if($sender.Width -lt 2 -or $sender.Height -lt 2){return}
   $r=New-Object Drawing.Rectangle(0,0,$sender.Width,$sender.Height)
-  $brush=New-Object Drawing.Drawing2D.LinearGradientBrush($r,[Drawing.Color]::FromArgb(10,28,49),[Drawing.Color]::FromArgb(16,43,71),[Drawing.Drawing2D.LinearGradientMode]::Vertical)
+  $brush=New-Object Drawing.SolidBrush($script:desktopColors.Navy)
   try{$e.Graphics.FillRectangle($brush,$r)}finally{$brush.Dispose()}
  })
  $workspace=New-Object Windows.Forms.Panel
@@ -1697,12 +1704,15 @@ function Initialize-Desktop {
  }finally{$stream.Dispose()}
  $logoView=New-Object Windows.Forms.PictureBox
  $logoView.Image=$logoBitmap;$logoView.SizeMode='Zoom';$logoView.SetBounds(18,24,40,40)
- $logoView.BackColor=$script:desktopColors.Navy
+ $logoView.BackColor=[Drawing.Color]::Transparent
  $sidebar.Controls.Add($logoView)
  $form.Add_Disposed(({$logoView.Image.Dispose()}).GetNewClosure())
  $brand=Desktop-Label $sidebar ('Quantic'+[Environment]::NewLine+'Sillage') 66 17 108 48 13 $true
  $brand.ForeColor=[Drawing.Color]::White
+ $brand.BackColor=[Drawing.Color]::Transparent
  $tagline=Desktop-Label $sidebar '' 20 70 148 20 9
+ $tagline.BackColor=[Drawing.Color]::Transparent
+ $tagline.Visible=$false
  $tagline.ForeColor=[Drawing.Color]::FromArgb(170,192,214)
  $script:desktopPages=@('Accueil','Identité','Messagerie','Paiements','Coffre-fort','Protection','Paramètres')
  $script:desktopNav=@()
@@ -1721,6 +1731,7 @@ function Initialize-Desktop {
  $alpha=Desktop-Label $sidebar 'ÉDITION ALPHA PRIVÉE' 23 526 150 44 9
  $script:desktopAlpha=$alpha
  $alpha.ForeColor=[Drawing.Color]::FromArgb(170,192,214)
+ $alpha.BackColor=[Drawing.Color]::Transparent
  $header=New-Object Windows.Forms.Panel
  $header.Dock='None';$header.Margin=New-Object Windows.Forms.Padding(0);$header.BackColor=$script:desktopColors.White
  $workspace.Controls.Add($header)
