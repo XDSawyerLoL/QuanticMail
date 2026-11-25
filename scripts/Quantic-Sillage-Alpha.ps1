@@ -1447,10 +1447,13 @@ function Show-DesktopPage([string]$name){
    $storage=Desktop-Section $body 0 44 812 135
    $script:desktopStorageRing=New-Object Windows.Forms.Panel
    $script:desktopStorageRing.SetBounds(18,17,100,100);$script:desktopStorageRing.Tag=-1
+   $script:desktopStorageRing.Add_SizeChanged({param($sender,$e) $sender.Invalidate()})
    $storage.Controls.Add($script:desktopStorageRing)
    $script:desktopStorageRing.Add_Paint({param($sender,$e)
     $e.Graphics.SmoothingMode=[Drawing.Drawing2D.SmoothingMode]::AntiAlias
-    $rect=New-Object Drawing.Rectangle(9,9,80,80)
+    $diameter=[Math]::Min($sender.ClientSize.Width,$sender.ClientSize.Height)-20
+    if($diameter -lt 12){return}
+    $rect=New-Object Drawing.Rectangle(([int](($sender.ClientSize.Width-$diameter)/2)),([int](($sender.ClientSize.Height-$diameter)/2)),$diameter,$diameter)
     $track=New-Object Drawing.Pen([Drawing.Color]::FromArgb(226,233,242),7)
     $used=New-Object Drawing.Pen([Drawing.Color]::FromArgb(15,139,121),7)
     try{
@@ -1662,7 +1665,7 @@ function Update-DesktopLayout {
   $side=if($fw -lt 1100){184}else{206};$ww=$fw-$side
   $script:desktopLayout.SetBounds(0,0,$fw,$fh)
   $script:desktopSidebar.SetBounds(0,0,$side,$fh)
-  $script:desktopAlpha.Top=[Math]::Max(515,$fh-74)
+  $script:desktopAlpha.Top=[Math]::Max(465,$fh-64)
   foreach($b in $script:desktopNav){$b.Width=$side-24}
   $script:desktopWorkspace.SetBounds($side,0,$ww,$fh)
   $script:desktopHeader.SetBounds(0,0,$ww,66)
@@ -1671,7 +1674,7 @@ function Update-DesktopLayout {
   $scroll.SetBounds(0,66,$ww,$fh-106)
   # Fit the complete page into the actual client width, including room
   # for a vertical scrollbar. Never infer layout from requested window size.
-  $width=[Math]::Min(824,[Math]::Max(540,$ww-52))
+  $width=[Math]::Min(1024,[Math]::Max(540,$ww-52))
   $x=[Math]::Max(16,[int](($ww-$width-16)/2))
   $pageHeight=0
   foreach($c in $script:desktopBody.Controls){$pageHeight=[Math]::Max($pageHeight,$c.Bottom)}
@@ -1752,7 +1755,7 @@ if ($SelfTest) {
    $actualDpi=[QuanticVisualDpi]::GetDpiForWindow($form.Handle)
    if($actualDpi -eq 0){throw 'Unable to measure effective window DPI'}
    Write-Output ("Actual Windows window DPI: {0}; effective scale: {1:N0}% (not a multi-DPI proof)" -f $actualDpi,($actualDpi/96.0*100))
-   foreach($size in @(@(1160,810),@(1000,680),@(1440,900))){
+   foreach($size in @(@(1160,810),@(1000,680),@(900,620),@(1440,900))){
     $form.ClientSize=New-Object Drawing.Size($size[0],$size[1])
     $form.PerformLayout();$script:desktopLayout.PerformLayout();$script:desktopWorkspace.PerformLayout()
     [Windows.Forms.Application]::DoEvents()
@@ -1770,6 +1773,17 @@ if ($SelfTest) {
      [Windows.Forms.Application]::DoEvents()
      Update-DesktopLayout
      Test-DesktopControlBounds $script:desktopBody $page
+     if($env:QUANTIC_UI_TEST_CAPTURE -and $env:RUNNER_TEMP){
+      $folder=Join-Path (Join-Path $env:RUNNER_TEMP 'quantic-ui-captures') ('size-{0}x{1}' -f $size[0],$size[1])
+      [void][IO.Directory]::CreateDirectory($folder)
+      $index=[array]::IndexOf($script:desktopPages,$page)
+      $bitmap=New-Object Drawing.Bitmap($script:desktopLayout.Width,$script:desktopLayout.Height)
+      try{
+       $form.Refresh()
+       $script:desktopLayout.DrawToBitmap($bitmap,(New-Object Drawing.Rectangle(0,0,$bitmap.Width,$bitmap.Height)))
+       $bitmap.Save((Join-Path $folder ('{0:D2}.png' -f $index)),[Drawing.Imaging.ImageFormat]::Png)
+      }finally{$bitmap.Dispose()}
+     }
     }
     Show-DesktopPage 'Accueil'
    }
@@ -1796,7 +1810,7 @@ if ($SelfTest) {
     }
    }
   }finally{$form.Hide()}
-  Write-Output "Unified desktop: seven native pages, non-overlapping geometry at three sizes and existing operation mapping verified"
+  Write-Output "Unified desktop: seven native pages, non-overlapping geometry at four requested sizes and existing operation mapping verified"
  }finally{$form.Dispose()}
  exit 0
 }
