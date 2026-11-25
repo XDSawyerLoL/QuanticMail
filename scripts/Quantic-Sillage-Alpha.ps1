@@ -746,6 +746,9 @@ function Invoke-DesktopAction([string]$tag){
   'proof' {Invoke-DesktopNativeAction 'AnswerEnrollment';return}
   'credential' {Invoke-DesktopNativeAction 'PrepareMailboxCredential';return}
   'activation' {Invoke-DesktopNativeAction 'ImportMailboxActivation';return}
+  'doc-import' {Start-DesktopDocument 'import';return}
+  'doc-list' {Start-DesktopDocument 'list';return}
+  'doc-export' {Start-DesktopDocument 'export';return}
   'pay-demo' {Start-DesktopPayDemo;return}
   'refresh-protection' {Refresh-DesktopProtection;return}
   'sentinel-enable' {Set-DesktopSentinelProtection $true;return}
@@ -979,6 +982,83 @@ function Start-DesktopPayDemo {
  finally{$script:desktopPayButton.Enabled=$true}
 }
 
+
+function Invoke-DesktopDocument([string]$mode,[string]$path='', [string]$id=''){
+ $dir=$script:configuredEnrollment
+ if(-not $dir -or $dir -cnotmatch '^[A-Za-z]:\\[A-Za-z0-9_. -]+(?:\\[A-Za-z0-9_. -]+)*$'){throw 'Configurez votre identité de laboratoire au préalable.'}
+ $op=switch($mode){
+  'list' {'--gui-document-list-lab'}
+  'import' {'--gui-document-import-lab'}
+  'export' {'--gui-document-export-lab'}
+  default {throw 'Action inconnue'}
+ }
+ $vault=Join-Path $root 'bin\Vault-PQ-lab.exe'
+ $manifest=Join-Path $root 'SHA256SUMS.txt'
+ if((Get-FileHash -LiteralPath $manifest -Algorithm SHA256).Hash -ine $ExpectedManifestSha256){throw 'Inventaire modifié'}
+ $line=@(Get-Content -LiteralPath $manifest|Where-Object {$_ -cmatch '^[a-f0-9]{64} \*\./Test-Windows-PQ-Package\.ps1$'})
+ $verifier=Join-Path $root 'Test-Windows-PQ-Package.ps1'
+ if($line.Count -ne 1 -or (Get-FileHash -LiteralPath $verifier -Algorithm SHA256).Hash -ine $line[0].Substring(0,64)){throw 'Vérificateur non reconnu'}
+ & $verifier -PackageDirectory $root -ExpectedManifestSha256 $ExpectedManifestSha256 | Out-Null
+ if((Get-FileHash -LiteralPath $vault -Algorithm SHA256).Hash -ine $TrustedBinarySha256){throw 'Coffre non vérifié'}
+ $psi=New-Object Diagnostics.ProcessStartInfo
+ $psi.FileName=$vault;$psi.Arguments=('{0} "{1}"' -f $op,$dir);$psi.WorkingDirectory=(Join-Path $root 'bin')
+ $psi.UseShellExecute=$false;$psi.CreateNoWindow=$true
+ $psi.RedirectStandardInput=$true;$psi.RedirectStandardOutput=$true;$psi.RedirectStandardError=$true
+ $psi.EnvironmentVariables.Clear()
+ $psi.EnvironmentVariables['SystemRoot']=$env:SystemRoot
+ $psi.EnvironmentVariables['WINDIR']=$env:SystemRoot
+ $psi.EnvironmentVariables['PATH']=(Join-Path $root 'bin')+';'+(Join-Path $env:SystemRoot 'System32')
+ $child=[Diagnostics.Process]::Start($psi)
+ try{
+  $out=$child.StandardOutput.ReadToEndAsync();$err=$child.StandardError.ReadToEndAsync()
+  $bytes=[Text.Encoding]::UTF8.GetBytes((@{path=$path;id=$id}|ConvertTo-Json -Compress))
+  if($bytes.Length -gt 4096){throw 'Sélection trop longue'}
+  $child.StandardInput.BaseStream.Write($bytes,0,$bytes.Length);$child.StandardInput.Close()
+  if(-not $child.WaitForExit(240000)){throw 'Opération interrompue'}
+  if($child.ExitCode -ne 0 -or $out.Result.Length -gt 16384){throw 'Accès refusé ou opération non confirmée'}
+  $r=$out.Result|ConvertFrom-Json
+  $expected=switch($mode){'list'{'listed'};'import'{'imported'};'export'{'exported'}}
+  if($r.labOnly -ne $true -or $r.status -cne $expected){throw 'Résultat non reconnu'}
+  return $r
+ }finally{if(-not $child.HasExited){$child.Kill()};$child.Dispose()}
+}
+function Start-DesktopDocument([string]$mode){
+ try{
+  if(-not $script:configuredEnrollment){throw 'Configurez vos accès de laboratoire dans Messagerie avant de déposer des documents.'}
+  switch($mode){
+   'import' {
+    $picker=New-Object Windows.Forms.OpenFileDialog
+    $picker.Title='Choisir un petit fichier de test (64 Kio maximum)'
+    $picker.CheckFileExists=$true
+    try{if($picker.ShowDialog($form) -ne 'OK'){return};$path=$picker.FileName}finally{$picker.Dispose()}
+    $null=Invoke-DesktopDocument 'import' $path
+    $script:desktopDocumentStatus.Text='Copie chiffrée enregistrée et relue. Le fichier original est conservé.'
+   }
+   'list' {
+    $r=Invoke-DesktopDocument 'list'
+    $script:desktopDocuments.Items.Clear();$script:desktopDocumentIDs=@()
+    foreach($d in @($r.documents)){
+     if($d.id -cnotmatch '^[a-f0-9]{32}$' -or $d.size -lt 1 -or $d.size -gt 65536){throw 'Inventaire invalide'}
+     $null=$script:desktopDocuments.Items.Add(('{0}  ({1} octets)' -f $d.name,$d.size))
+     $script:desktopDocumentIDs+= [string]$d.id
+    }
+    if($script:desktopDocumentIDs.Count -gt 0){$script:desktopDocuments.SelectedIndex=0}
+    $script:desktopDocumentStatus.Text=('{0} document(s) vérifié(s). Les secrets sont refermés.' -f $script:desktopDocumentIDs.Count)
+   }
+   'export' {
+    $i=$script:desktopDocuments.SelectedIndex
+    if($i -lt 0 -or $i -ge $script:desktopDocumentIDs.Count){throw 'Consultez et sélectionnez un document avant de le récupérer.'}
+    $id=$script:desktopDocumentIDs[$i]
+    $picker=New-Object Windows.Forms.FolderBrowserDialog
+    $picker.Description='Choisir où créer un nouveau dossier privé pour la copie déchiffrée'
+    try{if($picker.ShowDialog($form) -ne 'OK'){return};$path=$picker.SelectedPath}finally{$picker.Dispose()}
+    $null=Invoke-DesktopDocument 'export' $path $id
+    $script:desktopDocumentStatus.Text='Copie déchiffrée récupérée dans un dossier privé neuf. Le coffre conserve sa copie chiffrée.'
+   }
+  }
+ }catch{$script:desktopDocumentStatus.Text='Action non confirmée : accès, chemin ou limites du laboratoire. Aucun écrasement demandé.'}
+}
+
 function Show-DesktopPage([string]$name){
  if($name -notin $script:desktopPages){throw 'Page inconnue'}
  $script:desktopCurrent=$name
@@ -1040,8 +1120,17 @@ function Show-DesktopPage([string]$name){
   }
   'Coffre-fort' {
    $null=Desktop-Label $body 'Vos données et vos clés' 0 0 810 38 19 $true
-   $null=Desktop-Card $body 'Coffre d''identité' 'Vérification locale des deux protections cryptographiques. Les clés sont refermées après contrôle.' 'Vérifier mon coffre' 'open' 0 58 812 172
-   $null=Desktop-Card $body 'Documents personnels' 'Le stockage de documents et les sauvegardes de production ne sont pas raccordés à cette page.' '' '' 0 248 812 172
+   $null=Desktop-Card $body 'Coffre documentaire de test' 'Fichiers locaux chiffrés. Identité de laboratoire configurée requise. 32 documents de 64 Kio maximum.' '' '' 0 58 812 118
+   $panel=New-Object Windows.Forms.Panel
+   $panel.BackColor=$script:desktopColors.White;$panel.SetBounds(0,192,812,370);$body.Controls.Add($panel)
+   $null=Desktop-Button $panel 'Ajouter un document' 'doc-import' 20 18 250 42 $true
+   $null=Desktop-Button $panel 'Consulter mes documents' 'doc-list' 284 18 250 42 $false
+   $null=Desktop-Button $panel 'Récupérer la copie' 'doc-export' 548 18 244 42 $false
+   $script:desktopDocuments=New-Object Windows.Forms.ListBox
+   $script:desktopDocuments.SetBounds(20,78,772,170);$panel.Controls.Add($script:desktopDocuments)
+   $script:desktopDocumentIDs=@()
+   $script:desktopDocumentStatus=Desktop-Label $panel 'Coffre fermé. Consultez vos documents pour vérifier leur contenu.' 20 266 772 85 11
+   $null=Desktop-Button $body 'Vérifier mon coffre d''identité de test' 'open' 0 576 812 44 $false
   }
   'Protection' {
    $null=Desktop-Label $body 'Protection de votre appareil' 0 0 810 38 19 $true
