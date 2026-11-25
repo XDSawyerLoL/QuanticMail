@@ -13,6 +13,76 @@ $shell=Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 [System.Windows.Forms.Application]::EnableVisualStyles()
+# Local-only banner compositor: preserve the approved artwork, with a true
+# per-pixel feather and modest, bounded sharpening. No network or AI upscale.
+Add-Type -ReferencedAssemblies 'System.Drawing' -TypeDefinition @'
+using System;
+using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
+using System.IO;
+using System.Runtime.InteropServices;
+
+public static class QuanticBannerSurface {
+    static int Clamp(int n) { return Math.Max(0, Math.Min(255, n)); }
+    static byte Mix(double a, double b, double t) {
+        return (byte)Clamp((int)Math.Round(a + (b-a)*t));
+    }
+    public static Bitmap Render(byte[] source, int width, int height) {
+        if (width < 20 || height < 20 || width > 4096 || height > 1024)
+            throw new ArgumentOutOfRangeException("banner dimensions");
+        int artWidth = Math.Max(32, (int)Math.Round(width * .46));
+        int start = width-artWidth;
+        using (var stream = new MemoryStream(source, false))
+        using (var original = Image.FromStream(stream))
+        using (var art = new Bitmap(artWidth, height, PixelFormat.Format32bppArgb)) {
+            using (var g = Graphics.FromImage(art)) {
+                g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+                double scale = Math.Max((double)artWidth/original.Width, (double)height/original.Height);
+                int dw=(int)Math.Ceiling(original.Width*scale), dh=(int)Math.Ceiling(original.Height*scale);
+                g.DrawImage(original,new Rectangle(artWidth-dw,(height-dh)/2,dw,dh));
+            }
+            var ad = art.LockBits(new Rectangle(0,0,artWidth,height),ImageLockMode.ReadOnly,PixelFormat.Format32bppArgb);
+            byte[] pixels = new byte[ad.Stride*height];
+            try { Marshal.Copy(ad.Scan0,pixels,0,pixels.Length); } finally { art.UnlockBits(ad); }
+            int stride = ad.Stride;
+            var result = new Bitmap(width,height,PixelFormat.Format32bppArgb);
+            try {
+                var data=result.LockBits(new Rectangle(0,0,width,height),ImageLockMode.WriteOnly,PixelFormat.Format32bppArgb);
+                try {
+                    byte[] dest=new byte[data.Stride*height];
+                    for(int y=0;y<height;y++) {
+                        double shade=1.0-.12*(1.0-y/(double)(height-1));
+                        for(int x=0;x<width;x++) {
+                            double t=x/(double)(width-1);
+                            double b=54+53*t, green=30+36*t, red=10+13*t;
+                            int ax=x-start, p=y*data.Stride+x*4;
+                            if(ax>=0) {
+                                double u=Math.Min(1.0,ax/(double)Math.Max(1,artWidth*.8));
+                                double alpha=u*u*(3-2*u);
+                                int q=y*stride+ax*4;
+                                for(int c=0;c<3;c++) {
+                                    int v=pixels[q+c];
+                                    int avg=(pixels[y*stride+Math.Max(0,ax-1)*4+c]+pixels[y*stride+Math.Min(artWidth-1,ax+1)*4+c]+pixels[Math.Max(0,y-1)*stride+ax*4+c]+pixels[Math.Min(height-1,y+1)*stride+ax*4+c])/4;
+                                    int sharpened=Clamp(v+Math.Max(-9,Math.Min(9,(int)Math.Round((v-avg)*.35))));
+                                    double bg=c==0?b:c==1?green:red;
+                                    dest[p+c]=Mix(bg*shade,sharpened*shade,alpha);
+                                }
+                            } else {
+                                dest[p]=Mix(0,b,shade);dest[p+1]=Mix(0,green,shade);dest[p+2]=Mix(0,red,shade);
+                            }
+                            dest[p+3]=255;
+                        }
+                    }
+                    Marshal.Copy(dest,0,data.Scan0,dest.Length);
+                } finally { result.UnlockBits(data); }
+                return result;
+            } catch { result.Dispose(); throw; }
+        }
+    }
+}
+'@
 $actions=@(
  @{Id="ComposeDraft";Title="Rediger un message (sans terminal)";Hint="Choisir mon coffre et mon contact, ecrire puis conserver un brouillon prive. Aucun envoi automatique.";Scope=$false},
  @{Id="SealAndSend";Title="1. Rediger et envoyer (coffre natif)";Hint="Brouillon existant -> chiffrement PQ -> sauvegarde verifiee -> deux validations -> depot local. Test uniquement.";Input="draft";Output=$true;Scope=$true},
@@ -690,13 +760,14 @@ $run.Add_Click($script:desktopRunAction)
 
 # Unified Windows desktop: no browser, no synthetic balances, no security
 # claims from unverified metadata. Existing native actions remain unchanged.
+$script:desktopShadows=$true
 $script:desktopColors=@{
- Canvas=[Drawing.Color]::FromArgb(245,247,250)
+ Canvas=[Drawing.Color]::FromArgb(243,246,251)
  White=[Drawing.Color]::White
  Ink=[Drawing.Color]::FromArgb(17,33,55)
  Muted=[Drawing.Color]::FromArgb(87,105,126)
- Navy=[Drawing.Color]::FromArgb(14,35,58)
- Blue=[Drawing.Color]::FromArgb(12,102,192)
+ Navy=[Drawing.Color]::FromArgb(13,35,60)
+ Blue=[Drawing.Color]::FromArgb(8,84,179)
  Border=[Drawing.Color]::FromArgb(222,230,239)
 }
 function Desktop-Label($parent,[string]$text,[int]$x,[int]$y,[int]$w,[int]$h,[float]$size=10,[bool]$bold=$false){
@@ -705,7 +776,57 @@ function Desktop-Label($parent,[string]$text,[int]$x,[int]$y,[int]$w,[int]$h,[fl
  $style=if($bold){[Drawing.FontStyle]::Bold}else{[Drawing.FontStyle]::Regular}
  $c.Font=New-Object Drawing.Font('Segoe UI',([float]($size*1.3333)),$style,[Drawing.GraphicsUnit]::Pixel)
  $c.UseCompatibleTextRendering=$false
+ $c.AutoEllipsis=$true
  $c.SetBounds($x,$y,$w,$h);$parent.Controls.Add($c);return $c
+}
+function Set-DesktopButtonRegion($button){
+ if($button.Width -lt 12 -or $button.Height -lt 12){return}
+ $p=New-Object Drawing.Drawing2D.GraphicsPath
+ try{
+  $w=$button.Width;$h=$button.Height;$d=8
+  $p.AddArc(0,0,$d,$d,180,90);$p.AddArc($w-$d,0,$d,$d,270,90);$p.AddArc($w-$d,$h-$d,$d,$d,0,90);$p.AddArc(0,$h-$d,$d,$d,90,90);$p.CloseFigure()
+  $old=$button.Region;$button.Region=New-Object Drawing.Region($p);if($old){$old.Dispose()}
+ }finally{$p.Dispose()}
+}
+# Native Button retains its click, keyboard and accessibility behavior.
+# Paint a consistent rounded surface before any optional icon paint handlers.
+function Paint-DesktopButton($sender,$e){
+ $w=$sender.ClientSize.Width-1;$h=$sender.ClientSize.Height-1
+ if($w -lt 12 -or $h -lt 12){return}
+ $e.Graphics.SmoothingMode=[Drawing.Drawing2D.SmoothingMode]::AntiAlias
+ $path=New-Object Drawing.Drawing2D.GraphicsPath
+ $fill=$null;$pen=$null
+ try{
+  $d=8
+  $path.AddArc(0,0,$d,$d,180,90);$path.AddArc($w-$d,0,$d,$d,270,90)
+  $path.AddArc($w-$d,$h-$d,$d,$d,0,90);$path.AddArc(0,$h-$d,$d,$d,90,90);$path.CloseFigure()
+  $bg=$sender.BackColor
+  $hover=$sender.ClientRectangle.Contains($sender.PointToClient([Windows.Forms.Cursor]::Position))
+  if($sender.Enabled -and $hover){
+   $bg=if($sender.Capture -and [Windows.Forms.Control]::MouseButtons -eq [Windows.Forms.MouseButtons]::Left){$sender.FlatAppearance.MouseDownBackColor}else{$sender.FlatAppearance.MouseOverBackColor}
+  }
+  $fill=New-Object Drawing.SolidBrush($bg)
+  $e.Graphics.FillPath($fill,$path)
+  if($sender.Parent -eq $script:desktopSidebar -and $sender.Tag -ceq $script:desktopCurrent){
+   $indicator=New-Object Drawing.SolidBrush([Drawing.Color]::FromArgb(101,183,255))
+   try{$e.Graphics.FillRectangle($indicator,2,10,3,[Math]::Max(1,$h-19))}finally{$indicator.Dispose()}
+  }
+  if($sender.FlatAppearance.BorderSize -gt 0){
+   $border=if($sender.ForeColor -eq [Drawing.Color]::White){$bg}else{$sender.FlatAppearance.BorderColor}
+   $pen=New-Object Drawing.Pen($border,1)
+   $e.Graphics.DrawPath($pen,$path)
+  }
+  $flags=[Windows.Forms.TextFormatFlags]::VerticalCenter -bor [Windows.Forms.TextFormatFlags]::SingleLine -bor [Windows.Forms.TextFormatFlags]::EndEllipsis -bor [Windows.Forms.TextFormatFlags]::NoPrefix
+  if($sender.TextAlign -eq [Drawing.ContentAlignment]::MiddleLeft){$flags=$flags -bor [Windows.Forms.TextFormatFlags]::Left}else{$flags=$flags -bor [Windows.Forms.TextFormatFlags]::HorizontalCenter}
+  $left=[Math]::Max(4,$sender.Padding.Left);$right=[Math]::Max(4,$sender.Padding.Right)
+  $rect=New-Object Drawing.Rectangle($left,0,([Math]::Max(1,$w-$left-$right)),($h+1))
+  $ink=if($sender.Enabled){$sender.ForeColor}else{[Drawing.SystemColors]::GrayText}
+  [Windows.Forms.TextRenderer]::DrawText($e.Graphics,$sender.Text,$sender.Font,$rect,$ink,$flags)
+  if($sender.Focused -and $sender.Enabled){
+   $focus=New-Object Drawing.Rectangle(3,3,([Math]::Max(1,$w-6)),([Math]::Max(1,$h-6)))
+   [Windows.Forms.ControlPaint]::DrawFocusRectangle($e.Graphics,$focus,$ink,$bg)
+  }
+ }finally{if($pen){$pen.Dispose()};if($fill){$fill.Dispose()};$path.Dispose()}
 }
 function Desktop-Button($parent,[string]$text,[string]$tag,[int]$x,[int]$y,[int]$w,[int]$h,[bool]$primary=$false){
  $c=New-Object Windows.Forms.Button
@@ -716,8 +837,17 @@ function Desktop-Button($parent,[string]$text,[string]$tag,[int]$x,[int]$y,[int]
  $c.Font=New-Object Drawing.Font('Segoe UI',13,[Drawing.FontStyle]::Regular,[Drawing.GraphicsUnit]::Pixel)
  $c.UseVisualStyleBackColor=$false
  $c.FlatAppearance.MouseOverBackColor=if($primary){[Drawing.Color]::FromArgb(9,83,164)}else{[Drawing.Color]::FromArgb(238,244,251)}
- $c.FlatAppearance.MouseDownBackColor=[Drawing.Color]::FromArgb(215,231,249)
+ $c.FlatAppearance.MouseDownBackColor=if($primary){[Drawing.Color]::FromArgb(7,65,143)}else{[Drawing.Color]::FromArgb(215,231,249)}
  $c.SetBounds($x,$y,$w,$h);$c.Cursor=[Windows.Forms.Cursors]::Hand
+ $c.Add_SizeChanged({param($sender,$e) Set-DesktopButtonRegion $sender})
+ Set-DesktopButtonRegion $c
+ $c.Add_Paint({param($sender,$e) Paint-DesktopButton $sender $e})
+ $c.Add_MouseEnter({param($sender,$e) $sender.Invalidate()})
+ $c.Add_MouseLeave({param($sender,$e) $sender.Invalidate()})
+ $c.Add_MouseDown({param($sender,$e) $sender.Invalidate()})
+ $c.Add_MouseUp({param($sender,$e) $sender.Invalidate()})
+ $c.Add_GotFocus({param($sender,$e) $sender.Invalidate()})
+ $c.Add_LostFocus({param($sender,$e) $sender.Invalidate()})
  $c.Add_Click({param($sender,$e) Invoke-DesktopAction ([string]$sender.Tag)})
  $parent.Controls.Add($c);return $c
 }
@@ -758,18 +888,41 @@ function Set-DesktopRoundedCard($panel){
   }finally{$path.Dispose();$pen.Dispose()}
  })
 }
+# Shared icon tile: native glyph, consistent optical alignment and rounded background.
+function Set-DesktopIconTile($label,[int]$pixels){
+ $label.Font=New-Object Drawing.Font('Segoe MDL2 Assets',$pixels,[Drawing.FontStyle]::Regular,[Drawing.GraphicsUnit]::Pixel)
+ $label.TextAlign='MiddleCenter'
+ $label.ForeColor=$script:desktopColors.Blue
+ $label.BackColor=[Drawing.Color]::FromArgb(235,243,252)
+ $label.AccessibleRole=[Windows.Forms.AccessibleRole]::Graphic
+ $label.Add_SizeChanged({param($sender,$e) Set-DesktopButtonRegion $sender})
+ Set-DesktopButtonRegion $label
+}
 function Desktop-HomeCard($parent,[string]$title,[string]$description,[string]$button,[string]$tag,[int]$glyph,[int]$x,[int]$y){
  $panel=New-Object Windows.Forms.Panel
  $panel.BackColor=$script:desktopColors.White;Set-DesktopRoundedCard $panel
- $panel.SetBounds($x,$y,260,154);$parent.Controls.Add($panel)
- $icon=Desktop-Label $panel ([string][char]$glyph) 18 13 36 35 17
- $icon.Font=New-Object Drawing.Font('Segoe MDL2 Assets',23,[Drawing.FontStyle]::Regular,[Drawing.GraphicsUnit]::Pixel)
- $icon.TextAlign='MiddleCenter';$icon.BackColor=[Drawing.Color]::FromArgb(235,243,252);$icon.ForeColor=$script:desktopColors.Blue
- $null=Desktop-Label $panel $title 18 55 224 26 14 $true
- $desc=Desktop-Label $panel $description 18 82 224 38 9.5
+ $panel.SetBounds($x,$y,260,140);$parent.Controls.Add($panel)
+ $panel.Name='HomeServiceCard'
+ $icon=Desktop-Label $panel ([string][char]$glyph) 16 14 42 42 17
+ Set-DesktopIconTile $icon 23
+ $name=Desktop-Label $panel $title 68 15 180 39 12 $true
+ $name.TextAlign='MiddleLeft'
+ $name.Font=New-Object Drawing.Font('Segoe UI Semibold',16,[Drawing.FontStyle]::Regular,[Drawing.GraphicsUnit]::Pixel)
+ $desc=Desktop-Label $panel $description 17 64 226 36 10
  $desc.ForeColor=$script:desktopColors.Muted
- $action=Desktop-Button $panel ($button+'  '+[char]0x2192) $tag 12 123 236 26 $false
- $action.TextAlign='MiddleLeft';$action.ForeColor=$script:desktopColors.Blue;$action.FlatAppearance.BorderSize=0
+ $panel.Add_Paint({param($sender,$e)
+  $pen=New-Object Drawing.Pen($script:desktopColors.Border)
+  $accent=New-Object Drawing.SolidBrush([Drawing.Color]::FromArgb(44,116,189))
+  try{
+   $e.Graphics.DrawLine($pen,16,103,($sender.Width-16),103)
+   $e.Graphics.FillRectangle($accent,16,8,20,2)
+  }finally{$pen.Dispose();$accent.Dispose()}
+ })
+ $action=Desktop-Button $panel ($button+'  '+[char]0x2192) $tag 12 108 236 26 $false
+ $action.TextAlign='MiddleLeft';$action.ForeColor=$script:desktopColors.Blue;$action.FlatAppearance.BorderSize=0;$action.BackColor=$panel.BackColor
+ $action.Font=New-Object Drawing.Font('Segoe UI Semibold',13,[Drawing.FontStyle]::Regular,[Drawing.GraphicsUnit]::Pixel)
+ $action.Padding=New-Object Windows.Forms.Padding(4,0,4,0)
+ $action.FlatAppearance.MouseOverBackColor=[Drawing.Color]::FromArgb(232,242,255)
 }
 function Invoke-DesktopNativeAction([string]$id){
  $match=@($actions|Where-Object {$_.Id -ceq $id})
@@ -779,6 +932,48 @@ function Invoke-DesktopNativeAction([string]$id){
   if($script:shownActions[$i].Id -ceq $id){$choice.SelectedIndex=$i;& $script:desktopRunAction;return}
  }
  throw 'Action locale non trouvee'
+}
+# Cosmetic preference only. Never read identity, keys or security settings here.
+function Convert-DesktopShadowPreference($value){
+ if($value -is [int] -and $value -eq 0){return $false}
+ return $true
+}
+function Read-DesktopShadowPreference {
+ $key=$null
+ try{
+  $key=[Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Software\QuanticSillage\DesktopAppearance',$false)
+  if($key){return (Convert-DesktopShadowPreference ($key.GetValue('Shadows',$null)))}
+  return $true
+ }catch{return $true}
+ finally{if($key){$key.Dispose()}}
+}
+function Save-DesktopShadowPreference([bool]$enabled){
+ $key=$null
+ try{
+  $key=[Microsoft.Win32.Registry]::CurrentUser.CreateSubKey('Software\QuanticSillage\DesktopAppearance')
+  if(-not $key){return $false}
+  $key.SetValue('Shadows',[int]$enabled,[Microsoft.Win32.RegistryValueKind]::DWord)
+  return $true
+ }catch{return $false}
+ finally{if($key){$key.Dispose()}}
+}
+function Set-DesktopShadows([bool]$enabled){
+ $script:desktopShadows=$enabled
+ if(-not $SelfTest){$script:desktopAppearanceSaved=Save-DesktopShadowPreference $enabled}
+ if($script:desktopBody -and -not $script:desktopBody.IsDisposed){
+  foreach($section in $script:desktopBody.Controls){
+   foreach($control in $section.Controls){
+    if($control -is [Windows.Forms.Label] -and $control.Name -ceq 'AppearancePersistence'){
+     $control.Text=if($script:desktopAppearanceSaved){'Ombres des cartes · préférence locale enregistrée.'}else{'Ombres des cartes · préférence de session uniquement.'}
+    }
+    if($control -is [Windows.Forms.Button] -and $control.Tag -ceq 'appearance-shadows'){
+     $control.Text=if($enabled){'Désactiver'}else{'Activer'}
+     $control.AccessibleDescription=if($enabled){'Désactiver les ombres des cartes'}else{'Activer les ombres des cartes'}
+    }
+   }
+  }
+  $script:desktopBody.Invalidate()
+ }
 }
 function Invoke-DesktopAction([string]$tag){
  switch($tag){
@@ -801,6 +996,7 @@ function Invoke-DesktopAction([string]$tag){
   'refresh-protection' {Refresh-DesktopProtection;return}
   'sentinel-enable' {Set-DesktopSentinelProtection $true;return}
   'sentinel-disable' {Set-DesktopSentinelProtection $false;return}
+  'appearance-shadows' {Set-DesktopShadows (-not $script:desktopShadows);return}
   'advanced' {Show-DesktopPage 'Paramètres';$script:desktopAdvanced.Visible=$true;$script:desktopBody.Visible=$false;Update-DesktopLayout;return}
   default {Show-DesktopPage $tag}
  }
@@ -1034,16 +1230,28 @@ function Start-DesktopPayDemo {
 
 $script:desktopDocumentProcess=$null
 $script:desktopActiveAddress=$null
+function Set-DesktopEmptyState($label,[string]$message,[bool]$show){
+ if($label -and -not $label.IsDisposed){
+  $label.Text=$message
+  $label.Visible=$show
+  if($show){$label.BringToFront()}
+ }
+}
 function Close-DesktopDocumentSession {
  $p=$script:desktopDocumentProcess;$script:desktopDocumentProcess=$null;$script:desktopActiveAddress=$null
  if($p){try{$p.StandardInput.Close();if(-not $p.WaitForExit(2000)){$p.Kill()}}catch{}finally{$p.Dispose()}}
  if($script:desktopDocuments -and -not $script:desktopDocuments.IsDisposed){$script:desktopDocuments.Items.Clear()}
  $script:desktopDocumentIDs=@()
+ Set-DesktopEmptyState $script:desktopDocumentEmpty 'Inventaire verrouillé' $true
+ if($script:desktopStorageText -and -not $script:desktopStorageText.IsDisposed){$script:desktopStorageText.Text='Inventaire non ouvert'}
+ if($script:desktopStorageRing -and -not $script:desktopStorageRing.IsDisposed){$script:desktopStorageRing.Tag=-1;$script:desktopStorageRing.Invalidate()}
  if($script:desktopMailList -and -not $script:desktopMailList.IsDisposed){$script:desktopMailList.Items.Clear()}
  $script:desktopMailIDs=@()
+ Set-DesktopEmptyState $script:desktopMailEmpty 'Historique verrouillé' $true
  if($script:desktopMailBody -and -not $script:desktopMailBody.IsDisposed){$script:desktopMailBody.Clear()}
  if($script:desktopMailStatus -and -not $script:desktopMailStatus.IsDisposed){$script:desktopMailStatus.Text='Historique local verrouillé.'}
  if($script:desktopIdentityAddress -and -not $script:desktopIdentityAddress.IsDisposed){$script:desktopIdentityAddress.Text='Aucune identité locale ouverte.'}
+ if($script:desktopIdentitySummary -and -not $script:desktopIdentitySummary.IsDisposed){$script:desktopIdentitySummary.Text='Non vérifié'}
  if($script:desktopIdentityStatus -and -not $script:desktopIdentityStatus.IsDisposed){$script:desktopIdentityStatus.Text='Espace privé fermé · aucune certification officielle'}
  if($script:desktopDocumentStatus -and -not $script:desktopDocumentStatus.IsDisposed){$script:desktopDocumentStatus.Text='Coffre documentaire verrouillé.'}
  if($script:desktopSessionLabel -and -not $script:desktopSessionLabel.IsDisposed){$script:desktopSessionLabel.Text='Espace privé fermé'}
@@ -1100,6 +1308,7 @@ function Open-DesktopDocumentSession {
   if($r.labOnly -ne $true -or $r.status -cne 'document-session-ready' -or $r.address -cne $chosen.address -or $child.HasExited){throw 'Session non reconnue'}
   $script:desktopDocumentProcess=$child;$child=$null;$script:desktopActiveAddress=[string]$r.address
   if($script:desktopIdentityAddress -and -not $script:desktopIdentityAddress.IsDisposed){$script:desktopIdentityAddress.Text=$script:desktopActiveAddress}
+  if($script:desktopIdentitySummary -and -not $script:desktopIdentitySummary.IsDisposed){$script:desktopIdentitySummary.Text='Coffre ouvert'}
   if($script:desktopIdentityStatus -and -not $script:desktopIdentityStatus.IsDisposed){$script:desktopIdentityStatus.Text='Coffres locaux ouverts · aucune certification officielle'}
   $script:desktopSessionLabel.Text='Espace privé ouvert · 5 min max.'
   return $true
@@ -1142,14 +1351,20 @@ function Start-DesktopDocument([string]$mode){
     $script:desktopDocuments.Items.Clear();$script:desktopDocumentIDs=@()
     foreach($d in @($r.documents)){
      if($d.id -cnotmatch '^[a-f0-9]{32}$' -or $d.size -lt 1 -or $d.size -gt 8388608){throw 'Inventaire invalide'}
-     $null=$script:desktopDocuments.Items.Add(('{0}  ({1} octets)' -f $d.name,$d.size))
+     $item=New-Object Windows.Forms.ListViewItem([string]$d.name)
+     $null=$item.SubItems.Add(('{0:N1} Kio' -f ($d.size/1024.0)))
+     $null=$script:desktopDocuments.Items.Add($item)
      $script:desktopDocumentIDs+= [string]$d.id
     }
-    if($script:desktopDocumentIDs.Count -gt 0){$script:desktopDocuments.SelectedIndex=0}
+    Set-DesktopEmptyState $script:desktopDocumentEmpty 'Aucun document dans cet inventaire' ($script:desktopDocumentIDs.Count -eq 0)
+    if($script:desktopDocumentIDs.Count -gt 0){$script:desktopDocuments.Items[0].Selected=$true}
+    $sum=0;foreach($d in @($r.documents)){$sum+=[int64]$d.size}
+    $script:desktopStorageText.Text=('{0:N2} Mio / 256 Mio' -f ($sum/1048576.0))
+    $script:desktopStorageRing.Tag=[int][Math]::Min(100,[Math]::Ceiling($sum/268435456.0*100));$script:desktopStorageRing.Invalidate()
     $script:desktopDocumentStatus.Text=('{0} document(s) vérifié(s). Session documentaire temporaire.' -f $script:desktopDocumentIDs.Count)
    }
    'export' {
-    $i=$script:desktopDocuments.SelectedIndex
+    $i=if($script:desktopDocuments.SelectedIndices.Count -eq 1){$script:desktopDocuments.SelectedIndices[0]}else{-1}
     if($i -lt 0 -or $i -ge $script:desktopDocumentIDs.Count){throw 'Consultez et sélectionnez un document avant de le récupérer.'}
     $id=$script:desktopDocumentIDs[$i]
     $picker=New-Object Windows.Forms.FolderBrowserDialog
@@ -1159,7 +1374,10 @@ function Start-DesktopDocument([string]$mode){
     $script:desktopDocumentStatus.Text='Copie déchiffrée récupérée dans un dossier privé neuf. Le coffre conserve sa copie chiffrée.'
    }
   }
- }catch{$script:desktopDocumentStatus.Text='Action non confirmée : accès, chemin ou limites du laboratoire. Aucun écrasement demandé.'}
+ }catch{
+  if($mode -eq 'list'){Close-DesktopDocumentSession;Set-DesktopEmptyState $script:desktopDocumentEmpty 'Inventaire non confirmé' $true}
+  $script:desktopDocumentStatus.Text='Action non confirmée : accès, chemin ou limites du laboratoire. Aucun écrasement demandé.'
+ }
 }
 
 function Start-DesktopReceipt([string]$mode){
@@ -1170,15 +1388,17 @@ function Start-DesktopReceipt([string]$mode){
    foreach($m in @($r.messages)){
     if($m.id -cnotmatch '^[a-f0-9]{32}$' -or ([string]$m.subject).Length -gt 240 -or $script:desktopMailIDs.Count -ge 64){throw 'Historique invalide'}
     $subject=if([string]::IsNullOrWhiteSpace([string]$m.subject)){'(Sans objet)'}else{[string]$m.subject}
-    $null=$script:desktopMailList.Items.Add($subject);$script:desktopMailIDs+=[string]$m.id
+    $item=New-Object Windows.Forms.ListViewItem($subject)
+    $null=$item.SubItems.Add('Authentifié');$null=$script:desktopMailList.Items.Add($item);$script:desktopMailIDs+=[string]$m.id
    }
+   Set-DesktopEmptyState $script:desktopMailEmpty 'Aucun reçu local authentifié' ($script:desktopMailIDs.Count -eq 0)
    $status=('{0} reçu(s) local(aux) authentifié(s).' -f $script:desktopMailIDs.Count)
    if($r.unverified -gt 0){$status+=(' {0} non vérifié(s).' -f $r.unverified)}
    if($r.truncated -eq $true){$status+=' Liste limitée à 64.'}
    $script:desktopMailStatus.Text=$status
   }elseif($mode -eq 'open'){
    if(-not $script:desktopDocumentProcess -or $script:desktopDocumentProcess.HasExited){Close-DesktopDocumentSession;return}
-   $i=$script:desktopMailList.SelectedIndex
+   $i=if($script:desktopMailList.SelectedIndices.Count -eq 1){$script:desktopMailList.SelectedIndices[0]}else{-1}
    if($i -lt 0 -or $i -ge $script:desktopMailIDs.Count){return}
    $id=$script:desktopMailIDs[$i];$r=Invoke-DesktopDocument 'mail-open' '' $id
    if($r.message.id -cne $id -or ([string]$r.message.body).Length -gt 8192){throw 'Reçu non reconnu'}
@@ -1186,14 +1406,43 @@ function Start-DesktopReceipt([string]$mode){
   }
  }catch{
   Close-DesktopDocumentSession
+  Set-DesktopEmptyState $script:desktopMailEmpty 'Historique non confirmé' $true
   $script:desktopMailStatus.Text='Historique non confirmé. Aucun message envoyé ou acquitté.'
  }
+}
+
+function Desktop-Section($parent,[int]$x,[int]$y,[int]$w,[int]$h){
+ $p=New-Object Windows.Forms.Panel
+ $p.BackColor=$script:desktopColors.White
+ Set-DesktopRoundedCard $p;$p.SetBounds($x,$y,$w,$h);$parent.Controls.Add($p)
+ return $p
+}
+function Desktop-SettingRow($parent,[string]$title,[string]$detail,[int]$glyph,[int]$y,[string]$action='',[string]$tag=''){
+ $p=Desktop-Section $parent 0 $y 812 68
+ $i=Desktop-Label $p ([string][char]$glyph) 14 13 39 39 17
+ Set-DesktopIconTile $i 22
+ $null=Desktop-Label $p $title 66 9 515 25 12 $true
+ $d=Desktop-Label $p $detail 66 35 515 27 10
+ $d.ForeColor=$script:desktopColors.Muted
+ if($tag -ceq 'appearance-shadows'){$d.Name='AppearancePersistence'}
+ if($action){$b=Desktop-Button $p ($action+'  '+[char]0x203A) $tag 608 17 186 34 $false;$b.FlatAppearance.BorderSize=0;$b.ForeColor=$script:desktopColors.Blue}
+}
+
+function Desktop-IdentityAction($parent,[string]$title,[string]$detail,[int]$glyph,[string]$tag,[int]$y){
+ $p=Desktop-Section $parent 516 $y 296 56
+ $i=Desktop-Label $p ([string][char]$glyph) 9 10 36 36 16
+ Set-DesktopIconTile $i 21
+ $button=Desktop-Button $p $title $tag 51 3 235 26 $false
+ $button.TextAlign='MiddleLeft';$button.FlatAppearance.BorderSize=0;$button.ForeColor=$script:desktopColors.Ink
+ $d=Desktop-Label $p $detail 57 32 224 20 9
+ $d.ForeColor=$script:desktopColors.Muted
 }
 function Show-DesktopPage([string]$name){
  if($name -notin $script:desktopPages){throw 'Page inconnue'}
  $script:desktopCurrent=$name
  foreach($b in $script:desktopNav){
-  $b.BackColor=if($b.Tag -eq $name){[Drawing.Color]::FromArgb(28,66,105)}else{$script:desktopColors.Navy}
+  $b.BackColor=if($b.Tag -eq $name){[Drawing.Color]::FromArgb(15,76,139)}else{$script:desktopColors.Navy}
+  $b.Invalidate()
  }
  $script:desktopAdvanced.Visible=$false
  $script:desktopBody.Visible=$true
@@ -1205,39 +1454,57 @@ function Show-DesktopPage([string]$name){
  switch($name){
   'Accueil' {
    $hero=New-Object Windows.Forms.Panel
-   $hero.BackColor=$script:desktopColors.Navy;Set-DesktopRoundedCard $hero;$hero.SetBounds(0,0,812,118);$body.Controls.Add($hero)
+   $hello=Desktop-Label $body 'Bienvenue dans Quantic Sillage' 0 0 812 36 18 $true
+   $subtitle=Desktop-Label $body 'Votre espace numérique unifié · Édition de laboratoire.' 0 39 812 24 10
+   $subtitle.ForeColor=$script:desktopColors.Muted
+   $hero.BackColor=[Drawing.Color]::FromArgb(14,43,76);Set-DesktopRoundedCard $hero;$hero.SetBounds(0,75,812,154);$body.Controls.Add($hero)
    $hero.Add_Paint({param($sender,$e)
-    $rect=New-Object Drawing.Rectangle(0,0,$sender.Width,$sender.Height)
-    $gradient=New-Object Drawing.Drawing2D.LinearGradientBrush($rect,[Drawing.Color]::FromArgb(10,29,51),[Drawing.Color]::FromArgb(17,68,111),0)
-    try{$e.Graphics.FillRectangle($gradient,$rect)}finally{$gradient.Dispose()}
-    $e.Graphics.SmoothingMode=[Drawing.Drawing2D.SmoothingMode]::AntiAlias
-    $pen=New-Object Drawing.Pen([Drawing.Color]::FromArgb(45,100,148),1)
-    try{foreach($r in @(90,130,170)){$e.Graphics.DrawEllipse($pen,($sender.Width-40-$r),(-30-$r/2),($r*2),($r*2))}}finally{$pen.Dispose()}
+    $width=$sender.ClientSize.Width;$height=$sender.ClientSize.Height
+    if($width -lt 20 -or $height -lt 20){return}
+    if(-not ($sender.Tag -is [Drawing.Bitmap]) -or $sender.Tag.Width -ne $width -or $sender.Tag.Height -ne $height){
+     $next=[QuanticBannerSurface]::Render([Convert]::FromBase64String('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'),$width,$height)
+     $old=$sender.Tag;$sender.Tag=$next
+     if($old -is [Drawing.Bitmap]){$old.Dispose()}
+    }
+    $e.Graphics.DrawImageUnscaled($sender.Tag,0,0)
    })
-   $kicker=Desktop-Label $hero 'VOTRE ESPACE NUMÉRIQUE' 22 16 500 22 9 $true
-   $kicker.BackColor=[Drawing.Color]::Transparent;$kicker.ForeColor=[Drawing.Color]::FromArgb(173,202,232)
-   $headline=Desktop-Label $hero 'Bienvenue dans Quantic Sillage' 22 42 740 34 21 $true
+   $hero.Add_Disposed({param($sender,$e) if($sender.Tag -is [Drawing.Bitmap]){$sender.Tag.Dispose();$sender.Tag=$null}})
+   $headline=Desktop-Label $hero ('Votre identité, vos échanges,'+[Environment]::NewLine+'vos paiements et vos données,') 30 19 430 68 17 $true
    $headline.BackColor=[Drawing.Color]::Transparent;$headline.ForeColor=[Drawing.Color]::White
-   $detail=Desktop-Label $hero 'Votre identité, vos échanges et vos données, au même endroit.' 24 81 740 25 10
+   $detail=Desktop-Label $hero 'dans un espace numérique sous votre contrôle.' 31 94 440 42 10.5
    $detail.BackColor=[Drawing.Color]::Transparent;$detail.ForeColor=[Drawing.Color]::FromArgb(212,226,241)
-   $null=Desktop-Label $body 'Vos services' 0 134 812 30 16 $true
-   Desktop-HomeCard $body 'Identité' 'Votre identité numérique locale.' 'Mon identité' 'Identité' 0xE77B 0 178
-   Desktop-HomeCard $body 'Messagerie' 'Vos échanges et vos contacts.' 'Mes messages' 'Messagerie' 0xE715 276 178
-   Desktop-HomeCard $body 'Paiements' 'Simulation sans valeur monétaire.' 'Mes paiements' 'Paiements' 0xE8C7 552 178
-   Desktop-HomeCard $body 'Coffre-fort' 'Vos documents chiffrés de test.' 'Mon coffre' 'Coffre-fort' 0xE72E 0 348
-   Desktop-HomeCard $body 'Protection' 'Surveillance locale des sauvegardes.' 'Ma protection' 'Protection' 0xEA18 276 348
-   Desktop-HomeCard $body 'Mon espace' 'Préférences et informations.' 'Mes paramètres' 'Paramètres' 0xE713 552 348
+   Desktop-HomeCard $body 'Identité' 'Votre identité numérique locale.' 'Mon identité' 'Identité' 0xE77B 0 245
+   Desktop-HomeCard $body 'Messagerie' 'Vos échanges et vos contacts.' 'Mes messages' 'Messagerie' 0xE715 276 245
+   Desktop-HomeCard $body 'Paiements' 'Simulation sans argent réel.' 'Mes paiements' 'Paiements' 0xE8C7 552 245
+   Desktop-HomeCard $body 'Coffre-fort' 'Vos documents chiffrés de test.' 'Mon coffre' 'Coffre-fort' 0xE72E 0 399
+   Desktop-HomeCard $body 'Protection' 'Surveillance des sauvegardes.' 'Ma protection' 'Protection' 0xEA18 276 399
+   Desktop-HomeCard $body 'État de l''espace' 'Consulter les signaux locaux.' 'Voir la protection' 'Protection' 0xE9D9 552 399
   }
   'Identité' {
    $null=Desktop-Label $body 'Identité numérique' 0 0 810 36 19 $true
    $lead=Desktop-Label $body 'Créez ou vérifiez votre identité de laboratoire.' 0 40 810 30 10
    $lead.ForeColor=$script:desktopColors.Muted
    $idCard=New-Object Windows.Forms.Panel
-   $idCard.BackColor=[Drawing.Color]::FromArgb(231,241,251);Set-DesktopRoundedCard $idCard
+   $idCard.BackColor=[Drawing.Color]::FromArgb(224,237,252);Set-DesktopRoundedCard $idCard
+   $idCard.Add_Paint({param($sender,$e)
+    if($sender.Width -lt 20 -or $sender.Height -lt 20){return}
+    $r=New-Object Drawing.Rectangle(0,0,$sender.Width,$sender.Height)
+    $g=New-Object Drawing.Drawing2D.LinearGradientBrush($r,[Drawing.Color]::FromArgb(242,248,255),[Drawing.Color]::FromArgb(188,216,247),35)
+    $pen=New-Object Drawing.Pen([Drawing.Color]::FromArgb(38,68,126,193),1)
+    try{
+     $e.Graphics.FillRectangle($g,$r)
+     $e.Graphics.SmoothingMode=[Drawing.Drawing2D.SmoothingMode]::AntiAlias
+     foreach($n in @(0,1,2,3,4,5,6)){
+      $radius=90+($n*22)
+      $e.Graphics.DrawEllipse($pen,($sender.Width-55-$radius),(-45-$radius),($radius*2),($radius*2))
+     }
+     $e.Graphics.DrawLine($pen,24,193,($sender.Width-24),193)
+    }finally{$pen.Dispose();$g.Dispose()}
+   })
    $idCard.SetBounds(0,88,500,248);$body.Controls.Add($idCard)
    $mark=Desktop-Label $idCard ([string][char]0xE77B) 24 85 88 88 19
-   $mark.Font=New-Object Drawing.Font('Segoe MDL2 Assets',56,[Drawing.FontStyle]::Regular,[Drawing.GraphicsUnit]::Pixel)
-   $mark.TextAlign='MiddleCenter';$mark.BackColor=[Drawing.Color]::FromArgb(214,230,248);$mark.ForeColor=$script:desktopColors.Blue
+   Set-DesktopIconTile $mark 48
+   $mark.BackColor=[Drawing.Color]::FromArgb(214,230,248)
    $null=Desktop-Label $idCard 'Quantic Sillage' 24 19 446 26 14 $true
    $null=Desktop-Label $idCard 'IDENTITÉ NUMÉRIQUE DE LABORATOIRE' 24 49 446 25 9
    $null=Desktop-Label $idCard 'Mon identité locale' 130 87 342 31 16 $true
@@ -1247,106 +1514,198 @@ function Show-DesktopPage([string]$name){
    $status=if($script:desktopActiveAddress){'Coffres locaux ouverts · aucune certification officielle'}else{'Espace privé fermé · aucune certification officielle'}
    $script:desktopIdentityStatus=Desktop-Label $idCard $status 24 204 446 27 9
    $script:desktopIdentityStatus.ForeColor=$script:desktopColors.Muted
-   $actionPanel=New-Object Windows.Forms.Panel;$actionPanel.BackColor=$script:desktopColors.White
-   Set-DesktopRoundedCard $actionPanel;$actionPanel.SetBounds(516,88,296,248);$body.Controls.Add($actionPanel)
-   $null=Desktop-Label $actionPanel 'Actions' 17 17 262 29 14 $true
-   $null=Desktop-Button $actionPanel 'Ouvrir mon espace' 'session-open' 17 59 262 39 $true
-   $null=Desktop-Button $actionPanel 'Créer une identité' 'create' 17 109 262 39 $false
-   $null=Desktop-Button $actionPanel 'Préparer mon inscription' 'enroll' 17 159 262 39 $false
-   $null=Desktop-Card $body 'Preuve de possession' 'Répondre au défi signé fourni par votre opérateur indépendant.' 'Prouver mon identité' 'proof' 0 352 812 148
+   foreach($control in $idCard.Controls){if($control -is [Windows.Forms.Label] -and $control -ne $mark){$control.BackColor=[Drawing.Color]::Transparent}}
+   Desktop-IdentityAction $body 'Ouvrir mon espace' 'Accéder au coffre local' 0xE72E 'session-open' 88
+   Desktop-IdentityAction $body 'Créer une identité' 'Créer un coffre de test' 0xE77B 'create' 152
+   Desktop-IdentityAction $body 'Preuve de possession' 'Répondre au défi signé' 0xE8FB 'proof' 216
+   Desktop-IdentityAction $body 'Inscription' 'Préparer une inscription' 0xE8A5 'enroll' 280
+   $summary=Desktop-Section $body 0 362 812 110
+   $null=Desktop-Label $summary 'Statut' 20 15 236 22 10 $true
+   $script:desktopIdentitySummary=Desktop-Label $summary $(if($script:desktopActiveAddress){'Coffre ouvert'}else{'Non vérifié'}) 20 45 236 38 12 $true
+   $null=Desktop-Label $summary 'Niveau de confiance' 284 15 238 22 10 $true
+   $null=Desktop-Label $summary 'Non certifié' 284 45 238 38 12
+   $null=Desktop-Label $summary 'Validité officielle' 548 15 245 22 10 $true
+   $null=Desktop-Label $summary 'Non attribuée' 548 45 245 38 12
+   foreach($x in @(267,531)){$sep=New-Object Windows.Forms.Panel;$sep.BackColor=$script:desktopColors.Border;$sep.SetBounds($x,17,1,76);$summary.Controls.Add($sep)}
   }
   'Messagerie' {
-   $null=Desktop-Label $body 'Messagerie sécurisée' 0 0 500 37 19 $true
-   $lead=Desktop-Label $body 'Vos échanges privés, depuis votre espace local.' 0 43 800 28 10
+   $null=Desktop-Label $body 'Messagerie sécurisée' 0 0 565 35 19 $true
+   $lead=Desktop-Label $body 'Communiquez avec vos contacts, depuis votre espace local.' 0 40 812 26 10
    $lead.ForeColor=$script:desktopColors.Muted
-   $null=Desktop-Button $body '+ Nouveau message' 'compose' 574 0 238 41 $true
-   $nav=New-Object Windows.Forms.Panel;$nav.BackColor=$script:desktopColors.White
-   Set-DesktopRoundedCard $nav;$nav.SetBounds(0,90,230,390);$body.Controls.Add($nav)
-   $null=Desktop-Label $nav 'Messagerie' 16 18 198 28 12 $true
-   $null=Desktop-Button $nav 'Nouveau message' 'compose' 13 62 204 38 $false
-   $null=Desktop-Button $nav 'Contacts' 'contacts' 13 108 204 38 $false
-   $null=Desktop-Button $nav 'Recevoir / envoyer' 'compose' 13 304 204 38 $false
-   $null=Desktop-Label $nav 'Configuration' 16 174 198 28 12 $true
-   $null=Desktop-Button $nav 'Configurer mes accès' 'activation' 13 214 204 38 $false
-   $null=Desktop-Button $nav 'Préparer mes accès' 'credential' 13 260 204 38 $false
-   $mail=New-Object Windows.Forms.Panel;$mail.BackColor=$script:desktopColors.White
-   Set-DesktopRoundedCard $mail;$mail.SetBounds(246,90,566,390);$body.Controls.Add($mail)
-   $null=Desktop-Label $mail 'Boîte de réception' 22 20 522 32 15 $true
-   $rule=New-Object Windows.Forms.Panel;$rule.BackColor=$script:desktopColors.Border;$rule.SetBounds(20,62,526,1);$mail.Controls.Add($rule)
-   $null=Desktop-Button $mail 'Actualiser mes reçus' 'mail-list' 22 78 255 36 $true
-   $null=Desktop-Button $mail 'Lire le message' 'mail-open' 289 78 255 36 $false
-   $script:desktopMailList=New-Object Windows.Forms.ListBox
+   $null=Desktop-Button $body '+ Nouveau message' 'compose' 584 0 228 35 $true
+   $nav=Desktop-Section $body 0 81 210 422
+   $null=Desktop-Label $nav 'Messagerie' 15 13 180 24 11 $true
+   $inbox=Desktop-Button $nav 'Boîte de réception' 'mail-list' 8 43 194 34 $false
+   $inbox.BackColor=[Drawing.Color]::FromArgb(230,240,253);$inbox.ForeColor=$script:desktopColors.Blue;$inbox.FlatAppearance.BorderSize=0
+   foreach($folder in @(@('Envoyés',84),@('Brouillons',121),@('Archives',158),@('Indésirables',195))){
+    $inactive=Desktop-Label $nav $folder[0] 20 $folder[1] 170 30 10
+    $inactive.ForeColor=$script:desktopColors.Muted;$inactive.Text=$folder[0]+' (inactif)';$inactive.AccessibleDescription='Dossier non raccordé dans cette édition';$inactive.Font=New-Object Drawing.Font('Segoe UI',11,[Drawing.FontStyle]::Regular,[Drawing.GraphicsUnit]::Pixel)
+   }
+   $rule=New-Object Windows.Forms.Panel;$rule.BackColor=$script:desktopColors.Border;$rule.SetBounds(14,231,182,1);$nav.Controls.Add($rule)
+   $null=Desktop-Label $nav 'Contacts et accès' 15 244 180 24 11 $true
+   $null=Desktop-Button $nav 'Contacts' 'contacts' 9 276 192 32 $false
+   $null=Desktop-Button $nav 'Configurer' 'activation' 9 315 192 32 $false
+   $null=Desktop-Button $nav 'Préparer mes accès' 'credential' 9 354 192 32 $false
+   $mail=Desktop-Section $body 224 81 588 422
+   $null=Desktop-Label $mail 'Boîte de réception' 16 12 550 28 14 $true
+   $null=Desktop-Button $mail 'Actualiser mes reçus' 'mail-list' 16 49 271 32 $true
+   $null=Desktop-Button $mail 'Lire le message' 'mail-open' 301 49 271 32 $false
+   $script:desktopMailList=New-Object Windows.Forms.ListView
+   $script:desktopMailList.View='Details';$script:desktopMailList.FullRowSelect=$true;$script:desktopMailList.MultiSelect=$false
+   $script:desktopMailList.HeaderStyle='Nonclickable';$script:desktopMailList.BorderStyle='None';$script:desktopMailList.HideSelection=$false
    $script:desktopMailList.Font=New-Object Drawing.Font('Segoe UI',13,[Drawing.FontStyle]::Regular,[Drawing.GraphicsUnit]::Pixel)
-   $script:desktopMailList.SetBounds(22,126,522,94);$mail.Controls.Add($script:desktopMailList)
+   $script:desktopMailList.ForeColor=$script:desktopColors.Ink
+   $script:desktopMailList.SetBounds(16,124,556,122);$mail.Controls.Add($script:desktopMailList)
+   $null=$script:desktopMailList.Columns.Add('Objet',400);$null=$script:desktopMailList.Columns.Add('État local',140)
+   $script:desktopMailList.Add_DoubleClick({Start-DesktopReceipt 'open'})
+   $script:desktopMailEmpty=Desktop-Label $mail 'Actualisez vos reçus locaux pour les consulter.' 16 90 556 28 10
+   $script:desktopMailEmpty.TextAlign='MiddleLeft';$script:desktopMailEmpty.BackColor=[Drawing.Color]::FromArgb(238,245,253)
+   $script:desktopMailEmpty.ForeColor=$script:desktopColors.Muted
+   $script:desktopMailEmpty.Padding=New-Object Windows.Forms.Padding(9,0,9,0)
+   Set-DesktopButtonRegion $script:desktopMailEmpty
+   $script:desktopMailEmpty.Add_SizeChanged({param($sender,$e) Set-DesktopButtonRegion $sender})
+   $script:desktopMailEmpty.BringToFront()
    $script:desktopMailIDs=@()
+   $divider=New-Object Windows.Forms.Panel;$divider.BackColor=$script:desktopColors.Border;$divider.SetBounds(16,253,556,1);$mail.Controls.Add($divider)
+   $null=Desktop-Label $mail 'Aperçu du message' 16 260 556 22 10 $true
    $script:desktopMailBody=New-Object Windows.Forms.TextBox
-   $script:desktopMailBody.Multiline=$true;$script:desktopMailBody.ReadOnly=$true
+   $script:desktopMailBody.Multiline=$true;$script:desktopMailBody.ReadOnly=$true;$script:desktopMailBody.BorderStyle='None'
    $script:desktopMailBody.ScrollBars='Vertical';$script:desktopMailBody.BackColor=$script:desktopColors.White
    $script:desktopMailBody.Font=New-Object Drawing.Font('Segoe UI',13,[Drawing.FontStyle]::Regular,[Drawing.GraphicsUnit]::Pixel)
-   $script:desktopMailBody.SetBounds(22,232,522,103);$mail.Controls.Add($script:desktopMailBody)
-   $script:desktopMailStatus=Desktop-Label $mail 'Reçus locaux uniquement · aucune preuve de livraison distante.' 22 347 522 36 9
+   $preview=New-Object Windows.Forms.Panel
+   $preview.BackColor=[Drawing.Color]::FromArgb(243,247,252)
+   Set-DesktopRoundedCard $preview
+   $preview.SetBounds(16,285,556,89);$mail.Controls.Add($preview)
+   $script:desktopMailBody.BackColor=$preview.BackColor
+   $script:desktopMailBody.SetBounds(10,9,536,71);$preview.Controls.Add($script:desktopMailBody)
+   $script:desktopMailStatus=Desktop-Label $mail 'Reçus locaux uniquement · aucune preuve de livraison distante.' 16 383 556 30 9
    $script:desktopMailStatus.ForeColor=$script:desktopColors.Muted
-
   }
   'Paiements' {
-   $null=Desktop-Label $body 'Votre portefeuille' 0 0 810 38 19 $true
-   $null=Desktop-Card $body 'Paiements réels indisponibles' 'Aucun compte financier actif. Le formulaire ci-dessous est une simulation locale, sans valeur monétaire.' '' '' 0 58 812 118
-   $panel=New-Object Windows.Forms.Panel
-   $panel.BackColor=$script:desktopColors.White;$panel.SetBounds(0,192,812,390);$body.Controls.Add($panel)
-   $null=Desktop-Label $panel 'Essayer un paiement fictif' 20 18 770 34 15 $true
-   $null=Desktop-Label $panel 'Chaque essai commence avec 100 unités fictives. Aucun historique permanent.' 20 56 770 40 10
-   $null=Desktop-Label $panel 'Destinataire de test' 20 102 330 24 10
+   $lead=Desktop-Label $body 'Payer et recevoir · simulation de laboratoire sans argent réel.' 0 0 812 30 10
+   $lead.ForeColor=$script:desktopColors.Muted
+   $wallet=Desktop-Section $body 0 44 396 236
+   $wallet.BackColor=[Drawing.Color]::FromArgb(241,247,254)
+   $wallet.Add_Paint({param($sender,$e)
+    if($sender.Width -lt 20 -or $sender.Height -lt 20){return}
+    $r=New-Object Drawing.Rectangle(0,0,$sender.Width,$sender.Height)
+    $g=New-Object Drawing.Drawing2D.LinearGradientBrush($r,[Drawing.Color]::FromArgb(249,252,255),[Drawing.Color]::FromArgb(219,234,251),45)
+    $pen=New-Object Drawing.Pen([Drawing.Color]::FromArgb(185,209,238))
+    try{$e.Graphics.FillRectangle($g,$r);$e.Graphics.DrawLine($pen,18,139,($sender.Width-18),139)}finally{$pen.Dispose();$g.Dispose()}
+   })
+   $null=Desktop-Label $wallet 'Solde du portefeuille' 18 16 358 27 12 $true
+   $null=Desktop-Label $wallet 'Non disponible' 18 50 358 43 23 $true
+   $d=Desktop-Label $wallet 'Aucun compte financier actif' 18 100 358 28 10
+   $d.ForeColor=$script:desktopColors.Muted
+   $null=Desktop-Label $wallet 'SIMULATION LOCALE' 18 151 358 25 10 $true
+   $null=Desktop-Label $wallet '100 unités fictives au début de chaque essai.' 18 181 358 39 10
+   foreach($control in $wallet.Controls){if($control -is [Windows.Forms.Label]){$control.BackColor=[Drawing.Color]::Transparent}}
+   $panel=Desktop-Section $body 412 44 400 236
+   $null=Desktop-Label $panel 'Effectuer un paiement fictif' 18 12 364 28 14 $true
+   $null=Desktop-Label $panel 'Destinataire' 18 44 364 20 9
    $script:desktopPayee=New-Object Windows.Forms.ComboBox
-   $script:desktopPayee.DropDownStyle='DropDownList';$script:desktopPayee.SetBounds(20,127,365,32)
+   $script:desktopPayee.FlatStyle='Flat';$script:desktopPayee.Font=$form.Font;$script:desktopPayee.DropDownStyle='DropDownList';$script:desktopPayee.SetBounds(18,66,364,28)
    $null=$script:desktopPayee.Items.Add('Particulier de démonstration');$null=$script:desktopPayee.Items.Add('Commerce de démonstration')
    $script:desktopPayee.SelectedIndex=0;$panel.Controls.Add($script:desktopPayee)
-   $null=Desktop-Label $panel 'Montant fictif' 413 102 350 24 10
+   $null=Desktop-Label $panel 'Montant fictif' 18 103 174 22 9
    $script:desktopPayAmount=New-Object Windows.Forms.TextBox
-   $script:desktopPayAmount.SetBounds(413,127,365,32);$script:desktopPayAmount.MaxLength=6;$panel.Controls.Add($script:desktopPayAmount)
-   $null=Desktop-Label $panel 'Témoins simulés disponibles' 20 177 365 24 10
+   $script:desktopPayAmount.BorderStyle='FixedSingle';$script:desktopPayAmount.Font=$form.Font;$script:desktopPayAmount.SetBounds(18,127,174,28);$script:desktopPayAmount.MaxLength=6;$panel.Controls.Add($script:desktopPayAmount)
+   $null=Desktop-Label $panel 'Témoins disponibles' 206 103 176 22 9
    $script:desktopPayWitnesses=New-Object Windows.Forms.ComboBox
-   $script:desktopPayWitnesses.DropDownStyle='DropDownList';$script:desktopPayWitnesses.SetBounds(20,202,365,32)
+   $script:desktopPayWitnesses.FlatStyle='Flat';$script:desktopPayWitnesses.Font=$form.Font;$script:desktopPayWitnesses.DropDownStyle='DropDownList';$script:desktopPayWitnesses.SetBounds(206,127,176,28)
    foreach($n in @('2 sur 4','3 sur 4','4 sur 4')){$null=$script:desktopPayWitnesses.Items.Add($n)}
    $script:desktopPayWitnesses.SelectedIndex=2;$panel.Controls.Add($script:desktopPayWitnesses)
-   $script:desktopPayButton=Desktop-Button $panel 'Simuler le paiement' 'pay-demo' 413 197 365 42 $true
-   $script:desktopPayResult=Desktop-Label $panel 'En attente de simulation.' 20 263 758 100 11
+   $script:desktopPayButton=Desktop-Button $panel 'Simuler le paiement' 'pay-demo' 18 178 364 38 $true
+   $null=Desktop-Label $body 'Historique des simulations' 0 299 812 32 15 $true
+   $history=Desktop-Section $body 0 339 812 144
+   $null=Desktop-Label $history 'Résultat du dernier essai' 18 13 776 25 11 $true
+   $script:desktopPayResult=Desktop-Label $history 'Aucune simulation effectuée dans cette page. Aucun historique bancaire réel.' 18 47 776 81 11
+   $script:desktopPayResult.ForeColor=$script:desktopColors.Muted
   }
   'Coffre-fort' {
-   $null=Desktop-Label $body 'Vos données et vos clés' 0 0 810 38 19 $true
-   $null=Desktop-Card $body 'Coffre documentaire de test' 'Fichiers locaux chiffrés. Identité locale de laboratoire requise. 32 documents de 8 Mio maximum.' '' '' 0 58 812 118
-   $panel=New-Object Windows.Forms.Panel
-   $panel.BackColor=$script:desktopColors.White;$panel.SetBounds(0,192,812,370);$body.Controls.Add($panel)
-   $null=Desktop-Button $panel 'Ajouter un document' 'doc-import' 20 18 250 42 $true
-   $null=Desktop-Button $panel 'Consulter mes documents' 'doc-list' 284 18 250 42 $false
-   $null=Desktop-Button $panel 'Récupérer la copie' 'doc-export' 548 18 244 42 $false
-   $script:desktopDocuments=New-Object Windows.Forms.ListBox
-   $script:desktopDocuments.SetBounds(20,78,772,170);$panel.Controls.Add($script:desktopDocuments)
+   $lead=Desktop-Label $body 'Vos documents de test, chiffrés et sous votre contrôle.' 0 0 812 30 10
+   $lead.ForeColor=$script:desktopColors.Muted
+   $storage=Desktop-Section $body 0 44 812 135
+   $script:desktopStorageRing=New-Object Windows.Forms.Panel
+   $script:desktopStorageRing.SetBounds(18,17,100,100);$script:desktopStorageRing.Tag=-1
+   $script:desktopStorageRing.Font=New-Object Drawing.Font('Segoe UI',19,[Drawing.FontStyle]::Bold,[Drawing.GraphicsUnit]::Pixel)
+   $script:desktopStorageRing.Add_SizeChanged({param($sender,$e) $sender.Invalidate()})
+   $storage.Controls.Add($script:desktopStorageRing)
+   $script:desktopStorageRing.Add_Paint({param($sender,$e)
+    $e.Graphics.SmoothingMode=[Drawing.Drawing2D.SmoothingMode]::AntiAlias
+    $diameter=[Math]::Min($sender.ClientSize.Width,$sender.ClientSize.Height)-20
+    if($diameter -lt 12){return}
+    $rect=New-Object Drawing.Rectangle(([int](($sender.ClientSize.Width-$diameter)/2)),([int](($sender.ClientSize.Height-$diameter)/2)),$diameter,$diameter)
+    $track=New-Object Drawing.Pen([Drawing.Color]::FromArgb(226,233,242),7)
+    $used=New-Object Drawing.Pen([Drawing.Color]::FromArgb(15,139,121),7)
+    try{
+     $e.Graphics.DrawEllipse($track,$rect)
+     if([int]$sender.Tag -gt 0){$e.Graphics.DrawArc($used,$rect,-90,[float]([Math]::Min(360,[int]$sender.Tag*3.6)))}
+     $value=if([int]$sender.Tag -lt 0){'—'}else{([string]$sender.Tag+'%')}
+     [Windows.Forms.TextRenderer]::DrawText($e.Graphics,$value,$sender.Font,$rect,$script:desktopColors.Ink,([Windows.Forms.TextFormatFlags]::HorizontalCenter -bor [Windows.Forms.TextFormatFlags]::VerticalCenter))
+    }finally{$track.Dispose();$used.Dispose()}
+   })
+   $null=Desktop-Label $storage 'Espace de stockage' 134 20 365 28 14 $true
+   $script:desktopStorageText=Desktop-Label $storage 'Inventaire non ouvert' 134 53 365 27 12
+   $null=Desktop-Label $storage 'Limite : 32 documents · 8 Mio par fichier' 134 83 365 32 9
+   $null=Desktop-Button $storage '+ Ajouter des fichiers' 'doc-import' 548 46 244 40 $true
+   $null=Desktop-Label $body 'Mes documents' 0 199 812 30 15 $true
+   $panel=Desktop-Section $body 0 238 812 265
+   $script:desktopDocuments=New-Object Windows.Forms.ListView
+   $script:desktopDocuments.View='Details';$script:desktopDocuments.FullRowSelect=$true;$script:desktopDocuments.MultiSelect=$false
+   $script:desktopDocuments.HeaderStyle='Nonclickable';$script:desktopDocuments.BorderStyle='None';$script:desktopDocuments.HideSelection=$false
+   $script:desktopDocuments.Font=New-Object Drawing.Font('Segoe UI',13,[Drawing.FontStyle]::Regular,[Drawing.GraphicsUnit]::Pixel)
+   $script:desktopDocuments.ForeColor=$script:desktopColors.Ink
+   $script:desktopDocuments.SetBounds(18,47,776,118);$panel.Controls.Add($script:desktopDocuments)
+   $null=$script:desktopDocuments.Columns.Add('Nom',500);$null=$script:desktopDocuments.Columns.Add('Taille',200)
+   $script:desktopDocumentEmpty=Desktop-Label $panel 'Actualisez votre inventaire local pour le consulter.' 18 12 776 28 10
+   $script:desktopDocumentEmpty.TextAlign='MiddleLeft';$script:desktopDocumentEmpty.BackColor=[Drawing.Color]::FromArgb(238,245,253)
+   $script:desktopDocumentEmpty.ForeColor=$script:desktopColors.Muted
+   $script:desktopDocumentEmpty.Padding=New-Object Windows.Forms.Padding(9,0,9,0)
+   Set-DesktopButtonRegion $script:desktopDocumentEmpty
+   $script:desktopDocumentEmpty.Add_SizeChanged({param($sender,$e) Set-DesktopButtonRegion $sender})
+   $script:desktopDocumentEmpty.BringToFront()
    $script:desktopDocumentIDs=@()
-   $script:desktopDocumentStatus=Desktop-Label $panel 'Coffre fermé. Consultez vos documents pour vérifier leur contenu.' 20 266 772 85 11
-   $null=Desktop-Button $body 'Vérifier mon coffre d''identité de test' 'open' 0 576 812 44 $false
+   $null=Desktop-Button $panel 'Actualiser' 'doc-list' 18 180 370 35 $false
+   $null=Desktop-Button $panel 'Récupérer la copie' 'doc-export' 404 180 390 35 $false
+   $script:desktopDocumentStatus=Desktop-Label $panel 'Coffre fermé. Ouvrez votre espace pour consulter les documents.' 18 224 776 32 9
   }
   'Protection' {
-   $null=Desktop-Label $body 'Protection de votre appareil' 0 0 810 38 19 $true
-   $panel=Desktop-Card $body 'État des sauvegardes' 'Lecture locale des signaux de Sentinel.' '' '' 0 58 812 224
-   $script:desktopProtectionTitle=Desktop-Label $panel 'État indéterminé' 20 91 766 32 17 $true
-   $script:desktopProtectionDetail=Desktop-Label $panel '' 20 128 766 40 10
-   $script:desktopProtectionTime=Desktop-Label $panel '' 20 181 420 24 10
-   $null=Desktop-Button $panel 'Actualiser' 'refresh-protection' 580 173 210 35 $false
-   $null=Desktop-Button $body 'Activer Sentinel' 'sentinel-enable' 0 300 396 46 $true
-   $null=Desktop-Button $body 'Désactiver Sentinel' 'sentinel-disable' 416 300 396 46 $false
-   $null=Desktop-Card $body 'Protection Windows' 'Sentinel ne remplace pas un antivirus. Aucun diagnostic complet de votre appareil n''est affirmé.' '' '' 0 366 812 150
+   $lead=Desktop-Label $body 'Sécurité, confidentialité et maîtrise de vos données.' 0 0 812 30 10
+   $lead.ForeColor=$script:desktopColors.Muted
+   $panel=Desktop-Section $body 0 38 812 134
+   $shield=Desktop-Label $panel ([string][char]0xEA18) 18 24 66 66 17
+   Set-DesktopIconTile $shield 34
+   $null=Desktop-Label $panel 'État des sauvegardes' 100 11 692 23 10 $true
+   $script:desktopProtectionTitle=Desktop-Label $panel 'État indéterminé' 100 38 692 30 16 $true
+   $script:desktopProtectionDetail=Desktop-Label $panel '' 100 73 692 33 10
+   $script:desktopProtectionTime=Desktop-Label $panel '' 100 108 500 23 9
+   $null=Desktop-Button $panel 'Actualiser' 'refresh-protection' 622 103 170 27 $false
+   Desktop-SettingRow $body 'Sécurité de l''appareil' 'Diagnostic antivirus complet non disponible.' 0xE83D 182
+   Desktop-SettingRow $body 'Confidentialité' 'Coffre documentaire local chiffré · édition de test.' 0xE72E 256 'Mon coffre' 'Coffre-fort'
+   Desktop-SettingRow $body 'Conformité européenne' 'Aucune certification officielle à ce stade.' 0xEA18 330
+   Desktop-SettingRow $body 'Protection des accès' 'Ouverture temporaire du coffre local par deux secrets.' 0xE72E 404 'Verrouiller' 'session-lock'
+   $null=Desktop-Button $body 'Activer Sentinel' 'sentinel-enable' 0 482 396 34 $true
+   $null=Desktop-Button $body 'Désactiver Sentinel' 'sentinel-disable' 416 482 396 34 $false
    Refresh-DesktopProtection
   }
   'Paramètres' {
-   $null=Desktop-Label $body 'Préférences et informations' 0 0 810 38 19 $true
-   $null=Desktop-Card $body 'À propos' 'Quantic Sillage Desktop — version Alpha privée. Aucune certification ou conformité officielle affirmée.' '' '' 0 58 812 172
-   $null=Desktop-Card $body 'Outils avancés' 'Opérations de laboratoire, diagnostics et simulations. Certaines actions ouvrent explicitement un terminal.' 'Ouvrir les outils avancés' 'advanced' 0 248 812 172
+   $lead=Desktop-Label $body 'Gérez votre espace local et vos préférences.' 0 0 812 36 10
+   $lead.ForeColor=$script:desktopColors.Muted
+   Desktop-SettingRow $body 'Mon compte' 'Identité locale et accès à votre espace privé.' 0xE77B 55 'Mon identité' 'Identité'
+   Desktop-SettingRow $body 'Apparence' $(if($script:desktopAppearanceSaved){'Ombres des cartes · préférence locale enregistrée.'}else{'Ombres des cartes · préférence de session uniquement.'}) 0xE713 133 $(if($script:desktopShadows){'Désactiver'}else{'Activer'}) 'appearance-shadows'
+   Desktop-SettingRow $body 'Confidentialité' 'Verrouiller les documents et les reçus ouverts.' 0xE72E 211 'Verrouiller' 'session-lock'
+   Desktop-SettingRow $body 'Appareils' 'État de la protection locale · pas de registre distant.' 0xE7F4 289 'Protection' 'Protection'
+   Desktop-SettingRow $body 'À propos' 'Quantic Sillage Desktop · Alpha privée non certifiée.' 0xE946 367
+   Desktop-SettingRow $body 'Outils avancés' 'Diagnostics de laboratoire · terminal possible.' 0xE90F 445 'Diagnostics' 'advanced'
   }
  }
  Save-DesktopPageBounds $script:desktopBody
  Update-DesktopLayout
 }
 function Initialize-Desktop {
+ $script:desktopAppearanceSaved=$false
+ if(-not $SelfTest){$script:desktopShadows=Read-DesktopShadowPreference}
  $form.SuspendLayout()
  $old=@($form.Controls)
  $form.AcceptButton=$null
@@ -1365,13 +1724,19 @@ function Initialize-Desktop {
  $layout=New-Object Windows.Forms.Panel
  $layout.Margin=New-Object Windows.Forms.Padding(0)
  $sidebar.Dock='None'
+ $sidebar.Add_Paint({param($sender,$e)
+  if($sender.Width -lt 2 -or $sender.Height -lt 2){return}
+  $r=New-Object Drawing.Rectangle(0,0,$sender.Width,$sender.Height)
+  $brush=New-Object Drawing.SolidBrush($script:desktopColors.Navy)
+  try{$e.Graphics.FillRectangle($brush,$r)}finally{$brush.Dispose()}
+ })
  $workspace=New-Object Windows.Forms.Panel
  $workspace.BackColor=$script:desktopColors.Canvas
  $form.Controls.Add($layout);$layout.Controls.Add($sidebar);$layout.Controls.Add($workspace)
  $script:desktopLayout=$layout;$script:desktopSidebar=$sidebar;$script:desktopWorkspace=$workspace
  # Brand mark cropped from the supplied original Quantic Sillage banner.
  # It is embedded in the existing inventory-pinned script, not downloaded.
- $logoBytes=[Convert]::FromBase64String('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')
+ $logoBytes=[Convert]::FromBase64String('iVBORw0KGgoAAAANSUhEUgAAADAAAAAwCAMAAABg3Am1AAAAkFBMVEVaoNoqkdyp2PCJst7a6frM7vogZrcWadfE8P5ZxOtRdrfs7v4NPJNOgr+ms9i92/Hw9f0NZ9ImtvUSiOoap/QVmPAPdNgNeOQNVbnm9/4MWsYctPUlqe/Y9/3d9v0twfdwx+tLh80NSqoteMzh9/7J5vuNye2z5/kvabdRuOt1p9dtuOiP1/Gs1vLS9v7j7fwNjfcsAAAAMHRSTlP///H/VZ7//9X//w///6+5Av//////////LP///25R//////9Hrv/6///////+jzEKCDpDAAADQ0lEQVR42n2ViZKqMBBFOyCoM29hUSAYFEQ2Bfz/v3vdSQiozOuaGouqe9ILnQs8n5vzjXvL4Nm42+2c8eatBCDwoufVUOddB9B1j3pwPoEznv9t1E7/AMGYOBwORwzGoHc+AHM+3/UgSKviKINBPb4Ck/7mWHshgsMbEIYh9IuageODfN7tA4pXOenDkN2dBaDLsR5Sf1oDQgaVAb4phccbUHoEdBuzHCMqrAlQP1YXXDQhxDSjWU9EswScvdZL4PAGxGEchxE4M5DlweUiiZPuWqo1EUsiimACOLdQH2iA5EIABmNMAXEUx0QMUwZnf9EJiBAs75sxOztNDYzORqkk/IJroKfTL6qgQHRNNo0wGyAyQBT5lgLG/STG/yLPlotws8sokoDvRzIFeLzX5Z+IyvnbdkrC97c+xUAAjkgPlPTnj32++7E/BRCA72wCAmbxD2AsjT4tbwQEJkTPV+6YnWj9Nm3/ItDL03GcIhDN2qXctCaFa3lwy01BohvXAF6kfqqAxPbA9CxwpKvX3rsnfpoilPrJHYHupGrClcj5KmAnqYoXgHYo937IYABAYH+aLtrxhwxwTdNEQpThnB8C7RTHLltv+op6SVDTPD+cJm/5YaxuoiJNaaxej2p1yQ7HerXnq1TTX+sg0LDZJdjuU1+1iQaSpKBdGgGPnoDHx/JxuKoMSFxtud45CrULHVl9WysoVURbyQvUsBkIWf2W4+sXElvZwRWU82UPrQ/JJSIYXmdkQ3tVVbmOvtMNW7pQVN7rHZpA1tjaijYWYOMpdaCA8yM0JqcMpSyKwm3d1niwY39dv7gxsh2bPTGWjqLCXpb2Z7OwyoEtE1AOYth5bbHUsB+Rqt8EJdDvfbSqlw/KRCjHWugLuYqZXZQMrDeAY+Ol9MPY6HGVSQ8uPZf1+xfI43Xpz+1SyFMfvvK9choYyI+0/Ao1gCer06Wp0CJmbCsnEJuJQSYB5b1W4ZKFaoA+axXVud1Gvns3n93n0nstKPG6SJdrJVDG21j6qgGeuiDzTi0oSpL83siefaXfThsGmyfn/PXy386bqqrUix1arD9Cu+Az8HzydbeQwxsKF8M21wQ2GP8BaFftupof/wG9MK5EVFuMbQAAAABJRU5ErkJggg==')
  $stream=New-Object IO.MemoryStream(,$logoBytes)
  try{
   $image=[Drawing.Image]::FromStream($stream)
@@ -1379,40 +1744,46 @@ function Initialize-Desktop {
  }finally{$stream.Dispose()}
  $logoView=New-Object Windows.Forms.PictureBox
  $logoView.Image=$logoBitmap;$logoView.SizeMode='Zoom';$logoView.SetBounds(18,24,40,40)
- $logoView.BackColor=[Drawing.Color]::White
- $logoShape=New-Object Drawing.Drawing2D.GraphicsPath
- try{$logoShape.AddEllipse(0,0,40,40);$logoView.Region=New-Object Drawing.Region($logoShape)}finally{$logoShape.Dispose()}
+ $logoView.BackColor=[Drawing.Color]::Transparent
  $sidebar.Controls.Add($logoView)
  $form.Add_Disposed(({$logoView.Image.Dispose()}).GetNewClosure())
- $brand=Desktop-Label $sidebar 'Quantic Sillage' 65 30 135 27 11.5 $true
+ $brand=Desktop-Label $sidebar ('Quantic'+[Environment]::NewLine+'Sillage') 66 17 108 48 13 $true
  $brand.ForeColor=[Drawing.Color]::White
- $tagline=Desktop-Label $sidebar 'Votre espace numérique' 20 77 196 24 9
+ $brand.BackColor=[Drawing.Color]::Transparent
+ $tagline=Desktop-Label $sidebar '' 20 70 148 20 9
+ $tagline.BackColor=[Drawing.Color]::Transparent
+ $tagline.Visible=$false
  $tagline.ForeColor=[Drawing.Color]::FromArgb(170,192,214)
  $script:desktopPages=@('Accueil','Identité','Messagerie','Paiements','Coffre-fort','Protection','Paramètres')
  $script:desktopNav=@()
- $y=120
+ $y=95
  foreach($page in $script:desktopPages){
-  $b=Desktop-Button $sidebar $page $page 12 $y 200 44 $false
+  $b=Desktop-Button $sidebar $page $page 12 $y 176 43 $false
   $b.TextAlign='MiddleLeft';$b.Padding=New-Object Windows.Forms.Padding(43,0,0,0)
   $b.AccessibleName=$page
+   $b.AccessibleDescription='Afficher la page '+$page
   $b.Add_Paint({param($sender,$e) $g=@{Accueil=0xE80F;'Identité'=0xE77B;Messagerie=0xE715;Paiements=0xE8C7;'Coffre-fort'=0xE72E;Protection=0xEA18;'Paramètres'=0xE713};$font=New-Object Drawing.Font('Segoe MDL2 Assets',17,[Drawing.FontStyle]::Regular,[Drawing.GraphicsUnit]::Pixel);try{[Windows.Forms.TextRenderer]::DrawText($e.Graphics,([string][char]$g[[string]$sender.Tag]),$font,(New-Object Drawing.Rectangle(13,0,24,$sender.Height)),[Drawing.Color]::White,([Windows.Forms.TextFormatFlags]::HorizontalCenter -bor [Windows.Forms.TextFormatFlags]::VerticalCenter))}finally{$font.Dispose()}})
   $b.FlatAppearance.BorderSize=0;$b.ForeColor=[Drawing.Color]::White
   $b.FlatAppearance.MouseOverBackColor=[Drawing.Color]::FromArgb(28,66,105);$b.FlatAppearance.MouseDownBackColor=[Drawing.Color]::FromArgb(35,77,118)
-  $script:desktopNav+= $b;$y+=54
+  $script:desktopNav+= $b;$y+=49
+  if($page -eq 'Protection'){$y+=24}
  }
- $alpha=Desktop-Label $sidebar 'ÉDITION ALPHA PRIVÉE' 23 526 185 44 9
+ $alpha=Desktop-Label $sidebar 'ÉDITION ALPHA PRIVÉE' 23 526 150 44 9
+ $script:desktopAlpha=$alpha
  $alpha.ForeColor=[Drawing.Color]::FromArgb(170,192,214)
+ $alpha.BackColor=[Drawing.Color]::Transparent
  $header=New-Object Windows.Forms.Panel
  $header.Dock='None';$header.Margin=New-Object Windows.Forms.Padding(0);$header.BackColor=$script:desktopColors.White
  $workspace.Controls.Add($header)
  $script:desktopHeader=$header
- $script:desktopTitle=Desktop-Label $header 'Accueil' 28 15 400 42 24 $true
- $state=Desktop-Label $header 'Espace local  •  Édition de test' 30 60 400 24 10
+ $header.Add_Paint({param($sender,$e) $pen=New-Object Drawing.Pen($script:desktopColors.Border);try{$e.Graphics.DrawLine($pen,0,($sender.Height-1),$sender.Width,($sender.Height-1))}finally{$pen.Dispose()}})
+ $script:desktopTitle=Desktop-Label $header 'Accueil' 28 9 400 30 15 $true
+ $state=Desktop-Label $header 'Espace local · Édition de test' 29 39 400 21 9
  $state.ForeColor=$script:desktopColors.Muted
- $script:desktopSessionLabel=Desktop-Label $header 'Espace privé fermé' 460 13 280 25 10
+ $script:desktopSessionLabel=Desktop-Label $header 'Espace privé fermé' 460 3 280 21 9
  $script:desktopSessionLabel.TextAlign='MiddleRight'
- $script:desktopSessionOpen=Desktop-Button $header 'Ouvrir' 'session-open' 460 43 125 34 $true
- $script:desktopSessionLock=Desktop-Button $header 'Verrouiller' 'session-lock' 595 43 145 34 $false
+ $script:desktopSessionOpen=Desktop-Button $header 'Ouvrir' 'session-open' 460 27 125 29 $true
+ $script:desktopSessionLock=Desktop-Button $header 'Verrouiller' 'session-lock' 595 27 145 29 $false
  $script:desktopState=$state
  $header.Add_SizeChanged({
   $x=[Math]::Max(4,$script:desktopHeader.ClientSize.Width-308)
@@ -1430,6 +1801,28 @@ function Initialize-Desktop {
  $scroll.Dock='None';$scroll.Margin=New-Object Windows.Forms.Padding(0);$scroll.AutoScroll=$true;$workspace.Controls.Add($scroll)
  $script:desktopScroll=$scroll
  $script:desktopBody=New-Object Windows.Forms.Panel
+ # Draw elevation behind actual card controls, without adding interactive overlays.
+ $script:desktopBody.Add_Paint({
+  param($sender,$e)
+  $e.Graphics.SmoothingMode=[Drawing.Drawing2D.SmoothingMode]::AntiAlias
+  if(-not $script:desktopShadows){return}
+  foreach($card in $sender.Controls){
+   if($card -isnot [Windows.Forms.Panel] -or -not $card.Visible -or -not $card.Region -or $card.Width -lt 24 -or $card.Height -lt 24){continue}
+   foreach($layer in @(6,4,2,1)){
+    $p=New-Object Drawing.Drawing2D.GraphicsPath
+    $opacity=switch($layer){6{3};4{5};2{8};1{10}}
+    $brush=New-Object Drawing.SolidBrush([Drawing.Color]::FromArgb($opacity,25,49,80))
+    try{
+     $x=$card.Left-[int]($layer/2);$y=$card.Top+1;$w=$card.Width+$layer;$h=$card.Height+$layer;$d=16+$layer
+     $p.AddArc($x,$y,$d,$d,180,90)
+     $p.AddArc(($x+$w-$d),$y,$d,$d,270,90)
+     $p.AddArc(($x+$w-$d),($y+$h-$d),$d,$d,0,90)
+     $p.AddArc($x,($y+$h-$d),$d,$d,90,90)
+     $p.CloseFigure();$e.Graphics.FillPath($brush,$p)
+    }finally{$brush.Dispose();$p.Dispose()}
+   }
+  }
+ })
  $script:desktopBody.SetBounds(28,20,824,650);$scroll.Controls.Add($script:desktopBody)
  $script:desktopAdvanced=New-Object Windows.Forms.Panel
  $script:desktopAdvanced.SetBounds(28,20,760,870);$script:desktopAdvanced.Visible=$false
@@ -1458,6 +1851,7 @@ function Resize-DesktopPage($parent,[double]$scale){
   $r=$script:desktopPageBounds[$c]
   if($null -ne $r){
    $c.SetBounds([int]($r.X*$scale),$r.Y,[Math]::Max(1,[int]($r.Width*$scale)),$r.Height)
+   if($c -is [Windows.Forms.ListView] -and $c.Columns.Count -eq 2){$c.Columns[0].Width=[int]($c.ClientSize.Width*0.72);$c.Columns[1].Width=[Math]::Max(40,$c.ClientSize.Width-$c.Columns[0].Width-4)}
    if($c.Controls.Count -gt 0){Resize-DesktopPage $c $scale}
   }
  }
@@ -1466,29 +1860,31 @@ function Update-DesktopLayout {
  if($script:desktopLayoutBusy -or -not $script:desktopBody -or -not $script:desktopScroll){return}
  $script:desktopLayoutBusy=$true
  try{
-  $fw=[Math]::Min($form.ClientSize.Width,$form.Width-16);$fh=[Math]::Min($form.ClientSize.Height,$form.Height-39)
+  $fw=$form.ClientSize.Width;$fh=$form.ClientSize.Height
   if($fw -lt 300 -or $fh -lt 180){return}
-  $side=if($fw -lt 1100){204}else{224};$ww=$fw-$side
+  $side=if($fw -lt 1100){184}else{206};$ww=$fw-$side
   $script:desktopLayout.SetBounds(0,0,$fw,$fh)
   $script:desktopSidebar.SetBounds(0,0,$side,$fh)
+  $script:desktopAlpha.Top=[Math]::Max(465,$fh-64)
   foreach($b in $script:desktopNav){$b.Width=$side-24}
   $script:desktopWorkspace.SetBounds($side,0,$ww,$fh)
-  $script:desktopHeader.SetBounds(0,0,$ww,94)
+  $script:desktopHeader.SetBounds(0,0,$ww,66)
   $script:desktopFooter.SetBounds(0,$fh-40,$ww,40)
   $scroll=$script:desktopScroll
-  $scroll.SetBounds(0,94,$ww,$fh-134)
+  $scroll.SetBounds(0,66,$ww,$fh-106)
   # Fit the complete page into the actual client width, including room
   # for a vertical scrollbar. Never infer layout from requested window size.
-  $width=[Math]::Min(824,[Math]::Max(540,$ww-52))
+  $width=[Math]::Min(1024,[Math]::Max(540,$ww-52))
   $x=[Math]::Max(16,[int](($ww-$width-16)/2))
   $pageHeight=0
   foreach($c in $script:desktopBody.Controls){$pageHeight=[Math]::Max($pageHeight,$c.Bottom)}
   $contentHeight=if($script:desktopCurrent -eq 'Paramètres' -and $script:desktopAdvanced.Visible){910}else{[Math]::Max(100,$pageHeight+40)}
   $scroll.AutoScrollMinSize=New-Object Drawing.Size(0,$contentHeight)
   $position=$scroll.AutoScrollPosition
-  $script:desktopBody.SetBounds($x,(20+$position.Y),$width,([Math]::Max(80,$pageHeight+2)))
+  $script:desktopBody.SetBounds($x,(20+$position.Y),$width,([Math]::Max(80,$pageHeight+12)))
   $script:desktopAdvanced.SetBounds(16,(20+$position.Y),760,870)
   if($script:desktopPageBounds){Resize-DesktopPage $script:desktopBody ($width/824.0)}
+  $script:desktopBody.Invalidate()
   $hx=[Math]::Max(4,$ww-308)
   $script:desktopSessionLabel.Left=$hx;$script:desktopSessionOpen.Left=$hx;$script:desktopSessionLock.Left=$hx+135
   $script:desktopTitle.Width=[Math]::Max(1,$hx-46);$script:desktopState.Width=[Math]::Max(1,$hx-46)
@@ -1516,6 +1912,15 @@ if ($SelfTest) {
   Test-DesktopSentinelReadOnly
   Initialize-Desktop
   foreach($page in $script:desktopPages){Show-DesktopPage $page;if($script:desktopTitle.Text -ne $page -or $script:desktopBody.Controls.Count -lt 2){throw "Desktop page incomplete: $page"}}
+  if((Convert-DesktopShadowPreference 0) -or -not (Convert-DesktopShadowPreference 1) -or -not (Convert-DesktopShadowPreference '0') -or -not (Convert-DesktopShadowPreference $null)){throw 'Invalid cosmetic preference decoding'}
+  Show-DesktopPage 'Paramètres'
+  Invoke-DesktopAction 'appearance-shadows'
+  if($script:desktopShadows){throw 'Appearance toggle failed to disable shadows'}
+  Show-DesktopPage 'Accueil'
+  if($script:desktopShadows){throw 'Appearance setting lost across navigation'}
+  Show-DesktopPage 'Paramètres'
+  Invoke-DesktopAction 'appearance-shadows'
+  if(-not $script:desktopShadows){throw 'Appearance toggle failed to restore shadows'}
   Show-DesktopPage "Accueil"
   Show-DesktopPage 'Messagerie'
   $null=$script:desktopMailList.Items.Add('synthetic test subject')
@@ -1523,15 +1928,49 @@ if ($SelfTest) {
   $script:desktopMailIDs=@('synthetic')
   Close-DesktopDocumentSession
   if($script:desktopMailList.Items.Count -ne 0 -or $script:desktopMailBody.Text -ne '' -or $script:desktopMailIDs.Count -ne 0){throw 'Private receipt content remains after lock'}
+  if($script:desktopMailEmpty.Text -cne 'Historique verrouillé'){throw 'Receipt empty state not reset'}
+  Show-DesktopPage 'Coffre-fort'
+  $null=$script:desktopDocuments.Items.Add('synthetic test document')
+  $script:desktopDocumentIDs=@('synthetic')
+  Close-DesktopDocumentSession
+  if($script:desktopDocuments.Items.Count -ne 0 -or $script:desktopDocumentIDs.Count -ne 0 -or $script:desktopDocumentEmpty.Text -cne 'Inventaire verrouillé'){throw 'Document empty state not reset'}
   Show-DesktopPage 'Identité'
   $script:desktopIdentityAddress.Text='synthetic test address'
   Close-DesktopDocumentSession
   if($script:desktopIdentityAddress.Text -eq 'synthetic test address'){throw 'Private identity remains after lock'}
   Show-DesktopPage 'Accueil'
+  # Report effective DPI of the actual window, not fabricated scale values.
+  Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class QuanticVisualDpi { [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr hwnd); }'
+  function Test-DesktopControlBounds($parent,[string]$page){
+   foreach($control in $parent.Controls){
+    if(-not $control.Visible){continue}
+    if($control.Left -lt 0 -or $control.Top -lt 0 -or $control.Right -gt ($parent.ClientSize.Width+1) -or $control.Bottom -gt ($parent.ClientSize.Height+1)){
+     throw ("Control outside parent: "+$page+" / "+$control.GetType().Name+" / "+$control.Text)
+    }
+    if($control -is [Windows.Forms.Panel]){Test-DesktopControlBounds $control $page}
+   }
+  }
   # Exercise rendered geometry, not just existence of controls.
   $form.Show()
   try{
-   foreach($size in @(@(1160,810),@(1000,680),@(1440,900))){
+   $actualDpi=[QuanticVisualDpi]::GetDpiForWindow($form.Handle)
+   if($actualDpi -eq 0){throw 'Unable to measure effective window DPI'}
+   # Strict validation must use the requested Windows DPI, not simulate it.
+   $expectedDpi=$env:QUANTIC_UI_EXPECT_DPI
+   if($expectedDpi){
+    if($expectedDpi -cnotmatch '^(96|120|144)$'){throw 'Expected DPI must be 96, 120 or 144'}
+    if($actualDpi -ne [int]$expectedDpi){throw ('Wrong effective Windows DPI: expected '+$expectedDpi+' measured '+$actualDpi)}
+   }
+   Write-Output ("Actual Windows window DPI: {0}; effective scale: {1:N0}% (not a multi-DPI proof)" -f $actualDpi,($actualDpi/96.0*100))
+   $captureEnabled=([bool]$env:QUANTIC_UI_TEST_CAPTURE -and [bool]$env:RUNNER_TEMP)
+   $captureRecords=New-Object 'System.Collections.Generic.List[object]'
+   $screen=[Windows.Forms.Screen]::FromHandle($form.Handle)
+   Write-Output ('Monitor bounds: '+$screen.Bounds.Width+'x'+$screen.Bounds.Height+'; working area: '+$screen.WorkingArea.Width+'x'+$screen.WorkingArea.Height)
+   if($captureEnabled){
+    $capture=Join-Path $env:RUNNER_TEMP 'quantic-ui-captures'
+    [void][IO.Directory]::CreateDirectory($capture)
+   }
+   foreach($size in @(@(1160,810),@(1000,680),@(900,620),@(1440,900))){
     $form.ClientSize=New-Object Drawing.Size($size[0],$size[1])
     $form.PerformLayout();$script:desktopLayout.PerformLayout();$script:desktopWorkspace.PerformLayout()
     [Windows.Forms.Application]::DoEvents()
@@ -1544,15 +1983,33 @@ if ($SelfTest) {
     if($script:desktopTitle.Right -gt $script:desktopSessionLabel.Left){throw 'Header labels overlap'}
     if($script:desktopSessionLock.Right -gt $script:desktopHeader.ClientSize.Width){throw 'Header controls clipped'}
     if($script:desktopBody.Left -lt 0 -or $script:desktopBody.Right -gt $script:desktopScroll.ClientSize.Width){throw 'Body outside visible width'}
+    foreach($page in $script:desktopPages){
+     Show-DesktopPage $page
+     [Windows.Forms.Application]::DoEvents()
+     Update-DesktopLayout
+     Test-DesktopControlBounds $script:desktopBody $page
+     if($expectedDpi -and [QuanticVisualDpi]::GetDpiForWindow($form.Handle) -ne [int]$expectedDpi){throw 'Effective Windows DPI changed during page test'}
+     if($script:desktopLayout.Width -ne $form.ClientSize.Width -or $script:desktopLayout.Height -ne $form.ClientSize.Height){throw 'Root does not fill measured client area'}
+     if($captureEnabled){
+      $index=[array]::IndexOf($script:desktopPages,$page)
+      $bitmap=New-Object Drawing.Bitmap($script:desktopLayout.Width,$script:desktopLayout.Height)
+      try{
+       $form.Refresh()
+       $script:desktopLayout.DrawToBitmap($bitmap,(New-Object Drawing.Rectangle(0,0,$bitmap.Width,$bitmap.Height)))
+       $filename='size-{0}x{1}-page-{2:D2}.png' -f $size[0],$size[1],$index
+       $bitmap.Save((Join-Path $capture $filename),[Drawing.Imaging.ImageFormat]::Png)
+       $captureRecords.Add([pscustomobject]@{file=$filename;page=$page;requestedWidth=$size[0];requestedHeight=$size[1];actualWidth=$bitmap.Width;actualHeight=$bitmap.Height;dpi=[QuanticVisualDpi]::GetDpiForWindow($form.Handle)})
+      }finally{$bitmap.Dispose()}
+     }
+    }
+    Show-DesktopPage 'Accueil'
    }
    $area=[Windows.Forms.Screen]::PrimaryScreen.WorkingArea
    $form.Size=New-Object Drawing.Size(([Math]::Min(1160,$area.Width)),([Math]::Min(810,$area.Height)))
    $form.PerformLayout();[Windows.Forms.Application]::DoEvents()
    Update-DesktopLayout
    $form.Refresh()
-   if($env:QUANTIC_UI_TEST_CAPTURE -and $env:RUNNER_TEMP){
-    $capture=Join-Path $env:RUNNER_TEMP 'quantic-ui-captures'
-    [void][IO.Directory]::CreateDirectory($capture)
+   if($captureEnabled){
     $index=0
     foreach($page in $script:desktopPages){
      Show-DesktopPage $page
@@ -1562,13 +2019,24 @@ if ($SelfTest) {
      $bmp=New-Object Drawing.Bitmap($script:desktopLayout.Width,$script:desktopLayout.Height)
      try{
       $script:desktopLayout.DrawToBitmap($bmp,(New-Object Drawing.Rectangle(0,0,$bmp.Width,$bmp.Height)))
-      $bmp.Save((Join-Path $capture ('{0:D2}.png' -f $index)),[Drawing.Imaging.ImageFormat]::Png)
+      $filename='{0:D2}.png' -f $index
+      $bmp.Save((Join-Path $capture $filename),[Drawing.Imaging.ImageFormat]::Png)
+      $captureRecords.Add([pscustomobject]@{file=$filename;page=$page;actualWidth=$bmp.Width;actualHeight=$bmp.Height;dpi=[QuanticVisualDpi]::GetDpiForWindow($form.Handle)})
      }finally{$bmp.Dispose()}
      $index++
     }
+    if($captureRecords.Count -ne 35){throw 'Incomplete capture matrix: expected 35 screenshots'}
+    $unique=@($captureRecords | Select-Object -ExpandProperty file -Unique)
+    if($unique.Count -ne 35){throw 'Duplicate capture filenames'}
+    foreach($record in $captureRecords){if(-not [IO.File]::Exists((Join-Path $capture $record.file))){throw 'Missing capture file'}}
+    $manifestJson=ConvertTo-Json -InputObject @($captureRecords.ToArray()) -Depth 4 -Compress
+    $manifestJson | Set-Content -LiteralPath (Join-Path $capture 'capture-manifest.json') -Encoding UTF8
+    Write-Output ('Capture manifest: '+$manifestJson)
+    Write-Output ('Capture matrix: '+$captureRecords.Count+' actual renders; effective DPI '+$actualDpi)
+    if($expectedDpi){Write-Output ('Strict effective DPI validation passed: '+$expectedDpi)}
    }
   }finally{$form.Hide()}
-  Write-Output "Unified desktop: seven native pages, non-overlapping geometry at three sizes and existing operation mapping verified"
+  Write-Output "Unified desktop: seven native pages, non-overlapping geometry at four requested sizes and existing operation mapping verified"
  }finally{$form.Dispose()}
  exit 0
 }
