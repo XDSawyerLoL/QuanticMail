@@ -1057,6 +1057,7 @@ function Close-DesktopDocumentSession {
  if($script:desktopMailBody -and -not $script:desktopMailBody.IsDisposed){$script:desktopMailBody.Clear()}
  if($script:desktopMailStatus -and -not $script:desktopMailStatus.IsDisposed){$script:desktopMailStatus.Text='Historique local verrouillé.'}
  if($script:desktopIdentityAddress -and -not $script:desktopIdentityAddress.IsDisposed){$script:desktopIdentityAddress.Text='Aucune identité locale ouverte.'}
+ if($script:desktopIdentitySummary -and -not $script:desktopIdentitySummary.IsDisposed){$script:desktopIdentitySummary.Text='Non vérifié'}
  if($script:desktopIdentityStatus -and -not $script:desktopIdentityStatus.IsDisposed){$script:desktopIdentityStatus.Text='Espace privé fermé · aucune certification officielle'}
  if($script:desktopDocumentStatus -and -not $script:desktopDocumentStatus.IsDisposed){$script:desktopDocumentStatus.Text='Coffre documentaire verrouillé.'}
  if($script:desktopSessionLabel -and -not $script:desktopSessionLabel.IsDisposed){$script:desktopSessionLabel.Text='Espace privé fermé'}
@@ -1113,6 +1114,7 @@ function Open-DesktopDocumentSession {
   if($r.labOnly -ne $true -or $r.status -cne 'document-session-ready' -or $r.address -cne $chosen.address -or $child.HasExited){throw 'Session non reconnue'}
   $script:desktopDocumentProcess=$child;$child=$null;$script:desktopActiveAddress=[string]$r.address
   if($script:desktopIdentityAddress -and -not $script:desktopIdentityAddress.IsDisposed){$script:desktopIdentityAddress.Text=$script:desktopActiveAddress}
+  if($script:desktopIdentitySummary -and -not $script:desktopIdentitySummary.IsDisposed){$script:desktopIdentitySummary.Text='Coffre ouvert'}
   if($script:desktopIdentityStatus -and -not $script:desktopIdentityStatus.IsDisposed){$script:desktopIdentityStatus.Text='Coffres locaux ouverts · aucune certification officielle'}
   $script:desktopSessionLabel.Text='Espace privé ouvert · 5 min max.'
   return $true
@@ -1188,7 +1190,8 @@ function Start-DesktopReceipt([string]$mode){
    foreach($m in @($r.messages)){
     if($m.id -cnotmatch '^[a-f0-9]{32}$' -or ([string]$m.subject).Length -gt 240 -or $script:desktopMailIDs.Count -ge 64){throw 'Historique invalide'}
     $subject=if([string]::IsNullOrWhiteSpace([string]$m.subject)){'(Sans objet)'}else{[string]$m.subject}
-    $null=$script:desktopMailList.Items.Add($subject);$script:desktopMailIDs+=[string]$m.id
+    $item=New-Object Windows.Forms.ListViewItem($subject)
+    $null=$item.SubItems.Add('Authentifié');$null=$script:desktopMailList.Items.Add($item);$script:desktopMailIDs+=[string]$m.id
    }
    $status=('{0} reçu(s) local(aux) authentifié(s).' -f $script:desktopMailIDs.Count)
    if($r.unverified -gt 0){$status+=(' {0} non vérifié(s).' -f $r.unverified)}
@@ -1196,7 +1199,7 @@ function Start-DesktopReceipt([string]$mode){
    $script:desktopMailStatus.Text=$status
   }elseif($mode -eq 'open'){
    if(-not $script:desktopDocumentProcess -or $script:desktopDocumentProcess.HasExited){Close-DesktopDocumentSession;return}
-   $i=$script:desktopMailList.SelectedIndex
+   $i=if($script:desktopMailList.SelectedIndices.Count -eq 1){$script:desktopMailList.SelectedIndices[0]}else{-1}
    if($i -lt 0 -or $i -ge $script:desktopMailIDs.Count){return}
    $id=$script:desktopMailIDs[$i];$r=Invoke-DesktopDocument 'mail-open' '' $id
    if($r.message.id -cne $id -or ([string]$r.message.body).Length -gt 8192){throw 'Reçu non reconnu'}
@@ -1225,6 +1228,16 @@ function Desktop-SettingRow($parent,[string]$title,[string]$detail,[int]$glyph,[
  if($action){$b=Desktop-Button $p ($action+'  '+[char]0x203A) $tag 608 17 186 34 $false;$b.FlatAppearance.BorderSize=0;$b.ForeColor=$script:desktopColors.Blue}
 }
 
+function Desktop-IdentityAction($parent,[string]$title,[string]$detail,[int]$glyph,[string]$tag,[int]$y){
+ $p=Desktop-Section $parent 516 $y 296 56
+ $i=Desktop-Label $p ([string][char]$glyph) 9 10 36 36 16
+ $i.Font=New-Object Drawing.Font('Segoe MDL2 Assets',21,[Drawing.FontStyle]::Regular,[Drawing.GraphicsUnit]::Pixel)
+ $i.TextAlign='MiddleCenter';$i.ForeColor=$script:desktopColors.Blue;$i.BackColor=[Drawing.Color]::FromArgb(237,244,252)
+ $button=Desktop-Button $p $title $tag 51 3 235 26 $false
+ $button.TextAlign='MiddleLeft';$button.FlatAppearance.BorderSize=0;$button.ForeColor=$script:desktopColors.Ink
+ $d=Desktop-Label $p $detail 57 32 224 20 9
+ $d.ForeColor=$script:desktopColors.Muted
+}
 function Show-DesktopPage([string]$name){
  if($name -notin $script:desktopPages){throw 'Page inconnue'}
  $script:desktopCurrent=$name
@@ -1299,46 +1312,58 @@ function Show-DesktopPage([string]$name){
    $script:desktopIdentityStatus=Desktop-Label $idCard $status 24 204 446 27 9
    $script:desktopIdentityStatus.ForeColor=$script:desktopColors.Muted
    foreach($control in $idCard.Controls){if($control -is [Windows.Forms.Label] -and $control -ne $mark){$control.BackColor=[Drawing.Color]::Transparent}}
-   $actionPanel=New-Object Windows.Forms.Panel;$actionPanel.BackColor=$script:desktopColors.White
-   Set-DesktopRoundedCard $actionPanel;$actionPanel.SetBounds(516,88,296,248);$body.Controls.Add($actionPanel)
-   $null=Desktop-Label $actionPanel 'Actions' 17 17 262 29 14 $true
-   $null=Desktop-Button $actionPanel 'Ouvrir mon espace' 'session-open' 17 59 262 39 $true
-   $null=Desktop-Button $actionPanel 'Créer une identité' 'create' 17 109 262 39 $false
-   $null=Desktop-Button $actionPanel 'Préparer mon inscription' 'enroll' 17 159 262 39 $false
-   $null=Desktop-Card $body 'Preuve de possession' 'Répondre au défi signé fourni par votre opérateur indépendant.' 'Prouver mon identité' 'proof' 0 352 812 148
+   Desktop-IdentityAction $body 'Ouvrir mon espace' 'Accéder au coffre local' 0xE72E 'session-open' 88
+   Desktop-IdentityAction $body 'Créer une identité' 'Créer un coffre de test' 0xE77B 'create' 152
+   Desktop-IdentityAction $body 'Preuve de possession' 'Répondre au défi signé' 0xE8FB 'proof' 216
+   Desktop-IdentityAction $body 'Inscription' 'Préparer une inscription' 0xE8A5 'enroll' 280
+   $summary=Desktop-Section $body 0 362 812 110
+   $null=Desktop-Label $summary 'Statut' 20 15 236 22 10 $true
+   $script:desktopIdentitySummary=Desktop-Label $summary $(if($script:desktopActiveAddress){'Coffre ouvert'}else{'Non vérifié'}) 20 45 236 38 12 $true
+   $null=Desktop-Label $summary 'Niveau de confiance' 284 15 238 22 10 $true
+   $null=Desktop-Label $summary 'Non certifié' 284 45 238 38 12
+   $null=Desktop-Label $summary 'Validité officielle' 548 15 245 22 10 $true
+   $null=Desktop-Label $summary 'Non attribuée' 548 45 245 38 12
+   foreach($x in @(267,531)){$sep=New-Object Windows.Forms.Panel;$sep.BackColor=$script:desktopColors.Border;$sep.SetBounds($x,17,1,76);$summary.Controls.Add($sep)}
   }
   'Messagerie' {
-   $null=Desktop-Label $body 'Messagerie sécurisée' 0 0 500 37 19 $true
-   $lead=Desktop-Label $body 'Vos échanges privés, depuis votre espace local.' 0 43 800 28 10
+   $null=Desktop-Label $body 'Messagerie sécurisée' 0 0 565 35 19 $true
+   $lead=Desktop-Label $body 'Communiquez avec vos contacts, depuis votre espace local.' 0 40 812 26 10
    $lead.ForeColor=$script:desktopColors.Muted
-   $null=Desktop-Button $body '+ Nouveau message' 'compose' 574 0 238 41 $true
-   $nav=New-Object Windows.Forms.Panel;$nav.BackColor=$script:desktopColors.White
-   Set-DesktopRoundedCard $nav;$nav.SetBounds(0,90,230,390);$body.Controls.Add($nav)
-   $null=Desktop-Label $nav 'Messagerie' 16 18 198 28 12 $true
-   $null=Desktop-Button $nav 'Nouveau message' 'compose' 13 62 204 38 $false
-   $null=Desktop-Button $nav 'Contacts' 'contacts' 13 108 204 38 $false
-   $null=Desktop-Button $nav 'Recevoir / envoyer' 'compose' 13 304 204 38 $false
-   $null=Desktop-Label $nav 'Configuration' 16 174 198 28 12 $true
-   $null=Desktop-Button $nav 'Configurer mes accès' 'activation' 13 214 204 38 $false
-   $null=Desktop-Button $nav 'Préparer mes accès' 'credential' 13 260 204 38 $false
-   $mail=New-Object Windows.Forms.Panel;$mail.BackColor=$script:desktopColors.White
-   Set-DesktopRoundedCard $mail;$mail.SetBounds(246,90,566,390);$body.Controls.Add($mail)
-   $null=Desktop-Label $mail 'Boîte de réception' 22 20 522 32 15 $true
-   $rule=New-Object Windows.Forms.Panel;$rule.BackColor=$script:desktopColors.Border;$rule.SetBounds(20,62,526,1);$mail.Controls.Add($rule)
-   $null=Desktop-Button $mail 'Actualiser mes reçus' 'mail-list' 22 78 255 36 $true
-   $null=Desktop-Button $mail 'Lire le message' 'mail-open' 289 78 255 36 $false
-   $script:desktopMailList=New-Object Windows.Forms.ListBox
+   $null=Desktop-Button $body '+ Nouveau message' 'compose' 584 0 228 35 $true
+   $nav=Desktop-Section $body 0 81 210 422
+   $null=Desktop-Label $nav 'Messagerie' 15 13 180 24 11 $true
+   $inbox=Desktop-Button $nav 'Boîte de réception' 'mail-list' 8 43 194 34 $false
+   $inbox.BackColor=[Drawing.Color]::FromArgb(230,240,253);$inbox.ForeColor=$script:desktopColors.Blue;$inbox.FlatAppearance.BorderSize=0
+   foreach($folder in @(@('Envoyés',84),@('Brouillons',121),@('Archives',158),@('Indésirables',195))){
+    $inactive=Desktop-Label $nav $folder[0] 20 $folder[1] 170 30 10
+    $inactive.ForeColor=$script:desktopColors.Muted;$inactive.AccessibleDescription='Dossier non raccordé dans cette édition'
+   }
+   $rule=New-Object Windows.Forms.Panel;$rule.BackColor=$script:desktopColors.Border;$rule.SetBounds(14,231,182,1);$nav.Controls.Add($rule)
+   $null=Desktop-Label $nav 'Contacts et accès' 15 244 180 24 11 $true
+   $null=Desktop-Button $nav 'Contacts' 'contacts' 9 276 192 32 $false
+   $null=Desktop-Button $nav 'Configurer' 'activation' 9 315 192 32 $false
+   $null=Desktop-Button $nav 'Préparer mes accès' 'credential' 9 354 192 32 $false
+   $mail=Desktop-Section $body 224 81 588 422
+   $null=Desktop-Label $mail 'Boîte de réception' 16 12 550 28 14 $true
+   $null=Desktop-Button $mail 'Actualiser mes reçus' 'mail-list' 16 49 271 32 $true
+   $null=Desktop-Button $mail 'Lire le message' 'mail-open' 301 49 271 32 $false
+   $script:desktopMailList=New-Object Windows.Forms.ListView
+   $script:desktopMailList.View='Details';$script:desktopMailList.FullRowSelect=$true;$script:desktopMailList.MultiSelect=$false
+   $script:desktopMailList.HeaderStyle='Nonclickable';$script:desktopMailList.BorderStyle='None';$script:desktopMailList.HideSelection=$false
    $script:desktopMailList.Font=New-Object Drawing.Font('Segoe UI',13,[Drawing.FontStyle]::Regular,[Drawing.GraphicsUnit]::Pixel)
-   $script:desktopMailList.SetBounds(22,126,522,94);$mail.Controls.Add($script:desktopMailList)
+   $script:desktopMailList.SetBounds(16,95,556,151);$mail.Controls.Add($script:desktopMailList)
+   $null=$script:desktopMailList.Columns.Add('Objet',400);$null=$script:desktopMailList.Columns.Add('État local',140)
+   $script:desktopMailList.Add_DoubleClick({Start-DesktopReceipt 'open'})
    $script:desktopMailIDs=@()
+   $divider=New-Object Windows.Forms.Panel;$divider.BackColor=$script:desktopColors.Border;$divider.SetBounds(16,253,556,1);$mail.Controls.Add($divider)
+   $null=Desktop-Label $mail 'Aperçu du message' 16 260 556 22 10 $true
    $script:desktopMailBody=New-Object Windows.Forms.TextBox
-   $script:desktopMailBody.Multiline=$true;$script:desktopMailBody.ReadOnly=$true
+   $script:desktopMailBody.Multiline=$true;$script:desktopMailBody.ReadOnly=$true;$script:desktopMailBody.BorderStyle='None'
    $script:desktopMailBody.ScrollBars='Vertical';$script:desktopMailBody.BackColor=$script:desktopColors.White
    $script:desktopMailBody.Font=New-Object Drawing.Font('Segoe UI',13,[Drawing.FontStyle]::Regular,[Drawing.GraphicsUnit]::Pixel)
-   $script:desktopMailBody.SetBounds(22,232,522,103);$mail.Controls.Add($script:desktopMailBody)
-   $script:desktopMailStatus=Desktop-Label $mail 'Reçus locaux uniquement · aucune preuve de livraison distante.' 22 347 522 36 9
+   $script:desktopMailBody.SetBounds(16,285,556,89);$mail.Controls.Add($script:desktopMailBody)
+   $script:desktopMailStatus=Desktop-Label $mail 'Reçus locaux uniquement · aucune preuve de livraison distante.' 16 383 556 30 9
    $script:desktopMailStatus.ForeColor=$script:desktopColors.Muted
-
   }
   'Paiements' {
    $lead=Desktop-Label $body 'Payer et recevoir · simulation de laboratoire sans argent réel.' 0 0 812 30 10
