@@ -1206,16 +1206,25 @@ function Show-DesktopPage([string]$name){
   'Accueil' {
    $hero=New-Object Windows.Forms.Panel
    $hello=Desktop-Label $body 'Bienvenue dans Quantic Sillage' 0 0 812 36 20 $true
-   $subtitle=Desktop-Label $body 'Votre espace numérique unifié, sécurisé et souverain.' 0 39 812 24 10
+   $subtitle=Desktop-Label $body 'Votre espace numérique unifié · Édition de laboratoire.' 0 39 812 24 10
    $subtitle.ForeColor=$script:desktopColors.Muted
    $hero.BackColor=$script:desktopColors.Navy;Set-DesktopRoundedCard $hero;$hero.SetBounds(0,75,812,142);$body.Controls.Add($hero)
    $hero.Add_Paint({param($sender,$e)
     $rect=New-Object Drawing.Rectangle(0,0,$sender.Width,$sender.Height)
     $gradient=New-Object Drawing.Drawing2D.LinearGradientBrush($rect,[Drawing.Color]::FromArgb(10,29,51),[Drawing.Color]::FromArgb(17,68,111),0)
     try{$e.Graphics.FillRectangle($gradient,$rect)}finally{$gradient.Dispose()}
-    $e.Graphics.SmoothingMode=[Drawing.Drawing2D.SmoothingMode]::AntiAlias
-    $pen=New-Object Drawing.Pen([Drawing.Color]::FromArgb(45,100,148),1)
-    try{foreach($r in @(90,130,170)){$e.Graphics.DrawEllipse($pen,($sender.Width-40-$r),(-30-$r/2),($r*2),($r*2))}}finally{$pen.Dispose()}
+    # Embedded decorative crop of the approved Earth banner, not a screenshot of UI controls.
+    $stream=New-Object IO.MemoryStream(,([Convert]::FromBase64String('/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDACAWGBwYFCAcGhwkIiAmMFA0MCwsMGJGSjpQdGZ6eHJmcG6AkLicgIiuim5woNqirr7EztDOfJri8uDI8LjKzsb/2wBDASIkJDAqMF40NF7GhHCExsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsb/wAARCAArAFADASIAAhEBAxEB/8QAGQAAAwEBAQAAAAAAAAAAAAAAAgMEAAEF/8QANBAAAgEDAwICBgkFAAAAAAAAAQIDABEhBBIxQWEyUQUTcYGRwRQVIiMzQlKh0TREVGKx/8QAGAEBAQEBAQAAAAAAAAAAAAAAAgEAAwT/xAAaEQADAAMBAAAAAAAAAAAAAAAAARECITES/9oADAMBAAIRAxEAPwCL6x1n+Q/xro9Iaw/3EnxqUDNOjjxuc2X/ALXpWKZxeUKotXrXNhPIffVI1UkX4mod2/SDj4157T2G2PC+Q60cMJklVZDtuLgXyar8oC9Mpl9JTlrB9p4xXItZqZMnUOFvYW5J7V58rjeQoKqDxen6dWMDlpWQDAsPP5UcmkuCxTpY2s1Jm9Ukr4JFxkmlrrtS4YfSSjg2IY8DtUuomBxFcEizNwKSB6vmxJ4tR6Phc2t1PI1TEgZHF/ZSfrHVgf1D39tTGwAbm/TihtddwHHNbSMGAFyfhXHcnk+6hJ8+aHNr2xToIGkhU+EE9+lXaTULGWYo8jMLE8V56bg42c1UWMkxMKnHFsG1c8t9GtFkQ0iK8zfakP5SLAeypJGaSRmOQBckG96dpYo13iZmRk8Xbt7apdNKYTNGkkuLhb8++ufqM6eajzB943hY2HT8oopDB6kKm4uOW4Fq6FMyu0CgKLXAwRSpVkCncrC2D2pp0IAI22PHNxWIITcqnbe24+dZgAwBFjww+dC0jeEH7PlWIZVLsFFWQK0kypEbBR0xbvSYWKxNbFzY47VuLkfpFZ7MtFCsrQlHxsPjHzNTzzqLrDI7E+JyLX7eym6kD6Ppv9gxPc1EzEgAnAwKKV2JsajPPIokYuBkhm6UzT6lYrrIDbO0r0P8UvTAH1p6iMkUk0omSwsmgLETQuCzm+0HF+38VoVd0KE7S44JsLg9aTHnSS9iCP2otOTZs8ZFHcKY/dgpexNrjz/alsgZmKsLc5FFILaph0DWFNlRV06MBkk1bCdP/9k=')))
+    try{
+     $earth=[Drawing.Image]::FromStream($stream)
+     try{
+      $e.Graphics.InterpolationMode=[Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+      $w=[int]($sender.Width*0.37);$x=$sender.Width-$w
+      $e.Graphics.DrawImage($earth,(New-Object Drawing.Rectangle($x,0,$w,$sender.Height)))
+      $fade=New-Object Drawing.Drawing2D.LinearGradientBrush((New-Object Drawing.Rectangle($x,0,48,$sender.Height)),[Drawing.Color]::FromArgb(255,14,43,76),[Drawing.Color]::FromArgb(0,14,43,76),0)
+      try{$e.Graphics.FillRectangle($fade,$x,0,48,$sender.Height)}finally{$fade.Dispose()}
+     }finally{$earth.Dispose()}
+    }finally{$stream.Dispose()}
    })
    $kicker=Desktop-Label $hero 'QUANTIC SILLAGE' 22 17 460 22 9 $true
    $kicker.BackColor=[Drawing.Color]::Transparent;$kicker.ForeColor=[Drawing.Color]::FromArgb(173,202,232)
