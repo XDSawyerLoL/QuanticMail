@@ -723,8 +723,8 @@ function Desktop-Button($parent,[string]$text,[string]$tag,[int]$x,[int]$y,[int]
 }
 function Desktop-Card($parent,[string]$title,[string]$description,[string]$button,[string]$tag,[int]$x,[int]$y,[int]$w=396,[int]$h=172){
  $c=New-Object Windows.Forms.Panel
- $c.BackColor=$script:desktopColors.White;$c.BorderStyle='None';$c.SetBounds($x,$y,$w,$h)
- $c.Add_Paint({param($sender,$e) $pen=New-Object Drawing.Pen($script:desktopColors.Border);try{$e.Graphics.DrawRectangle($pen,0,0,$sender.Width-1,$sender.Height-1)}finally{$pen.Dispose()}})
+ $c.BackColor=$script:desktopColors.White;$c.BorderStyle='None';Set-DesktopRoundedCard $c
+ $c.SetBounds($x,$y,$w,$h)
  $parent.Controls.Add($c)
  $null=Desktop-Label $c $title 20 17 ($w-40) 31 15 $true
  $d=Desktop-Label $c $description 20 55 ($w-40) 56 10
@@ -732,17 +732,43 @@ function Desktop-Card($parent,[string]$title,[string]$description,[string]$butto
  if($button){$action=Desktop-Button $c ($button+'  '+[char]0x2192) $tag 20 ($h-48) ($w-40) 32 $false;$action.FlatAppearance.BorderSize=0;$action.ForeColor=$script:desktopColors.Blue;$action.TextAlign='MiddleLeft';$action.BackColor=$script:desktopColors.White}
  return $c
 }
+# Native card surfaces: thin border, rounded corners, real controls.
+function Set-DesktopRoundedCard($panel){
+ $panel.Add_SizeChanged({
+  param($sender,$e)
+  if($sender.Width -lt 24 -or $sender.Height -lt 24){return}
+  $path=New-Object Drawing.Drawing2D.GraphicsPath
+  try{
+   $w=$sender.Width;$h=$sender.Height;$d=16
+   $path.AddArc(0,0,$d,$d,180,90);$path.AddArc($w-$d,0,$d,$d,270,90)
+   $path.AddArc($w-$d,$h-$d,$d,$d,0,90);$path.AddArc(0,$h-$d,$d,$d,90,90);$path.CloseFigure()
+   $old=$sender.Region;$sender.Region=New-Object Drawing.Region($path);if($old){$old.Dispose()}
+  }finally{$path.Dispose()}
+ })
+ $panel.Add_Paint({
+  param($sender,$e)
+  $w=$sender.Width-1;$h=$sender.Height-1
+  if($w -lt 20 -or $h -lt 20){return}
+  $e.Graphics.SmoothingMode=[Drawing.Drawing2D.SmoothingMode]::AntiAlias
+  $path=New-Object Drawing.Drawing2D.GraphicsPath;$pen=New-Object Drawing.Pen($script:desktopColors.Border)
+  try{
+   $d=16;$path.AddArc(0,0,$d,$d,180,90);$path.AddArc($w-$d,0,$d,$d,270,90)
+   $path.AddArc($w-$d,$h-$d,$d,$d,0,90);$path.AddArc(0,$h-$d,$d,$d,90,90);$path.CloseFigure()
+   $e.Graphics.DrawPath($pen,$path)
+  }finally{$path.Dispose();$pen.Dispose()}
+ })
+}
 function Desktop-HomeCard($parent,[string]$title,[string]$description,[string]$button,[string]$tag,[int]$glyph,[int]$x,[int]$y){
  $panel=New-Object Windows.Forms.Panel
- $panel.BackColor=$script:desktopColors.White;$panel.SetBounds($x,$y,396,144);$parent.Controls.Add($panel)
- $panel.Add_Paint({param($sender,$e) $pen=New-Object Drawing.Pen($script:desktopColors.Border);try{$e.Graphics.DrawRectangle($pen,0,0,$sender.Width-1,$sender.Height-1)}finally{$pen.Dispose()}})
- $icon=Desktop-Label $panel ([string][char]$glyph) 17 17 39 39 17
+ $panel.BackColor=$script:desktopColors.White;Set-DesktopRoundedCard $panel
+ $panel.SetBounds($x,$y,260,154);$parent.Controls.Add($panel)
+ $icon=Desktop-Label $panel ([string][char]$glyph) 18 13 36 35 17
  $icon.Font=New-Object Drawing.Font('Segoe MDL2 Assets',23,[Drawing.FontStyle]::Regular,[Drawing.GraphicsUnit]::Pixel)
  $icon.TextAlign='MiddleCenter';$icon.BackColor=[Drawing.Color]::FromArgb(235,243,252);$icon.ForeColor=$script:desktopColors.Blue
- $null=Desktop-Label $panel $title 69 16 304 28 14 $true
- $desc=Desktop-Label $panel $description 69 45 300 48 10
+ $null=Desktop-Label $panel $title 18 55 224 26 14 $true
+ $desc=Desktop-Label $panel $description 18 82 224 38 9.5
  $desc.ForeColor=$script:desktopColors.Muted
- $action=Desktop-Button $panel ($button+'  '+[char]0x2192) $tag 62 99 313 30 $false
+ $action=Desktop-Button $panel ($button+'  '+[char]0x2192) $tag 12 123 236 26 $false
  $action.TextAlign='MiddleLeft';$action.ForeColor=$script:desktopColors.Blue;$action.FlatAppearance.BorderSize=0
 }
 function Invoke-DesktopNativeAction([string]$id){
@@ -1141,41 +1167,79 @@ function Show-DesktopPage([string]$name){
  switch($name){
   'Accueil' {
    $hero=New-Object Windows.Forms.Panel
-   $hero.SetBounds(0,0,812,104);$hero.BackColor=$script:desktopColors.Navy;$body.Controls.Add($hero)
+   $hero.BackColor=$script:desktopColors.Navy;Set-DesktopRoundedCard $hero;$hero.SetBounds(0,0,812,118);$body.Controls.Add($hero)
    $hero.Add_Paint({param($sender,$e)
     $rect=New-Object Drawing.Rectangle(0,0,$sender.Width,$sender.Height)
-    $gradient=New-Object Drawing.Drawing2D.LinearGradientBrush($rect,[Drawing.Color]::FromArgb(14,35,58),[Drawing.Color]::FromArgb(27,65,103),0)
+    $gradient=New-Object Drawing.Drawing2D.LinearGradientBrush($rect,[Drawing.Color]::FromArgb(10,29,51),[Drawing.Color]::FromArgb(17,68,111),0)
     try{$e.Graphics.FillRectangle($gradient,$rect)}finally{$gradient.Dispose()}
+    $e.Graphics.SmoothingMode=[Drawing.Drawing2D.SmoothingMode]::AntiAlias
     $pen=New-Object Drawing.Pen([Drawing.Color]::FromArgb(45,100,148),1)
     try{foreach($r in @(90,130,170)){$e.Graphics.DrawEllipse($pen,($sender.Width-40-$r),(-30-$r/2),($r*2),($r*2))}}finally{$pen.Dispose()}
    })
-   $kicker=Desktop-Label $hero 'VOTRE ESPACE NUMÉRIQUE' 22 14 500 22 9 $true
+   $kicker=Desktop-Label $hero 'VOTRE ESPACE NUMÉRIQUE' 22 16 500 22 9 $true
    $kicker.BackColor=[Drawing.Color]::Transparent;$kicker.ForeColor=[Drawing.Color]::FromArgb(173,202,232)
-   $headline=Desktop-Label $hero 'Bienvenue dans Quantic Sillage' 22 36 740 34 21 $true
+   $headline=Desktop-Label $hero 'Bienvenue dans Quantic Sillage' 22 42 740 34 21 $true
    $headline.BackColor=[Drawing.Color]::Transparent;$headline.ForeColor=[Drawing.Color]::White
-   $detail=Desktop-Label $hero 'Identité, échanges et données sous votre contrôle.' 24 73 700 22 10
+   $detail=Desktop-Label $hero 'Votre identité, vos échanges et vos données, au même endroit.' 24 81 740 25 10
    $detail.BackColor=[Drawing.Color]::Transparent;$detail.ForeColor=[Drawing.Color]::FromArgb(212,226,241)
-   $null=Desktop-Label $body 'Vos services' 0 120 812 30 16 $true
-   Desktop-HomeCard $body 'Identité' 'Créer ou vérifier une identité locale de test.' 'Mon identité' 'Identité' 0xE77B 0 162
-   Desktop-HomeCard $body 'Messagerie' 'Rédiger vos messages et gérer vos contacts.' 'Mes messages' 'Messagerie' 0xE715 416 162
-   Desktop-HomeCard $body 'Paiements' 'Découvrir le simulateur, sans argent réel.' 'Mes paiements' 'Paiements' 0xE8C7 0 322
-   Desktop-HomeCard $body 'Coffre-fort' 'Déposer et récupérer vos documents de test.' 'Mon coffre' 'Coffre-fort' 0xE72E 416 322
-   Desktop-HomeCard $body 'Protection' 'Consulter la surveillance locale de Sentinel.' 'Ma protection' 'Protection' 0xEA18 0 482
-   Desktop-HomeCard $body 'Mon espace' 'Paramètres et informations du logiciel.' 'Mes paramètres' 'Paramètres' 0xE713 416 482
+   $null=Desktop-Label $body 'Vos services' 0 134 812 30 16 $true
+   Desktop-HomeCard $body 'Identité' 'Votre identité numérique locale.' 'Mon identité' 'Identité' 0xE77B 0 178
+   Desktop-HomeCard $body 'Messagerie' 'Vos échanges et vos contacts.' 'Mes messages' 'Messagerie' 0xE715 276 178
+   Desktop-HomeCard $body 'Paiements' 'Simulation sans valeur monétaire.' 'Mes paiements' 'Paiements' 0xE8C7 552 178
+   Desktop-HomeCard $body 'Coffre-fort' 'Vos documents chiffrés de test.' 'Mon coffre' 'Coffre-fort' 0xE72E 0 348
+   Desktop-HomeCard $body 'Protection' 'Surveillance locale des sauvegardes.' 'Ma protection' 'Protection' 0xEA18 276 348
+   Desktop-HomeCard $body 'Mon espace' 'Préférences et informations.' 'Mes paramètres' 'Paramètres' 0xE713 552 348
   }
   'Identité' {
-   $null=Desktop-Label $body 'Votre identité numérique' 0 0 810 38 19 $true
-   $null=Desktop-Card $body 'Créer une identité' 'Créer un coffre de test local sans inscription distante.' 'Créer mon identité de test' 'create' 0 58
-   $null=Desktop-Card $body 'Vérifier mon identité' 'Choisir un coffre existant et saisir ses secrets dans le moteur natif.' 'Vérifier mon coffre' 'open' $right 58
-   $null=Desktop-Card $body 'Inscription' 'Préparer une candidature de test auprès d''un opérateur indépendant.' 'Préparer mon inscription' 'enroll' 0 248
-   $null=Desktop-Card $body 'Preuve de possession' 'Répondre au défi signé fourni par votre opérateur.' 'Prouver mon identité' 'proof' $right 248
+   $null=Desktop-Label $body 'Identité numérique' 0 0 810 36 19 $true
+   $lead=Desktop-Label $body 'Créez ou vérifiez votre identité de laboratoire.' 0 40 810 30 10
+   $lead.ForeColor=$script:desktopColors.Muted
+   $idCard=New-Object Windows.Forms.Panel
+   $idCard.BackColor=[Drawing.Color]::FromArgb(231,241,251);Set-DesktopRoundedCard $idCard
+   $idCard.SetBounds(0,88,500,248);$body.Controls.Add($idCard)
+   $mark=Desktop-Label $idCard ([string][char]0xE77B) 24 85 88 88 19
+   $mark.Font=New-Object Drawing.Font('Segoe MDL2 Assets',56,[Drawing.FontStyle]::Regular,[Drawing.GraphicsUnit]::Pixel)
+   $mark.TextAlign='MiddleCenter';$mark.BackColor=[Drawing.Color]::FromArgb(214,230,248);$mark.ForeColor=$script:desktopColors.Blue
+   $null=Desktop-Label $idCard 'Quantic Sillage' 24 19 446 26 14 $true
+   $null=Desktop-Label $idCard 'IDENTITÉ NUMÉRIQUE DE LABORATOIRE' 24 49 446 25 9
+   $null=Desktop-Label $idCard 'Mon identité locale' 130 87 342 31 16 $true
+   $hint=Desktop-Label $idCard 'Aucune identité vérifiée dans cet écran.' 130 125 342 48 11
+   $hint.ForeColor=$script:desktopColors.Muted
+   $status=Desktop-Label $idCard 'Aucune certification officielle' 24 204 446 27 10
+   $status.ForeColor=$script:desktopColors.Muted
+   $actionPanel=New-Object Windows.Forms.Panel;$actionPanel.BackColor=$script:desktopColors.White
+   Set-DesktopRoundedCard $actionPanel;$actionPanel.SetBounds(516,88,296,248);$body.Controls.Add($actionPanel)
+   $null=Desktop-Label $actionPanel 'Actions' 17 17 262 29 14 $true
+   $null=Desktop-Button $actionPanel 'Vérifier mon identité' 'open' 17 59 262 39 $true
+   $null=Desktop-Button $actionPanel 'Créer une identité' 'create' 17 109 262 39 $false
+   $null=Desktop-Button $actionPanel 'Préparer mon inscription' 'enroll' 17 159 262 39 $false
+   $null=Desktop-Card $body 'Preuve de possession' 'Répondre au défi signé fourni par votre opérateur indépendant.' 'Prouver mon identité' 'proof' 0 352 812 148
   }
   'Messagerie' {
-   $null=Desktop-Label $body 'Vos échanges privés' 0 0 810 38 19 $true
-   $null=Desktop-Card $body 'Nouveau message' 'Ouvrir le rédacteur natif existant. Aucun envoi implicite.' 'Rédiger un message' 'compose' 0 58
-   $null=Desktop-Card $body 'Contacts' 'Gérer les invitations locales de test, sans contact approuvé fictif.' 'Inviter un contact' 'contacts' $right 58
-   $null=Desktop-Card $body 'Configurer ma messagerie' 'Importer votre activation authentifiée et démarrer le transport prévu.' 'Configurer' 'activation' 0 248
-   $null=Desktop-Card $body 'Préparer mes accès' 'Protéger les informations d''accès locales après approbation.' 'Préparer mes accès' 'credential' $right 248
+   $null=Desktop-Label $body 'Messagerie sécurisée' 0 0 500 37 19 $true
+   $lead=Desktop-Label $body 'Vos échanges privés, depuis votre espace local.' 0 43 800 28 10
+   $lead.ForeColor=$script:desktopColors.Muted
+   $null=Desktop-Button $body '+ Nouveau message' 'compose' 574 0 238 41 $true
+   $nav=New-Object Windows.Forms.Panel;$nav.BackColor=$script:desktopColors.White
+   Set-DesktopRoundedCard $nav;$nav.SetBounds(0,90,230,390);$body.Controls.Add($nav)
+   $null=Desktop-Label $nav 'Messagerie' 16 18 198 28 12 $true
+   $null=Desktop-Button $nav 'Nouveau message' 'compose' 13 62 204 38 $false
+   $null=Desktop-Button $nav 'Contacts' 'contacts' 13 108 204 38 $false
+   $null=Desktop-Label $nav 'Configuration' 16 174 198 28 12 $true
+   $null=Desktop-Button $nav 'Configurer mes accès' 'activation' 13 214 204 38 $false
+   $null=Desktop-Button $nav 'Préparer mes accès' 'credential' 13 260 204 38 $false
+   $mail=New-Object Windows.Forms.Panel;$mail.BackColor=$script:desktopColors.White
+   Set-DesktopRoundedCard $mail;$mail.SetBounds(246,90,566,390);$body.Controls.Add($mail)
+   $null=Desktop-Label $mail 'Boîte de réception' 22 20 522 32 15 $true
+   $rule=New-Object Windows.Forms.Panel;$rule.BackColor=$script:desktopColors.Border;$rule.SetBounds(20,62,526,1);$mail.Controls.Add($rule)
+   $mailIcon=Desktop-Label $mail ([string][char]0xE715) 0 110 566 62 20
+   $mailIcon.Font=New-Object Drawing.Font('Segoe MDL2 Assets',42,[Drawing.FontStyle]::Regular,[Drawing.GraphicsUnit]::Pixel)
+   $mailIcon.TextAlign='MiddleCenter';$mailIcon.ForeColor=$script:desktopColors.Muted
+   $empty=Desktop-Label $mail 'Messages non chargés' 20 184 526 32 14 $true
+   $empty.TextAlign='MiddleCenter'
+   $note=Desktop-Label $mail 'La liste des messages n''est pas encore raccordée à cette page. Vous pouvez rédiger un message ou configurer votre messagerie.' 35 224 496 70 10
+   $note.ForeColor=$script:desktopColors.Muted;$note.TextAlign='MiddleCenter'
+   $null=Desktop-Button $mail 'Configurer ma messagerie' 'activation' 145 315 276 38 $true
   }
   'Paiements' {
    $null=Desktop-Label $body 'Votre portefeuille' 0 0 810 38 19 $true
@@ -1282,7 +1346,9 @@ function Initialize-Desktop {
  $y=120
  foreach($page in $script:desktopPages){
   $b=Desktop-Button $sidebar $page $page 12 $y 200 44 $false
-  $b.TextAlign='MiddleLeft';$b.Padding=New-Object Windows.Forms.Padding(12,0,0,0)
+  $b.TextAlign='MiddleLeft';$b.Padding=New-Object Windows.Forms.Padding(43,0,0,0)
+  $b.AccessibleName=$page
+  $b.Add_Paint({param($sender,$e) $g=@{Accueil=0xE80F;'Identité'=0xE77B;Messagerie=0xE715;Paiements=0xE8C7;'Coffre-fort'=0xE72E;Protection=0xEA18;'Paramètres'=0xE713};$font=New-Object Drawing.Font('Segoe MDL2 Assets',17,[Drawing.FontStyle]::Regular,[Drawing.GraphicsUnit]::Pixel);try{[Windows.Forms.TextRenderer]::DrawText($e.Graphics,([string][char]$g[[string]$sender.Tag]),$font,(New-Object Drawing.Rectangle(13,0,24,$sender.Height)),[Drawing.Color]::White,([Windows.Forms.TextFormatFlags]::HorizontalCenter -bor [Windows.Forms.TextFormatFlags]::VerticalCenter))}finally{$font.Dispose()}})
   $b.FlatAppearance.BorderSize=0;$b.ForeColor=[Drawing.Color]::White
   $b.FlatAppearance.MouseOverBackColor=[Drawing.Color]::FromArgb(28,66,105);$b.FlatAppearance.MouseDownBackColor=[Drawing.Color]::FromArgb(35,77,118)
   $script:desktopNav+= $b;$y+=54
@@ -1368,10 +1434,12 @@ function Update-DesktopLayout {
   # for a vertical scrollbar. Never infer layout from requested window size.
   $width=[Math]::Min(824,[Math]::Max(540,$ww-52))
   $x=[Math]::Max(16,[int](($ww-$width-16)/2))
-  $contentHeight=if($script:desktopCurrent -eq 'Paramètres' -and $script:desktopAdvanced.Visible){910}else{670}
+  $pageHeight=0
+  foreach($c in $script:desktopBody.Controls){$pageHeight=[Math]::Max($pageHeight,$c.Bottom)}
+  $contentHeight=if($script:desktopCurrent -eq 'Paramètres' -and $script:desktopAdvanced.Visible){910}else{[Math]::Max(100,$pageHeight+40)}
   $scroll.AutoScrollMinSize=New-Object Drawing.Size(0,$contentHeight)
   $position=$scroll.AutoScrollPosition
-  $script:desktopBody.SetBounds($x,(20+$position.Y),$width,650)
+  $script:desktopBody.SetBounds($x,(20+$position.Y),$width,([Math]::Max(80,$pageHeight+2)))
   $script:desktopAdvanced.SetBounds(16,(20+$position.Y),760,870)
   if($script:desktopPageBounds){Resize-DesktopPage $script:desktopBody ($width/824.0)}
   $hx=[Math]::Max(4,$ww-308)
