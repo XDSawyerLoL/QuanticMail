@@ -690,6 +690,7 @@ $run.Add_Click($script:desktopRunAction)
 
 # Unified Windows desktop: no browser, no synthetic balances, no security
 # claims from unverified metadata. Existing native actions remain unchanged.
+$script:desktopShadows=$true
 $script:desktopColors=@{
  Canvas=[Drawing.Color]::FromArgb(243,246,251)
  White=[Drawing.Color]::White
@@ -801,6 +802,20 @@ function Invoke-DesktopNativeAction([string]$id){
  }
  throw 'Action locale non trouvee'
 }
+function Set-DesktopShadows([bool]$enabled){
+ $script:desktopShadows=$enabled
+ if($script:desktopBody -and -not $script:desktopBody.IsDisposed){
+  foreach($section in $script:desktopBody.Controls){
+   foreach($control in $section.Controls){
+    if($control -is [Windows.Forms.Button] -and $control.Tag -ceq 'appearance-shadows'){
+     $control.Text=if($enabled){'Désactiver'}else{'Activer'}
+     $control.AccessibleDescription=if($enabled){'Désactiver les ombres des cartes'}else{'Activer les ombres des cartes'}
+    }
+   }
+  }
+  $script:desktopBody.Invalidate()
+ }
+}
 function Invoke-DesktopAction([string]$tag){
  switch($tag){
   'create' {& $script:desktopCreateAction;return}
@@ -822,6 +837,7 @@ function Invoke-DesktopAction([string]$tag){
   'refresh-protection' {Refresh-DesktopProtection;return}
   'sentinel-enable' {Set-DesktopSentinelProtection $true;return}
   'sentinel-disable' {Set-DesktopSentinelProtection $false;return}
+  'appearance-shadows' {Set-DesktopShadows (-not $script:desktopShadows);return}
   'advanced' {Show-DesktopPage 'Paramètres';$script:desktopAdvanced.Visible=$true;$script:desktopBody.Visible=$false;Update-DesktopLayout;return}
   default {Show-DesktopPage $tag}
  }
@@ -1464,7 +1480,7 @@ function Show-DesktopPage([string]$name){
    $lead=Desktop-Label $body 'Gérez votre espace local et vos préférences.' 0 0 812 36 10
    $lead.ForeColor=$script:desktopColors.Muted
    Desktop-SettingRow $body 'Mon compte' 'Identité locale et accès à votre espace privé.' 0xE77B 55 'Mon identité' 'Identité'
-   Desktop-SettingRow $body 'Préférences' 'Options d''interface avancées non disponibles.' 0xE713 133
+   Desktop-SettingRow $body 'Apparence' 'Ombres des cartes · réglage pour cette session.' 0xE713 133 $(if($script:desktopShadows){'Désactiver'}else{'Activer'}) 'appearance-shadows'
    Desktop-SettingRow $body 'Confidentialité' 'Verrouiller les documents et les reçus ouverts.' 0xE72E 211 'Verrouiller' 'session-lock'
    Desktop-SettingRow $body 'Appareils' 'État de la protection locale · pas de registre distant.' 0xE7F4 289 'Protection' 'Protection'
    Desktop-SettingRow $body 'À propos' 'Quantic Sillage Desktop · Alpha privée non certifiée.' 0xE946 367
@@ -1564,6 +1580,7 @@ function Initialize-Desktop {
  $script:desktopBody.Add_Paint({
   param($sender,$e)
   $e.Graphics.SmoothingMode=[Drawing.Drawing2D.SmoothingMode]::AntiAlias
+  if(-not $script:desktopShadows){return}
   foreach($card in $sender.Controls){
    if($card -isnot [Windows.Forms.Panel] -or -not $card.Visible -or -not $card.Region -or $card.Width -lt 24 -or $card.Height -lt 24){continue}
    foreach($layer in @(4,3,2,1)){
@@ -1669,6 +1686,14 @@ if ($SelfTest) {
   Test-DesktopSentinelReadOnly
   Initialize-Desktop
   foreach($page in $script:desktopPages){Show-DesktopPage $page;if($script:desktopTitle.Text -ne $page -or $script:desktopBody.Controls.Count -lt 2){throw "Desktop page incomplete: $page"}}
+  Show-DesktopPage 'Paramètres'
+  Invoke-DesktopAction 'appearance-shadows'
+  if($script:desktopShadows){throw 'Appearance toggle failed to disable shadows'}
+  Show-DesktopPage 'Accueil'
+  if($script:desktopShadows){throw 'Appearance setting lost across navigation'}
+  Show-DesktopPage 'Paramètres'
+  Invoke-DesktopAction 'appearance-shadows'
+  if(-not $script:desktopShadows){throw 'Appearance toggle failed to restore shadows'}
   Show-DesktopPage "Accueil"
   Show-DesktopPage 'Messagerie'
   $null=$script:desktopMailList.Items.Add('synthetic test subject')
