@@ -707,6 +707,15 @@ function Desktop-Label($parent,[string]$text,[int]$x,[int]$y,[int]$w,[int]$h,[fl
  $c.UseCompatibleTextRendering=$false
  $c.SetBounds($x,$y,$w,$h);$parent.Controls.Add($c);return $c
 }
+function Set-DesktopButtonRegion($button){
+ if($button.Width -lt 12 -or $button.Height -lt 12){return}
+ $p=New-Object Drawing.Drawing2D.GraphicsPath
+ try{
+  $w=$button.Width;$h=$button.Height;$d=8
+  $p.AddArc(0,0,$d,$d,180,90);$p.AddArc($w-$d,0,$d,$d,270,90);$p.AddArc($w-$d,$h-$d,$d,$d,0,90);$p.AddArc(0,$h-$d,$d,$d,90,90);$p.CloseFigure()
+  $old=$button.Region;$button.Region=New-Object Drawing.Region($p);if($old){$old.Dispose()}
+ }finally{$p.Dispose()}
+}
 function Desktop-Button($parent,[string]$text,[string]$tag,[int]$x,[int]$y,[int]$w,[int]$h,[bool]$primary=$false){
  $c=New-Object Windows.Forms.Button
  $c.Text=$text;$c.Tag=$tag;$c.FlatStyle='Flat';$c.FlatAppearance.BorderSize=1
@@ -718,6 +727,8 @@ function Desktop-Button($parent,[string]$text,[string]$tag,[int]$x,[int]$y,[int]
  $c.FlatAppearance.MouseOverBackColor=if($primary){[Drawing.Color]::FromArgb(9,83,164)}else{[Drawing.Color]::FromArgb(238,244,251)}
  $c.FlatAppearance.MouseDownBackColor=[Drawing.Color]::FromArgb(215,231,249)
  $c.SetBounds($x,$y,$w,$h);$c.Cursor=[Windows.Forms.Cursors]::Hand
+ $c.Add_SizeChanged({param($sender,$e) Set-DesktopButtonRegion $sender})
+ Set-DesktopButtonRegion $c
  $c.Add_Click({param($sender,$e) Invoke-DesktopAction ([string]$sender.Tag)})
  $parent.Controls.Add($c);return $c
 }
@@ -766,7 +777,7 @@ function Desktop-HomeCard($parent,[string]$title,[string]$description,[string]$b
  $icon.Font=New-Object Drawing.Font('Segoe MDL2 Assets',23,[Drawing.FontStyle]::Regular,[Drawing.GraphicsUnit]::Pixel)
  $icon.TextAlign='MiddleCenter';$icon.BackColor=$panel.BackColor;$icon.ForeColor=$script:desktopColors.Blue
  $null=Desktop-Label $panel $title 18 55 224 26 14 $true
- $desc=Desktop-Label $panel $description 18 80 224 30 9.5
+ $desc=Desktop-Label $panel $description 18 80 224 32 9
  $desc.ForeColor=$script:desktopColors.Muted
  $action=Desktop-Button $panel ($button+'  '+[char]0x2192) $tag 12 110 236 24 $false
  $action.TextAlign='MiddleLeft';$action.ForeColor=$script:desktopColors.Blue;$action.FlatAppearance.BorderSize=0;$action.BackColor=$panel.BackColor
@@ -1230,39 +1241,36 @@ function Show-DesktopPage([string]$name){
  switch($name){
   'Accueil' {
    $hero=New-Object Windows.Forms.Panel
-   $hello=Desktop-Label $body 'Bienvenue dans Quantic Sillage' 0 0 812 36 20 $true
+   $hello=Desktop-Label $body 'Bienvenue dans Quantic Sillage' 0 0 812 36 18 $true
    $subtitle=Desktop-Label $body 'Votre espace numérique unifié · Édition de laboratoire.' 0 39 812 24 10
    $subtitle.ForeColor=$script:desktopColors.Muted
    $hero.BackColor=$script:desktopColors.Navy;Set-DesktopRoundedCard $hero;$hero.SetBounds(0,75,812,142);$body.Controls.Add($hero)
    $hero.Add_Paint({param($sender,$e)
     $rect=New-Object Drawing.Rectangle(0,0,$sender.Width,$sender.Height)
-    $gradient=New-Object Drawing.Drawing2D.LinearGradientBrush($rect,[Drawing.Color]::FromArgb(10,29,51),[Drawing.Color]::FromArgb(17,68,111),0)
+    $gradient=New-Object Drawing.Drawing2D.LinearGradientBrush($rect,[Drawing.Color]::FromArgb(10,29,51),[Drawing.Color]::FromArgb(14,43,76),0)
     try{$e.Graphics.FillRectangle($gradient,$rect)}finally{$gradient.Dispose()}
-    # Embedded decorative crop of the approved Earth banner, not a screenshot of UI controls.
-    $stream=New-Object IO.MemoryStream(,([Convert]::FromBase64String('/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDACAWGBwYFCAcGhwkIiAmMFA0MCwsMGJGSjpQdGZ6eHJmcG6AkLicgIiuim5woNqirr7EztDOfJri8uDI8LjKzsb/2wBDASIkJDAqMF40NF7GhHCExsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsb/wAARCAArAFADASIAAhEBAxEB/8QAGQAAAwEBAQAAAAAAAAAAAAAAAgMEAAEF/8QANBAAAgEDAwICBgkFAAAAAAAAAQIDABEhBBIxQWEyUQUTcYGRwRQVIiMzQlKh0TREVGKx/8QAGAEBAQEBAQAAAAAAAAAAAAAAAgEAAwT/xAAaEQADAAMBAAAAAAAAAAAAAAAAARECITES/9oADAMBAAIRAxEAPwCL6x1n+Q/xro9Iaw/3EnxqUDNOjjxuc2X/ALXpWKZxeUKotXrXNhPIffVI1UkX4mod2/SDj4157T2G2PC+Q60cMJklVZDtuLgXyar8oC9Mpl9JTlrB9p4xXItZqZMnUOFvYW5J7V58rjeQoKqDxen6dWMDlpWQDAsPP5UcmkuCxTpY2s1Jm9Ukr4JFxkmlrrtS4YfSSjg2IY8DtUuomBxFcEizNwKSB6vmxJ4tR6Phc2t1PI1TEgZHF/ZSfrHVgf1D39tTGwAbm/TihtddwHHNbSMGAFyfhXHcnk+6hJ8+aHNr2xToIGkhU+EE9+lXaTULGWYo8jMLE8V56bg42c1UWMkxMKnHFsG1c8t9GtFkQ0iK8zfakP5SLAeypJGaSRmOQBckG96dpYo13iZmRk8Xbt7apdNKYTNGkkuLhb8++ufqM6eajzB943hY2HT8oopDB6kKm4uOW4Fq6FMyu0CgKLXAwRSpVkCncrC2D2pp0IAI22PHNxWIITcqnbe24+dZgAwBFjww+dC0jeEH7PlWIZVLsFFWQK0kypEbBR0xbvSYWKxNbFzY47VuLkfpFZ7MtFCsrQlHxsPjHzNTzzqLrDI7E+JyLX7eym6kD6Ppv9gxPc1EzEgAnAwKKV2JsajPPIokYuBkhm6UzT6lYrrIDbO0r0P8UvTAH1p6iMkUk0omSwsmgLETQuCzm+0HF+38VoVd0KE7S44JsLg9aTHnSS9iCP2otOTZs8ZFHcKY/dgpexNrjz/alsgZmKsLc5FFILaph0DWFNlRV06MBkk1bCdP/9k=')))
+    # Original approved artwork, upper-left Earth crop (222x150).
+    # The left edge is pre-blended into the banner's final color.
+    $stream=New-Object IO.MemoryStream(,([Convert]::FromBase64String('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')))
     try{
      $earth=[Drawing.Image]::FromStream($stream)
      try{
       $e.Graphics.InterpolationMode=[Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
-      $w=[int]($sender.Width*0.37);$x=$sender.Width-$w
+      $w=[int]($sender.Width*0.42);$x=$sender.Width-$w
       $e.Graphics.DrawImage($earth,(New-Object Drawing.Rectangle($x,0,$w,$sender.Height)))
-      $fade=New-Object Drawing.Drawing2D.LinearGradientBrush((New-Object Drawing.Rectangle($x,0,48,$sender.Height)),[Drawing.Color]::FromArgb(255,14,43,76),[Drawing.Color]::FromArgb(0,14,43,76),0)
-      try{$e.Graphics.FillRectangle($fade,$x,0,48,$sender.Height)}finally{$fade.Dispose()}
      }finally{$earth.Dispose()}
     }finally{$stream.Dispose()}
    })
-   $kicker=Desktop-Label $hero 'QUANTIC SILLAGE' 22 17 460 22 9 $true
-   $kicker.BackColor=[Drawing.Color]::Transparent;$kicker.ForeColor=[Drawing.Color]::FromArgb(173,202,232)
-   $headline=Desktop-Label $hero ('Votre identité, vos échanges,'+[Environment]::NewLine+'vos paiements et vos données') 22 45 505 58 17 $true
+   $headline=Desktop-Label $hero ('Votre identité, vos échanges,'+[Environment]::NewLine+'vos paiements et vos données,') 30 22 505 58 16 $true
    $headline.BackColor=[Drawing.Color]::Transparent;$headline.ForeColor=[Drawing.Color]::White
-   $detail=Desktop-Label $hero 'Dans un espace numérique sous votre contrôle.' 24 109 510 24 10
+   $detail=Desktop-Label $hero 'dans un espace numérique sous votre contrôle.' 32 88 505 40 11
    $detail.BackColor=[Drawing.Color]::Transparent;$detail.ForeColor=[Drawing.Color]::FromArgb(212,226,241)
    Desktop-HomeCard $body 'Identité' 'Votre identité numérique locale.' 'Mon identité' 'Identité' 0xE77B 0 233
    Desktop-HomeCard $body 'Messagerie' 'Vos échanges et vos contacts.' 'Mes messages' 'Messagerie' 0xE715 276 233
    Desktop-HomeCard $body 'Paiements' 'Simulation sans valeur monétaire.' 'Mes paiements' 'Paiements' 0xE8C7 552 233
    Desktop-HomeCard $body 'Coffre-fort' 'Vos documents chiffrés de test.' 'Mon coffre' 'Coffre-fort' 0xE72E 0 387
-   Desktop-HomeCard $body 'Protection' 'Surveillance locale des sauvegardes.' 'Ma protection' 'Protection' 0xEA18 276 387
-   Desktop-HomeCard $body 'État de votre espace' 'Consulter les signaux locaux disponibles.' 'Voir la protection' 'Protection' 0xE9D9 552 387
+   Desktop-HomeCard $body 'Protection' 'Surveillance des sauvegardes.' 'Ma protection' 'Protection' 0xEA18 276 387
+   Desktop-HomeCard $body 'État de votre espace' 'Consulter les signaux locaux.' 'Voir la protection' 'Protection' 0xE9D9 552 387
   }
   'Identité' {
    $null=Desktop-Label $body 'Identité numérique' 0 0 810 36 19 $true
@@ -1383,12 +1391,11 @@ function Show-DesktopPage([string]$name){
    $null=Desktop-Button $storage '+ Ajouter des fichiers' 'doc-import' 548 46 244 40 $true
    $null=Desktop-Label $body 'Mes documents' 0 199 812 30 15 $true
    $panel=Desktop-Section $body 0 238 812 265
-   $null=Desktop-Label $panel 'Nom du document' 20 13 480 24 10 $true
-   $null=Desktop-Label $panel 'Taille' 570 13 220 24 10 $true
    $script:desktopDocuments=New-Object Windows.Forms.ListView
    $script:desktopDocuments.View='Details';$script:desktopDocuments.FullRowSelect=$true;$script:desktopDocuments.MultiSelect=$false
-   $script:desktopDocuments.HeaderStyle='Nonclickable'
-   $script:desktopDocuments.SetBounds(18,41,776,124);$panel.Controls.Add($script:desktopDocuments)
+   $script:desktopDocuments.HeaderStyle='Nonclickable';$script:desktopDocuments.BorderStyle='None'
+   $script:desktopDocuments.Font=New-Object Drawing.Font('Segoe UI',13,[Drawing.FontStyle]::Regular,[Drawing.GraphicsUnit]::Pixel)
+   $script:desktopDocuments.SetBounds(18,16,776,149);$panel.Controls.Add($script:desktopDocuments)
    $null=$script:desktopDocuments.Columns.Add('Nom',500);$null=$script:desktopDocuments.Columns.Add('Taille',200)
    $script:desktopDocumentIDs=@()
    $null=Desktop-Button $panel 'Actualiser' 'doc-list' 18 180 370 35 $false
