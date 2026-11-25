@@ -1494,8 +1494,11 @@ function Show-DesktopPage([string]$name){
    $null=$script:desktopMailList.Columns.Add('Objet',400);$null=$script:desktopMailList.Columns.Add('État local',140)
    $script:desktopMailList.Add_DoubleClick({Start-DesktopReceipt 'open'})
    $script:desktopMailEmpty=Desktop-Label $mail 'Actualisez vos reçus locaux pour les consulter.' 16 90 556 28 10
-   $script:desktopMailEmpty.TextAlign='MiddleLeft';$script:desktopMailEmpty.BackColor=$script:desktopColors.White
+   $script:desktopMailEmpty.TextAlign='MiddleLeft';$script:desktopMailEmpty.BackColor=[Drawing.Color]::FromArgb(238,245,253)
    $script:desktopMailEmpty.ForeColor=$script:desktopColors.Muted
+   $script:desktopMailEmpty.Padding=New-Object Windows.Forms.Padding(9,0,9,0)
+   Set-DesktopButtonRegion $script:desktopMailEmpty
+   $script:desktopMailEmpty.Add_SizeChanged({param($sender,$e) Set-DesktopButtonRegion $sender})
    $script:desktopMailEmpty.BringToFront()
    $script:desktopMailIDs=@()
    $divider=New-Object Windows.Forms.Panel;$divider.BackColor=$script:desktopColors.Border;$divider.SetBounds(16,253,556,1);$mail.Controls.Add($divider)
@@ -1504,7 +1507,12 @@ function Show-DesktopPage([string]$name){
    $script:desktopMailBody.Multiline=$true;$script:desktopMailBody.ReadOnly=$true;$script:desktopMailBody.BorderStyle='None'
    $script:desktopMailBody.ScrollBars='Vertical';$script:desktopMailBody.BackColor=$script:desktopColors.White
    $script:desktopMailBody.Font=New-Object Drawing.Font('Segoe UI',13,[Drawing.FontStyle]::Regular,[Drawing.GraphicsUnit]::Pixel)
-   $script:desktopMailBody.SetBounds(16,285,556,89);$mail.Controls.Add($script:desktopMailBody)
+   $preview=New-Object Windows.Forms.Panel
+   $preview.BackColor=[Drawing.Color]::FromArgb(243,247,252)
+   Set-DesktopRoundedCard $preview
+   $preview.SetBounds(16,285,556,89);$mail.Controls.Add($preview)
+   $script:desktopMailBody.BackColor=$preview.BackColor
+   $script:desktopMailBody.SetBounds(10,9,536,71);$preview.Controls.Add($script:desktopMailBody)
    $script:desktopMailStatus=Desktop-Label $mail 'Reçus locaux uniquement · aucune preuve de livraison distante.' 16 383 556 30 9
    $script:desktopMailStatus.ForeColor=$script:desktopColors.Muted
   }
@@ -1555,6 +1563,7 @@ function Show-DesktopPage([string]$name){
    $storage=Desktop-Section $body 0 44 812 135
    $script:desktopStorageRing=New-Object Windows.Forms.Panel
    $script:desktopStorageRing.SetBounds(18,17,100,100);$script:desktopStorageRing.Tag=-1
+   $script:desktopStorageRing.Font=New-Object Drawing.Font('Segoe UI',19,[Drawing.FontStyle]::Bold,[Drawing.GraphicsUnit]::Pixel)
    $script:desktopStorageRing.Add_SizeChanged({param($sender,$e) $sender.Invalidate()})
    $storage.Controls.Add($script:desktopStorageRing)
    $script:desktopStorageRing.Add_Paint({param($sender,$e)
@@ -1585,8 +1594,11 @@ function Show-DesktopPage([string]$name){
    $script:desktopDocuments.SetBounds(18,47,776,118);$panel.Controls.Add($script:desktopDocuments)
    $null=$script:desktopDocuments.Columns.Add('Nom',500);$null=$script:desktopDocuments.Columns.Add('Taille',200)
    $script:desktopDocumentEmpty=Desktop-Label $panel 'Actualisez votre inventaire local pour le consulter.' 18 12 776 28 10
-   $script:desktopDocumentEmpty.TextAlign='MiddleLeft';$script:desktopDocumentEmpty.BackColor=$script:desktopColors.White
+   $script:desktopDocumentEmpty.TextAlign='MiddleLeft';$script:desktopDocumentEmpty.BackColor=[Drawing.Color]::FromArgb(238,245,253)
    $script:desktopDocumentEmpty.ForeColor=$script:desktopColors.Muted
+   $script:desktopDocumentEmpty.Padding=New-Object Windows.Forms.Padding(9,0,9,0)
+   Set-DesktopButtonRegion $script:desktopDocumentEmpty
+   $script:desktopDocumentEmpty.Add_SizeChanged({param($sender,$e) Set-DesktopButtonRegion $sender})
    $script:desktopDocumentEmpty.BringToFront()
    $script:desktopDocumentIDs=@()
    $null=Desktop-Button $panel 'Actualiser' 'doc-list' 18 180 370 35 $false
@@ -1597,10 +1609,12 @@ function Show-DesktopPage([string]$name){
    $lead=Desktop-Label $body 'Sécurité, confidentialité et maîtrise de vos données.' 0 0 812 30 10
    $lead.ForeColor=$script:desktopColors.Muted
    $panel=Desktop-Section $body 0 38 812 134
-   $null=Desktop-Label $panel 'État des sauvegardes' 20 11 770 23 10 $true
-   $script:desktopProtectionTitle=Desktop-Label $panel 'État indéterminé' 20 38 770 30 16 $true
-   $script:desktopProtectionDetail=Desktop-Label $panel '' 20 73 770 33 10
-   $script:desktopProtectionTime=Desktop-Label $panel '' 20 108 520 23 9
+   $shield=Desktop-Label $panel ([string][char]0xEA18) 18 24 66 66 17
+   Set-DesktopIconTile $shield 34
+   $null=Desktop-Label $panel 'État des sauvegardes' 100 11 692 23 10 $true
+   $script:desktopProtectionTitle=Desktop-Label $panel 'État indéterminé' 100 38 692 30 16 $true
+   $script:desktopProtectionDetail=Desktop-Label $panel '' 100 73 692 33 10
+   $script:desktopProtectionTime=Desktop-Label $panel '' 100 108 500 23 9
    $null=Desktop-Button $panel 'Actualiser' 'refresh-protection' 622 103 170 27 $false
    Desktop-SettingRow $body 'Sécurité de l''appareil' 'Diagnostic antivirus complet non disponible.' 0xE83D 182
    Desktop-SettingRow $body 'Confidentialité' 'Coffre documentaire local chiffré · édition de test.' 0xE72E 256 'Mon coffre' 'Coffre-fort'
