@@ -705,6 +705,7 @@ function Desktop-Label($parent,[string]$text,[int]$x,[int]$y,[int]$w,[int]$h,[fl
  $style=if($bold){[Drawing.FontStyle]::Bold}else{[Drawing.FontStyle]::Regular}
  $c.Font=New-Object Drawing.Font('Segoe UI',([float]($size*1.3333)),$style,[Drawing.GraphicsUnit]::Pixel)
  $c.UseCompatibleTextRendering=$false
+ $c.AutoEllipsis=$true
  $c.SetBounds($x,$y,$w,$h);$parent.Controls.Add($c);return $c
 }
 function Set-DesktopButtonRegion($button){
@@ -725,7 +726,7 @@ function Desktop-Button($parent,[string]$text,[string]$tag,[int]$x,[int]$y,[int]
  $c.Font=New-Object Drawing.Font('Segoe UI',13,[Drawing.FontStyle]::Regular,[Drawing.GraphicsUnit]::Pixel)
  $c.UseVisualStyleBackColor=$false
  $c.FlatAppearance.MouseOverBackColor=if($primary){[Drawing.Color]::FromArgb(9,83,164)}else{[Drawing.Color]::FromArgb(238,244,251)}
- $c.FlatAppearance.MouseDownBackColor=[Drawing.Color]::FromArgb(215,231,249)
+ $c.FlatAppearance.MouseDownBackColor=if($primary){[Drawing.Color]::FromArgb(7,65,143)}else{[Drawing.Color]::FromArgb(215,231,249)}
  $c.SetBounds($x,$y,$w,$h);$c.Cursor=[Windows.Forms.Cursors]::Hand
  $c.Add_SizeChanged({param($sender,$e) Set-DesktopButtonRegion $sender})
  Set-DesktopButtonRegion $c
@@ -771,13 +772,13 @@ function Set-DesktopRoundedCard($panel){
 }
 function Desktop-HomeCard($parent,[string]$title,[string]$description,[string]$button,[string]$tag,[int]$glyph,[int]$x,[int]$y){
  $panel=New-Object Windows.Forms.Panel
- $panel.BackColor=[Drawing.Color]::FromArgb(248,250,253);Set-DesktopRoundedCard $panel
+ $panel.BackColor=$script:desktopColors.White;Set-DesktopRoundedCard $panel
  $panel.SetBounds($x,$y,260,140);$parent.Controls.Add($panel)
  $icon=Desktop-Label $panel ([string][char]$glyph) 18 13 36 35 17
  $icon.Font=New-Object Drawing.Font('Segoe MDL2 Assets',23,[Drawing.FontStyle]::Regular,[Drawing.GraphicsUnit]::Pixel)
- $icon.TextAlign='MiddleCenter';$icon.BackColor=$panel.BackColor;$icon.ForeColor=$script:desktopColors.Blue
- $null=Desktop-Label $panel $title 18 55 224 26 14 $true
- $desc=Desktop-Label $panel $description 18 80 224 32 9
+ $icon.TextAlign='MiddleCenter';$icon.BackColor=[Drawing.Color]::FromArgb(235,243,252);$icon.ForeColor=$script:desktopColors.Blue
+ $null=Desktop-Label $panel $title 18 52 224 26 13 $true
+ $desc=Desktop-Label $panel $description 18 77 224 33 9
  $desc.ForeColor=$script:desktopColors.Muted
  $action=Desktop-Button $panel ($button+'  '+[char]0x2192) $tag 12 110 236 24 $false
  $action.TextAlign='MiddleLeft';$action.ForeColor=$script:desktopColors.Blue;$action.FlatAppearance.BorderSize=0;$action.BackColor=$panel.BackColor
@@ -1221,7 +1222,7 @@ function Desktop-SettingRow($parent,[string]$title,[string]$detail,[int]$glyph,[
  $p=Desktop-Section $parent 0 $y 812 68
  $i=Desktop-Label $p ([string][char]$glyph) 14 13 39 39 17
  $i.Font=New-Object Drawing.Font('Segoe MDL2 Assets',22,[Drawing.FontStyle]::Regular,[Drawing.GraphicsUnit]::Pixel)
- $i.TextAlign='MiddleCenter';$i.ForeColor=$script:desktopColors.Blue;$i.BackColor=[Drawing.Color]::FromArgb(237,244,252)
+ $i.TextAlign='MiddleCenter';$i.ForeColor=$script:desktopColors.Blue;$i.BackColor=[Drawing.Color]::FromArgb(235,243,252)
  $null=Desktop-Label $p $title 66 10 515 22 12 $true
  $d=Desktop-Label $p $detail 66 33 515 28 9
  $d.ForeColor=$script:desktopColors.Muted
@@ -1232,7 +1233,7 @@ function Desktop-IdentityAction($parent,[string]$title,[string]$detail,[int]$gly
  $p=Desktop-Section $parent 516 $y 296 56
  $i=Desktop-Label $p ([string][char]$glyph) 9 10 36 36 16
  $i.Font=New-Object Drawing.Font('Segoe MDL2 Assets',21,[Drawing.FontStyle]::Regular,[Drawing.GraphicsUnit]::Pixel)
- $i.TextAlign='MiddleCenter';$i.ForeColor=$script:desktopColors.Blue;$i.BackColor=[Drawing.Color]::FromArgb(237,244,252)
+ $i.TextAlign='MiddleCenter';$i.ForeColor=$script:desktopColors.Blue;$i.BackColor=[Drawing.Color]::FromArgb(235,243,252)
  $button=Desktop-Button $p $title $tag 51 3 235 26 $false
  $button.TextAlign='MiddleLeft';$button.FlatAppearance.BorderSize=0;$button.ForeColor=$script:desktopColors.Ink
  $d=Desktop-Label $p $detail 57 32 224 20 9
@@ -1269,11 +1270,11 @@ function Show-DesktopPage([string]$name){
      $earth=[Drawing.Image]::FromStream($stream)
      try{
       $e.Graphics.InterpolationMode=[Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
-      $w=[int]($sender.Width*0.42);$x=$sender.Width-$w
+      $w=[int][Math]::Min($sender.Width*0.42,$sender.Height*$earth.Width/[double]$earth.Height);$x=$sender.Width-$w
       $e.Graphics.DrawImage($earth,(New-Object Drawing.Rectangle($x,0,$w,$sender.Height)))
       # Seam blend over the already premultiplied edge, using the exact
       # banner background as the opaque start.
-      $fadeWidth=[Math]::Max(8,[int]($w*0.20))
+      $fadeWidth=[Math]::Max(8,[int]($w*0.35))
       $fadeRect=New-Object Drawing.Rectangle($x,0,$fadeWidth,$sender.Height)
       $fade=New-Object Drawing.Drawing2D.LinearGradientBrush($fadeRect,[Drawing.Color]::FromArgb(255,14,43,76),[Drawing.Color]::FromArgb(0,14,43,76),[Drawing.Drawing2D.LinearGradientMode]::Horizontal)
       try{$e.Graphics.FillRectangle($fade,$fadeRect)}finally{$fade.Dispose()}
@@ -1336,7 +1337,7 @@ function Show-DesktopPage([string]$name){
    $inbox.BackColor=[Drawing.Color]::FromArgb(230,240,253);$inbox.ForeColor=$script:desktopColors.Blue;$inbox.FlatAppearance.BorderSize=0
    foreach($folder in @(@('Envoyés',84),@('Brouillons',121),@('Archives',158),@('Indésirables',195))){
     $inactive=Desktop-Label $nav $folder[0] 20 $folder[1] 170 30 10
-    $inactive.ForeColor=$script:desktopColors.Muted;$inactive.AccessibleDescription='Dossier non raccordé dans cette édition'
+    $inactive.ForeColor=$script:desktopColors.Muted;$inactive.Text=$folder[0]+' · indisponible';$inactive.AccessibleDescription='Dossier non raccordé dans cette édition'
    }
    $rule=New-Object Windows.Forms.Panel;$rule.BackColor=$script:desktopColors.Border;$rule.SetBounds(14,231,182,1);$nav.Controls.Add($rule)
    $null=Desktop-Label $nav 'Contacts et accès' 15 244 180 24 11 $true
@@ -1379,19 +1380,19 @@ function Show-DesktopPage([string]$name){
    $null=Desktop-Label $panel 'Effectuer un paiement fictif' 18 12 364 28 14 $true
    $null=Desktop-Label $panel 'Destinataire' 18 44 364 20 9
    $script:desktopPayee=New-Object Windows.Forms.ComboBox
-   $script:desktopPayee.DropDownStyle='DropDownList';$script:desktopPayee.SetBounds(18,66,364,28)
+   $script:desktopPayee.FlatStyle='Flat';$script:desktopPayee.Font=$form.Font;$script:desktopPayee.DropDownStyle='DropDownList';$script:desktopPayee.SetBounds(18,66,364,28)
    $null=$script:desktopPayee.Items.Add('Particulier de démonstration');$null=$script:desktopPayee.Items.Add('Commerce de démonstration')
    $script:desktopPayee.SelectedIndex=0;$panel.Controls.Add($script:desktopPayee)
    $null=Desktop-Label $panel 'Montant fictif' 18 103 174 22 9
    $script:desktopPayAmount=New-Object Windows.Forms.TextBox
-   $script:desktopPayAmount.SetBounds(18,127,174,28);$script:desktopPayAmount.MaxLength=6;$panel.Controls.Add($script:desktopPayAmount)
+   $script:desktopPayAmount.BorderStyle='FixedSingle';$script:desktopPayAmount.Font=$form.Font;$script:desktopPayAmount.SetBounds(18,127,174,28);$script:desktopPayAmount.MaxLength=6;$panel.Controls.Add($script:desktopPayAmount)
    $null=Desktop-Label $panel 'Témoins disponibles' 206 103 176 22 9
    $script:desktopPayWitnesses=New-Object Windows.Forms.ComboBox
-   $script:desktopPayWitnesses.DropDownStyle='DropDownList';$script:desktopPayWitnesses.SetBounds(206,127,176,28)
+   $script:desktopPayWitnesses.FlatStyle='Flat';$script:desktopPayWitnesses.Font=$form.Font;$script:desktopPayWitnesses.DropDownStyle='DropDownList';$script:desktopPayWitnesses.SetBounds(206,127,176,28)
    foreach($n in @('2 sur 4','3 sur 4','4 sur 4')){$null=$script:desktopPayWitnesses.Items.Add($n)}
    $script:desktopPayWitnesses.SelectedIndex=2;$panel.Controls.Add($script:desktopPayWitnesses)
    $script:desktopPayButton=Desktop-Button $panel 'Simuler le paiement' 'pay-demo' 18 178 364 38 $true
-   $null=Desktop-Label $body 'Dernières transactions' 0 299 812 32 15 $true
+   $null=Desktop-Label $body 'Historique des simulations' 0 299 812 32 15 $true
    $history=Desktop-Section $body 0 339 812 144
    $null=Desktop-Label $history 'Résultat du dernier essai' 18 13 776 25 11 $true
    $script:desktopPayResult=Desktop-Label $history 'Aucune simulation effectuée dans cette page. Aucun historique bancaire réel.' 18 47 776 81 11
@@ -1424,7 +1425,7 @@ function Show-DesktopPage([string]$name){
    $panel=Desktop-Section $body 0 238 812 265
    $script:desktopDocuments=New-Object Windows.Forms.ListView
    $script:desktopDocuments.View='Details';$script:desktopDocuments.FullRowSelect=$true;$script:desktopDocuments.MultiSelect=$false
-   $script:desktopDocuments.HeaderStyle='Nonclickable';$script:desktopDocuments.BorderStyle='None'
+   $script:desktopDocuments.HeaderStyle='Nonclickable';$script:desktopDocuments.BorderStyle='None';$script:desktopDocuments.HideSelection=$false
    $script:desktopDocuments.Font=New-Object Drawing.Font('Segoe UI',13,[Drawing.FontStyle]::Regular,[Drawing.GraphicsUnit]::Pixel)
    $script:desktopDocuments.SetBounds(18,16,776,149);$panel.Controls.Add($script:desktopDocuments)
    $null=$script:desktopDocuments.Columns.Add('Nom',500);$null=$script:desktopDocuments.Columns.Add('Taille',200)
@@ -1451,7 +1452,8 @@ function Show-DesktopPage([string]$name){
    Refresh-DesktopProtection
   }
   'Paramètres' {
-   $null=Desktop-Label $body 'Paramètres' 0 0 812 36 19 $true
+   $lead=Desktop-Label $body 'Gérez votre espace local et vos préférences.' 0 0 812 36 10
+   $lead.ForeColor=$script:desktopColors.Muted
    Desktop-SettingRow $body 'Mon compte' 'Identité locale et accès à votre espace privé.' 0xE77B 55 'Mon identité' 'Identité'
    Desktop-SettingRow $body 'Préférences' 'Options d''interface avancées non disponibles.' 0xE713 133
    Desktop-SettingRow $body 'Confidentialité' 'Verrouiller les documents et les reçus ouverts.' 0xE72E 211 'Verrouiller' 'session-lock'
