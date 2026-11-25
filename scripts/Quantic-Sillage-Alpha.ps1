@@ -983,7 +983,7 @@ function Start-DesktopPayDemo {
 }
 
 
-function Invoke-DesktopDocument([string]$mode,[string]$path='', [string]$id=''){
+function Invoke-DesktopDocument([string]$mode,[string]$path='', [string]$id='', [string[]]$paths=@()){
  $dir=$script:configuredEnrollment
  if(-not $dir -or $dir -cnotmatch '^[A-Za-z]:\\[A-Za-z0-9_. -]+(?:\\[A-Za-z0-9_. -]+)*$'){throw 'Configurez votre identité de laboratoire au préalable.'}
  $op=switch($mode){
@@ -1011,14 +1011,14 @@ function Invoke-DesktopDocument([string]$mode,[string]$path='', [string]$id=''){
  $child=[Diagnostics.Process]::Start($psi)
  try{
   $out=$child.StandardOutput.ReadToEndAsync();$err=$child.StandardError.ReadToEndAsync()
-  $bytes=[Text.Encoding]::UTF8.GetBytes((@{path=$path;id=$id}|ConvertTo-Json -Compress))
+  $bytes=[Text.Encoding]::UTF8.GetBytes((@{path=$path;id=$id;paths=@($paths)}|ConvertTo-Json -Compress))
   if($bytes.Length -gt 4096){throw 'Sélection trop longue'}
   $child.StandardInput.BaseStream.Write($bytes,0,$bytes.Length);$child.StandardInput.Close()
   if(-not $child.WaitForExit(240000)){throw 'Opération interrompue'}
   if($child.ExitCode -ne 0 -or $out.Result.Length -gt 16384){throw 'Accès refusé ou opération non confirmée'}
   $r=$out.Result|ConvertFrom-Json
   $expected=switch($mode){'list'{'listed'};'import'{'imported'};'export'{'exported'}}
-  if($r.labOnly -ne $true -or $r.status -cne $expected){throw 'Résultat non reconnu'}
+  if($r.labOnly -ne $true -or ($r.status -cne $expected -and -not ($mode -eq 'import' -and $r.status -ceq 'partial'))){throw 'Résultat non reconnu'}
   return $r
  }finally{if(-not $child.HasExited){$child.Kill()};$child.Dispose()}
 }
@@ -1028,17 +1028,21 @@ function Start-DesktopDocument([string]$mode){
   switch($mode){
    'import' {
     $picker=New-Object Windows.Forms.OpenFileDialog
-    $picker.Title='Choisir un petit fichier de test (64 Kio maximum)'
-    $picker.CheckFileExists=$true
-    try{if($picker.ShowDialog($form) -ne 'OK'){return};$path=$picker.FileName}finally{$picker.Dispose()}
-    $null=Invoke-DesktopDocument 'import' $path
-    $script:desktopDocumentStatus.Text='Copie chiffrée enregistrée et relue. Le fichier original est conservé.'
+    $picker.Title='Choisir jusqu''à 8 fichiers de test (8 Mio chacun maximum)'
+    $picker.CheckFileExists=$true;$picker.Multiselect=$true
+    try{if($picker.ShowDialog($form) -ne 'OK'){return};$paths=@($picker.FileNames)}finally{$picker.Dispose()}
+    if($paths.Count -lt 1 -or $paths.Count -gt 8){throw 'Sélection hors limites'}
+    $r=Invoke-DesktopDocument -mode 'import' -paths $paths
+    $n=@($r.documents).Count
+    $script:desktopDocumentStatus.Text=if($r.status -eq 'partial'){
+     ('Importation interrompue : {0} sur {1} copies confirmées. Tous les originaux sont conservés.' -f $n,$paths.Count)
+    }else{('{0} copie(s) chiffrée(s) enregistrée(s) et relue(s). Originaux conservés.' -f $n)}
    }
    'list' {
     $r=Invoke-DesktopDocument 'list'
     $script:desktopDocuments.Items.Clear();$script:desktopDocumentIDs=@()
     foreach($d in @($r.documents)){
-     if($d.id -cnotmatch '^[a-f0-9]{32}$' -or $d.size -lt 1 -or $d.size -gt 65536){throw 'Inventaire invalide'}
+     if($d.id -cnotmatch '^[a-f0-9]{32}$' -or $d.size -lt 1 -or $d.size -gt 8388608){throw 'Inventaire invalide'}
      $null=$script:desktopDocuments.Items.Add(('{0}  ({1} octets)' -f $d.name,$d.size))
      $script:desktopDocumentIDs+= [string]$d.id
     }
@@ -1120,7 +1124,7 @@ function Show-DesktopPage([string]$name){
   }
   'Coffre-fort' {
    $null=Desktop-Label $body 'Vos données et vos clés' 0 0 810 38 19 $true
-   $null=Desktop-Card $body 'Coffre documentaire de test' 'Fichiers locaux chiffrés. Identité de laboratoire configurée requise. 32 documents de 64 Kio maximum.' '' '' 0 58 812 118
+   $null=Desktop-Card $body 'Coffre documentaire de test' 'Fichiers locaux chiffrés. Identité de laboratoire configurée requise. 32 documents de 8 Mio maximum.' '' '' 0 58 812 118
    $panel=New-Object Windows.Forms.Panel
    $panel.BackColor=$script:desktopColors.White;$panel.SetBounds(0,192,812,370);$body.Controls.Add($panel)
    $null=Desktop-Button $panel 'Ajouter un document' 'doc-import' 20 18 250 42 $true
