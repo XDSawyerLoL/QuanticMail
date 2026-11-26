@@ -10,6 +10,7 @@ import {
   canonicalRouteManifestText,
 } from "../lib/quantic/federation-core.mjs";
 import { canonicalManifestText } from "../lib/quantic/manifest-core.mjs";
+import type { QuanticIdentityManifest } from "../lib/quantic/manifest-types.ts";
 import { federationForwardNonce } from "../standalone-relay/federation-client.ts";
 import { verifyRelayHello } from "../standalone-relay/identity.ts";
 import { startRelayServer } from "../standalone-relay/server.ts";
@@ -55,10 +56,10 @@ function signedIdentity(handle: string) {
       publicKey: encryptionPublic,
       deviceSigningPublicKey: ownerPublic,
       kind: "root" as const,
-      issuedAt: "2026-09-17T00:00:00.000Z",
+      issuedAt: new Date(Date.now() - 60_000).toISOString(),
     }],
     revocations: [],
-    issuedAt: "2026-09-17T00:00:00.000Z",
+    issuedAt: new Date(Date.now() - 60_000).toISOString(),
   };
   const signature = sign("sha256", Buffer.from(canonicalManifestText(payload), "utf8"), {
     key: owner.privateKey,
@@ -136,10 +137,10 @@ function signedRoute(
       priority: 10,
       protocols: ["quantic-federation/1"],
       classicalSigningPublicKey: relay.classicalSigningPublicKey,
-      expiresAt: "2026-10-17T00:00:00.000Z",
+      expiresAt: new Date(Date.now() + 24 * 60 * 60_000).toISOString(),
     }],
-    issuedAt: "2026-09-17T00:00:00.000Z",
-    expiresAt: "2026-10-17T00:00:00.000Z",
+    issuedAt: new Date(Date.now() - 60_000).toISOString(),
+    expiresAt: new Date(Date.now() + 24 * 60 * 60_000).toISOString(),
   };
   const p256 = sign("sha256", Buffer.from(canonicalRouteManifestText(payload), "utf8"), {
     key: recipient.owner.privateKey,
@@ -166,7 +167,7 @@ function signedEnvelope(
     classicalEphemeralPublicKey: publicJwk(ephemeral),
     iv: "aXYtbm9uY2U=",
     ciphertext: "ZmVkZXJhdGVkLWNpcGhlcnRleHQ=",
-    createdAt: "2026-09-17T00:10:00.000Z",
+    createdAt: new Date(Date.now() - 30_000).toISOString(),
     expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
     signatures: { p256Device: "placeholder" },
   };
@@ -322,4 +323,93 @@ test("destination relay rejects a valid route that does not authorize itself", a
     await fs.rm(originDataDir, { recursive: true, force: true });
     await fs.rm(destinationDataDir, { recursive: true, force: true });
   }
+});
+
+test("durable standalone relay denies revoked linked device on send, pull, ack and receipts across restart",async()=>{
+ const dataDir=await tempDir();
+ let relay=await startRelayServer({host:"127.0.0.1",port:0,dataDir});
+ const alice=signedIdentity("alice"),bob=signedIdentity("bob");
+ const aliceToken="root-token-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+ const bobToken="root-token-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+ const linkedToken="linked-token-cccccccccccccccccccccccccccccccccccccc";
+ const linkedEnc=keys(),linkedSign=keys();
+ const linkedEncJwk=publicJwk(linkedEnc),linkedSignJwk=publicJwk(linkedSign);
+ const linkedId=deviceId(linkedEncJwk);
+ const now=new Date().toISOString();
+ function signedManifest(payload:QuanticIdentityManifest["payload"]){
+  return {format:"quantic-identity-manifest",version:1,payload,signature:sign("sha256",
+   Buffer.from(canonicalManifestText(payload),"utf8"),
+   {key:alice.owner.privateKey,dsaEncoding:"ieee-p1363"}).toString("base64")};
+ }
+ function certificate(){
+  const p=alice.manifest.payload;
+  const payload={version:1,canonicalAddress:alice.canonicalAddress,handle:p.handle,
+   fingerprint:p.fingerprint,identityPublicKey:p.identityPublicKey,
+   identitySigningPublicKey:p.identitySigningPublicKey,
+   deviceId:linkedId,deviceLabel:"linked test device",
+   devicePublicKey:linkedEncJwk,deviceSigningPublicKey:linkedSignJwk,issuedAt:now};
+  const message=["quantic-device-certificate-v1",payload.canonicalAddress,payload.handle,payload.fingerprint,
+   "P-256:"+payload.identityPublicKey.x+":"+payload.identityPublicKey.y,
+   "P-256:"+payload.identitySigningPublicKey.x+":"+payload.identitySigningPublicKey.y,
+   payload.deviceId,payload.deviceLabel,
+   "P-256:"+payload.devicePublicKey.x+":"+payload.devicePublicKey.y,
+   "P-256:"+payload.deviceSigningPublicKey.x+":"+payload.deviceSigningPublicKey.y,
+   payload.issuedAt].join("\n");
+  return {format:"quantic-device-certificate",version:1,payload,
+   signature:sign("sha256",Buffer.from(message),{key:alice.owner.privateKey,
+    dsaEncoding:"ieee-p1363"}).toString("base64")};
+ }
+ const body=(value:unknown)=>({method:"POST",headers:{"content-type":"application/json"},
+  body:JSON.stringify(value)});
+ const authed=(token:string,value:unknown)=>({method:"POST",
+  headers:{"content-type":"application/json",authorization:"Bearer "+token},
+  body:JSON.stringify(value)});
+ try{
+  await registerIdentityOnRelay(relay.url,alice,aliceToken);
+  await registerIdentityOnRelay(relay.url,bob,bobToken);
+  const registered=await fetch(relay.url+"/api/quantic/devices/register",
+   body({certificate:certificate(),authToken:linkedToken}));
+  assert.equal(registered.status,201,await registered.text());
+  const root=alice.manifest.payload;
+  const linked={deviceId:linkedId,label:"linked test device",kind:"linked" as const,
+   publicKey:linkedEncJwk,deviceSigningPublicKey:linkedSignJwk,issuedAt:now};
+  const active={...root,sequence:2,devices:[...root.devices,linked],issuedAt:now};
+  const published=await fetch(relay.url+"/api/quantic/manifest",
+   body({manifest:signedManifest(active)}));
+  assert.equal(published.status,200,await published.text());
+  const pullUrl=()=>relay.url+"/api/quantic/pull?handle="+encodeURIComponent(alice.canonicalAddress)+
+   "&deviceId="+encodeURIComponent(linkedId);
+  assert.equal((await fetch(pullUrl(),{headers:{authorization:"Bearer "+linkedToken}})).status,200);
+  const revoked={...active,sequence:3,devices:root.devices,
+   revocations:[{deviceId:linkedId,revokedAt:new Date(Date.now()+1000).toISOString(),reason:"lost" as const}],
+   issuedAt:new Date(Date.now()+1000).toISOString()};
+  const revocation=await fetch(relay.url+"/api/quantic/manifest",
+   body({manifest:signedManifest(revoked)}));
+  assert.equal(revocation.status,200,await revocation.text());
+  async function checkDenied(){
+   assert.equal((await fetch(pullUrl(),{headers:{authorization:"Bearer "+linkedToken}})).status,401);
+   assert.equal((await fetch(relay.url+"/api/quantic/ack",
+    authed(linkedToken,{handle:alice.canonicalAddress,deviceId:linkedId,ids:[]}))).status,401);
+   assert.equal((await fetch(relay.url+"/api/quantic/receipts?handle="+
+    encodeURIComponent(alice.canonicalAddress)+"&deviceId="+linkedId,
+    {headers:{authorization:"Bearer "+linkedToken}})).status,401);
+   assert.equal((await fetch(relay.url+"/api/quantic/receipts",
+    authed(linkedToken,{handle:alice.canonicalAddress,deviceId:linkedId,ids:[]}))).status,401);
+   const wire={from:alice.canonicalAddress,fromDeviceId:linkedId,to:bob.canonicalAddress,
+    toDeviceId:bob.deviceId,clientMessageId:"message-denied-00000001",
+    ciphertext:"c2VjcmV0",iv:"YWJjZGVmZ2hpamts",
+    ephemeralPublicKey:publicJwk(keys())};
+   assert.equal((await fetch(relay.url+"/api/quantic/send",authed(linkedToken,wire))).status,401);
+   assert.equal((await fetch(relay.url+"/api/quantic/send",authed(bobToken,{
+    ...wire,from:bob.canonicalAddress,fromDeviceId:bob.deviceId,
+    to:alice.canonicalAddress,toDeviceId:linkedId}))).status,401);
+  }
+  await checkDenied();
+  await relay.close();
+  relay=await startRelayServer({host:"127.0.0.1",port:0,dataDir});
+  await checkDenied();
+ }finally{
+  await relay.close();
+  await fs.rm(dataDir,{recursive:true,force:true});
+ }
 });

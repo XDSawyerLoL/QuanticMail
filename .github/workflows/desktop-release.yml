@@ -1,43 +1,22 @@
-name: QuanticMail Desktop Release
+name: Retired Electron Web client - release refused
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "desktop/**"
-      - "package.json"
-      - ".github/workflows/desktop-release.yml"
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
+# Intentionally no release job or write permission. Historical Web account
+# data is preserved, but the Electron website wrapper is no longer shipped.
+# Native Alpha packaging stays in native-vault-lab.yml; publisher signing is
+# a separate reviewed operation, never synthesized by this workflow.
 jobs:
-  windows:
-    runs-on: windows-latest
+  refuse-obsolete-web-installer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          node-version: 22
-      - name: Install dependencies
-        run: npm install
-      - name: Resolve desktop version
-        shell: pwsh
-        run: |
-          $pkg = Get-Content "package.json" | ConvertFrom-Json
-          "VERSION=$($pkg.version)" >> $env:GITHUB_ENV
-          "TAG=quanticmail-desktop-v$($pkg.version)" >> $env:GITHUB_ENV
-          "ASSET=desktop-dist/QuanticMail-Setup-$($pkg.version).exe" >> $env:GITHUB_ENV
-      - name: Build Windows installer
-        run: npm run desktop:dist
-      - name: Publish GitHub release
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release view "$env:TAG" 2>$null
-          if ($LASTEXITCODE -ne 0) {
-            gh release create "$env:TAG" --target "$env:GITHUB_SHA" --title "QuanticMail Desktop $env:VERSION" --notes "Application Windows officielle QuanticMail. Le client ouvre QuanticMail dans une fenêtre dédiée et conserve la session locale du poste."
-          }
-          gh release upload "$env:TAG" "$env:ASSET" --clobber
+          persist-credentials: false
+      - name: Fail closed - cannot publish retired Web wrapper
+        run: node scripts/refuse-legacy-electron-release.mjs

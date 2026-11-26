@@ -1,3 +1,6 @@
+import { nativeMailboxOperation } from "../lib/quantic/native-mailbox-http.mjs";
+import { hasUnsupportedNativeFields } from "../lib/quantic/legacy-native-boundary.mjs";
+import { activeDevices } from "../lib/quantic/manifest-core.mjs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 
 import { enqueueFederatedEnvelope } from "../lib/quantic/federation-delivery.ts";
@@ -96,6 +99,19 @@ function json(response: ServerResponse, status: number, payload: unknown) {
 function bearer(request: IncomingMessage) {
   const value = request.headers.authorization;
   return typeof value === "string" && value.startsWith("Bearer ") ? value.slice(7) : null;
+}
+
+// Mirror the legacy Next route's current-device check on the durable relay.
+function assertCurrentRelayDevice(canonicalAddress: string,deviceId: string) {
+  const manifest=readStandaloneManifest(canonicalAddress);
+  if(manifest && !activeDevices(manifest).some(d=>d.deviceId===deviceId)){
+    throw new RelayError("Appareil révoqué ou absent du manifeste courant.",401);
+  }
+}
+function authenticateCurrentRelayDevice(handle: string,token: string|null,requestedDeviceId?: string|null){
+  const authenticated=authenticateLocalDevice(handle,token,requestedDeviceId);
+  assertCurrentRelayDevice(authenticated.canonicalAddress,authenticated.deviceId);
+  return authenticated;
 }
 
 async function readJsonBody(request: IncomingMessage): Promise<Record<string, unknown>> {
@@ -248,6 +264,7 @@ async function flushPendingReceipts(runtime: RelayRuntime) {
 export function createRelayRequestHandler(
   runtime: RelayRuntime,
   federation?: RelayHttpFederationContext,
+  nativePeerSource?: (address: string, deviceId: string) => Promise<unknown>,
 ) {
   return async function relayRequestHandler(request: IncomingMessage, response: ServerResponse) {
     applyCors(response);
@@ -259,6 +276,28 @@ export function createRelayRequestHandler(
 
       if (!path.startsWith("/api/quantic/")) {
         json(response, 404, { error: "Route Quantic introuvable." });
+        return;
+      }
+
+      if (path.startsWith("/api/quantic/native/v1/")) {
+        // Explicit opt-in, local trusted client only. Never accept a checkpoint
+        // or authority key supplied by the sender or its HTTP request.
+        response.removeHeader("Access-Control-Allow-Origin");
+        response.removeHeader("Access-Control-Allow-Methods");
+        response.removeHeader("Access-Control-Allow-Headers");
+        response.removeHeader("Access-Control-Max-Age");
+        response.setHeader("Cache-Control","no-store");
+        const respond=(status:number,payload:unknown)=>{
+          response.statusCode=status;response.setHeader("Content-Type","application/json; charset=utf-8");response.end(JSON.stringify(payload));
+        };
+        if (!nativePeerSource || request.socket.remoteAddress!=="127.0.0.1" || request.headers.origin || request.headers["sec-fetch-site"]) {respond(403,{error:"Native local uniquement."});return;}
+        const op=path.slice("/api/quantic/native/v1/".length);
+        if(method!=="POST"||!["send","pull","ack","recover"].includes(op)){respond(405,{error:"Opération native non autorisée."});return;}
+        try{
+          const body=await readJsonBody(request);
+          const result=await nativeMailboxOperation(runtime,nativePeerSource,op,body,bearer(request));
+          respond(op==="send"?202:200,result);
+        }catch(error){respond(error instanceof RelayError||error instanceof RelayHttpRequestError?error.status:503,{error:"Opération native refusée."});}
         return;
       }
 
@@ -657,19 +696,23 @@ export function createRelayRequestHandler(
       if (path === "/api/quantic/send") {
         if (method !== "POST") return methodNotAllowed(response);
         const body = await readJsonBody(request);
-        const result = await runtime.mutate(() =>
-          enqueueEnvelope({
+        if (hasUnsupportedNativeFields(body)) throw new RelayHttpRequestError("Format cryptographique non pris en charge par cette route classique.",400);
+        const result = await runtime.mutate(() => {
+          const from=String(body.from ?? "");
+          const to=String(body.to ?? "");
+          const fromDeviceId=typeof body.fromDeviceId==="string"?body.fromDeviceId:undefined;
+          const toDeviceId=String(body.toDeviceId ?? "");
+          authenticateCurrentRelayDevice(from,bearer(request),fromDeviceId);
+          const recipient=resolveIdentity(to);
+          assertCurrentRelayDevice(recipient.canonicalAddress,toDeviceId);
+          return enqueueEnvelope({
             clientMessageId: String(body.clientMessageId ?? ""),
-            from: String(body.from ?? ""),
-            fromDeviceId: typeof body.fromDeviceId === "string" ? body.fromDeviceId : undefined,
-            to: String(body.to ?? ""),
-            toDeviceId: String(body.toDeviceId ?? ""),
-            authToken: bearer(request),
+            from,fromDeviceId,to,toDeviceId,authToken:bearer(request),
             ciphertext: String(body.ciphertext ?? ""),
             iv: String(body.iv ?? ""),
             ephemeralPublicKey: (body.ephemeralPublicKey ?? {}) as QuanticPublicKey,
-          }),
-        );
+          });
+        });
         json(response, 202, result);
         return;
       }
@@ -678,7 +721,10 @@ export function createRelayRequestHandler(
         if (method !== "GET") return methodNotAllowed(response);
         const handle = url.searchParams.get("handle") ?? "";
         const deviceId = url.searchParams.get("deviceId");
-        const envelopes = await runtime.read(() => pullEnvelopes(handle, bearer(request), deviceId));
+        const envelopes = await runtime.read(() => {
+          authenticateCurrentRelayDevice(handle,bearer(request),deviceId);
+          return pullEnvelopes(handle,bearer(request),deviceId);
+        });
         json(response, 200, { envelopes });
         return;
       }
@@ -688,6 +734,8 @@ export function createRelayRequestHandler(
         const body = await readJsonBody(request);
         const ids = Array.isArray(body.ids) ? body.ids.filter((id): id is string => typeof id === "string") : [];
         const ackResult = await runtime.mutate(() => {
+          authenticateCurrentRelayDevice(String(body.handle ?? ""),bearer(request),
+            typeof body.deviceId==="string"?body.deviceId:undefined);
           const federated = federation ? inboundFederationForEnvelopeIds(ids) : [];
           const result = acknowledgeEnvelopes(
             String(body.handle ?? ""),
@@ -736,20 +784,24 @@ export function createRelayRequestHandler(
         if (method === "GET") {
           const handle = url.searchParams.get("handle") ?? "";
           const deviceId = url.searchParams.get("deviceId");
-          const receipts = await runtime.read(() => pullReceipts(handle, bearer(request), deviceId));
+          const receipts = await runtime.read(() => {
+            authenticateCurrentRelayDevice(handle,bearer(request),deviceId);
+            return pullReceipts(handle,bearer(request),deviceId);
+          });
           json(response, 200, { receipts });
           return;
         }
         if (method === "POST") {
           const body = await readJsonBody(request);
-          const result = await runtime.mutate(() =>
-            acknowledgeReceipts(
-              String(body.handle ?? ""),
-              bearer(request),
-              typeof body.deviceId === "string" ? body.deviceId : undefined,
-              Array.isArray(body.ids) ? body.ids : [],
-            ),
-          );
+          const result = await runtime.mutate(() => {
+            authenticateCurrentRelayDevice(String(body.handle ?? ""),bearer(request),
+              typeof body.deviceId==="string"?body.deviceId:undefined);
+            return acknowledgeReceipts(
+              String(body.handle ?? ""),bearer(request),
+              typeof body.deviceId==="string"?body.deviceId:undefined,
+              Array.isArray(body.ids)?body.ids:[],
+            );
+          });
           json(response, 200, result);
           return;
         }

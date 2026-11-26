@@ -6,6 +6,11 @@ on:
   pull_request:
     branches: [main]
 
+# Keep the newest validation on a feature branch; preserve main runs.
+concurrency:
+  group: ${{ github.workflow }}-${{ (github.event_name == 'pull_request' || startsWith(github.ref, 'refs/heads/feat/')) && (github.head_ref || github.ref_name) || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || startsWith(github.ref, 'refs/heads/feat/') }}
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -15,7 +20,19 @@ jobs:
         with:
           node-version: 24.8.0
       - run: npm install
+      - name: Assert packaged Electron embeds Node 24, not obsolete Node 22
+        run: node scripts/check-electron-embedded-node.cjs
       - run: npm test
+      - name: Four independent pinned authority processes with mTLS quorum and crash cutoff
+        run: node --test tests/native-authority-operator-processes.test.mjs
+      - name: Real authenticated mailbox through two independent native Scattering UDP links
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd labs/quantic-native/scattering/native
+          go build -trimpath -o "$RUNNER_TEMP/Quantic-Pacer" .
+          cd "$GITHUB_WORKSPACE"
+          QUANTIC_INTEGRATED_SCATTERING_BINARY="$RUNNER_TEMP/Quantic-Pacer" node --experimental-transform-types --test --test-name-pattern="integrated native relay" tests/native-identity-bridge.test.mjs
       - run: npm run build
       - name: Build Hostinger static Mail surface
         run: |
@@ -66,6 +83,70 @@ jobs:
         run: MAIL_SERVER_HOSTNAME=mx.example.com docker compose -f docker-compose.production.yml config >/dev/null
 
 
+
+  windows-electron-node24:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.8.0
+      - run: npm install
+      - name: Confirm the actual Windows Electron EXE embeds Node 24
+        run: node scripts/check-electron-embedded-node.cjs
+      - name: Verify Windows-native desktop guards (synthetic test)
+        run: node --test tests/native-windows-desktop.test.mjs
+
+  pay-native-network:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - suite: legacy
+            files: tests/pay-scattering.test.mjs tests/pay-witness-service.test.mjs tests/pay-round-service.test.mjs tests/pay-replica-service.test.mjs
+          - suite: recovery
+            files: tests/pay-committee-recovery-service.test.mjs
+          - suite: vote
+            files: tests/pay-committee-vote-service.test.mjs
+          - suite: distributed
+            files: tests/pay-committee-distributed.test.mjs
+          - suite: byzantine
+            files: tests/pay-committee-byzantine-network.test.mjs
+          - suite: strict
+            files: tests/pay-unanimous-service.test.mjs
+          - suite: batch-native
+            files: tests/pay-batch-native.test.mjs
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.8.0
+      - name: Build native carrier
+        run: |
+          cd labs/quantic-native/scattering/native
+          go build -trimpath -o "$RUNNER_TEMP/Quantic-Pacer" .
+      - name: Mandatory native Pay network suite
+        env:
+          PAY_SUITE_FILES: ${{ matrix.files }}
+        run: |
+          export QUANTIC_PAY_SCATTERING_TEST="$RUNNER_TEMP/Quantic-Pacer"
+          export QUANTIC_PAY_COMMITTEE_DISTRIBUTED_TEST="$RUNNER_TEMP/Quantic-Pacer"
+          node --test --test-concurrency=1 $PAY_SUITE_FILES
+
+  pay-strict-full-service:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.8.0
+      - name: Mandatory 16 strict voters and 64 independent TLS anchor services
+        run: QUANTIC_PAY_FULL_STRICT_TEST=1 node --test tests/pay-unanimous-full-service.test.mjs
+
   node22-runtime-compat:
     runs-on: ubuntu-latest
     steps:
@@ -83,3 +164,29 @@ jobs:
           }
           console.log(JSON.stringify(capabilities));
           NODE
+
+  shared-auth-rate-postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: quantic_test
+          POSTGRES_PASSWORD: quantic_test_only
+          POSTGRES_DB: quantic_rate_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U quantic_test -d quantic_rate_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      QUANTIC_AUTH_RATE_TEST_DATABASE_URL: postgresql://quantic_test:quantic_test_only@127.0.0.1:5432/quantic_rate_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.8.0
+      - run: npm install
+      - run: node --experimental-transform-types --test tests/shared-auth-rate.test.mjs tests/audit-session-web.test.mjs

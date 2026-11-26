@@ -1,0 +1,110 @@
+// Explicit Windows PQ synthetic compose -> durable native wire -> relay deposit.
+// Never bypass the independent pinned native vault or retransmit automatically.
+// A failed/unknown transport outcome must preserve the exact original wire.
+import {timingSafeEqual} from 'node:crypto';
+import {win32} from 'node:path';
+import {normalizeNativeRecord,nativeRecordDigest} from '../lib/quantic/native-mailbox.mjs';
+import {connectNativeVault} from './native-vault-controller.mjs';
+import {createNativeMailboxClient} from './native-mailbox-client.mjs';
+import {safeMailDisplay} from './native-vault-desktop.mjs';
+import {windowsLabPath} from './native-windows-storage.mjs';
+import {windowsScatteringScope} from './native-windows-mail-flow.mjs';
+
+const check=x=>{if(!x)throw Error('Windows compose/send laboratory refused');};
+async function readPrivateJSON(storage,path){
+ const bytes=await storage.read(path);
+ try{
+  check(Buffer.isBuffer(bytes)&&bytes.length>1&&bytes.length<=32768);
+  return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(bytes));
+ }finally{bytes.fill(0);}
+}
+function validateDraft(draft,scope){
+ check(draft&&typeof draft==='object'&&!Array.isArray(draft)
+  &&Object.keys(draft).length===2&&draft.context&&draft.payload);
+ const c=draft.context;
+ check(c.from===scope.address&&c.fromDeviceId===scope.deviceId);
+ check(typeof c.to==='string'&&/^[a-z0-9][a-z0-9._-]{2,31}~[a-f0-9]{32}@quantic$/.test(c.to)
+  &&typeof c.toDeviceId==='string'&&/^d-[a-f0-9]{32}$/.test(c.toDeviceId)
+  &&c.to!==c.from);
+ safeMailDisplay(draft.payload);
+ return draft;
+}
+/** A new durable, individually named native wire is always created before
+ * any transport call. Record bytes are read back independently and checked
+ * against the signed canonical record. No automatic resend, ACK or migration.
+ */
+export async function composeAndSendWindowsLab(config,storage,{
+ input,output,recover=false,approve,
+ connect=connectNativeVault,mailboxFactory=createNativeMailboxClient,sessionController
+}){
+ const scope=windowsScatteringScope(config);
+ check(typeof approve==='function'&&typeof input==='string'&&typeof output==='string'
+  &&/^draft-[a-z0-9-]{1,48}\.json$/.test(windowsLabPath(config.windowsLab.dir,input))
+  &&/^wire-[a-z0-9-]{1,48}\.json$/.test(windowsLabPath(config.windowsLab.dir,output))
+  &&input!==output&&(recover===true||recover===false));
+ const sealed=scope.credentialMode==="vault-sealed-v1";
+ check(!sessionController||sealed&&sessionController.lifecycleSignal&&!sessionController.lifecycleSignal.aborted);
+ check(config.managedHybridScattering===undefined||sessionController);
+ let vault;
+ try{
+ const raw=await readPrivateJSON(storage,input);
+ if(sealed){check(raw?.format==='quantic-local-draft'&&raw.version===1&&raw.file===win32.basename(input));vault=sessionController??await connect({...config,guiWindowsApproval:true});check(typeof vault.openDraft==='function');}
+ const draft=validateDraft(sealed?await vault.openDraft(win32.basename(input),raw):raw,scope);
+ if(config.managedHybridScattering!==undefined)check(draft.context.to===config.managedHybridScattering.peerAddress&&draft.context.toDeviceId===config.managedHybridScattering.peerDeviceId);
+ // An operator sees the exact recipient and plaintext before a broker request.
+ if(!await approve('Chiffrer dans le coffre natif le brouillon pour '+draft.context.to+
+  '\n'+safeMailDisplay(draft.payload)))return {status:'cancelled-before-seal'};
+ let signed;
+ try{
+  vault??=await connect(config);
+  signed=await vault.sealHybrid(draft.context,draft.payload,{recover});
+  // Validate exact hybrid envelope and sender binding before storage.
+  signed=normalizeNativeRecord(signed);
+  check(signed.context.from===scope.address&&signed.context.fromDeviceId===scope.deviceId
+   &&signed.context.to===draft.context.to&&signed.context.toDeviceId===draft.context.toDeviceId
+   &&signed.context.clientMessageId===draft.context.clientMessageId);
+ }finally{if(!sealed){vault?.close();vault=undefined;}}
+ const digest=nativeRecordDigest(signed);
+ const bytes=Buffer.from(JSON.stringify(signed)+'\n','utf8');
+ try{
+  check(bytes.length<=32768);
+  // The Windows native helper exclusively creates and flushes the wire.
+  await storage.writeWire(output,bytes);
+ }finally{bytes.fill(0);}
+ // Independently re-open the just-written private file and verify exact bytes,
+ // not only its metadata, before any network request.
+ const reread=await storage.read(output);
+ try{
+  const parsed=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(reread));
+  const record=normalizeNativeRecord(parsed);
+  check(nativeRecordDigest(record)===digest
+   &&record.context.from===scope.address
+   &&record.context.fromDeviceId===scope.deviceId
+   &&record.context.to===signed.context.to
+   &&record.context.toDeviceId===signed.context.toDeviceId);
+  const canonical=Buffer.from(JSON.stringify(signed)+'\n','utf8');
+  try{
+   check(reread.length===canonical.length&&timingSafeEqual(reread,canonical));
+  }finally{canonical.fill(0);}
+ }finally{reread.fill(0);}
+ // Nothing is sent until both durable write and independent reread succeeded.
+ if(!await approve('Enveloppe chiffrée enregistrée et vérifiée. Déposer sur le relais local ?'))
+  return {status:'saved-not-sent',digest,wireFile:win32.basename(output),
+   liveRestoreAuthorized:false,legacyDeletionAuthorized:false};
+ // Do not retry an uncertain send. The operator can later use the existing
+ // Send operation with the same wire, which has server-side idempotent digest.
+ const saved={digest,wireFile:win32.basename(output),
+  liveRestoreAuthorized:false,legacyDeletionAuthorized:false};
+ try{
+  const client=sealed?vault?.mailbox:await mailboxFactory(scope);check(client);
+  const answer=await client.send(signed);
+  check(answer?.digest===digest&&['queued','acknowledged'].includes(answer.status)
+   &&/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(answer.id));
+  return {status:'deposited',id:answer.id,relayStatus:answer.status,...saved};
+ }catch{
+  // An error may mean the relay committed the exact wire before losing the reply.
+  // Do not claim failure of delivery, delete, resign or automatically retry.
+  return {status:'deposit-unconfirmed',...saved,retryRequiresConfirmation:true};
+ }
+ }finally{if(!sessionController)vault?.close();}
+}

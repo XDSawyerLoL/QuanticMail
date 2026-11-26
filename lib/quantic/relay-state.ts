@@ -1,3 +1,5 @@
+import {nativeEnrollmentEntries,verifyStoredNativeEnrollmentBindings,restoreNativeEnrollments,type NativeEnrollmentRow} from './native-enrollment-registry.mjs';
+import {nativeMailboxEntries,validateNativeMailbox,restoreNativeMailbox,type NativeMailboxRow} from "./native-mailbox.mjs";
 import type { QuanticCryptoProfileV2 } from "./crypto-profile-core.mjs";
 import {
   cryptoProfileEntries,
@@ -98,6 +100,8 @@ export type RelayPersistentState = Omit<
     cryptoProfiles: Array<[string, QuanticCryptoProfileV2]>;
     federation: FederationStateEntries;
     discoveryPeers: DiscoveryPeerEntries;
+    nativeMailbox?: NativeMailboxRow[];
+    nativeEnrollments?: NativeEnrollmentRow[];
   };
 
 const MESSAGE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -187,6 +191,8 @@ export function createEmptyRelayState(savedAt = new Date().toISOString()): Relay
     cryptoProfiles: [],
     federation: emptyFederationState(),
     discoveryPeers: [],
+    nativeMailbox: [],
+    nativeEnrollments: [],
   };
 }
 
@@ -210,6 +216,8 @@ export function exportRelayState(savedAt = new Date().toISOString()): RelayPersi
     cryptoProfiles: cryptoProfileEntries(),
     federation: federationStateEntries(savedAtMs),
     discoveryPeers: discoveryPeerEntries(savedAtMs),
+    nativeMailbox: nativeMailboxEntries(),
+    nativeEnrollments: nativeEnrollmentEntries(),
   });
 }
 
@@ -278,6 +286,8 @@ export function restoreRelayState(input: unknown, nowMs = Date.now()) {
       )
     : [];
 
+  const enrollments=verifyStoredNativeEnrollmentBindings(record.nativeEnrollments??[],protocolState.manifests,cryptoProfiles,nowMs);
+  const nativeMailbox=validateNativeMailbox(record.nativeMailbox===undefined?[]:record.nativeMailbox);
   const next: RelayState = {
     identities: new Map(identities),
     aliases: new Map(aliases.map(([key, values]) => [key, new Set(values)])),
@@ -303,4 +313,6 @@ export function restoreRelayState(input: unknown, nowMs = Date.now()) {
   replaceFederationStateEntries(federation);
   federationStateEntries(nowMs);
   replaceDiscoveryPeerEntries(discoveryPeers, nowMs);
+  restoreNativeMailbox(nativeMailbox);
+  restoreNativeEnrollments(enrollments);
 }

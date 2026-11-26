@@ -153,7 +153,7 @@ function normalizeContext(context: PqcDeviceProposalContext) {
   if (!/^[a-z0-9][a-z0-9._-]{2,31}~(?:[0-9a-f]{10}|[0-9a-f]{32})@quantic$/.test(canonicalAddress)) {
     throw new Error("Adresse canonique de proposition PQ invalide.");
   }
-  if (!/^d-[0-9a-f]{10}$/.test(context.deviceId)) {
+  if (!/^d-(?:[0-9a-f]{10}|[0-9a-f]{32})$/.test(context.deviceId)) {
     throw new Error("deviceId de proposition PQ invalide.");
   }
   if (Number.isNaN(Date.parse(context.createdAt))) {

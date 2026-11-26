@@ -7,6 +7,8 @@ import { createDiscoveryRequestHandler } from "./discovery-http.ts";
 import { createDiscoveryResolveRequestHandler } from "./discovery-resolve-http.ts";
 import { retryPendingFederationReceipts } from "./federation-retry.ts";
 import { createRelayRequestHandler } from "./http.ts";
+import { createMigrationLabSnapshotHandler } from "./migration-attestation-lab.ts";
+import { rejectOverAuthBudget } from "./auth-rate-postgres.ts";
 import { loadOrCreateRelayIdentity } from "./identity.ts";
 import { createPostgresRelayPersistenceFromUrl } from "./postgres-storage.ts";
 import { createPulseStateRequestHandler } from "./pulse-state.ts";
@@ -19,9 +21,16 @@ export type RelayServerOptions = {
   port?: number;
   dataDir?: string;
   databaseUrl?: string;
+  sharedAuthRateLimit?: boolean;
+  requirePostgres?: boolean;
   identitySecret?: string;
   publicEndpoint?: string;
   bootstrapEndpoints?: string[];
+  nativePeerSource?: (address: string, deviceId: string) => Promise<unknown>;
+  /** Never enable outside an isolated 127.0.0.1, file-backed synthetic test relay. */
+  migrationSnapshotLab?: boolean;
+  /** Out-of-band single-relay operator secret; never written to relay state. */
+  migrationLabOperatorSecret?: string;
 };
 
 export type RunningRelayServer = {
@@ -59,25 +68,39 @@ export async function startRelayServer(
   const port = options.port ?? 8787;
   const dataDir = options.dataDir ?? "./data";
   validateServerPort(port);
+  if(options.nativePeerSource&&host!=="127.0.0.1")throw Error("Native laboratory requires loopback relay.");
+  if(options.migrationSnapshotLab&&(
+    host!=="127.0.0.1"||!!options.databaseUrl?.trim()||options.requirePostgres
+  ))throw Error("Signed migration snapshots forbidden outside local file-backed laboratory.");
+  if(options.migrationLabOperatorSecret!==undefined&&(
+    !options.migrationSnapshotLab||options.migrationLabOperatorSecret.length<32
+    ||options.migrationLabOperatorSecret.length>256
+  ))throw Error("Invalid isolated migration laboratory operator configuration.");
 
   const databaseUrl = options.databaseUrl?.trim() || "";
+  if(options.requirePostgres && !databaseUrl)
+    throw new Error("Durable production relay requires PostgreSQL; no filesystem or memory fallback.");
+  if (options.sharedAuthRateLimit && !databaseUrl) throw new Error("Le contrôle partagé exige PostgreSQL.");
   const postgresPersistence = databaseUrl
     ? await createPostgresRelayPersistenceFromUrl(databaseUrl, {
         identitySecret: options.identitySecret,
+        sharedAuthRateLimit: options.sharedAuthRateLimit,
       })
     : null;
   const relayIdentity = postgresPersistence
     ? await postgresPersistence.loadOrCreateIdentity()
     : await loadOrCreateRelayIdentity(dataDir);
   const store = postgresPersistence?.stateStore ?? createFileRelayStateStore(dataDir);
-  const runtime = new RelayRuntime(store);
+  const runtime = new RelayRuntime(store,options.migrationSnapshotLab===true);
   await runtime.initialize();
+  const migrationLabHandler = options.migrationSnapshotLab
+    ? createMigrationLabSnapshotHandler(runtime,relayIdentity,options.migrationLabOperatorSecret) : null;
 
   let publicEndpoint = options.publicEndpoint ?? "";
   const relayHandler = createRelayRequestHandler(runtime, {
     identity: relayIdentity,
     getPublicEndpoint: () => publicEndpoint,
-  });
+  },options.nativePeerSource);
   const discoveryHandler = createDiscoveryRequestHandler(runtime, {
     localRelayId: relayIdentity.relayId,
   });
@@ -90,7 +113,19 @@ export async function startRelayServer(
     : null;
   const server = createServer((request, response) => {
     void (async () => {
+      // This local test relay is frozen as a WHOLE process: reject even
+      // unrecognized/compat/federation write routes, not only runtime.mutate.
+      // The runtime guard independently stops racing queued mutations.
+      if(runtime.isMigrationLabFrozen()&&!new URL(request.url??"/","http://127.0.0.1").pathname.startsWith("/api/quantic/lab/")){
+        response.statusCode=423;
+        response.setHeader("Cache-Control","no-store");
+        response.setHeader("Content-Type","application/json; charset=utf-8");
+        response.end(JSON.stringify({error:"Laboratory relay write fence active."}));
+        return;
+      }
+      if (await rejectOverAuthBudget(request, response, postgresPersistence?.authRateLimiter)) return;
       if (pulseState && await pulseState.handler(request, response)) return;
+      if (migrationLabHandler && await migrationLabHandler(request,response)) return;
       if (await compatRegisterHandler(request, response)) return;
       if (await directSignalingHandler(request, response)) return;
       if (await discoveryHandleHandler(request, response)) return;
@@ -143,7 +178,9 @@ export async function startRelayServer(
   const url = `http://${urlHost(host)}:${actualPort}`;
   if (!publicEndpoint) publicEndpoint = url;
 
-  await bootstrapDiscoveryPeers(
+  // The isolated relay has no federation peers. Do not launch discovery
+  // networking in a lab whose inbound/outbound writes may be frozen.
+  if(!options.migrationSnapshotLab)await bootstrapDiscoveryPeers(
     runtime,
     relayIdentity.relayId,
     options.bootstrapEndpoints ?? [],
@@ -159,17 +196,17 @@ export async function startRelayServer(
       });
     return retryTask;
   };
-  const retryTimer = setInterval(() => {
+  const retryTimer = options.migrationSnapshotLab ? null : setInterval(() => {
     void runFederationRetry();
   }, 1_000);
-  retryTimer.unref();
-  void runFederationRetry();
+  retryTimer?.unref();
+  if(!options.migrationSnapshotLab)void runFederationRetry();
 
   let closing: Promise<void> | null = null;
   const close = () => {
     if (!closing) {
       closing = (async () => {
-        clearInterval(retryTimer);
+        if(retryTimer)clearInterval(retryTimer);
         await closeHttpServer(server);
         if (retryTask) await retryTask;
         await runtime.flush();

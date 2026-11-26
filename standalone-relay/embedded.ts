@@ -7,6 +7,7 @@ import { createDiscoveryRequestHandler } from "./discovery-http.ts";
 import { createDiscoveryResolveRequestHandler } from "./discovery-resolve-http.ts";
 import { retryPendingFederationReceipts } from "./federation-retry.ts";
 import { createRelayRequestHandler } from "./http.ts";
+import { rejectOverAuthBudget, type SharedAuthRateLimiter } from "./auth-rate-postgres.ts";
 import type { RelayIdentity } from "./identity.ts";
 import { createCompatRegisterRequestHandler } from "./register-compat-http.ts";
 import { RelayRuntime } from "./runtime.ts";
@@ -16,6 +17,7 @@ export type EmbeddedRelayPersistence={
   stateStore:RelayStateStore;
   loadOrCreateIdentity():Promise<RelayIdentity>;
   close?():Promise<void>;
+  authRateLimiter?: SharedAuthRateLimiter;
 };
 
 export type EmbeddedRelayOptions={
@@ -74,6 +76,7 @@ export async function createEmbeddedRelay(options:EmbeddedRelayOptions):Promise<
     async handle(request,response){
       const path=(request.url??"").split("?",1)[0]??"";
       if(!path.startsWith("/api/quantic/"))return false;
+      if(await rejectOverAuthBudget(request,response,options.persistence.authRateLimiter))return true;
       if(await compatRegisterHandler(request,response))return true;
       if(await directSignalingHandler(request,response))return true;
       if(await discoveryHandleHandler(request,response))return true;

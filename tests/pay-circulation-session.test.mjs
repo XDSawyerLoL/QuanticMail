@@ -1,0 +1,22 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {createCirculationSession} from '../lib/quantic/pay-circulation-session.mjs';
+test('interactive circulation session: explicit consent, cancellation, quorum gate, onward spending and minimized receipts',()=>{
+ let now=1000000;const s=createCirculationSession({clock:()=>now});
+ const op={payer:'demo-alice',payee:'demo-bob',cents:7500};
+ let p=s.prepare(op);
+ assert.throws(()=>s.confirm({nonce:p.nonce,explicitConsent:false}));
+ assert.throws(()=>s.confirm({nonce:'a'.repeat(64),explicitConsent:true}));
+ s.cancel(p.nonce);assert.equal(s.snapshot().sequence,0);
+ s.setAvailability([0,1]);assert.throws(()=>s.prepare(op));assert.equal(s.snapshot().pending,null);
+ s.setAvailability([0,1,2]);p=s.prepare(op);
+ const r=s.confirm({nonce:p.nonce,explicitConsent:true});assert.equal(r.witnessCount,3);
+ assert.throws(()=>s.confirm({nonce:p.nonce,explicitConsent:true}));
+ p=s.prepare({payer:'demo-bob',payee:'demo-shop',cents:7000});s.confirm({nonce:p.nonce,explicitConsent:true});
+ p=s.prepare({payer:'demo-shop',payee:'demo-alice',cents:6000});now+=120000;
+ assert.throws(()=>s.confirm({nonce:p.nonce,explicitConsent:true}));assert.equal(s.snapshot().pending,null);
+ p=s.prepare({payer:'demo-shop',payee:'demo-alice',cents:6000});s.confirm({nonce:p.nonce,explicitConsent:true});
+ assert.deepEqual(s.snapshot().balances,{'demo-alice':8500,'demo-bob':500,'demo-shop':1000});
+ assert.equal(s.history().length,3);assert.ok(s.history().every(x=>!('proof' in x)&&!('signature' in x)&&!('votes' in x)));
+ assert.equal(s.snapshot().persistent,false);assert.equal(s.snapshot().realPaymentAuthorized,false);
+});

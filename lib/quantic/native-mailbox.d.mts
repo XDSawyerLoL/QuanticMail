@@ -1,0 +1,10 @@
+export type NativeMailboxRow={id:string;digest:string;record:unknown;queuedAt:number;acknowledgedAt:number|null};
+export function nativeMailboxEntries():NativeMailboxRow[];
+export function validateNativeMailbox(rows:unknown):NativeMailboxRow[];
+export function restoreNativeMailbox(rows:unknown):void;
+export function normalizeNativeRecord(record:unknown):{format:string;version:number;context:{clientMessageId:string;from:string;fromDeviceId:string;to:string;toDeviceId:string};envelope:unknown;senderAuth:unknown};
+export function nativeRecordDigest(record:unknown):string;
+export function enqueueNativeRecord(record:unknown,now?:number):{id:string;digest:string;status:string;duplicate:boolean};
+export function pullNativeRecord(address:string,deviceId:string):NativeMailboxRow|null;
+export function acknowledgeNativeRecord(address:string,deviceId:string,id:unknown,digest:unknown,now?:number):{id:string;digest:string;status:string;duplicate:boolean};
+export function recoverNativeRecord(address:string,deviceId:string,id:unknown,digest:unknown):NativeMailboxRow;

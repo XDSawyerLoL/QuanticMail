@@ -1,0 +1,41 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {generateKeyPairSync,createHash,sign,randomBytes} from 'node:crypto';
+import {newPayCheckpointRequest,attestPayCheckpoint,reconcilePayCheckpoint,summarizePayProofs} from '../lib/quantic/pay-lab-checkpoint.mjs';
+const sha=b=>createHash('sha256').update(b).digest('hex');
+const spki=k=>k.publicKey.export({format:'der',type:'spki'});
+test('fresh three-of-four independent signed synthetic proof sets refuse rollback, substitution and stale votes',()=>{
+ const ec=generateKeyPairSync('ec',{namedCurve:'prime256v1'}),pq=generateKeyPairSync('ml-dsa-65'),now=1000000;
+ const scope={signingPin:sha(spki(ec)),pqPin:sha(spki(pq))};
+ const j=ec.publicKey.export({format:'jwk'}),point=Buffer.concat([Buffer.from([4]),Buffer.from(j.x,'base64url'),Buffer.from(j.y,'base64url')]);
+ function proof(cents){
+  const i={Payee:'demo-shop',Cents:cents,Nonce:randomBytes(32).toString('hex'),Issued:now-500000,Expires:now-380000};
+  const b=Buffer.from(JSON.stringify(['quantic-pay-native-simulation/v1',scope.signingPin,scope.pqPin,i.Payee,i.Cents,'EUR',i.Nonce,i.Issued,i.Expires,false]));
+  return {intent:i,...scope,realPaymentAuthorized:false,classicalPublic:point.toString('base64url'),pqPublic:spki(pq).toString('base64url'),classicalSignature:sign('sha256',b,{key:ec.privateKey,dsaEncoding:'ieee-p1363'}).toString('base64url'),pqSignature:sign(null,b,pq.privateKey).toString('base64url')};
+ }
+ const a=proof(100),b=proof(210),all=[a,b];
+ const request=newPayCheckpointRequest(scope,now);
+ const keys=Array.from({length:4},()=>generateKeyPairSync('ed25519'));
+ const pqKeys=keys.map(()=>generateKeyPairSync('ml-dsa-65'));
+ const trustedAuthorities=keys.map((k,i)=>({pin:sha(spki(k)),publicKey:spki(k).toString('base64url'),pqPin:sha(spki(pqKeys[i])),pqPublicKey:spki(pqKeys[i]).toString('base64url')}));
+ const vote=(k,retainedProofs=all)=>attestPayCheckpoint({retainedProofs,request,authorityPrivateKey:k.privateKey,authorityPQPrivateKey:pqKeys[keys.indexOf(k)].privateKey,now});
+ const attestations=keys.map(k=>vote(k));
+ const opt={localProofs:all,request,trustedAuthorities,attestations,now};
+ const result=reconcilePayCheckpoint(opt);assert.equal(result.proofCount,2);assert.equal(result.realPaymentAuthorized,false);assert.equal(result.settlementVerified,false);
+ assert.equal(reconcilePayCheckpoint({...opt,localProofs:[b,a],attestations:attestations.slice(0,3)}).witnessCount,3);
+ assert.throws(()=>reconcilePayCheckpoint({...opt,localProofs:[a]}));
+ assert.throws(()=>reconcilePayCheckpoint({...opt,localProofs:[a,a]}));
+ assert.throws(()=>reconcilePayCheckpoint({...opt,localProofs:[a,{...b,intent:{...b.intent,Cents:211}}]}));
+ assert.throws(()=>reconcilePayCheckpoint({...opt,attestations:attestations.slice(0,2)}));
+ assert.throws(()=>reconcilePayCheckpoint({...opt,attestations:[attestations[0],attestations[0],attestations[1]]}));
+ assert.throws(()=>reconcilePayCheckpoint({...opt,attestations:[attestations[0],attestations[1],vote(keys[2],[a]),vote(keys[3],[a])]}));
+ assert.throws(()=>reconcilePayCheckpoint({...opt,request:newPayCheckpointRequest(scope,now)}));
+ assert.throws(()=>reconcilePayCheckpoint({...opt,now:request.expires}));
+ assert.throws(()=>reconcilePayCheckpoint({...opt,trustedAuthorities:[trustedAuthorities[0],trustedAuthorities[0],trustedAuthorities[2],trustedAuthorities[3]]}));
+ const classicalOnly=attestations.slice(0,3).map(a=>({...a,pqSignature:undefined}));
+ assert.throws(()=>reconcilePayCheckpoint({...opt,attestations:classicalOnly}));
+ const damaged=attestations.slice(0,3).map(a=>({...a,pqSignature:(a.pqSignature[0]==='A'?'B':'A')+a.pqSignature.slice(1)}));
+ assert.throws(()=>reconcilePayCheckpoint({...opt,attestations:damaged}));
+ assert.throws(()=>reconcilePayCheckpoint({...opt,trustedAuthorities:trustedAuthorities.map((t,i)=>i===1?{...t,pqPin:trustedAuthorities[0].pqPin,pqPublicKey:trustedAuthorities[0].pqPublicKey}:t)}));
+ assert.notEqual(summarizePayProofs([a],scope).root,summarizePayProofs(all,scope).root);
+});

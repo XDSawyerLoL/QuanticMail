@@ -1,0 +1,132 @@
+// This fixture is copied by CI into the independently checked-out native
+// Identity Vault source tree at its pinned revision. It is compiled in the
+// actual Vault package; pqKeys.proof is NOT reimplemented in this test.
+package main
+
+import(
+ "crypto/ed25519"
+ "crypto/rand"
+ "io"
+ "os"
+ "path/filepath"
+ "encoding/base64"
+ "encoding/json"
+ "strings"
+ "testing"
+ "time"
+ control "github.com/XDSawyerLoL/QuanticMail/quantic-control"
+ "github.com/XDSawyerLoL/QuanticMail/quantic-control/vaultsession"
+)
+func TestSentinelVerifiesActualNativeVaultProof(t *testing.T){
+ kem,err:=pqGenerate("ML-KEM-768")
+ if err!=nil{t.Fatal(err)}
+ defer kem.close()
+ dsa,err:=pqGenerate("ML-DSA-65")
+ if err!=nil{t.Fatal(err)}
+ defer dsa.close()
+ p,err:=pqMake(kem,dsa,"sentinel~"+strings.Repeat("a",32)+"@quantic","d-"+strings.Repeat("b",32))
+ if err!=nil{t.Fatal(err)}
+ id:=vaultsession.Identity{Address:p.address,Device:p.device,KEMPin:p.kemPin,DSAPin:p.dsaPin,DSAPublicDER:p.dsaPub}
+ now:=time.Now()
+ s,err:=vaultsession.New(id,"native-vault-integration-test",now)
+ if err!=nil{t.Fatal(err)}
+ // This is the exact method called by the native broker's pq-proof-lab op.
+ sig,err:=p.proof(s.Request().PQChallenge)
+ if err!=nil{t.Fatal(err)}
+ raw,err:=json.Marshal(vaultsession.Reply{OK:true,PQProof:base64.RawURLEncoding.EncodeToString(sig)})
+ if err!=nil{t.Fatal(err)}
+ if err:=s.Verify(raw,time.Now());err!=nil{t.Fatal(err)}
+ if _,e:=s.AuthorizationClaims("alerts.read",time.Now());e==nil{t.Fatal("raw proof alone granted broker authorization")}
+ if s.Verify(raw,time.Now())==nil{t.Fatal("replay accepted")}
+ another,err:=vaultsession.New(id,"different-machine",time.Now())
+ if err!=nil{t.Fatal(err)}
+ if another.Verify(raw,time.Now())==nil{t.Fatal("proof for different challenge accepted")}
+}
+
+
+// Real broker framing, approval callback, journal and ML-DSA provider;
+// ONLY the independent checkpoint authority and UI approval are test doubles.
+// No user identity, production credentials or privileged OS operation.
+func TestSentinelAuthenticatedNativeBroker(t *testing.T){
+ for _,mode:=range []string{"approved","revoked","denied","wrong-controller","anchor-unavailable"}{
+  t.Run(mode,func(t *testing.T){
+   controllerPub,controllerKey,err:=ed25519.GenerateKey(rand.Reader)
+   if err!=nil{t.Fatal(err)}
+   defer clear(controllerKey)
+   brokerPub:=controllerPub
+   if mode=="wrong-controller"{
+    brokerPub,_,err=ed25519.GenerateKey(rand.Reader)
+    if err!=nil{t.Fatal(err)}
+   }
+   keys,err:=freshPortable();if err!=nil{t.Fatal(err)}
+   kem,err:=pqGenerate("ML-KEM-768");if err!=nil{t.Fatal(err)};defer kem.close()
+   dsa,err:=pqGenerate("ML-DSA-65");if err!=nil{t.Fatal(err)};defer dsa.close()
+   pq,err:=pqMake(kem,dsa,"sentinel~"+strings.Repeat("a",32)+"@quantic","d-"+strings.Repeat("b",32))
+   if err!=nil{t.Fatal(err)}
+   path,a,b,c:=testJournal(t)
+   journal,err:=openReplay(path,a,b,c);if err!=nil{t.Fatal(err)};defer journal.close()
+   witness:=&fakeAnchor{tail:journal.tail}
+   aid,err:=anchorID(a,b,c);if err!=nil{t.Fatal(err)}
+   if err=journal.attachAnchor(witness,aid);err!=nil{t.Fatal(err)}
+   if mode=="anchor-unavailable"{witness.fail=true}
+   s,err:=vaultsession.New(vaultsession.Identity{Address:pq.address,Device:pq.device,KEMPin:pq.kemPin,DSAPin:pq.dsaPin,DSAPublicDER:pq.dsaPub},"broker-test",time.Now())
+   if err!=nil{t.Fatal(err)}
+   toVaultR,toVaultW:=io.Pipe()
+   fromVaultR,fromVaultW:=io.Pipe()
+   defer toVaultR.Close();defer toVaultW.Close();defer fromVaultR.Close();defer fromVaultW.Close()
+   done:=make(chan error,1)
+   approvals:=0
+   go func(){
+    err:=authenticateFrames(brokerPub,toVaultR,fromVaultW,func(in io.Reader,out io.Writer)error{
+     return serveGuardedPQ(softwareSigner{keys.signing},keys.agreement,"synthetic-test",in,out,func(detail string)bool{
+      approvals++
+      return mode!="denied"
+     },journal,pq,&senderTrust{contacts:map[string]senderContact{}})
+    })
+    fromVaultW.Close()
+    done<-err
+   }()
+   result:=vaultsession.ExchangeBrokerProof(fromVaultR,toVaultW,s,controllerKey,controllerPub)
+   toVaultW.Close()
+   fromVaultR.Close()
+   select{
+   case err=<-done:
+   case <-time.After(5*time.Second):t.Fatal("broker did not finish")
+   }
+   if mode!="approved"&&mode!="revoked"{
+    if _,e:=s.AuthorizationClaims("alerts.read",time.Now());e==nil{t.Fatal("denied broker granted session authorization")}
+   }
+   if mode=="approved"||mode=="revoked"{
+    if result!=nil||err!=nil||approvals!=1||witness.count!=1||len(journal.seen)!=1{
+     t.Fatalf("approved proof failed: %v broker=%v approvals=%d journal=%d witness=%d",result,err,approvals,len(journal.seen),witness.count)
+    }
+    claims,e:=s.AuthorizationClaims("alerts.read",time.Now());if e!=nil{t.Fatal(e)}
+    payload,e:=control.SigningBytes(claims);if e!=nil{t.Fatal(e)}
+    req:=control.SignedRequest{Claims:claims,Signature:ed25519.Sign(controllerKey,payload)}
+    if e:=s.AuthorizeRead(req,"status.read",time.Now());e==nil{t.Fatal("cross-action authorization")}
+    forged:=req;forged.Signature=append([]byte(nil),req.Signature...);forged.Signature[0]^=1
+    if e:=s.AuthorizeRead(forged,"alerts.read",time.Now());e==nil{t.Fatal("forged authorization")}
+    if _,e:=s.AuthorizationClaims("process.kill",time.Now());e==nil{t.Fatal("privileged action authorized")}
+    if e:=s.AuthorizeRead(req,"alerts.read",time.Now().Add(time.Minute));e==nil{t.Fatal("expired authorization")}
+    if mode=="revoked"{
+     s.Revoke()
+     if e:=s.AuthorizeRead(req,"alerts.read",time.Now());e==nil{t.Fatal("revoked session authorized")}
+     return
+    }
+    log:=filepath.Join(t.TempDir(),"events.jsonl")
+    if e:=os.WriteFile(log,[]byte("{\"type\":\"alert\",\"message\":\"synthetic diagnostic record\"}\n"),0600);e!=nil{t.Fatal(e)}
+    if _,e:=s.ReadAuthorizedAlerts(forged,log,10);e==nil{t.Fatal("forged request read local history")}
+    records,e:=s.ReadAuthorizedAlerts(req,log,10)
+    if e!=nil||len(records)!=1||records[0].Message!="synthetic diagnostic record"{t.Fatalf("authorized history read failed: %v %v",records,e)}
+    if _,e:=s.ReadAuthorizedAlerts(req,log,10);e==nil{t.Fatal("authorization replay read history")}
+
+   }else{
+    if result==nil{t.Fatalf("%s unexpectedly authenticated",mode)}
+    if witness.count!=0||len(journal.seen)!=0{t.Fatal("refused proof committed")}
+    if mode=="wrong-controller"&&approvals!=0{t.Fatal("wrong controller reached approval")}
+    if mode=="denied"&&approvals!=1{t.Fatal("approval refusal not exercised")}
+    if mode=="anchor-unavailable"&&(!journal.failed||approvals!=1){t.Fatal("anchor refusal not exercised")}
+   }
+  })
+ }
+}

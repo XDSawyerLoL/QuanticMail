@@ -119,3 +119,37 @@ export function assertManifestDeviceActive(canonicalAddress: string, deviceId: s
     throw new ManifestStateError("Cet appareil a été révoqué ou n’est pas autorisé par le manifeste Quantic courant.", 401);
   }
 }
+
+/** For authenticated API operations: never trust a caller's optional device ID.
+ * Legacy identities without any manifest remain supported. A configured registry
+ * that is unreachable, inconsistent or missing a previously known manifest fails closed.
+ */
+export async function getCurrentManifest(canonicalAddress: string) {
+  const canonical = canonicalAddress.trim().toLowerCase();
+  let current = getCachedManifest(canonical);
+  if (registryStatus().configured) {
+    try {
+      const remote = await loadRegistryManifest(canonical);
+      // Publication can advance the local high-water mark while the remote read
+      // is pending. Re-read it before accepting any response.
+      current = getCachedManifest(canonical);
+      if (!remote && current) throw new Error("Checkpoint durable absent.");
+      if (remote) {
+        assertVerified(remote);
+        if (remote.payload.canonicalAddress !== canonical) throw new Error("Identité du checkpoint incohérente.");
+        current = reconcileManifestAuthority(current, remote, remote);
+        manifests.set(canonical, current);
+      }
+    } catch {
+      throw new ManifestStateError("Autorité de révocation indisponible ou incohérente.", 503);
+    }
+  }
+  return current;
+}
+
+export async function assertCurrentManifestDeviceActive(canonicalAddress: string, deviceId: string) {
+  const current = await getCurrentManifest(canonicalAddress);
+  if (current && !activeDevices(current).some(device => device.deviceId === deviceId)) {
+    throw new ManifestStateError("Cet appareil a été révoqué ou n’est pas autorisé par le manifeste Quantic courant.", 401);
+  }
+}

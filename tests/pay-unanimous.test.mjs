@@ -1,0 +1,43 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {generateKeyPairSync,createHash,randomBytes,sign} from 'node:crypto';
+import {createRoundCirculationLab} from '../lib/quantic/pay-circulation-lab.mjs';
+import {createPayRoundLab} from '../lib/quantic/pay-round-lab.mjs';
+import {compactPayView} from '../lib/quantic/pay-compact-view.mjs';
+import {collectCommitteeVotes} from '../lib/quantic/pay-committee-quorum.mjs';
+const sha=b=>createHash('sha256').update(b).digest('hex');
+const spki=k=>k.publicKey.export({format:'der',type:'spki'});
+const pair=type=>({cl:type==='ec'?generateKeyPairSync('ec',{namedCurve:'prime256v1'}):generateKeyPairSync(type),pq:generateKeyPairSync('ml-dsa-65')});
+const pub=k=>({pin:sha(spki(k.cl)),publicKey:spki(k.cl).toString('base64url'),pqPin:sha(spki(k.pq)),pqPublicKey:spki(k.pq).toString('base64url')});
+test('strict 16/16 admission and financial certificates and view changes, no resilient-domain fallback',async()=>{
+ const wallets=[pair('ec'),pair('ec')],witnesses=Array.from({length:16},()=>pair('ed25519'));
+ const config={admissionPolicy:'round-v3-unanimous',wallets:wallets.map((w,i)=>({id:i?'demo-bob':'demo-alice',initialCents:i?0:10000,...pub(w)})),witnesses:witnesses.map(pub)};
+ const lab=createRoundCirculationLab(config),resilient=createRoundCirculationLab({...config,admissionPolicy:'round-v3'}),now=1000000;
+ assert.notEqual(lab.snapshot([]).network,resilient.snapshot([]).network);assert.equal(lab.committee.quorum,16);
+ assert.throws(()=>createRoundCirculationLab({...config,witnesses:config.witnesses.slice(0,4)}));
+ const intent=lab.prepare([],{payer:'demo-alice',payee:'demo-bob',cents:7500,nonce:randomBytes(32).toString('hex'),now}),raw=lab.transcript(intent);
+ const draft={admissionTime:now,proposals:[{intent,signature:sign('sha256',raw,{key:wallets[0].cl.privateKey,dsaEncoding:'ieee-p1363'}).toString('base64url'),pqSignature:sign(null,raw,wallets[0].pq.privateKey).toString('base64url')}]};
+ function settle(roundLab,value){
+  const nodes=witnesses.map((w,i)=>roundLab.openAuthority({authorityPin:config.witnesses[i].pin,classicalPrivateKey:w.cl.privateKey,pqPrivateKey:w.pq.privateKey}));
+  const p={scope:roundLab.scope,round:0,value,votes:nodes.map(n=>n.prepare({round:0,value}))};
+  assert.throws(()=>roundLab.prepared({...p,votes:p.votes.slice(0,15)}));
+  const c={scope:roundLab.scope,round:0,value,votes:nodes.map(n=>n.commit(p))};
+  assert.throws(()=>roundLab.finalized({prepared:p,commit:{...c,votes:c.votes.slice(0,15)}}));
+  const reports=nodes.map(n=>n.changeView(1));
+  assert.throws(()=>roundLab.selectView(compactPayView({scope:roundLab.scope,round:1,reports:reports.slice(0,15)},16)));
+  const view=compactPayView({scope:roundLab.scope,round:1,reports},16);
+  assert.equal(roundLab.selectView(view).requiredValue,value);
+  const prepared={scope:roundLab.scope,round:1,value,votes:nodes.map(n=>n.prepare({round:1,value,viewCertificate:view}))};
+  const commit={scope:roundLab.scope,round:1,value,votes:nodes.map(n=>n.commit(prepared))};
+  return {prepared,commit};
+ }
+ const a=createPayRoundLab(lab.admissionRoundConfig([])),value=lab.draft([],draft).scope;
+ const admission={...draft,admissionCertificate:settle(a,value)};
+ assert.throws(()=>resilient.admit([],admission));
+ const info=lab.admit([],admission),b=createPayRoundLab(info.config);
+ assert.equal(b.committee.quorum,16);
+ const record={admission,certificate:settle(b,info.candidates[0].value)};
+ assert.equal(lab.receipt([],record).cents,7500);
+ assert.deepEqual(lab.snapshot([record]).balances,{'demo-alice':2500,'demo-bob':7500});
+ await assert.rejects(collectCommitteeVotes({lab:b,authorities:config.witnesses.slice(0,15).map(w=>({authorityPin:w.pin,client:null})),phase:'prepare',round:0,value:info.candidates[0].value,invoke:()=>{throw Error('must not run');}}));
+});

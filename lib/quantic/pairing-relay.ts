@@ -1,5 +1,5 @@
 import { activeDevices } from "@/lib/quantic/manifest-core.mjs";
-import { getManifest } from "@/lib/quantic/manifest-state";
+import { getCurrentManifest, ManifestStateError } from "@/lib/quantic/manifest-state";
 import {
   attachPairingPackage,
   createInvite,
@@ -11,7 +11,7 @@ import {
   type PairingStore,
 } from "@/lib/quantic/pairing-store.mjs";
 import type { PublicDeviceRequest } from "@/lib/quantic/device";
-import { pullEnvelopes, RelayError, resolveIdentity } from "@/lib/quantic/relay";
+import { authenticateLocalDevice, RelayError, resolveIdentity } from "@/lib/quantic/relay";
 
 declare global {
   var __quanticPairingStore: PairingStore | undefined;
@@ -28,7 +28,7 @@ export class PairingRelayError extends Error {
 
 function mapError(error: unknown): never {
   if (error instanceof PairingRelayError) throw error;
-  if (error instanceof RelayError) throw new PairingRelayError(error.message, error.status);
+  if (error instanceof RelayError || error instanceof ManifestStateError) throw new PairingRelayError(error.message, error.status);
   const message = error instanceof Error ? error.message : "Pairing Quantic invalide.";
   const status = /expir/i.test(message) ? 410 : /secret/i.test(message) ? 401 : /introuvable|consomm/i.test(message) ? 404 : 400;
   throw new PairingRelayError(message, status);
@@ -36,12 +36,13 @@ function mapError(error: unknown): never {
 
 async function authenticateRoot(locator: string, authToken: string | null, deviceId: string) {
   try {
-    pullEnvelopes(locator, authToken, deviceId);
-    const identity = resolveIdentity(locator);
-    const manifest = await getManifest(identity.canonicalAddress);
+    if (!deviceId) throw new PairingRelayError("Appareil requis.", 400);
+    const authenticated = authenticateLocalDevice(locator, authToken, deviceId);
+    const identity = resolveIdentity(authenticated.canonicalAddress);
+    const manifest = await getCurrentManifest(authenticated.canonicalAddress);
     if (!manifest) throw new PairingRelayError("Un manifeste V1 est requis pour le pairing QR.", 409);
     const root = activeDevices(manifest).find((item) => item.kind === "root");
-    if (!root || root.deviceId !== deviceId) {
+    if (!root || root.deviceId !== authenticated.deviceId) {
       throw new PairingRelayError("Seul l’appareil maître peut autoriser un pairing QR.", 403);
     }
     return { identity, root };

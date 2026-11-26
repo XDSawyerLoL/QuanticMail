@@ -129,6 +129,7 @@ const MAX_QUEUE = 500;
 const MAX_RECEIPTS = 500;
 const MAX_CIPHERTEXT_CHARS = 400_000;
 const MESSAGE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const MAX_PENDING_CHALLENGES = 4096;
 const CHALLENGE_TTL_MS = 5 * 60 * 1000;
 const SENDS_PER_MINUTE = 60;
 
@@ -438,6 +439,13 @@ export function createIdentityChallenge(input: {
   validateEncryptionPublicKey(input.publicKey);
   validateSigningPublicKey(input.signingPublicKey);
   const names = identityNames(locator.handle, input.signingPublicKey, locator.fingerprint);
+  const now = Date.now();
+  for (const [key, record] of state.challenges) {
+    if (record.expiresAt <= now) state.challenges.delete(key);
+  }
+  if (!state.challenges.has(names.canonicalAddress) && state.challenges.size >= MAX_PENDING_CHALLENGES) {
+    throw new RelayError("Capacité temporaire de défis atteinte.", 429);
+  }
   const challenge = randomBytes(32).toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
   state.challenges.set(names.canonicalAddress, {
     challenge,
@@ -676,6 +684,36 @@ export function enqueueEnvelope(input: {
   queue.push(envelope);
   state.queues.set(queueKey, queue);
   return { id: envelope.id, queuedAt: envelope.createdAt, duplicate: false };
+}
+
+/**
+ * Strictly laboratory-only, read-only view of ALL records retained for one
+ * authenticated mailbox, not the public 100-element pull window. Invocation
+ * must be guarded by the loopback-only server opt-in. No queue pruning, ACK,
+ * prekey claim, identity migration, token export or state mutation.
+ * The relay imposes 500 queued envelopes/receipts per device; this view
+ * says nothing about historical entries already acknowledged or expired.
+ */
+export function readMigrationLabMailbox(
+  locatorInput: string,
+  authToken: string | null,
+  deviceId: string,
+) {
+  const auth=authenticateDevice(locatorInput,authToken,deviceId);
+  const key=mailboxKey(auth.identity.canonicalAddress,auth.deviceId);
+  const envelopes=state.queues.get(key) ?? [];
+  const receipts=state.receipts.get(key) ?? [];
+  if(envelopes.length>MAX_QUEUE||receipts.length>MAX_RECEIPTS)
+    throw new RelayError("File de laboratoire hors limites.",503);
+  // Independent copies prevent a caller from mutating the relay state.
+  return {
+    canonicalAddress:auth.identity.canonicalAddress,
+    deviceId:auth.deviceId,
+    envelopes:structuredClone(envelopes),
+    receipts:structuredClone(receipts),
+    queueCapacity:MAX_QUEUE,
+    receiptCapacity:MAX_RECEIPTS,
+  };
 }
 
 export function pullEnvelopes(

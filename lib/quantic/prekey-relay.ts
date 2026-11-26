@@ -1,5 +1,5 @@
 import { activeDevices } from "@/lib/quantic/manifest-core.mjs";
-import { getManifest } from "@/lib/quantic/manifest-state";
+import { getCurrentManifest, ManifestStateError } from "@/lib/quantic/manifest-state";
 import {
   createPreKeyPoolStore,
   publishToPreKeyPool,
@@ -13,7 +13,9 @@ import {
   verifyPreKeySignature,
   type SignedPreKeyRecord,
 } from "@/lib/quantic/prekey-core.mjs";
-import { pullEnvelopes, resolveIdentity, RelayError } from "@/lib/quantic/relay";
+import { authenticateLocalDevice, resolveIdentity, RelayError } from "@/lib/quantic/relay";
+
+import { consumeRateLimit } from "@/lib/security/rate-limit";
 
 declare global {
   var __quanticPreKeyPoolStore: PreKeyPoolStore | undefined;
@@ -33,21 +35,21 @@ function poolKey(canonicalAddress: string, deviceId: string) {
 }
 
 function mapRelayError(error: unknown): never {
-  if (error instanceof RelayError) throw new PreKeyRelayError(error.message, error.status);
+  if (error instanceof RelayError || error instanceof ManifestStateError) throw new PreKeyRelayError(error.message, error.status);
   throw error;
 }
 
 function authenticate(locator: string, authToken: string | null, deviceId: string) {
   try {
-    pullEnvelopes(locator, authToken, deviceId);
-    return resolveIdentity(locator);
+    if (!deviceId) throw new PreKeyRelayError("Appareil requis.", 400);
+    return authenticateLocalDevice(locator, authToken, deviceId);
   } catch (error) {
     mapRelayError(error);
   }
 }
 
 async function activeManifestDevice(canonicalAddress: string, deviceId: string) {
-  const manifest = await getManifest(canonicalAddress);
+  const manifest = await getCurrentManifest(canonicalAddress).catch(mapRelayError);
   if (!manifest) {
     throw new PreKeyRelayError("Les one-time prekeys nécessitent un manifeste V1 actif.", 409);
   }
@@ -104,7 +106,11 @@ export async function claimPreKey(input: {
   recipientCanonicalAddress: string;
   recipientDeviceId: string;
 }) {
-  authenticate(input.senderLocator, input.senderAuthToken, input.senderDeviceId);
+  const sender = authenticate(input.senderLocator, input.senderAuthToken, input.senderDeviceId);
+  // Local safety budget, not a distributed security guarantee.
+  const budget = consumeRateLimit(`prekey-claim:${sender.canonicalAddress}`, 60, 60_000);
+  if (!budget.ok) throw new PreKeyRelayError("Limite temporaire de réclamation.", 429);
+  await activeManifestDevice(sender.canonicalAddress, sender.deviceId);
   const recipient = resolveIdentity(input.recipientCanonicalAddress);
   const device = await activeManifestDevice(recipient.canonicalAddress, input.recipientDeviceId);
   const key = poolKey(recipient.canonicalAddress, input.recipientDeviceId);

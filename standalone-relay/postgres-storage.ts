@@ -14,6 +14,7 @@ import {
   type RelayIdentity,
 } from "./identity.ts";
 import type { RelayStateStore } from "./storage.ts";
+import { createPostgresAuthRateLimiter } from "./auth-rate-postgres.ts";
 
 type QueryRow = { value?: unknown; revision?: number | string };
 
@@ -28,6 +29,7 @@ export type PostgresQueryClient = {
 
 export type PostgresPersistenceOptions = {
   identitySecret?: string;
+  sharedAuthRateLimit?: boolean;
 };
 
 const STATE_KEY = "relay-state";
@@ -337,8 +339,10 @@ export async function createPostgresRelayPersistenceFromUrl(
   });
   const persistence = createPostgresRelayPersistence(pool as unknown as PostgresQueryClient, options);
   await persistence.initialize();
+  const authRateLimiter = options.sharedAuthRateLimit ? await createPostgresAuthRateLimiter((sql, params) => pool.query(sql, params)) : undefined;
   return {
     ...persistence,
+    authRateLimiter,
     async close() {
       await pool.end();
     },
