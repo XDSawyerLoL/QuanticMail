@@ -1,0 +1,38 @@
+name: Native PQ root continuity laboratory
+on:
+  pull_request:
+    paths:
+      - 'lib/quantic/native-pq-root-transition.mjs'
+      - 'lib/quantic/migration-rehearsal.mjs'
+      - 'tests/native-pq-root-transition.test.mjs'
+      - 'tests/migration-rehearsal.test.mjs'
+      - '.github/workflows/native-pq-root-continuity.yml'
+  push:
+    branches: ['security/**']
+    paths:
+      - 'lib/quantic/native-pq-root-transition.mjs'
+      - 'lib/quantic/migration-rehearsal.mjs'
+      - 'tests/native-pq-root-transition.test.mjs'
+      - 'tests/migration-rehearsal.test.mjs'
+      - '.github/workflows/native-pq-root-continuity.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  native-pq-lineage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24.8.0'
+      - name: Validate module syntax
+        run: |
+          node --check lib/quantic/native-pq-root-transition.mjs
+          node --check lib/quantic/migration-rehearsal.mjs
+      - name: Verify actual Ed25519-independent PQ history (real local P-256 and ML-DSA signatures)
+        run: node --experimental-transform-types --test tests/native-pq-root-transition.test.mjs tests/migration-rehearsal.test.mjs

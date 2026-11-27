@@ -91,6 +91,8 @@ test('trusted offline archive and current native hybrid keys are cross-checked; 
  assert.equal(report.nativePublicKeysPinned,true);
  assert.equal(report.postQuantumHistoricalKeysMatched,true);
  assert.equal(report.postQuantumAccountRootPrivateKeyVerified,false);
+ assert.equal(report.pqRootLineageVerified,false);
+ assert.ok(report.blockers.includes('previous-pq-root-lineage-not-independently-proven'));
  assert.ok(report.blockers.includes('pq-account-root-private-key-custody-not-established'));
  assert.equal(report.currentManifestSequence,2);
  assert.equal(report.historicalManifestSequence,1);
@@ -137,4 +139,18 @@ test('rehearsal refuses unauthorized archive roots, substituted PQ roots, stale 
   return current;
  };
  await assert.rejects(rehearse({peerSource:oldProfileSwap}));
+});
+
+test('migration rehearsal refuses forged PQ lineage evidence rather than reporting a successful preflight',async()=>{
+ const f=fixture();
+ const archiveText=await sealMigrationArchive(f.archive,password);
+ await assert.rejects(rehearseNativeIdentityMigration({
+   archiveText,password,...f.expected,
+   rootTransitionEvidence:{
+     previousIdentityManifest:f.archive.identity.manifest,
+     previousCryptoProfile:f.peerById.get(f.oldId).bundle.profile,
+     previousProfileDigest:'f'.repeat(64),
+     previousPqRootPin:f.expected.pqRootPin,
+   }
+ }));
 });
