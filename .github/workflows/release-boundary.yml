@@ -1,0 +1,49 @@
+name: QuanticMail security release boundary
+
+on:
+  pull_request:
+    paths:
+      - 'security/release-boundary.json'
+      - 'scripts/assert-release-boundary.mjs'
+      - 'tests/release-boundary*.test.mjs'
+      - '.github/workflows/desktop-release.yml'
+      - '.github/workflows/publish-hostinger-dist.yml'
+      - '.github/workflows/release-boundary.yml'
+  push:
+    branches: ['security/**']
+    paths:
+      - 'security/release-boundary.json'
+      - 'scripts/assert-release-boundary.mjs'
+      - 'tests/release-boundary*.test.mjs'
+      - '.github/workflows/desktop-release.yml'
+      - '.github/workflows/publish-hostinger-dist.yml'
+      - '.github/workflows/release-boundary.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  deny-unverified-sensitive-release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Validate release boundary and deployment wiring
+        run: |
+          node --check scripts/assert-release-boundary.mjs
+          node --test tests/release-boundary.test.mjs tests/release-boundary-wiring.test.mjs
+      - name: Validate allowed legacy-only release paths
+        run: |
+          node scripts/assert-release-boundary.mjs --assert-web
+          node scripts/assert-release-boundary.mjs --assert-desktop
+      - name: Ensure sensitive production release is refused
+        shell: bash
+        run: |
+          set -euo pipefail
+          if node scripts/assert-release-boundary.mjs --assert-sensitive; then
+            echo "Sensitive production publish unexpectedly authorized" >&2
+            exit 1
+          fi
+          echo "PASS: sensitive release is denied"
