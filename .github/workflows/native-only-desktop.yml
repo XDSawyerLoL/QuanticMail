@@ -1,0 +1,63 @@
+name: Native-only desktop boundary
+
+on:
+  push:
+    branches: ['architecture/**']
+    paths:
+      - 'desktop/main.cjs'
+      - 'desktop/native-entry-policy.cjs'
+      - 'desktop/navigation-policy.cjs'
+      - 'package.json'
+      - 'scripts/refuse-legacy-electron-release.mjs'
+      - '.github/workflows/desktop-release.yml'
+      - '.github/workflows/native-only-desktop.yml'
+      - 'tests/desktop-native-only.test.mjs'
+  pull_request:
+    paths:
+      - 'desktop/main.cjs'
+      - 'desktop/native-entry-policy.cjs'
+      - 'desktop/navigation-policy.cjs'
+      - 'package.json'
+      - 'scripts/refuse-legacy-electron-release.mjs'
+      - '.github/workflows/desktop-release.yml'
+      - '.github/workflows/native-only-desktop.yml'
+      - 'tests/desktop-native-only.test.mjs'
+
+permissions:
+  contents: read
+
+jobs:
+  native-only-entry:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24.8.0'
+      - name: Syntax-check native entry and legacy release blocker
+        run: |
+          node --check desktop/main.cjs
+          node --check desktop/native-entry-policy.cjs
+          node --check scripts/refuse-legacy-electron-release.mjs
+      - name: Native-only boot, URL refusal, malformed pins and retired packaging
+        run: node --test tests/desktop-native-only.test.mjs
+      - name: Native local UI regression
+        run: node --experimental-transform-types --test tests/native-windows-desktop.test.mjs tests/native-vault-desktop.test.mjs
+
+  native-windows-entry:
+    runs-on: windows-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24.8.0'
+      - name: Test native-only startup, disabled navigation and retired release on Windows
+        run: node --test tests/desktop-native-only.test.mjs
+      - name: Windows desktop local lab regression
+        run: node --experimental-transform-types --test tests/native-windows-desktop.test.mjs
