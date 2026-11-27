@@ -3,6 +3,7 @@
 param(
  [Parameter(Mandatory=$true)][ValidatePattern('^[a-fA-F0-9]{64}$')][string]$ExpectedManifestSha256,
  [Parameter(Mandatory=$true)][ValidatePattern('^[a-fA-F0-9]{64}$')][string]$TrustedBinarySha256,
+ [string]$EnrollmentDirectory,
  [switch]$SelfTest
 )
 $ErrorActionPreference='Stop'
@@ -387,5 +388,17 @@ $send.Add_Click({
 if($SelfTest){
  if($recipient.DropDownStyle -ne 'DropDownList' -or -not $body.Multiline -or -not $chosen.ReadOnly -or $save.Text -notmatch 'brouillon' -or $send.Text -notmatch 'Chiffrer' -or $send.Top -le $save.Top -or $diagnostic.Text -notmatch 'securite Windows' -or $receive.Text -notmatch 'Recevoir' -or $recovery.Text -notmatch 'Reprendre un envoi'){throw 'Composer self-test failed'}
  $form.Dispose();Write-Output 'Private GUI composer passed';return
+}
+if($EnrollmentDirectory){
+ try{
+  $parent=[Environment]::GetFolderPath('LocalApplicationData')
+  if($EnrollmentDirectory -cnotmatch ('^'+[Regex]::Escape($parent)+'\\quantic-enroll-[0-9a-f]{16}$')){throw 'Identite refusee.'}
+  $result=Invoke-Composer $EnrollmentDirectory '' $true
+  if($result.status -cne 'contacts' -or @($result.recipients).Count -lt 1){throw 'Aucun contact.'}
+  $script:privateDirectory=$EnrollmentDirectory;$chosen.Text='Identite de test selectionnee'
+  $recipient.Items.Clear()
+  foreach($a in @($result.recipients)){[void]$recipient.Items.Add([string]$a)}
+  $recipient.SelectedIndex=0
+ }catch{$script:privateDirectory=$null;$chosen.Clear();$recipient.Items.Clear()}
 }
 try{[void]$form.ShowDialog()}finally{$form.Dispose()}

@@ -25,6 +25,7 @@ $actions=@(
  @{Id="RecoverOpen";Title="Recuperer une ouverture";Hint="Reprendre le resultat exact d'une enveloppe.";Input="wire";Scope=$true},
  @{Id="RecoverReceive";Title="Recuperer une reception";Hint="Reprendre le resultat exact ; nouveau fichier de recu obligatoire.";Input="receipt";Scope=$true},
  @{Id="ConfirmReceipt";Title="Confirmer un recu existant";Hint="Verifier le recu conserve et confirmer au relais.";Input="receipt";Scope=$true},
+ @{Id="ImportMailboxActivation";Title="Configurer ma messagerie de test";Hint="Importer le dossier prive authentifie fourni par mon operateur, sans configuration technique manuelle.";Scope=$false},
  @{Id="PrepareMailboxCredential";Title="Preparer ma messagerie de test";Hint="Verifier les trois approbations et proteger mon jeton local. Aucune activation distante.";Scope=$false},
  @{Id="AnswerEnrollment";Title="Prouver mon identite de test";Hint="Repondre au defi signe de mon operateur independant, sans transmettre de secret ni activer un compte.";Scope=$false},
  @{Id="PrepareEnrollment";Title="Preparer mon inscription de test";Hint="Creer une nouvelle identite avec ses racines proprietaires distinctes. Empreinte du quorum approuvee requise ; aucune inscription distante.";Scope=$false},
@@ -52,7 +53,7 @@ $actions=@(
 function Get-AlphaModule([string]$Id) {
  switch -Regex ($Id) {
   '^(ComposeDraft|SealAndSend|RecoverSealAndSend|Seal|RecoverSeal|Send|Receive|Open|RecoverOpen|RecoverReceive|ConfirmReceipt|MailPreflight|MailAttest)$' { return "QUANTIC MAIL" }
-  '^(PrepareEnrollment|AnswerEnrollment|PrepareMailboxCredential|Provision|ProvisionPair)$' { return "QUANTIC ID" }
+  '^(PrepareEnrollment|AnswerEnrollment|PrepareMailboxCredential|ImportMailboxActivation|Provision|ProvisionPair)$' { return "QUANTIC ID" }
   '^Migration' { return "IDENTITY VAULT" }
   '^(StartBridge|ProbeLoopback)$' { return "SCATTERING" }
   '^(Pay|StartPayBridge)' { return "QUANTIC PAY - LAB" }
@@ -379,6 +380,8 @@ function Invoke-EnrollmentNative([string]$Mode,[string]$Path,[string]$Pin='', [s
   $psi.Arguments=('--gui-answer-enrollment-possession-lab "{0}" {1}' -f $Path,$Pin)
  }elseif($Mode -ceq 'credential' -and $Pin -cmatch '^[a-f0-9]{64}$' -and $Code -cmatch '^QSAPPROVAL1:[A-Za-z0-9_-]{1,19988}$'){
   $psi.Arguments=('--gui-prepare-mailbox-credential-lab "{0}" {1}' -f $Path,$Pin)
+ }elseif($Mode -ceq 'activation' -and $Pin -cmatch '^[a-f0-9]{64}$' -and $Code -cmatch '^[A-Za-z]:\\[A-Za-z0-9_. -]+(?:\\[A-Za-z0-9_. -]+)*$'){
+  $psi.Arguments=('--gui-import-mailbox-activation-lab "{0}" "{1}" {2} {3}' -f $Path,$Code,$Pin,$TrustedBinarySha256.ToLowerInvariant())
  }else{throw 'Action non autorisee.'}
  $psi.EnvironmentVariables.Clear()
  $psi.EnvironmentVariables['SystemRoot']=$env:SystemRoot;$psi.EnvironmentVariables['WINDIR']=$env:SystemRoot
@@ -397,6 +400,49 @@ function Invoke-EnrollmentNative([string]$Mode,[string]$Path,[string]$Pin='', [s
   return (ConvertFrom-Json -InputObject $raw)
  }finally{if($started -and -not $proc.HasExited){$proc.Kill()};$proc.Dispose()}
 }
+$script:configuredEnrollment=$null
+function Show-MailboxActivation {
+ $parent=[Environment]::GetFolderPath('LocalApplicationData')
+ $data=Invoke-EnrollmentNative 'list' $parent
+ if($data.status -cne 'pending-enrollment-candidates-only' -or $data.candidates.Count -gt 32){throw 'Registre non valide.'}
+ $items=@($data.candidates)
+ if($items.Count -eq 0){[Windows.Forms.MessageBox]::Show('Preparez votre identite de test.','Aucune candidature','OK','Information')|Out-Null;return}
+ foreach($item in $items){
+  if($item.directory -cnotmatch ('^'+[Regex]::Escape($parent)+'\\quantic-enroll-[0-9a-f]{16}$') -or $item.address -cnotmatch '^[a-z0-9][a-z0-9._-]{2,31}~[0-9a-f]{32}@quantic$'){throw 'Identite locale invalide.'}
+ }
+ $dlg=New-Object Windows.Forms.Form;$dlg.Text='Quantic Mail | Configurer ma messagerie de test';$dlg.StartPosition='CenterParent'
+ $dlg.ClientSize=New-Object Drawing.Size(700,410);$dlg.BackColor=[Drawing.Color]::FromArgb(19,25,35);$dlg.ForeColor=[Drawing.Color]::WhiteSmoke
+ $help=New-Object Windows.Forms.Label;$help.Text='Selectionnez votre identite et le dossier prive fourni par votre operateur. Comparez son empreinte par un canal independant. Aucune activation distante automatique.'
+ $help.SetBounds(20,15,660,65);$dlg.Controls.Add($help)
+ $choose=New-Object Windows.Forms.ComboBox;$choose.DropDownStyle='DropDownList';$choose.SetBounds(20,90,660,30)
+ foreach($item in $items){[void]$choose.Items.Add([string]$item.address)};$choose.SelectedIndex=0;$dlg.Controls.Add($choose)
+ $selected=New-Object Windows.Forms.TextBox;$selected.ReadOnly=$true;$selected.SetBounds(20,145,470,30);$dlg.Controls.Add($selected)
+ $browse=New-Object Windows.Forms.Button;$browse.Text='Choisir le dossier';$browse.ForeColor=[Drawing.Color]::Black;$browse.SetBounds(505,142,175,35);$dlg.Controls.Add($browse)
+ $browse.Add_Click({
+  $p=New-Object Windows.Forms.OpenFileDialog;$p.Filter='Configuration Quantic (*.json)|*.json';$p.CheckFileExists=$true;$p.Multiselect=$false
+  try{if($p.ShowDialog() -eq [Windows.Forms.DialogResult]::OK){$selected.Text=$p.FileName}}finally{$p.Dispose()}
+ })
+ $label=New-Object Windows.Forms.Label;$label.Text='Empreinte SHA-256 du dossier authentifie';$label.SetBounds(20,195,660,25);$dlg.Controls.Add($label)
+ $pin=New-Object Windows.Forms.TextBox;$pin.MaxLength=64;$pin.SetBounds(20,225,660,30);$dlg.Controls.Add($pin)
+ $confirmed=New-Object Windows.Forms.CheckBox;$confirmed.Text='Empreinte comparee independamment et dossier prive.';$confirmed.SetBounds(20,270,660,35);$dlg.Controls.Add($confirmed)
+ $apply=New-Object Windows.Forms.Button;$apply.Text='Configurer ma messagerie';$apply.ForeColor=[Drawing.Color]::Black;$apply.SetBounds(20,330,330,45);$dlg.Controls.Add($apply)
+ $cancel=New-Object Windows.Forms.Button;$cancel.Text='Annuler';$cancel.ForeColor=[Drawing.Color]::Black;$cancel.DialogResult=[Windows.Forms.DialogResult]::Cancel;$cancel.SetBounds(500,330,180,45);$dlg.Controls.Add($cancel);$dlg.CancelButton=$cancel
+ $apply.Add_Click({
+  if(-not $confirmed.Checked -or $pin.Text -cnotmatch '^[a-f0-9]{64}$' -or [string]::IsNullOrWhiteSpace($selected.Text)){[Windows.Forms.MessageBox]::Show('Dossier prive et empreinte independante requis.','Validation requise','OK','Warning')|Out-Null;return}
+  $apply.Enabled=$false
+  try{
+   $item=$items[$choose.SelectedIndex]
+   $r=Invoke-EnrollmentNative 'activation' ([string]$item.directory) $pin.Text $selected.Text
+   if($r.status -cne 'native-mailbox-configured-pending-live-verification' -or $r.mailAuthorized -ne $false -or $r.address -cne $item.address){throw 'Import non confirme.'}
+   $script:configuredEnrollment=[string]$item.directory
+   [Windows.Forms.MessageBox]::Show('Configuration locale importee. Les autorites et le transport seront verifies lors des operations de messagerie. Aucun compte distant confirme.','Configuration importee','OK','Information')|Out-Null
+   $dlg.DialogResult=[Windows.Forms.DialogResult]::OK
+  }catch{[Windows.Forms.MessageBox]::Show('Import refuse : dossier prive NTFS, empreinte, votes valides et jeton correspondant requis. Aucun fichier existant ne sera remplace.','Configuration non confirmee','OK','Warning')|Out-Null}
+  finally{$apply.Enabled=$true}
+ })
+ try{[void]$dlg.ShowDialog()}finally{$dlg.Dispose()}
+}
+
 function Show-EnrollmentPossession([bool]$Credential=$false) {
  $parent=[Environment]::GetFolderPath('LocalApplicationData')
  $data=Invoke-EnrollmentNative 'list' $parent
@@ -557,8 +603,8 @@ $choice.Add_SelectedIndexChanged({
  if ($choice.SelectedIndex -lt 0) { return }
  $a=$script:shownActions[$choice.SelectedIndex]
  $hint.Text=$a.Hint
- $run.Text=if($a.Id -eq 'ComposeDraft'){"Rediger mon message"}elseif($a.Id -eq 'PrepareEnrollment'){"Preparer mon inscription de test"}elseif($a.Id -eq 'AnswerEnrollment'){"Prouver mon identite de test"}elseif($a.Id -eq 'PrepareMailboxCredential'){"Preparer ma messagerie de test"}else{"Ouvrir le laboratoire technique"}
- $simple=$a.Id -in @('ComposeDraft','PrepareEnrollment','AnswerEnrollment','PrepareMailboxCredential')
+ $run.Text=if($a.Id -eq 'ComposeDraft'){"Rediger mon message"}elseif($a.Id -eq 'PrepareEnrollment'){"Preparer mon inscription de test"}elseif($a.Id -eq 'AnswerEnrollment'){"Prouver mon identite de test"}elseif($a.Id -eq 'PrepareMailboxCredential'){"Preparer ma messagerie de test"}elseif($a.Id -eq 'ImportMailboxActivation'){"Configurer ma messagerie de test"}else{"Ouvrir le laboratoire technique"}
+ $simple=$a.Id -in @('ComposeDraft','PrepareEnrollment','AnswerEnrollment','PrepareMailboxCredential','ImportMailboxActivation')
  foreach($control in @($directory,$il,$inputName,$ol,$outputName)){$control.Visible=-not $simple}
  $directory.Enabled=[bool]$a.Scope
  $inputName.Enabled=[bool]$a.Input
@@ -569,6 +615,10 @@ $choice.Add_SelectedIndexChanged({
 $run.Add_Click({
  try{
   $a=$script:shownActions[$choice.SelectedIndex]
+  if($a.Id -eq 'ImportMailboxActivation'){
+   Show-MailboxActivation
+   return
+  }
   if($a.Id -eq 'PrepareMailboxCredential'){
    Show-EnrollmentPossession $true
    return
@@ -582,7 +632,7 @@ $run.Add_Click({
    return
   }
   if($a.Id -eq 'ComposeDraft'){
-   & (Join-Path $root 'Quantic-Sillage-Compose.ps1') -ExpectedManifestSha256 $ExpectedManifestSha256 -TrustedBinarySha256 $TrustedBinarySha256
+   & (Join-Path $root 'Quantic-Sillage-Compose.ps1') -ExpectedManifestSha256 $ExpectedManifestSha256 -TrustedBinarySha256 $TrustedBinarySha256 -EnrollmentDirectory $script:configuredEnrollment
    return
   }
   $warn=[Windows.Forms.MessageBox]::Show('Ceci est une operation de laboratoire reservee aux tests. Elle ouvrira volontairement un terminal technique. Continuer ?','Mode technique','YesNo','Warning')
@@ -597,7 +647,7 @@ $run.Add_Click({
 $module.SelectedIndex=0
 if ($SelfTest) {
  try {
-  if($actions.Count -ne 33 -or $script:shownActions[0].Id -ne 'ComposeDraft' -or $inputName.Visible -or $outputName.Visible -or $createIdentity.Text -notmatch 'identite de test' -or $openIdentity.Text -notmatch 'coffre de test' -or $contactGuide.Text -notmatch 'contact de test'){throw "Dashboard initialization failed"}
+  if($actions.Count -ne 34 -or $script:shownActions[0].Id -ne 'ComposeDraft' -or $inputName.Visible -or $outputName.Visible -or $createIdentity.Text -notmatch 'identite de test' -or $openIdentity.Text -notmatch 'coffre de test' -or $contactGuide.Text -notmatch 'contact de test'){throw "Dashboard initialization failed"}
   $choice.SelectedIndex=1
   if(-not $inputName.Enabled -or -not $outputName.Enabled){throw "Advanced input fields missing"}
   $a=New-OperationArguments $actions[1] "C:\Quantic Lab\vault" "draft-test.json" "wire-test.json"
