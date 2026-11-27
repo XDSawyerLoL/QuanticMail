@@ -25,6 +25,7 @@ $actions=@(
  @{Id="RecoverOpen";Title="Recuperer une ouverture";Hint="Reprendre le resultat exact d'une enveloppe.";Input="wire";Scope=$true},
  @{Id="RecoverReceive";Title="Recuperer une reception";Hint="Reprendre le resultat exact ; nouveau fichier de recu obligatoire.";Input="receipt";Scope=$true},
  @{Id="ConfirmReceipt";Title="Confirmer un recu existant";Hint="Verifier le recu conserve et confirmer au relais.";Input="receipt";Scope=$true},
+ @{Id="AnswerEnrollment";Title="Prouver mon identite de test";Hint="Repondre au defi signe de mon operateur independant, sans transmettre de secret ni activer un compte.";Scope=$false},
  @{Id="PrepareEnrollment";Title="Preparer mon inscription de test";Hint="Creer une nouvelle identite avec ses racines proprietaires distinctes. Empreinte du quorum approuvee requise ; aucune inscription distante.";Scope=$false},
  @{Id="Provision";Title="Creer un coffre de test";Hint="Parametres publics independants requis. Ne cree pas de compte distant.";Scope=$true},
  @{Id="ProvisionPair";Title="Creer deux coffres de test PQ";Hint="Deux identites fictives, deux repertoires neufs. Empreintes de quorum independantes exigees ; aucun compte distant.";Scope=$true},
@@ -50,7 +51,7 @@ $actions=@(
 function Get-AlphaModule([string]$Id) {
  switch -Regex ($Id) {
   '^(ComposeDraft|SealAndSend|RecoverSealAndSend|Seal|RecoverSeal|Send|Receive|Open|RecoverOpen|RecoverReceive|ConfirmReceipt|MailPreflight|MailAttest)$' { return "QUANTIC MAIL" }
-  '^(PrepareEnrollment|Provision|ProvisionPair)$' { return "QUANTIC ID" }
+  '^(PrepareEnrollment|AnswerEnrollment|Provision|ProvisionPair)$' { return "QUANTIC ID" }
   '^Migration' { return "IDENTITY VAULT" }
   '^(StartBridge|ProbeLoopback)$' { return "SCATTERING" }
   '^(Pay|StartPayBridge)' { return "QUANTIC PAY - LAB" }
@@ -362,6 +363,79 @@ function Show-PrepareEnrollment {
  try{[void]$dlg.ShowDialog()}finally{$dlg.Dispose()}
 }
 
+# Only signed public challenges and responses pass through this UI.
+function Invoke-EnrollmentNative([string]$Mode,[string]$Path,[string]$Pin='', [string]$Code='') {
+ if($Path -cnotmatch '^[A-Za-z]:\\[A-Za-z0-9_. -]+(?:\\[A-Za-z0-9_. -]+)*$'){throw 'Chemin local refuse.'}
+ $vault=Join-Path $root 'bin\Vault-PQ-lab.exe'
+ if((Get-FileHash -LiteralPath $vault -Algorithm SHA256).Hash -ine $TrustedBinarySha256){throw 'Moteur non approuve.'}
+ $psi=New-Object Diagnostics.ProcessStartInfo
+ $psi.FileName=$vault;$psi.WorkingDirectory=(Join-Path $root 'bin')
+ $psi.UseShellExecute=$false;$psi.CreateNoWindow=$true
+ $psi.RedirectStandardOutput=$true;$psi.RedirectStandardInput=$true
+ if($Mode -ceq 'list'){
+  $psi.Arguments=('--gui-list-enrollment-candidates-lab "{0}"' -f $Path)
+ }elseif($Mode -ceq 'answer' -and $Pin -cmatch '^[a-f0-9]{64}$' -and $Code -cmatch '^QSPROOF1:[A-Za-z0-9_-]{1,15991}$'){
+  $psi.Arguments=('--gui-answer-enrollment-possession-lab "{0}" {1}' -f $Path,$Pin)
+ }else{throw 'Action non autorisee.'}
+ $psi.EnvironmentVariables.Clear()
+ $psi.EnvironmentVariables['SystemRoot']=$env:SystemRoot;$psi.EnvironmentVariables['WINDIR']=$env:SystemRoot
+ $psi.EnvironmentVariables['PATH']=(Join-Path $root 'bin')+';'+(Join-Path $env:SystemRoot 'System32')
+ $proc=New-Object Diagnostics.Process;$proc.StartInfo=$psi;$started=$false
+ try{
+  $started=$proc.Start();if(-not $started){throw 'Moteur indisponible.'}
+  $reading=$proc.StandardOutput.ReadToEndAsync()
+  if($Mode -ceq 'answer'){$proc.StandardInput.Write($Code)}
+  $proc.StandardInput.Close()
+  $timeout=if($Mode -ceq 'list'){15000}else{300000}
+  if(-not $proc.WaitForExit($timeout)){throw 'Operation expiree.'}
+  if($proc.ExitCode -ne 0){throw 'Operation refusee.'}
+  $raw=$reading.GetAwaiter().GetResult()
+  if($raw.Length -lt 20 -or $raw.Length -gt 50000){throw 'Reponse native invalide.'}
+  return (ConvertFrom-Json -InputObject $raw)
+ }finally{if($started -and -not $proc.HasExited){$proc.Kill()};$proc.Dispose()}
+}
+function Show-EnrollmentPossession {
+ $parent=[Environment]::GetFolderPath('LocalApplicationData')
+ $data=Invoke-EnrollmentNative 'list' $parent
+ if($data.status -cne 'pending-enrollment-candidates-only' -or $data.candidates.Count -gt 32){throw 'Registre non valide.'}
+ $items=@($data.candidates)
+ if($items.Count -eq 0){[Windows.Forms.MessageBox]::Show('Preparez d abord une candidature dans Quantic ID.','Aucune candidature','OK','Information')|Out-Null;return}
+ foreach($item in $items){
+  if($item.directory -cnotmatch ('^'+[Regex]::Escape($parent)+'\\quantic-enroll-[0-9a-f]{16}$') -or $item.address -cnotmatch '^[a-z0-9][a-z0-9._-]{2,31}~[0-9a-f]{32}@quantic$'){throw 'Identite locale invalide.'}
+ }
+ $dlg=New-Object Windows.Forms.Form
+ $dlg.Text='Quantic ID | Prouver mon identite de test';$dlg.StartPosition='CenterParent'
+ $dlg.ClientSize=New-Object Drawing.Size(730,550);$dlg.BackColor=[Drawing.Color]::FromArgb(19,25,35);$dlg.ForeColor=[Drawing.Color]::WhiteSmoke
+ $help=New-Object Windows.Forms.Label;$help.Text='Choisissez votre candidature. Collez le defi fourni par un operateur independant et verifiez son empreinte par un autre canal. Aucune cle privee ni autorisation de messagerie ne sera transmise.'
+ $help.SetBounds(20,15,690,73);$dlg.Controls.Add($help)
+ $choose=New-Object Windows.Forms.ComboBox;$choose.DropDownStyle='DropDownList';$choose.SetBounds(20,92,690,32)
+ foreach($item in $items){[void]$choose.Items.Add([string]$item.address)};$choose.SelectedIndex=0;$dlg.Controls.Add($choose)
+ $label=New-Object Windows.Forms.Label;$label.Text='Empreinte SHA-256 de la cle de signature de l operateur (pas celle du quorum).';$label.SetBounds(20,143,690,30);$dlg.Controls.Add($label)
+ $pin=New-Object Windows.Forms.TextBox;$pin.SetBounds(20,177,690,30);$pin.MaxLength=64;$dlg.Controls.Add($pin)
+ $code=New-Object Windows.Forms.TextBox;$code.Multiline=$true;$code.ScrollBars='Vertical';$code.MaxLength=16000;$code.SetBounds(20,225,690,166);$dlg.Controls.Add($code)
+ $confirmed=New-Object Windows.Forms.CheckBox;$confirmed.Text='J ai compare l empreinte de cet operateur par un canal independant.';$confirmed.SetBounds(20,408,690,40);$dlg.Controls.Add($confirmed)
+ $send=New-Object Windows.Forms.Button;$send.Text='Produire ma preuve signee';$send.SetBounds(20,477,330,48);$send.ForeColor=[Drawing.Color]::Black;$dlg.Controls.Add($send)
+ $cancel=New-Object Windows.Forms.Button;$cancel.Text='Annuler';$cancel.DialogResult=[Windows.Forms.DialogResult]::Cancel;$cancel.SetBounds(550,477,160,48);$cancel.ForeColor=[Drawing.Color]::Black;$dlg.Controls.Add($cancel);$dlg.CancelButton=$cancel
+ $send.Add_Click({
+  if(-not $confirmed.Checked -or $pin.Text -cnotmatch '^[a-f0-9]{64}$' -or $code.Text.Trim() -cnotmatch '^QSPROOF1:[A-Za-z0-9_-]+$'){[Windows.Forms.MessageBox]::Show('Defi et empreinte independante requis.','Validation requise','OK','Warning')|Out-Null;return}
+  $send.Enabled=$false
+  try{
+   $r=Invoke-EnrollmentNative 'answer' ([string]$items[$choose.SelectedIndex].directory) $pin.Text $code.Text.Trim()
+   if($r.status -cne 'device-proof-only-not-enrolled' -or $r.mailAuthorized -ne $false -or $r.code -cnotmatch '^QSPROOFREPLY1:[A-Za-z0-9_-]+$'){throw 'Preuve non confirmee.'}
+   $view=New-Object Windows.Forms.Form;$view.Text='Preuve signee - candidature en attente';$view.ClientSize=New-Object Drawing.Size(680,340);$view.StartPosition='CenterParent'
+   $notice=New-Object Windows.Forms.Label;$notice.Text='Renvoyez cette preuve a l operateur qui a emis le defi. Il reste a obtenir l approbation independante. Aucun compte active.'
+   $notice.SetBounds(20,15,640,65);$view.Controls.Add($notice)
+   $reply=New-Object Windows.Forms.TextBox;$reply.Multiline=$true;$reply.ReadOnly=$true;$reply.ScrollBars='Vertical';$reply.Text=$r.code;$reply.SetBounds(20,82,640,180);$view.Controls.Add($reply)
+   $copy=New-Object Windows.Forms.Button;$copy.Text='Copier ma preuve';$copy.SetBounds(20,280,300,42);$view.Controls.Add($copy);$copy.Add_Click({[Windows.Forms.Clipboard]::SetText($reply.Text)})
+   $close=New-Object Windows.Forms.Button;$close.Text='Fermer';$close.DialogResult=[Windows.Forms.DialogResult]::OK;$close.SetBounds(500,280,160,42);$view.Controls.Add($close)
+   try{[void]$view.ShowDialog()}finally{$view.Dispose()}
+   $dlg.DialogResult=[Windows.Forms.DialogResult]::OK
+  }catch{[Windows.Forms.MessageBox]::Show('Defi, signature, empreinte, expiration ou secret refuse. Aucun compte actif.','Preuve refusee','OK','Warning')|Out-Null}
+  finally{$send.Enabled=$true}
+ })
+ try{[void]$dlg.ShowDialog()}finally{$dlg.Dispose()}
+}
+
 $form=New-Object Windows.Forms.Form
 $form.Text="Quantic Sillage | Alpha privee"
 $form.StartPosition="CenterScreen"
@@ -468,8 +542,8 @@ $choice.Add_SelectedIndexChanged({
  if ($choice.SelectedIndex -lt 0) { return }
  $a=$script:shownActions[$choice.SelectedIndex]
  $hint.Text=$a.Hint
- $run.Text=if($a.Id -eq 'ComposeDraft'){"Rediger mon message"}elseif($a.Id -eq 'PrepareEnrollment'){"Preparer mon inscription de test"}else{"Ouvrir le laboratoire technique"}
- $simple=$a.Id -in @('ComposeDraft','PrepareEnrollment')
+ $run.Text=if($a.Id -eq 'ComposeDraft'){"Rediger mon message"}elseif($a.Id -eq 'PrepareEnrollment'){"Preparer mon inscription de test"}elseif($a.Id -eq 'AnswerEnrollment'){"Prouver mon identite de test"}else{"Ouvrir le laboratoire technique"}
+ $simple=$a.Id -in @('ComposeDraft','PrepareEnrollment','AnswerEnrollment')
  foreach($control in @($directory,$il,$inputName,$ol,$outputName)){$control.Visible=-not $simple}
  $directory.Enabled=[bool]$a.Scope
  $inputName.Enabled=[bool]$a.Input
@@ -480,6 +554,10 @@ $choice.Add_SelectedIndexChanged({
 $run.Add_Click({
  try{
   $a=$script:shownActions[$choice.SelectedIndex]
+  if($a.Id -eq 'AnswerEnrollment'){
+   Show-EnrollmentPossession
+   return
+  }
   if($a.Id -eq 'PrepareEnrollment'){
    Show-PrepareEnrollment
    return
@@ -500,7 +578,7 @@ $run.Add_Click({
 $module.SelectedIndex=0
 if ($SelfTest) {
  try {
-  if($actions.Count -ne 31 -or $script:shownActions[0].Id -ne 'ComposeDraft' -or $inputName.Visible -or $outputName.Visible -or $createIdentity.Text -notmatch 'identite de test' -or $openIdentity.Text -notmatch 'coffre de test' -or $contactGuide.Text -notmatch 'contact de test'){throw "Dashboard initialization failed"}
+  if($actions.Count -ne 32 -or $script:shownActions[0].Id -ne 'ComposeDraft' -or $inputName.Visible -or $outputName.Visible -or $createIdentity.Text -notmatch 'identite de test' -or $openIdentity.Text -notmatch 'coffre de test' -or $contactGuide.Text -notmatch 'contact de test'){throw "Dashboard initialization failed"}
   $choice.SelectedIndex=1
   if(-not $inputName.Enabled -or -not $outputName.Enabled){throw "Advanced input fields missing"}
   $a=New-OperationArguments $actions[1] "C:\Quantic Lab\vault" "draft-test.json" "wire-test.json"
